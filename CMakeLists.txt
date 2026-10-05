@@ -35,6 +35,7 @@ add_library(tern
     src/lora.c
     src/radio.c
     src/sha256.c
+    src/sx126x.c
     src/unicast.c
 )
 target_include_directories(tern PUBLIC include)
@@ -42,7 +43,7 @@ target_compile_options(tern PRIVATE ${TERN_WARNINGS})
 
 include(CTest)
 if(BUILD_TESTING)
-    foreach(t crypto lora radio unicast)
+    foreach(t crypto lora radio sx126x unicast)
         add_executable(test_${t} tests/${t}.c)
         target_link_libraries(test_${t} PRIVATE tern)
         # The test files define their cases as static functions, so the prototype warning is
@@ -63,5 +64,12 @@ if(BUILD_TESTING)
         DEPENDS tests/vectors/unicast_to_c.py tests/vectors/unicast-security.json
         VERBATIM)
     target_sources(test_unicast PRIVATE ${vectors_h})
+
+    # The Heltec V3 port's pairing logic touches no hardware, so it is tested here too.
+    add_executable(test_demo tests/demo.c ports/heltec-v3/main/demo.c)
+    target_include_directories(test_demo PRIVATE ports/heltec-v3/main)
+    target_link_libraries(test_demo PRIVATE tern)
+    target_compile_options(test_demo PRIVATE ${TERN_WARNINGS} -Wno-missing-prototypes)
+    add_test(NAME demo COMMAND test_demo)
     target_include_directories(test_unicast PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/vectors)
 endif()

@@ -64,6 +64,30 @@ jobs:
             exit 1
           fi
 
+  # The Heltec V3 port, built with ESP-IDF in Espressif's own container. The images it makes are
+  # kept with the run, so a board can be flashed without installing anything (ports/heltec-v3).
+  heltec-v3:
+    name: build (heltec v3, esp-idf)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.5
+          target: esp32s3
+          path: ports/heltec-v3
+          command: idf.py build && idf.py merge-bin -o tern-heltec-v3-full.bin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tern-heltec-v3
+          path: |
+            ports/heltec-v3/build/tern-heltec-v3-full.bin
+            ports/heltec-v3/build/tern-heltec-v3.bin
+            ports/heltec-v3/build/bootloader/bootloader.bin
+            ports/heltec-v3/build/partition_table/partition-table.bin
+            ports/heltec-v3/build/flash_args
+          if-no-files-found: error
+
   format:
     runs-on: ubuntu-24.04
     steps:
