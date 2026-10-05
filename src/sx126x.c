@@ -52,6 +52,8 @@ enum {
 #define RX_CONTINUOUS 0xFFFFFFu
 #define MIN_POWER_DBM (-9) /* the SX1262's high-power PA */
 #define MAX_POWER_DBM 22
+#define MIN_FREQ_HZ 150000000u /* the SX1262 tunes from 150 to 960 MHz (section 3) */
+#define MAX_FREQ_HZ 960000000u
 
 static int cmd(struct tern_sx126x *d, const uint8_t *tx, size_t len) {
     return d->bus.transfer(d->bus.ctx, tx, NULL, len);
@@ -195,8 +197,11 @@ static int sx_configure(void *ctx, const struct tern_radio_config *cfg) {
     struct tern_sx126x *d = ctx;
     const struct tern_lora *m = &cfg->mod;
     uint8_t bw, band[2];
+    /* Implicit-header reception needs the frame's length programmed in advance, and the radio
+     * seam has no way to give it, so only explicit headers are supported. */
     if (bw_code(m->bw_hz, &bw) != TERN_OK || cfg->tx_power_dbm < MIN_POWER_DBM ||
-        cfg->tx_power_dbm > MAX_POWER_DBM) {
+        cfg->tx_power_dbm > MAX_POWER_DBM || cfg->freq_hz < MIN_FREQ_HZ ||
+        cfg->freq_hz > MAX_FREQ_HZ || m->implicit_header) {
         return TERN_EINVAL;
     }
     d->cfg = *cfg;

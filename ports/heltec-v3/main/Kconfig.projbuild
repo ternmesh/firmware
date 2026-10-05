@@ -21,9 +21,26 @@ menu "Tern demo"
         range 7 12
         default 7
 
+    choice TERN_BW
+        prompt "Bandwidth"
+        default TERN_BW_250
+
+        config TERN_BW_62
+            bool "62.5 kHz"
+        config TERN_BW_125
+            bool "125 kHz"
+        config TERN_BW_250
+            bool "250 kHz"
+        config TERN_BW_500
+            bool "500 kHz"
+    endchoice
+
     config TERN_BW_HZ
-        int "Bandwidth, in Hz (62500, 125000, 250000 or 500000)"
-        default 250000
+        int
+        default 62500 if TERN_BW_62
+        default 125000 if TERN_BW_125
+        default 250000 if TERN_BW_250
+        default 500000 if TERN_BW_500
 
     config TERN_SYNC_WORD
         hex "Sync word, one-byte form"

@@ -163,9 +163,27 @@ static void configure_refuses_what_the_chip_cannot_do(void) {
     cfg = us_config();
     cfg.mod.bw_hz = 200000;
     CHECK(tern_radio_configure(&r, &cfg) == TERN_EINVAL);
+    cfg = us_config();
+    cfg.freq_hz = 149999999;
+    CHECK(tern_radio_configure(&r, &cfg) == TERN_EINVAL);
+    cfg.freq_hz = 960000001;
+    CHECK(tern_radio_configure(&r, &cfg) == TERN_EINVAL);
+    cfg = us_config();
+    cfg.mod.implicit_header = true; /* receiving it needs a length the seam cannot pass */
+    CHECK(tern_radio_configure(&r, &cfg) == TERN_EINVAL);
     /* Nothing goes out until it has been configured. */
     CHECK(tern_radio_transmit(&r, (const uint8_t *)"x", 1) == TERN_EINVAL);
     CHECK(tern_radio_receive(&r) == TERN_EINVAL);
+
+    /* The top of the range is allowed, and a refused configuration after it changes nothing. */
+    cfg = us_config();
+    cfg.freq_hz = 960000000;
+    CHECK(tern_radio_configure(&r, &cfg) == TERN_OK);
+    b.count = 0;
+    cfg.freq_hz = 100000000;
+    CHECK(tern_radio_configure(&r, &cfg) == TERN_EINVAL);
+    CHECK(b.count == 0);
+    CHECK(tern_radio_transmit(&r, (const uint8_t *)"x", 1) == TERN_OK);
 }
 
 static void transmit_writes_the_frame_and_starts(void) {
