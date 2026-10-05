@@ -1,0 +1,32 @@
+menu "Tern demo"
+
+    comment "Defaults are for the US 902-928 MHz band, at bench power. See README.md."
+
+    config TERN_FREQ_HZ
+        int "Frequency, in Hz"
+        range 902000000 928000000
+        default 919000000
+
+    config TERN_TX_POWER_DBM
+        int "Transmit power, in dBm (-9 to 22)"
+        range -9 22
+        default 2
+
+    config TERN_SF
+        int "Spreading factor (7 to 12)"
+        range 7 12
+        default 7
+
+    config TERN_BW_HZ
+        int "Bandwidth, in Hz (62500, 125000, 250000 or 500000)"
+        default 250000
+
+    config TERN_SYNC_WORD
+        hex "Sync word, one-byte form"
+        default 0x24
+        help
+            Tern's own is not chosen yet (MSH-28). This one is neither Meshtastic's (0x2B) nor
+            MeshCore's (0x12), nor LoRaWAN's (0x34), so the demo neither hears their traffic nor
+            disturbs it more than any other signal on the channel.
+
+endmenu

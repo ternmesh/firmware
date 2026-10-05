@@ -1,3 +1,7 @@
 build/
 build-*/
 compile_commands.json
+ports/*/sdkconfig
+ports/*/sdkconfig.old
+ports/*/dependencies.lock
+ports/*/managed_components/

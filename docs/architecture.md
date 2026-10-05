@@ -19,8 +19,10 @@ routing. It is one library, `libtern`, and it is the same code on a microcontrol
 single-board computer and in the host tests.
 
 **A port** is everything specific to one board: how it boots, how it talks to its radio over SPI,
-what its interrupts are. Ports live under `ports/` (none yet). A port implements the radio
-operations in `tern/radio.h` and calls into the core.
+what its interrupts are. Ports live under `ports/`, each built with its platform's own tools
+(`ports/heltec-v3/` with ESP-IDF). A port implements the radio operations in `tern/radio.h`, or
+uses a driver from the core that does (`tern/sx126x.h`, given the board's SPI bus), and calls
+into the core.
 
 **The seam** between them is deliberately narrow. The core asks a port to configure the radio,
 transmit a frame, listen, stand by, and report what happened. Anything it can check about those

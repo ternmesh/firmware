@@ -7,14 +7,15 @@ metered resource. The protocol is defined by the specification in
 [ternmesh/spec](https://github.com/ternmesh/spec), not by this code.
 
 **Status:** early. The core implements the one part of the protocol the specification has
-drafted, secured unicast frames, and passes every one of its test vectors. Nothing drives it over
-a radio yet: there are no board ports, and no routing.
+drafted, secured unicast frames, and passes every one of its test vectors. One board runs it over
+the air: the [Heltec V3](ports/heltec-v3/), as a two-board bench demo. There is no routing yet.
 
 | Module | Header | What it is |
 |---|---|---|
 | Time on air | `tern/lora.h` | LoRa time on air (Semtech's formula, SF7–SF12), in integer nanoseconds, matching the simulator's to the nanosecond. The airtime budget and the routing metric are both measured in it. |
 | Radio seam | `tern/radio.h` | The interface each board port implements for its radio, and the checks the core makes before a port is called. Events are polled, never delivered in interrupt context. |
 | Unicast frames | `tern/unicast.h` | Secured unicast, [specification draft 0](https://github.com/ternmesh/spec/blob/main/draft/unicast-security.md): sealing a message into a frame, and recognising, authenticating and opening frames for any of a node's sessions. Keys are erased as the specification requires. About 790 bytes of RAM per session. |
+| SX1262 driver | `tern/sx126x.h` | The radio seam for Semtech's SX1262, written from its datasheet, errata included. Portable, so every SX1262 board shares it. |
 | Crypto | `tern/crypto.h` | SHA-256, HMAC, HKDF-Expand, AES-128 and AES-CCM, in portable constant-time C, each tested against its standard's published vectors. A reference to check hardware AES against, not a fast one. |
 
 * [docs/architecture.md](docs/architecture.md) — the core, the ports, and the seam between them
@@ -42,6 +43,12 @@ cmake --build build-arm
 `-DTERN_SANITIZE=ON` builds with AddressSanitizer and UndefinedBehaviorSanitizer, and
 `-DTERN_WERROR=ON` makes warnings errors; CI runs both, with GCC and Clang. Format with
 `clang-format` 18 before pushing.
+
+## Boards
+
+| Board | Directory | |
+|---|---|---|
+| Heltec WiFi LoRa 32 V3 (ESP32-S3, SX1262) | [`ports/heltec-v3/`](ports/heltec-v3/) | A two-board bench demo with stopgap pairing. CI builds an image you can flash from a browser. |
 
 ## Licence
 
