@@ -36,7 +36,8 @@ idf.py -p /dev/ttyUSB0 flash monitor     # COM3 or similar on Windows
 ```
 
 `idf.py menuconfig`, under **Tern demo**, changes the frequency, power, spreading factor,
-bandwidth and sync word.
+bandwidth and sync word. The defaults are for the US; with a board for another band, choose a
+frequency in that band that your region allows.
 
 ## Using it
 
@@ -44,35 +45,42 @@ Type commands into the serial terminal:
 
 | Command | |
 |---|---|
-| `pair i <passphrase>` | Pair as the initiator. |
-| `pair r <passphrase>` | Pair as the responder. |
+| `status` | This board's ID, the radio settings and the session. |
+| `pair <id> <passphrase>` | Pair with the board whose ID is `<id>`. |
 | `send <text>` | Send up to 239 bytes. |
-| `status` | Radio settings, role and message counts. |
 
 Pressing **PRG** sends a ping. A board that hears a ping answers with a pong saying how strongly
 it heard it, so one press checks both directions. The white LED blinks for each frame sent or
 received.
 
-To start: on one board type `pair i` followed by a passphrase, and on the other `pair r` with the
-same passphrase. Then press PRG on either board.
+To start:
+
+1. Type `status` on each board and note its ID, twelve hex digits such as `3c8427a1b2c4`.
+2. On the first board, type `pair` with the second board's ID and a passphrase:
+   `pair 3c8427a1b2c4 correct horse`.
+3. On the second board, do the same with the first board's ID and the same passphrase.
+4. Press PRG on either board.
 
 ## The rules of the stopgap pairing
 
 The specification does not yet say how two nodes first meet; that will be EDHOC. Until then the
-demo makes the session secret from the passphrase. That is safe only if a session never starts
-again from the beginning, because the same passphrase always gives the same keys. So:
+demo makes the session secret from the passphrase and both boards' IDs.
 
-* **One board `i`, the other `r`.** If both take the same role, both use the same keys. The
-  first board to hear the other notices and stops sending for good. Pair both again with a new
-  passphrase.
-* **A new passphrase for each pairing.** A board remembers the passphrases it has used, up to 32,
-  and will not pair with one again.
+* **Roles come from the IDs.** One end of a session is the initiator and the other the
+  responder, and the two must never be the same, or both boards would send with the same keys.
+  The board with the lower ID is always the initiator, so that cannot happen.
+* **The IDs go into the secret.** A third board given the same passphrase gets a different
+  secret, and hears nothing.
+* **A new passphrase for each pairing.** The same IDs and passphrase always give the same keys,
+  so a session that started again from the beginning would reuse them. A board remembers its
+  last 32 pairings and refuses to repeat one.
 * **After erasing a board, a passphrase neither board has used before.** Erasing the flash
   (including flashing the full image) makes the board forget its session and its list of
-  passphrases. It is the one mistake the board cannot catch.
+  pairings. It is the one mistake the board cannot catch.
 
-The session is saved to flash after every message, before the frame goes out, so a reset or a
-power cut carries on where it left off.
+The session is saved to flash after every message: before a frame goes out, and before a
+received message is shown. So a reset or a power cut carries on where it left off, never reuses
+a counter, and never shows the same message twice.
 
 The keys sit in flash unencrypted. Anyone holding the board can read them. That is acceptable
 for a bench demo, and is one of the things a real node will do differently.

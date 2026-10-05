@@ -2,10 +2,10 @@
  *
  * Over the USB serial port (idf.py monitor, 115200 baud) it takes these commands:
  *
- *   pair i <passphrase>    pair as the initiator; the other board pairs as the responder
- *   pair r <passphrase>    pair as the responder
- *   send <text>            send a message
- *   status                 show the session and the radio settings
+ *   pair <id> <passphrase>   pair with the board whose ID is <id> (its 'status' shows it);
+ *                            on that board, pair with this one's ID and the same passphrase
+ *   send <text>              send a message
+ *   status                   show this board's ID, the session and the radio settings
  *
  * Pressing PRG sends a ping, and a board that receives a ping answers with a pong saying how
  * well it heard it. The LED lights while a frame is on the air or has just arrived.
@@ -19,6 +19,7 @@
 #include "board.h"
 #include "demo.h"
 #include "driver/uart.h"
+#include "esp_mac.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "nvs.h"
@@ -36,6 +37,7 @@ static struct tern_sx126x sx;
 static struct tern_radio radio;
 static struct tern_radio_config cfg;
 static struct demo demo;
+static uint8_t self_id[DEMO_ID_LEN]; /* the board's MAC address */
 static bool transmitting;
 static tern_time tx_deadline; /* when a frame on the air should certainly have finished */
 static tern_time led_until;
@@ -77,19 +79,18 @@ static const char *result_text(enum demo_result r) {
     case DEMO_OK:
         return "ok";
     case DEMO_UNPAIRED:
-        return "not paired yet: use 'pair i <passphrase>' here and 'pair r <passphrase>' on "
-               "the other board";
+        return "not paired yet: type 'pair <the other board's ID> <passphrase>' here, and "
+               "'pair <this board's ID> <the same passphrase>' on the other board";
+    case DEMO_SAME_ID:
+        return "that is this board's own ID; give the other board's";
     case DEMO_REUSED:
-        return "this board has paired with that passphrase before; choose a new one for both "
-               "boards";
+        return "this board has paired with that board and passphrase before; choose a new "
+               "passphrase for both boards";
     case DEMO_FULL:
-        return "this board has used up its passphrase list; erase its flash (idf.py "
+        return "this board has used up its list of pairings; erase its flash (idf.py "
                "erase-flash) and use a passphrase it has never had";
     case DEMO_STORE_FAILED:
         return "could not save the session to flash, so nothing was sent";
-    case DEMO_CONFLICT:
-        return "both boards took the same role, so this one no longer sends; pair both again "
-               "with a new passphrase, one 'i' and one 'r'";
     case DEMO_SPENT:
         return "this session has used every counter; pair again with a new passphrase";
     case DEMO_TOO_LONG:
@@ -147,11 +148,9 @@ static void heard(const struct tern_radio_event *ev) {
             send(reply);
         }
         break;
-    case DEMO_HEARD_CLASH:
-        printf("!! a frame sent with this board's own keys: both boards are '%s'. This board "
-               "will not send again until both are paired afresh, one 'i' and one 'r', with a "
-               "new passphrase.\n",
-               demo.s.role == TERN_INITIATOR ? "i" : "r");
+    case DEMO_HEARD_UNSAVED:
+        printf("a message arrived, but the session could not be saved to flash, so it is not "
+               "shown\n");
         break;
     case DEMO_HEARD_OTHER:
         printf("(a %u-byte frame for someone else, at %d dBm)\n", ev->len, ev->rssi_dbm);
@@ -191,8 +190,41 @@ static void poll_radio(void) {
 
 /* --- The console ---------------------------------------------------------------------------- */
 
+static void print_id(const uint8_t id[DEMO_ID_LEN]) {
+    for (int i = 0; i < DEMO_ID_LEN; i++) {
+        printf("%02x", id[i]);
+    }
+}
+
+/* Twelve hex digits, with or without ':' or '-' between pairs. */
+static bool parse_id(const char *text, uint8_t id[DEMO_ID_LEN]) {
+    int digits = 0;
+    for (; *text != '\0'; text++) {
+        char c = *text;
+        int v = c >= '0' && c <= '9'   ? c - '0'
+                : c >= 'a' && c <= 'f' ? c - 'a' + 10
+                : c >= 'A' && c <= 'F' ? c - 'A' + 10
+                                       : -1;
+        if (v < 0) {
+            if (c == ':' || c == '-') {
+                continue;
+            }
+            return false;
+        }
+        if (digits == 2 * DEMO_ID_LEN) {
+            return false;
+        }
+        id[digits / 2] = (uint8_t)(digits % 2 ? id[digits / 2] << 4 | v : v);
+        digits++;
+    }
+    return digits == 2 * DEMO_ID_LEN;
+}
+
 static void status(void) {
     const struct demo_state *s = &demo.s;
+    printf("this board's ID: ");
+    print_id(self_id);
+    printf("\n");
     printf("radio: %lu Hz, SF%u, %lu Hz, CR 4/%u, %d dBm, sync word 0x%02X\n",
            (unsigned long)cfg.freq_hz, cfg.mod.sf, (unsigned long)cfg.mod.bw_hz, 4 + cfg.mod.cr,
            cfg.tx_power_dbm, cfg.sync_word);
@@ -200,22 +232,34 @@ static void status(void) {
         printf("session: none. %s\n", result_text(DEMO_UNPAIRED));
         return;
     }
-    printf("session: %s, %lu sent (next counter %lu), %lu heard%s\n",
+    printf("session: with ");
+    print_id(s->peer);
+    printf(" as %s, %lu sent (next counter %lu), %lu heard\n",
            s->role == TERN_INITIATOR ? "initiator" : "responder", (unsigned long)s->sent,
-           (unsigned long)s->session.tx.next, (unsigned long)s->heard,
-           s->conflict ? ", STOPPED: the roles clash" : "");
-    printf("passphrases used on this board: %lu of %d\n", (unsigned long)demo.used.count,
-           DEMO_MAX_PASSPHRASES);
+           (unsigned long)s->session.tx.next, (unsigned long)s->heard);
+    printf("pairings used on this board: %lu of %d\n", (unsigned long)demo.used.count,
+           DEMO_MAX_PAIRINGS);
 }
 
 static void command(char *line) {
-    if (strncmp(line, "pair ", 5) == 0 && (line[5] == 'i' || line[5] == 'r') && line[6] == ' ' &&
-        line[7] != '\0') {
-        enum tern_role role = line[5] == 'i' ? TERN_INITIATOR : TERN_RESPONDER;
-        enum demo_result r = demo_pair(&demo, role, &line[7]);
-        memset(line, 0, strlen(line)); /* the passphrase */
+    if (strncmp(line, "pair ", 5) == 0) {
+        char *id_text = &line[5], *passphrase = strchr(id_text, ' ');
+        uint8_t peer[DEMO_ID_LEN];
+        if (passphrase == NULL || passphrase[1] == '\0') {
+            printf("usage: pair <the other board's ID> <passphrase>\n");
+            return;
+        }
+        *passphrase++ = '\0';
+        if (!parse_id(id_text, peer)) {
+            printf("'%s' is not a board ID: twelve hex digits, as 'status' shows\n", id_text);
+            memset(passphrase, 0, strlen(passphrase));
+            return;
+        }
+        enum demo_result r = demo_pair(&demo, self_id, peer, passphrase);
+        memset(passphrase, 0, strlen(passphrase));
         if (r == DEMO_OK) {
-            printf("paired as %s\n", role == TERN_INITIATOR ? "initiator" : "responder");
+            printf("paired, as the %s\n",
+                   demo.s.role == TERN_INITIATOR ? "initiator" : "responder");
         } else {
             printf("not paired: %s\n", result_text(r));
         }
@@ -224,7 +268,7 @@ static void command(char *line) {
     } else if (strcmp(line, "status") == 0) {
         status();
     } else if (line[0] != '\0') {
-        printf("commands: pair i|r <passphrase>, send <text>, status. PRG sends a ping.\n");
+        printf("commands: pair <id> <passphrase>, send <text>, status. PRG sends a ping.\n");
     }
 }
 
@@ -277,6 +321,7 @@ void app_main(void) {
     ESP_ERROR_CHECK(e);
     ESP_ERROR_CHECK(uart_driver_install(CONSOLE, 512, 0, 0, NULL, 0));
 
+    ESP_ERROR_CHECK(esp_efuse_mac_get_default(self_id));
     struct demo_store store = {.ctx = NULL, .load = nvs_load, .save = nvs_save};
     demo_start(&demo, &store);
 

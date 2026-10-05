@@ -4,8 +4,12 @@ menu "Tern demo"
 
     config TERN_FREQ_HZ
         int "Frequency, in Hz"
-        range 902000000 928000000
+        range 150000000 960000000
         default 919000000
+        help
+            The SX1262 tunes from 150 to 960 MHz, but a board is built for one band: 863-928 MHz
+            or 433/470-510 MHz for the Heltec V3. Choose a frequency in your board's band that
+            your region allows.
 
     config TERN_TX_POWER_DBM
         int "Transmit power, in dBm (-9 to 22)"

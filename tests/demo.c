@@ -65,7 +65,7 @@ static void boot(struct board *b) {
 }
 
 static struct board *new_board(void) {
-    static struct board boards[16];
+    static struct board boards[24];
     static size_t used;
     if (used == sizeof boards / sizeof boards[0]) {
         fprintf(stderr, "out of boards\n");
@@ -90,6 +90,17 @@ static enum demo_heard say(struct board *from, struct board *to, const char *tex
     return h;
 }
 
+/* Board IDs, as MAC addresses would be. */
+static const uint8_t id_a[DEMO_ID_LEN] = {0x3c, 0x84, 0x27, 0x00, 0x00, 0x01};
+static const uint8_t id_b[DEMO_ID_LEN] = {0x3c, 0x84, 0x27, 0x00, 0x00, 0x02};
+static const uint8_t id_c[DEMO_ID_LEN] = {0x3c, 0x84, 0x27, 0x00, 0x00, 0x03};
+
+/* Pairs a (id_a) and b (id_b) with each other. */
+static void pair_both(struct board *a, struct board *b, const char *passphrase) {
+    CHECK(demo_pair(&a->ram, id_a, id_b, passphrase) == DEMO_OK);
+    CHECK(demo_pair(&b->ram, id_b, id_a, passphrase) == DEMO_OK);
+}
+
 static void unpaired_board_sends_nothing(void) {
     struct board *a = new_board();
     uint8_t frame[32];
@@ -99,18 +110,43 @@ static void unpaired_board_sends_nothing(void) {
 static void paired_boards_talk_both_ways(void) {
     struct board *a = new_board(), *b = new_board();
     uint32_t n;
-    CHECK(demo_pair(&a->ram, TERN_INITIATOR, "correct horse") == DEMO_OK);
-    CHECK(demo_pair(&b->ram, TERN_RESPONDER, "correct horse") == DEMO_OK);
+    pair_both(a, b, "correct horse");
     CHECK(say(a, b, "one", &n) == DEMO_HEARD_MESSAGE && n == 0);
     CHECK(say(a, b, "two", &n) == DEMO_HEARD_MESSAGE && n == 1);
     CHECK(say(b, a, "back", &n) == DEMO_HEARD_MESSAGE && n == 0);
 }
 
+/* The roles come from the IDs, so the two boards can never take the same one, whatever order
+ * they are paired in or which sends first. */
+static void roles_always_differ(void) {
+    struct board *a = new_board(), *b = new_board();
+    uint32_t n;
+    CHECK(demo_pair(&b->ram, id_b, id_a, "either way") == DEMO_OK);
+    CHECK(demo_pair(&a->ram, id_a, id_b, "either way") == DEMO_OK);
+    CHECK(a->ram.s.role == TERN_INITIATOR && b->ram.s.role == TERN_RESPONDER);
+    CHECK(say(b, a, "responder first", &n) == DEMO_HEARD_MESSAGE && n == 0);
+    CHECK(say(a, b, "then initiator", &n) == DEMO_HEARD_MESSAGE && n == 0);
+}
+
+static void own_id_is_refused(void) {
+    struct board *a = new_board();
+    CHECK(demo_pair(&a->ram, id_a, id_a, "myself") == DEMO_SAME_ID);
+    CHECK(a->ram.s.role == 0);
+}
+
+/* A third board given the same passphrase has a different secret, so it hears nothing. */
+static void third_board_with_same_passphrase_hears_nothing(void) {
+    struct board *a = new_board(), *b = new_board(), *c = new_board();
+    uint32_t n;
+    pair_both(a, b, "shared");
+    CHECK(demo_pair(&c->ram, id_c, id_a, "shared") == DEMO_OK);
+    CHECK(say(a, c, "for b", &n) == DEMO_HEARD_OTHER);
+}
+
 static void restart_carries_on_counting(void) {
     struct board *a = new_board(), *b = new_board();
     uint32_t n;
-    CHECK(demo_pair(&a->ram, TERN_INITIATOR, "battery staple") == DEMO_OK);
-    CHECK(demo_pair(&b->ram, TERN_RESPONDER, "battery staple") == DEMO_OK);
+    pair_both(a, b, "battery staple");
     CHECK(say(a, b, "before", &n) == DEMO_HEARD_MESSAGE && n == 0);
     boot(a);
     boot(b);
@@ -122,82 +158,89 @@ static void receiver_restart_still_refuses_replays(void) {
     uint8_t frame[TERN_UNICAST_MAX_FRAME], msg[TERN_UNICAST_MAX_PLAINTEXT];
     size_t len;
     uint32_t n;
-    CHECK(demo_pair(&a->ram, TERN_INITIATOR, "replay") == DEMO_OK);
-    CHECK(demo_pair(&b->ram, TERN_RESPONDER, "replay") == DEMO_OK);
+    pair_both(a, b, "replay");
     CHECK(demo_seal(&a->ram, (const uint8_t *)"once", 4, frame) == DEMO_OK);
     CHECK(demo_open(&b->ram, frame, 20, msg, &len, &n) == DEMO_HEARD_MESSAGE);
     boot(b);
     CHECK(demo_open(&b->ram, frame, 20, msg, &len, &n) != DEMO_HEARD_MESSAGE);
 }
 
-static void passphrase_is_never_paired_twice(void) {
-    struct board *a = new_board();
-    CHECK(demo_pair(&a->ram, TERN_INITIATOR, "only once") == DEMO_OK);
-    CHECK(demo_pair(&a->ram, TERN_INITIATOR, "only once") == DEMO_REUSED);
-    CHECK(demo_pair(&a->ram, TERN_RESPONDER, "only once") == DEMO_REUSED);
-    boot(a);
-    CHECK(demo_pair(&a->ram, TERN_INITIATOR, "only once") == DEMO_REUSED);
-    CHECK(demo_pair(&a->ram, TERN_INITIATOR, "another") == DEMO_OK);
+/* A message whose reception could not be saved is not shown, so it is shown once at most. */
+static void unsaved_reception_is_not_shown(void) {
+    struct board *a = new_board(), *b = new_board();
+    uint8_t frame[TERN_UNICAST_MAX_FRAME], msg[TERN_UNICAST_MAX_PLAINTEXT];
+    size_t len;
+    uint32_t n;
+    pair_both(a, b, "unsaved");
+    CHECK(demo_seal(&a->ram, (const uint8_t *)"once", 4, frame) == DEMO_OK);
+    b->flash.broken = true;
+    memset(msg, 0x55, sizeof msg);
+    CHECK(demo_open(&b->ram, frame, 20, msg, &len, &n) == DEMO_HEARD_UNSAVED);
+    CHECK(msg[0] == 0);
+    b->flash.broken = false;
+    boot(b);
+    CHECK(demo_open(&b->ram, frame, 20, msg, &len, &n) == DEMO_HEARD_MESSAGE);
+    CHECK(demo_open(&b->ram, frame, 20, msg, &len, &n) != DEMO_HEARD_MESSAGE);
 }
 
-static void list_of_passphrases_fills_up(void) {
+static void pairing_is_never_repeated(void) {
+    struct board *a = new_board();
+    CHECK(demo_pair(&a->ram, id_a, id_b, "only once") == DEMO_OK);
+    CHECK(demo_pair(&a->ram, id_a, id_b, "only once") == DEMO_REUSED);
+    boot(a);
+    CHECK(demo_pair(&a->ram, id_a, id_b, "only once") == DEMO_REUSED);
+    CHECK(demo_pair(&a->ram, id_a, id_b, "another") == DEMO_OK);
+    CHECK(demo_pair(&a->ram, id_a, id_c, "only once") == DEMO_OK); /* another board */
+}
+
+static void list_of_pairings_fills_up(void) {
     struct board *a = new_board();
     char p[16];
-    for (int i = 0; i < DEMO_MAX_PASSPHRASES; i++) {
+    for (int i = 0; i < DEMO_MAX_PAIRINGS; i++) {
         snprintf(p, sizeof p, "p%d", i);
-        CHECK(demo_pair(&a->ram, TERN_INITIATOR, p) == DEMO_OK);
+        CHECK(demo_pair(&a->ram, id_a, id_b, p) == DEMO_OK);
     }
-    CHECK(demo_pair(&a->ram, TERN_INITIATOR, "one more") == DEMO_FULL);
-}
-
-static void same_role_on_both_is_caught_and_stops_sending(void) {
-    struct board *a = new_board(), *b = new_board();
-    uint8_t frame[32];
-    uint32_t n;
-    CHECK(demo_pair(&a->ram, TERN_INITIATOR, "clash") == DEMO_OK);
-    CHECK(demo_pair(&b->ram, TERN_INITIATOR, "clash") == DEMO_OK);
-    CHECK(say(a, b, "hello", &n) == DEMO_HEARD_CLASH);
-    CHECK(demo_seal(&b->ram, (const uint8_t *)"x", 1, frame) == DEMO_CONFLICT);
-    boot(b);
-    CHECK(demo_seal(&b->ram, (const uint8_t *)"x", 1, frame) == DEMO_CONFLICT);
+    CHECK(demo_pair(&a->ram, id_a, id_b, "one more") == DEMO_FULL);
 }
 
 static void failed_save_sends_nothing(void) {
     struct board *a = new_board(), *b = new_board();
     uint8_t frame[32];
     uint32_t n;
-    CHECK(demo_pair(&a->ram, TERN_INITIATOR, "flaky flash") == DEMO_OK);
-    CHECK(demo_pair(&b->ram, TERN_RESPONDER, "flaky flash") == DEMO_OK);
+    pair_both(a, b, "flaky flash");
     a->flash.broken = true;
     CHECK(demo_seal(&a->ram, (const uint8_t *)"lost", 4, frame) == DEMO_STORE_FAILED);
-    CHECK(demo_pair(&a->ram, TERN_INITIATOR, "new one") == DEMO_STORE_FAILED);
+    CHECK(demo_pair(&a->ram, id_a, id_b, "new one") == DEMO_STORE_FAILED);
     /* The frame was never sent, so after a restart its counter may be used, once. */
     a->flash.broken = false;
     boot(a);
     CHECK(say(a, b, "found", &n) == DEMO_HEARD_MESSAGE && n == 0);
-    /* And the passphrase whose pairing failed was not marked used. */
-    CHECK(demo_pair(&a->ram, TERN_INITIATOR, "new one") == DEMO_OK);
+    /* And the pairing that failed was not marked used. */
+    CHECK(demo_pair(&a->ram, id_a, id_b, "new one") == DEMO_OK);
 }
 
 static void record_from_another_build_is_not_used(void) {
     struct board *a = new_board();
-    CHECK(demo_pair(&a->ram, TERN_INITIATOR, "old build") == DEMO_OK);
+    CHECK(demo_pair(&a->ram, id_a, id_b, "old build") == DEMO_OK);
     int i = find(&a->flash, "session");
     a->flash.data[i][4] ^= 1; /* the recorded size no longer matches */
     boot(a);
     CHECK(a->ram.s.role == 0);
-    /* The passphrase list survives it, which is what keeps that session from starting over. */
-    CHECK(demo_pair(&a->ram, TERN_INITIATOR, "old build") == DEMO_REUSED);
+    /* The list of pairings survives it, which is what keeps that session from starting over. */
+    CHECK(demo_pair(&a->ram, id_a, id_b, "old build") == DEMO_REUSED);
 }
 
 int main(void) {
     RUN(unpaired_board_sends_nothing);
     RUN(paired_boards_talk_both_ways);
+    RUN(roles_always_differ);
+    RUN(own_id_is_refused);
+    RUN(third_board_with_same_passphrase_hears_nothing);
     RUN(restart_carries_on_counting);
     RUN(receiver_restart_still_refuses_replays);
-    RUN(passphrase_is_never_paired_twice);
-    RUN(list_of_passphrases_fills_up);
-    RUN(same_role_on_both_is_caught_and_stops_sending);
+    RUN(unsaved_reception_is_not_shown);
+    RUN(pairing_is_never_repeated);
+    RUN(list_of_pairings_fills_up);
     RUN(failed_save_sends_nothing);
     RUN(record_from_another_build_is_not_used);
     return CHECK_DONE();
