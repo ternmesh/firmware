@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (${{ matrix.cc }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        cc: [gcc, clang]
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DTERN_WERROR=ON -DTERN_SANITIZE=ON
+        env:
+          CC: ${{ matrix.cc }}
+      - run: cmake --build build
+      - run: ctest --test-dir build --output-on-failure
+
+  macos:
+    name: test (macos, clang)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install ninja
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DTERN_WERROR=ON -DTERN_SANITIZE=ON
+      - run: cmake --build build
+      - run: ctest --test-dir build --output-on-failure
+
+  # The core has to build for a microcontroller as well as a host. This builds it for a Cortex-M4F
+  # (the nRF52840's class), freestanding, and fails if anything in it reaches past the compiler's
+  # own runtime: no libc functions, no heap. GCC may emit calls to memcpy, memset, memmove and
+  # memcmp even when freestanding, so every target has to provide those four, and they are allowed.
+  cortex-m4:
+    name: build (cortex-m4, freestanding)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build gcc-arm-none-eabi
+      - name: Configure
+        run: >-
+          cmake -S . -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/arm-none-eabi.cmake
+          -DCMAKE_BUILD_TYPE=MinSizeRel -DBUILD_TESTING=OFF -DTERN_WERROR=ON
+      - run: cmake --build build
+      - run: arm-none-eabi-size build/libtern.a
+      - name: Check the core calls nothing outside itself, libgcc and the four mem functions
+        run: |
+          defined=$(arm-none-eabi-nm --defined-only build/libtern.a | awk 'NF == 3 { print $3 }' | sort -u)
+          undefined=$(arm-none-eabi-nm -u build/libtern.a | awk 'NF == 2 { print $2 }' | sort -u)
+          outside=$(comm -23 <(echo "$undefined") <(echo "$defined") | grep -Ev '^(__aeabi_.*|memcpy|memset|memmove|memcmp)$' || true)
+          if [ -n "$outside" ]; then
+            echo "The core depends on symbols it does not define:"
+            echo "$outside"
+            exit 1
+          fi
+
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y clang-format-18
+      - run: clang-format-18 --dry-run --Werror $(git ls-files '*.c' '*.h')
