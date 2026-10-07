@@ -55,8 +55,9 @@
 #define DESTINATIONS 128
 #define TX_MIN_DBM (-9) /* the SX1262's least */
 #define POWER_UNSET INT8_MIN
-#define SCREEN_MS 500 /* how often the bench screen is drawn again */
-#define HOLD_MS 1000  /* how long PRG is held to send a ping */
+#define SCREEN_MS 500  /* how often the bench screen is drawn again */
+#define HOLD_MS 1000   /* how long PRG is held to send a ping */
+#define SCREEN_TRIES 5 /* writes failed in a row before the screen is given up */
 
 static struct tern_sx126x sx;
 static struct tern_radio radio;
@@ -90,6 +91,8 @@ static struct display screen;
 static bool have_screen;
 static int screen_page;
 static tern_time screen_due;
+static tern_time screen_retry; /* after a failed write, when to try again */
+static unsigned screen_failures;
 
 /* The bench: test frames sent on a timer, and counts of what was received. */
 #define BEACON_LEN 24
@@ -294,6 +297,7 @@ static void heard(const struct tern_radio_event *ev) {
         break;
     case DEMO_HEARD_PAIRED:
         flash_led();
+        last_at = 0; /* the last message was the old session's */
         printf("first contact: complete. Session started, as the %s, with ",
                demo.s.role == TERN_INITIATOR ? "initiator" : "responder");
         print_address(got.peer);
@@ -873,7 +877,9 @@ static void fill_status(struct node_status *st) {
 }
 
 /* Draws the page shown every SCREEN_MS, and sends at most one changed page of the picture each
- * turn of the loop, about 3 ms, so the radio is never kept waiting long. */
+ * turn of the loop, about 3 ms, so the radio is never kept waiting long. A write that fails can
+ * take 50 ms (board.c), so after one the screen waits a second, and after SCREEN_TRIES in a row
+ * it is given up. */
 static void poll_screen(void) {
     if (!have_screen) {
         return;
@@ -888,9 +894,22 @@ static void poll_screen(void) {
         }
         screen_due = board_now() + (tern_time)SCREEN_MS * 1000000;
     }
+    if (board_now() < screen_retry) {
+        return;
+    }
     int page = display_take(&screen);
-    if (page >= 0 && !board_screen_page(page, screen.px[page])) {
-        screen.dirty |= (uint8_t)(1u << page); /* try it again next turn */
+    if (page < 0) {
+        return;
+    }
+    if (board_screen_page(page, screen.px[page])) {
+        screen_failures = 0;
+        return;
+    }
+    screen.dirty |= (uint8_t)(1u << page);
+    screen_retry = board_now() + 1000000000LL;
+    if (++screen_failures >= SCREEN_TRIES) {
+        have_screen = false;
+        printf("the screen stopped answering; carrying on without it. PRG now sends a ping.\n");
     }
 }
 
