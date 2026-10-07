@@ -19,5 +19,10 @@ header for `tests/contact.c` the same way.
 `f5da327` (radio settings, draft 0, in [ternmesh/spec#5](https://github.com/ternmesh/spec/pull/5)).
 `phy_to_c.py` turns it into a header for `tests/region.c`.
 
+`routing.json` is a copy of
+[`vectors/routing.json`](https://github.com/ternmesh/spec/blob/main/vectors/routing.json), as of
+the routing draft in [ternmesh/spec#6](https://github.com/ternmesh/spec/pull/6). `routing_to_c.py`
+turns it into a header for `tests/route.c`.
+
 When the specification's vectors change, copy the new file here in the same pull request that
 changes the code to match, and update the commit above.

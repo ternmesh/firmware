@@ -6,8 +6,10 @@ with the other's, and the two then send each other
 [secured unicast frames](https://github.com/ternmesh/spec/blob/main/draft/unicast-security.md)
 over the air.
 
-It is a bench demo, not a node. There is no routing and no airtime budget yet, because the
-specification has neither yet, and a board talks to one other board at a time.
+It is a bench demo, not a node. Boards announce themselves and learn routes to each other, but
+messages do not follow those routes yet, because the specification has not drafted the frames that
+do: a board talks to one other board at a time, and only if it hears it directly. There is no
+airtime budget yet either.
 
 ## Flashing
 
@@ -54,6 +56,7 @@ Type commands into the serial terminal:
 | `contact <address>` | Make first contact with the board whose address that is. |
 | `accept` | For two minutes, let a board other than the present peer make contact. |
 | `send <text>` | Send up to 239 bytes. |
+| `routes` | The boards this one hears, how well each hears the other, and the routes it has. |
 | `selftest` | Run a handshake between two nodes in the board's memory, and time it. |
 
 Pressing **PRG** sends a ping. A board that hears a ping answers with a pong saying how strongly
@@ -104,6 +107,28 @@ That is acceptable for a bench demo, and is one of the things a real node will d
 A handshake takes each board between one and one and a half seconds of arithmetic in all, on the
 ESP32-S3 at 160 MHz: the core's elliptic-curve code is the portable reference, which is written to be checked
 and not to be fast. The board does not listen to its console or button while it works.
+
+## Routes
+
+Each board announces itself by radio: every eight seconds at first, and less and less often, down
+to once in eight and a half minutes, while nothing changes. From the announces it hears, a board
+works out which boards it can reach and through which neighbour, as the specification's
+[routing draft](https://github.com/ternmesh/spec/blob/main/draft/routing.md) describes. Two boards
+on a bench find each other in under half a minute; `routes` shows it:
+
+```
+neighbours:
+  482fa614  relay  up    needs -21 dBm to reach, hears us with 23 dB to spare, heard 5 s ago
+routes:
+  482fa614  by 482fa614  70 ms on the air
+```
+
+A board is known here by a four-byte routing id made from its address. Routing takes at most 0.5%
+of a board's time on the air. A build can make a board a leaf, which announces itself and is
+routed to but never through (`menuconfig`, **Relay other nodes' frames**).
+
+Nothing in an announce is authenticated yet, and every number in the draft is the simulator's
+default, not one measured on radios.
 
 ## Radio settings
 

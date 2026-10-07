@@ -16,6 +16,7 @@ idf_component_register(
         ${root}/src/lora.c
         ${root}/src/radio.c
         ${root}/src/region.c
+        ${root}/src/route.c
         ${root}/src/sha256.c
         ${root}/src/sha512.c
         ${root}/src/sx126x.c
