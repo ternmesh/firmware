@@ -15,6 +15,7 @@
  *   bench on|off             stop routing and first contact, and count what the radio receives
  *   sync <hex>               the sync word, in its one-byte form
  *   power <dBm>              the power frames are sent at
+ *   freq <Hz>, sf <n>, bw <Hz>   the channel and modulation, within the region's band
  *   beacon <count> <ms>      send so many test frames, so far apart
  *   counts [reset]           what has been sent and received since the last reset
  *
@@ -342,6 +343,11 @@ static void poll_radio(void) {
                 bench_snr_cdb += ev.snr_cdb;
             } else {
                 bench_others++;
+                printf("other: %u bytes at %d dBm, SNR %d cB:", ev.len, ev.rssi_dbm, ev.snr_cdb);
+                for (unsigned i = 0; i < ev.len && i < 24; i++) {
+                    printf(" %02x", ev.data[i]);
+                }
+                printf("\n");
             }
             break;
         }
@@ -466,6 +472,63 @@ static void poll_beacon(void) {
     }
 }
 
+/* The band a region's radios keep to, for a frequency set by hand. */
+static void bench_band(uint32_t *lo, uint32_t *hi) {
+#if CONFIG_TERN_REGION_EU868
+    *lo = 863000000;
+    *hi = 870000000;
+#else
+    *lo = 902000000;
+    *hi = 928000000;
+#endif
+}
+
+/* The commands that move the board to another channel or modulation. */
+static bool bench_channel(const char *line) {
+    unsigned long v;
+    struct tern_radio_config was = cfg;
+    uint32_t lo, hi;
+    bench_band(&lo, &hi);
+    if (sscanf(line, "freq %lu", &v) == 1) {
+        /* The whole channel inside the band, not only its centre. */
+        if (v < lo + cfg.mod.bw_hz / 2 || v > hi - cfg.mod.bw_hz / 2) {
+            printf("not in %s's band, %lu to %lu Hz, with %lu Hz of bandwidth\n", region->name,
+                   (unsigned long)lo, (unsigned long)hi, (unsigned long)cfg.mod.bw_hz);
+            return true;
+        }
+        cfg.freq_hz = (uint32_t)v;
+    } else if (sscanf(line, "sf %lu", &v) == 1) {
+        if (v < 7 || v > 12) {
+            printf("a spreading factor is 7 to 12\n");
+            return true;
+        }
+        cfg.mod.sf = (uint8_t)v;
+    } else if (sscanf(line, "bw %lu", &v) == 1) {
+        if ((v != 62500 && v != 125000 && v != 250000 && v != 500000) || cfg.freq_hz < lo + v / 2 ||
+            cfg.freq_hz > hi - v / 2) {
+            printf("a bandwidth is 62500, 125000, 250000 or 500000 Hz, and inside the band\n");
+            return true;
+        }
+        cfg.mod.bw_hz = (uint32_t)v;
+    } else {
+        return false;
+    }
+    if (!bench) {
+        printf("that is for the bench: 'bench on' first\n");
+        cfg = was;
+    } else if (transmitting || beacon_running) {
+        printf("busy: frames are still being sent\n");
+        cfg = was;
+    } else {
+        off_profile = true;
+        if (bench_configure()) {
+            printf("radio: %lu Hz, SF%u, %lu Hz\n", (unsigned long)cfg.freq_hz, cfg.mod.sf,
+                   (unsigned long)cfg.mod.bw_hz);
+        }
+    }
+    return true;
+}
+
 /* The bench's commands. False if the line is not one of them. */
 static bool bench_command(char *line) {
     unsigned long a, b;
@@ -485,6 +548,9 @@ static bool bench_command(char *line) {
         beacon_sent = bench_ours = bench_others = 0;
         bench_rssi = bench_snr_cdb = 0;
         printf("counts reset\n");
+        return true;
+    }
+    if (bench_channel(line)) {
         return true;
     }
     bool is_sync = sscanf(line, "sync %lx", &a) == 1;
@@ -753,7 +819,8 @@ static void command(char *line) {
     } else if (line[0] != '\0') {
         printf(
             "commands: contact <address>, accept, send <text>, status, routes, selftest. PRG sends "
-            "a ping. For the bench: bench on|off, sync <hex>, power <dBm>, beacon <count> <ms>, "
+            "a ping. For the bench: bench on|off, sync <hex>, power <dBm>, freq <Hz>, sf <n>, bw "
+            "<Hz>, "
             "counts [reset].\n");
     }
 }
