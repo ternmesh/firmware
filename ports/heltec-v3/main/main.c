@@ -40,7 +40,7 @@
 #define CONSOLE_LINE 300
 #define LED_MS 150
 #define ACCEPT_S 120
-#define NEIGHBOURS 32
+#define NEIGHBOURS 64 /* 2.5 kB; in a crowd, 32 held a tenth fewer routes in the simulator */
 #define DESTINATIONS 128
 #define TX_MIN_DBM (-9) /* the SX1262's least */
 #define POWER_UNSET INT8_MIN
