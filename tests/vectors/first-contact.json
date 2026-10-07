@@ -1,0 +1,255 @@
+{
+  "description": "First contact, draft 0 (draft/first-contact.md). For each address, an implementation given seed MUST derive address, x25519_private and x25519_public. Each rejected address MUST be refused: as a target to contact, and in a message_3. For each handshake, an initiator given initiator_seed, the address of responder_seed, initiator_ephemeral and c_i MUST send frames[0], MUST send frames[2] on receiving frames[1], and on receiving frames[3] MUST derive session_secret; a responder given responder_seed, responder_ephemeral and c_r MUST send frames[1] on receiving frames[0], and on receiving frames[2] MUST send frames[3], learn the initiator's address and derive session_secret. Setting the ephemeral keys and connection identifiers is a test hook. A node given a not_for_me frame MUST NOT reply. Each rejected frame replaces message number `message` of the named handshake, and its receiver, otherwise in the state that handshake leaves it in, MUST reject it: send nothing and derive no session. hop and label are 0 throughout. Values are hex.",
+  "generator": "vectors/tools/first_contact.py",
+  "exporter_label": 32768,
+  "addresses": [
+    {
+      "seed": "67b665228d76c9f4d596e7f1ced6fe1b1bc7dfc77803a56b7da51179d13c4e24",
+      "address": "d6d15fabbc42ce56174a4363e757437a4a7baf421b690caa24676f3f4f17c996",
+      "x25519_private": "3da5009cb85ce2dad8be288d5a953033d9c6ab74d115302fa722ed202cb56d27",
+      "x25519_public": "d3ff30ec4bad7b83da9f0d3e73c7ceb3dc45e17852afe34e889663f340530b08"
+    },
+    {
+      "seed": "e504638ece856468a5fa2dcde22d6488b01e18f5d4b37389fe568b5dee00e4a3",
+      "address": "19dd846009f5b0274b07bc4347a3635a3fee4464f2720f79e233f38ce8f95108",
+      "x25519_private": "095dcf942c4d5cfb8bbac7c1e55515bc571b717f175badc9ad82a76de96d1388",
+      "x25519_public": "aae81094b223619e4dd48c30b727baca2947af51e24e796e3a859c149f1be37f"
+    },
+    {
+      "seed": "c5bf3d9f0a38850460f4972f3e1c8b2feaed0a33c2d0a748de217bc947e64856",
+      "address": "dfc0ccb9e5961a0350bbb875ccce76e6947e7ad64643b3796d07f27e09a6f054",
+      "x25519_private": "7cbed826f0f6da3f035ae88b5ff36098680e4c7bfa89e7b262bed543218d068f",
+      "x25519_public": "651462da0d1fd7bf0b9f00f389c2b9c9dc2730462ed08464d6cfa5c46ba6fe2d"
+    }
+  ],
+  "rejected_addresses": [
+    {
+      "address": "0100000000000000000000000000000000000000000000000000000000000000",
+      "reason": "a point of order 1"
+    },
+    {
+      "address": "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+      "reason": "a point of order 2"
+    },
+    {
+      "address": "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05",
+      "reason": "a point of order 8"
+    },
+    {
+      "address": "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a",
+      "reason": "a point of order 8"
+    },
+    {
+      "address": "0000000000000000000000000000000000000000000000000000000000000000",
+      "reason": "a point of order 4"
+    },
+    {
+      "address": "0000000000000000000000000000000000000000000000000000000000000080",
+      "reason": "a point of order 4"
+    },
+    {
+      "address": "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc85",
+      "reason": "a point of order 8"
+    },
+    {
+      "address": "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa",
+      "reason": "a point of order 8"
+    },
+    {
+      "address": "4a70cc431e247b7246b0be201f7fa5e2845452533b635f7bda3936871056d7cb",
+      "reason": "the first address plus a point of order 8: not of prime order"
+    },
+    {
+      "address": "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+      "reason": "y is not reduced modulo p"
+    },
+    {
+      "address": "8f1378ed3f124c4256d4304d50778f1613e47a73def3b90b39874a323496dc18",
+      "reason": "no point has this y"
+    }
+  ],
+  "handshakes": [
+    {
+      "name": "first",
+      "note": "a handshake with small connection identifiers",
+      "initiator_seed": "67b665228d76c9f4d596e7f1ced6fe1b1bc7dfc77803a56b7da51179d13c4e24",
+      "responder_seed": "e504638ece856468a5fa2dcde22d6488b01e18f5d4b37389fe568b5dee00e4a3",
+      "initiator_ephemeral": "47e18c0c5806b5486eb104c933ade8984c8e907c538a8b6c458e754dc6c3a2ef",
+      "responder_ephemeral": "cdd94ad752bc83b8933d687a1dbd07e5978a5c1395eb415f4bb73aa2db17c67b",
+      "c_i": "00",
+      "c_r": "01",
+      "frames": [
+        "51000000b82fd49603005820d92ae47c9616a0fb4015d6ffa6bb16a1d8d2ae5e05dfd0f0a8a16b9e72bd951700",
+        "52000000962985c0582b0ae1c9a9b5808a78b20f1df1e1f91ffddf884cf7dc40f3d55c5e1ee84fd70a4871d1c9ca0ed44cb0759bea",
+        "53000000c846abec583f48d0290cde97914882e0dcc14fbe5ae9efef725e07084810caf35466199b25337146e184ac9aec175c4a12dfb7c5b68143ca6555ea4587f58ed0a40f93539c",
+        "5400000065df9559487f48895bdffadf8a"
+      ],
+      "session_secret": "94bc7c0ed2cbfc83b706d7f0e1784171b844f5b0aa8a09f57fee18a57273384b",
+      "intermediate": {
+        "initiator_address": "d6d15fabbc42ce56174a4363e757437a4a7baf421b690caa24676f3f4f17c996",
+        "responder_address": "19dd846009f5b0274b07bc4347a3635a3fee4464f2720f79e233f38ce8f95108",
+        "g_x": "d92ae47c9616a0fb4015d6ffa6bb16a1d8d2ae5e05dfd0f0a8a16b9e72bd9517",
+        "g_y": "0ae1c9a9b5808a78b20f1df1e1f91ffddf884cf7dc40f3d55c5e1ee84fd70a48",
+        "g_rx": "813832562c0b61c3c6415f5e3e0e7e83e65f580463d7db1d63b439010b125768",
+        "ctags": [
+          "b82fd496",
+          "962985c0",
+          "c846abec",
+          "65df9559"
+        ],
+        "th_2": "14ccbcb6ec220c9b2cc89f2edcc5620efb80a2dff82709b549d0f3b367f6e34b",
+        "th_3": "5519dcd9f3e06d2e8f9ec28f8fdcb1e10c9d66696385455ab6dbc200e7bbff86",
+        "th_4": "b2d1f599fdcd56d9a9885e77ba151f30bbe7a6d7191edd77075ac9f446c10430",
+        "prk_out": "35099f57a775b2d01e4447ab268bb3cb42d1dde676999e1cd962ef00e9cb51c0"
+      }
+    },
+    {
+      "name": "negative-ids",
+      "note": "the roles reversed, with negative connection identifiers",
+      "initiator_seed": "e504638ece856468a5fa2dcde22d6488b01e18f5d4b37389fe568b5dee00e4a3",
+      "responder_seed": "67b665228d76c9f4d596e7f1ced6fe1b1bc7dfc77803a56b7da51179d13c4e24",
+      "initiator_ephemeral": "dfa0007d37268d4ccf133a6692d8b83d5ec437d1d87c9aa86767c97e6b106327",
+      "responder_ephemeral": "bb225b49adb2f404a2669fa7b92bf862f26c4a8a032e19050cba78b642005d88",
+      "c_i": "37",
+      "c_r": "20",
+      "frames": [
+        "51000000571df58103005820368d339d9dc045f88ba42347a04eae7d31b3489ab9cb33fdc064e933c0f3374a37",
+        "52000000b870ebdc582b9bceac74c1251db0235cd147d4b4fcda29514da9ff4a631f8d46d766cb760d40068f5aa5b524e6531ed718",
+        "53000000670c0a81583fc846a5b82104a94bd7a6dbd94341ae9574d119a2d121fcc586cd6f4afb03aa76ccc5193cacccc460a520c6e6914d8583e734ada10687642292ffa01d7c1bd4",
+        "5400000035bfa45848e3136478c06eee8f"
+      ],
+      "session_secret": "42521896d194f964bab85266220bf5744c88409b51fa55be072cfd7862569c3b",
+      "intermediate": {
+        "initiator_address": "19dd846009f5b0274b07bc4347a3635a3fee4464f2720f79e233f38ce8f95108",
+        "responder_address": "d6d15fabbc42ce56174a4363e757437a4a7baf421b690caa24676f3f4f17c996",
+        "g_x": "368d339d9dc045f88ba42347a04eae7d31b3489ab9cb33fdc064e933c0f3374a",
+        "g_y": "9bceac74c1251db0235cd147d4b4fcda29514da9ff4a631f8d46d766cb760d40",
+        "g_rx": "f4976a4bed1e7dfaf6ca708a0a4a1ea74ffeec5fc482e3eaa5b714c07f56a247",
+        "ctags": [
+          "571df581",
+          "b870ebdc",
+          "670c0a81",
+          "35bfa458"
+        ],
+        "th_2": "9222fb659a8263663fbe779851f4b546fdc117de8c60e0498314fef6aee83738",
+        "th_3": "233e1021c70c786d56c11a0f27cdb6a4720f28dbdbc4d0cd30960fc9c5bc9f50",
+        "th_4": "823d13b999802c614018025e8095783133980502be54f18f1c628a4dfc675b10",
+        "prk_out": "283fb0c60a62954e8fb04e368775ec9a08f3eb069649db30bddc6b38218d10ac"
+      }
+    },
+    {
+      "name": "third",
+      "note": "a third node contacting the first",
+      "initiator_seed": "c5bf3d9f0a38850460f4972f3e1c8b2feaed0a33c2d0a748de217bc947e64856",
+      "responder_seed": "67b665228d76c9f4d596e7f1ced6fe1b1bc7dfc77803a56b7da51179d13c4e24",
+      "initiator_ephemeral": "e3899be797f07c4df4f956daaba61fe8c396a8c7f76d3cc5983854ca2037897e",
+      "responder_ephemeral": "50ab8cbb60bee08a0b1fb6a72c52b848613dc5da185ca2abdef2e4c07a48bdd9",
+      "c_i": "17",
+      "c_r": "17",
+      "frames": [
+        "510000006313a18c030058204d5f42e633de8e4dcd18d9c130da4e646e73888cfe9c99571b0f2041df852a1e17",
+        "5200000078b4fef4582b0be24949d31bb8cef0c8e00b6ccd6194633b8d584b56a4d935199c72f4bbbf04a66b9304194e86fa12ab6c",
+        "5300000068e7f71e583fcae6925fe047d242307b3881c598bad0479797e3562f8b5c0044972c94037dce797d2edd29d3d01485b54bbbe68351ae0597d84bf02a73e385cc066a232b5d",
+        "540000008d2ab4db489d02644d23fb5d65"
+      ],
+      "session_secret": "03bfc201cf6430b69507162e78b1b370cedfc4da7422538377a0920c2f398f29",
+      "intermediate": {
+        "initiator_address": "dfc0ccb9e5961a0350bbb875ccce76e6947e7ad64643b3796d07f27e09a6f054",
+        "responder_address": "d6d15fabbc42ce56174a4363e757437a4a7baf421b690caa24676f3f4f17c996",
+        "g_x": "4d5f42e633de8e4dcd18d9c130da4e646e73888cfe9c99571b0f2041df852a1e",
+        "g_y": "0be24949d31bb8cef0c8e00b6ccd6194633b8d584b56a4d935199c72f4bbbf04",
+        "g_rx": "0a5f4642f58e53c57e6f7467962d54930947177fd1521d8da02765fade934c44",
+        "ctags": [
+          "6313a18c",
+          "78b4fef4",
+          "68e7f71e",
+          "8d2ab4db"
+        ],
+        "th_2": "7fdd1946cddf251883c2df764869aaa9d69b3e7ba788b5b30cf2b0c7c08baca2",
+        "th_3": "391f17dd1e4b4238a31855465d855d23290c48b1206236976f20191ee2edd764",
+        "th_4": "e5b9cf9c142613958992a571362d5af30b89d4f6febd690e0445bc28b08bcf4e",
+        "prk_out": "3827f0f3f1323fcc3b363b42f8a78595b0ee532d7fad49c76753a5f9728fcb05"
+      }
+    }
+  ],
+  "not_for_me": [
+    {
+      "name": "other-node",
+      "note": "the first handshake's message_1, heard by a node it is not for",
+      "responder_seed": "c5bf3d9f0a38850460f4972f3e1c8b2feaed0a33c2d0a748de217bc947e64856",
+      "frame": "51000000b82fd49603005820d92ae47c9616a0fb4015d6ffa6bb16a1d8d2ae5e05dfd0f0a8a16b9e72bd951700"
+    }
+  ],
+  "rejected": [
+    {
+      "name": "message_1-ead",
+      "note": "message_1 with one byte of EAD padding: v0 carries none",
+      "handshake": "first",
+      "message": 1,
+      "frame": "51000000b82fd49603005820d92ae47c9616a0fb4015d6ffa6bb16a1d8d2ae5e05dfd0f0a8a16b9e72bd95170000"
+    },
+    {
+      "name": "message_1-suites",
+      "note": "message_1 offering suites [6, 0]",
+      "handshake": "first",
+      "message": 1,
+      "frame": "51000000b82fd496038206005820d92ae47c9616a0fb4015d6ffa6bb16a1d8d2ae5e05dfd0f0a8a16b9e72bd951700"
+    },
+    {
+      "name": "message_1-method",
+      "note": "message_1 with method 0 (signatures)",
+      "handshake": "first",
+      "message": 1,
+      "frame": "51000000b82fd49600005820d92ae47c9616a0fb4015d6ffa6bb16a1d8d2ae5e05dfd0f0a8a16b9e72bd951700"
+    },
+    {
+      "name": "message_2-ciphertext",
+      "note": "message_2 with a bit of CIPHERTEXT_2 flipped",
+      "handshake": "first",
+      "message": 2,
+      "frame": "52000000962985c0582b0ae1c9a9b5808a78b20f1df1e1f91ffddf884cf7dc40f3d55c5e1ee84fd70a4871d1c9ca0ed44cb0759beb"
+    },
+    {
+      "name": "message_2-ctag",
+      "note": "message_2 with a bit of its tag flipped",
+      "handshake": "first",
+      "message": 2,
+      "frame": "52000000972985c0582b0ae1c9a9b5808a78b20f1df1e1f91ffddf884cf7dc40f3d55c5e1ee84fd70a4871d1c9ca0ed44cb0759bea"
+    },
+    {
+      "name": "message_3-ciphertext",
+      "note": "message_3 with a bit of CIPHERTEXT_3 flipped",
+      "handshake": "first",
+      "message": 3,
+      "frame": "53000000c846abec583f48d0290cde97914882e0ddc14fbe5ae9efef725e07084810caf35466199b25337146e184ac9aec175c4a12dfb7c5b68143ca6555ea4587f58ed0a40f93539c"
+    },
+    {
+      "name": "message_4-ciphertext",
+      "note": "message_4 with a bit of its tag flipped",
+      "handshake": "first",
+      "message": 4,
+      "frame": "5400000065df9559487f48895bdffadf8b"
+    },
+    {
+      "name": "message_3-address",
+      "note": "message_3 that decrypts, naming a small-order address",
+      "handshake": "first",
+      "message": 3,
+      "frame": "53000000c846abec583f48d0290cde97914882e0dcc14fbe4b2fda34f3511111e56682e6be213dee45688dfed6d46cf686b7ce02cf647da9b699bf44525e8ee25b8a505b0d5306bfad"
+    },
+    {
+      "name": "message_3-mixed-order",
+      "note": "message_3 from the initiator's own key, claiming its address plus a point of order 8: the MAC verifies, and only the address check refuses it",
+      "handshake": "first",
+      "message": 3,
+      "frame": "53000000c846abec583f48d0290cde97914882e0dcc14fbec6487c07d038b22c19ea37b0ac4eff03eb1c8c57c18eff4b124905f24d9ea998b69259c80cf07b0d2a088625fe0878a077"
+    },
+    {
+      "name": "message_3-impersonation",
+      "note": "message_3 from the initiator, claiming the third node's address: it decrypts and names a valid address, and only the MAC_3 check refuses it",
+      "handshake": "first",
+      "message": 3,
+      "frame": "53000000c846abec583f48d0290cde97914882e0dcc14fbe53f87cfd2b8ad35d0fe131e57fff2c07fb36a4d2bcae1349a577c10b546e8e07b69abf0b2db6d116ac5b4d875dc4bc607c"
+    }
+  ]
+}

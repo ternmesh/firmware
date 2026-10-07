@@ -6,17 +6,20 @@ Part of **Tern**, a LoRa mesh protocol that treats airtime as a shared,
 metered resource. The protocol is defined by the specification in
 [ternmesh/spec](https://github.com/ternmesh/spec), not by this code.
 
-**Status:** early. The core implements the one part of the protocol the specification has
-drafted, secured unicast frames, and passes every one of its test vectors. One board runs it over
-the air: the [Heltec V3](ports/heltec-v3/), as a two-board bench demo. There is no routing yet.
+**Status:** early. The core implements the two parts of the protocol the specification has
+drafted, secured unicast frames and first contact, and passes every one of their test vectors.
+One board runs unicast over the air: the [Heltec V3](ports/heltec-v3/), as a two-board bench demo
+that pairs without first contact. There is no routing yet.
 
 | Module | Header | What it is |
 |---|---|---|
 | Time on air | `tern/lora.h` | LoRa time on air (Semtech's formula, SF7–SF12), in integer nanoseconds, matching the simulator's to the nanosecond. The airtime budget and the routing metric are both measured in it. |
 | Radio seam | `tern/radio.h` | The interface each board port implements for its radio, and the checks the core makes before a port is called. Events are polled, never delivered in interrupt context. |
+| Addresses | `tern/address.h` | A node's identity and address, [specification draft 0](https://github.com/ternmesh/spec/blob/main/draft/first-contact.md#addresses): an Ed25519 key pair from a seed, checking an address (prime-order subgroup included), and converting it to the X25519 key the handshake uses. |
+| First contact | `tern/contact.h` | The EDHOC handshake that gives two nodes a unicast session, [specification draft 0](https://github.com/ternmesh/spec/blob/main/draft/first-contact.md): both roles, four frames, contact tags, and erasure as the specification requires. About 3.6 KB of stack at its deepest. |
 | Unicast frames | `tern/unicast.h` | Secured unicast, [specification draft 0](https://github.com/ternmesh/spec/blob/main/draft/unicast-security.md): sealing a message into a frame, and recognising, authenticating and opening frames for any of a node's sessions. Keys are erased as the specification requires. About 790 bytes of RAM per session. |
 | SX1262 driver | `tern/sx126x.h` | The radio seam for Semtech's SX1262, written from its datasheet, errata included. Portable, so every SX1262 board shares it. |
-| Crypto | `tern/crypto.h` | SHA-256, HMAC, HKDF-Expand, AES-128 and AES-CCM, in portable constant-time C, each tested against its standard's published vectors. A reference to check hardware AES against, not a fast one. |
+| Crypto | `tern/crypto.h` | SHA-256, SHA-512, HMAC, HKDF-Expand, AES-128, AES-CCM and X25519, in portable constant-time C, each tested against its standard's published vectors. A reference to check hardware against, not a fast one. |
 
 * [docs/architecture.md](docs/architecture.md) — the core, the ports, and the seam between them
 * [CONTRIBUTING.md](CONTRIBUTING.md) — DCO sign-off and the clean-room rule

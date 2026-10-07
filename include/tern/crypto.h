@@ -6,7 +6,8 @@
 #include <stdint.h>
 
 /* The cryptographic primitives the specification names, and nothing else: SHA-256 and HMAC for
- * HKDF-Expand (RFC 5869), and AES-128 for AES-CCM (RFC 3610). Each is written from its standard
+ * HKDF (RFC 5869), AES-128 for AES-CCM (RFC 3610), and for first contact, SHA-512 and X25519
+ * (RFC 7748). Each is written from its standard
  * and tested against that standard's published vectors (tests/crypto.c) before anything is built
  * on it.
  *
@@ -31,6 +32,24 @@ void tern_sha256_init(struct tern_sha256 *c);
 void tern_sha256_update(struct tern_sha256 *c, const uint8_t *data, size_t len);
 /* Writes the digest and erases the context. */
 void tern_sha256_final(struct tern_sha256 *c, uint8_t out[TERN_SHA256_LEN]);
+
+/* --- SHA-512 (FIPS 180-4) --------------------------------------------------------------------- */
+
+/* Only for turning an identity seed into keys, as Ed25519 does (RFC 8032, section 5.1.5). */
+
+#define TERN_SHA512_LEN 64
+#define TERN_SHA512_BLOCK 128
+
+struct tern_sha512 {
+    uint64_t h[8];
+    uint64_t len; /* bytes hashed so far */
+    uint8_t buf[TERN_SHA512_BLOCK];
+};
+
+void tern_sha512_init(struct tern_sha512 *c);
+void tern_sha512_update(struct tern_sha512 *c, const uint8_t *data, size_t len);
+/* Writes the digest and erases the context. */
+void tern_sha512_final(struct tern_sha512 *c, uint8_t out[TERN_SHA512_LEN]);
 
 /* --- HMAC-SHA-256 (RFC 2104) and HKDF-Expand (RFC 5869) --------------------------------------- */
 
@@ -87,6 +106,20 @@ bool tern_ccm_seal(const uint8_t key[TERN_AES128_KEY], const uint8_t nonce[TERN_
 bool tern_ccm_open(const uint8_t key[TERN_AES128_KEY], const uint8_t nonce[TERN_CCM_NONCE],
                    const uint8_t *aad, size_t aad_len, const uint8_t *in, size_t len,
                    const uint8_t tag[TERN_CCM_TAG], uint8_t *out);
+
+/* --- X25519 (RFC 7748) ------------------------------------------------------------------------ */
+
+#define TERN_X25519_LEN 32
+
+/* out = X25519(scalar, u), as RFC 7748, section 5 defines it: the scalar is clamped and the top
+ * bit of u ignored. Returns false if the result is all zeros, which it is exactly when u is a
+ * point of small order; RFC 7748, section 6.1 and every protocol here require refusing it. out is
+ * written either way. Constant time in the scalar. */
+bool tern_x25519(uint8_t out[TERN_X25519_LEN], const uint8_t scalar[TERN_X25519_LEN],
+                 const uint8_t u[TERN_X25519_LEN]);
+
+/* out = X25519(scalar, 9): the public key of a private key. */
+void tern_x25519_base(uint8_t out[TERN_X25519_LEN], const uint8_t scalar[TERN_X25519_LEN]);
 
 /* --- Helpers ---------------------------------------------------------------------------------- */
 
