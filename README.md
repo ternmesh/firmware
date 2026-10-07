@@ -6,11 +6,12 @@ Part of **Tern**, a LoRa mesh protocol that treats airtime as a shared,
 metered resource. The protocol is defined by the specification in
 [ternmesh/spec](https://github.com/ternmesh/spec), not by this code.
 
-**Status:** early. The core implements the three parts of the protocol the specification has
-drafted, radio settings, secured unicast frames and first contact, and passes every one of their
-test vectors.
-One board runs both over the air: the [Heltec V3](ports/heltec-v3/), as a two-board bench demo.
-There is no routing yet.
+**Status:** early. The core implements the four parts of the protocol the specification has
+drafted, radio settings, secured unicast frames, first contact and routes, and passes every one of
+their test vectors.
+One board runs them over the air: the [Heltec V3](ports/heltec-v3/), as a two-board bench demo.
+Nodes find routes to each other, but nothing is sent along them yet: the specification has not
+drafted the frames that follow routes.
 
 | Module | Header | What it is |
 |---|---|---|
@@ -20,6 +21,7 @@ There is no routing yet.
 | Radio seam | `tern/radio.h` | The interface each board port implements for its radio, and the checks the core makes before a port is called. Events are polled, never delivered in interrupt context. |
 | Addresses | `tern/address.h` | A node's identity and address, [specification draft 0](https://github.com/ternmesh/spec/blob/main/draft/first-contact.md#addresses): an Ed25519 key pair from a seed, checking an address (prime-order subgroup included), and converting it to the X25519 key the handshake uses. |
 | First contact | `tern/contact.h` | The EDHOC handshake that gives two nodes a unicast session, [specification draft 0](https://github.com/ternmesh/spec/blob/main/draft/first-contact.md): both roles, four frames, contact tags, and erasure as the specification requires. About 3.6 KB of stack at its deepest. |
+| Routes | `tern/route.h` | How a node learns which neighbour to hand a frame to, [specification draft 0](https://github.com/ternmesh/spec/blob/main/draft/routing.md): announces, links judged by signal strength each way, loop-free route selection (Babel's feasibility condition), requests, Trickle and a cap on routing's share of the air. The simulator's candidate 3, as far as choosing routes; every parameter provisional. A node that restarts says so and waits before it routes through others, which narrows but does not close the one way a loop can form. Not yet: the frames that follow routes, broadcast and authentication. |
 | Unicast frames | `tern/unicast.h` | Secured unicast, [specification draft 0](https://github.com/ternmesh/spec/blob/main/draft/unicast-security.md): sealing a message into a frame, and recognising, authenticating and opening frames for any of a node's sessions. Keys are erased as the specification requires. About 790 bytes of RAM per session. |
 | SX1262 driver | `tern/sx126x.h` | The radio seam for Semtech's SX1262, written from its datasheet, errata included. Portable, so every SX1262 board shares it. |
 | Crypto | `tern/crypto.h` | SHA-256, SHA-512, HMAC, HKDF-Expand, AES-128, AES-CCM and X25519, in portable constant-time C, each tested against its standard's published vectors. A reference to check hardware against, not a fast one. |

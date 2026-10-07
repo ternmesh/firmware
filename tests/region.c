@@ -1,4 +1,5 @@
 #include "tern/region.h"
+#include "tern/duty.h"
 
 #include <string.h>
 
@@ -17,6 +18,21 @@ struct profile_case {
         uint32_t len;
         int64_t ns;
     } airtime[8];
+    bool ldro;
+};
+
+struct duty_case {
+    const char *profile, *why;
+    int runs;
+    struct {
+        int64_t first_at;
+        int count;
+        int64_t every;
+        uint32_t len;
+    } sent[4];
+    int64_t at;
+    uint32_t len;
+    bool must_refuse;
 };
 
 #include "phy.h"
@@ -61,10 +77,43 @@ static void every_profile_matches_the_specification(void) {
         CHECK_EQ_I64(r->duty_ppm, p->duty_ppm);
         CHECK_EQ_I64(r->duty_window_s, p->duty_window_s);
         struct tern_lora m = tern_region_lora(r);
+        CHECK(m.implicit_header == !VECTOR_EXPLICIT_HEADER);
+        CHECK(m.crc == VECTOR_CRC);
+        CHECK(tern_lora_ldro(&m) == p->ldro);
+        /* The core has no setting for inverted IQ: every radio driver sends it as it comes. */
+        CHECK(!VECTOR_IQ_INVERTED);
         for (int j = 0; j < VECTOR_LENGTHS; j++) {
             CHECK_EQ_I64(tern_lora_airtime(&m, p->airtime[j].len), p->airtime[j].ns);
         }
     }
+}
+
+/* The limit on transmitting: having sent what a case says, the account refuses the frame the
+ * limit forbids. Where the limit does not forbid it the account may still refuse, since it rounds
+ * against itself; how closely it follows the limit is tests/duty.c's. */
+static void the_limit_on_transmitting_refuses_what_the_specification_says(void) {
+    int refused = 0;
+    for (size_t i = 0; i < sizeof duties / sizeof duties[0]; i++) {
+        const struct duty_case *c = &duties[i];
+        const struct tern_region *r = by_name(c->profile);
+        struct tern_lora m = tern_region_lora(r);
+        struct tern_duty d;
+        tern_duty_init(&d, r->duty_ppm, r->duty_window_s);
+        for (int k = 0; k < c->runs; k++) {
+            for (int n = 0; n < c->sent[k].count; n++) {
+                tern_duty_charge(&d, c->sent[k].first_at + n * c->sent[k].every,
+                                 tern_lora_airtime(&m, c->sent[k].len));
+            }
+        }
+        if (c->must_refuse) {
+            refused++;
+            if (tern_duty_allows(&d, c->at, tern_lora_airtime(&m, c->len))) {
+                fprintf(stderr, "%s: sent, %s\n", c->profile, c->why);
+                check_failures++;
+            }
+        }
+    }
+    CHECK(refused > 0);
 }
 
 static void unknown_regions_are_null(void) {
@@ -109,6 +158,7 @@ static void more_power_than_a_region_allows_is_refused(void) {
 int main(void) {
     RUN(settings_every_frame_uses);
     RUN(every_profile_matches_the_specification);
+    RUN(the_limit_on_transmitting_refuses_what_the_specification_says);
     RUN(unknown_regions_are_null);
     RUN(radio_configuration_is_the_profiles);
     RUN(more_power_than_a_region_allows_is_refused);

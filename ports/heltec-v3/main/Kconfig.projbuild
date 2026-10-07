@@ -67,6 +67,13 @@ menu "Tern demo"
         default 250000 if TERN_BW_250
         default 500000 if TERN_BW_500
 
+    config TERN_RELAY
+        bool "Relay other nodes' frames"
+        default y
+        help
+            A relay announces the routes it has and is routed through. A leaf announces only
+            itself. Tern's routing draft (draft/routing.md) leaves the choice to the node's owner.
+
     config TERN_SYNC_WORD
         hex "Sync word, one-byte form"
         default 0x5E

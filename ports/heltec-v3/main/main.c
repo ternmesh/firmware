@@ -33,12 +33,17 @@
 #include "tern/lora.h"
 #include "tern/radio.h"
 #include "tern/region.h"
+#include "tern/route.h"
 #include "tern/sx126x.h"
 
 #define CONSOLE UART_NUM_0
 #define CONSOLE_LINE 300
 #define LED_MS 150
 #define ACCEPT_S 120
+#define NEIGHBOURS 32
+#define DESTINATIONS 128
+#define TX_MIN_DBM (-9) /* the SX1262's least */
+#define POWER_UNSET INT8_MIN
 
 static struct tern_sx126x sx;
 static struct tern_radio radio;
@@ -48,6 +53,16 @@ static bool off_profile; /* the build changed the region's frequency or modulati
 static struct tern_duty duty;
 static struct demo demo;
 static bool transmitting;
+static struct tern_route route;
+static struct tern_route_neighbour neighbours[NEIGHBOURS];
+static struct tern_route_dest destinations[DESTINATIONS];
+static uint16_t route_seq_saved;
+static bool route_out;   /* the frame on the air is the router's */
+static int8_t power_now; /* what the radio is set to send at, or POWER_UNSET */
+static uint8_t route_frame[TERN_ROUTE_FRAME_MAX]; /* the router's, until it has gone */
+static size_t route_len;
+static int8_t route_dbm;
+static tern_time route_retry; /* when to try it again, if the radio refused it */
 /* A handshake frame that had to wait for the one on the air. */
 static uint8_t waiting[TERN_CONTACT_MAX_FRAME];
 static size_t waiting_len;
@@ -116,8 +131,8 @@ static const char *result_text(enum demo_result r) {
     return "?";
 }
 
-/* Puts a frame on the air. Returns its time on air, or 0 if the radio refused it. */
-static tern_time transmit(const uint8_t *frame, size_t len) {
+/* Puts a frame on the air at so many dBm. Returns its time on air, or 0 if the radio refused it. */
+static tern_time transmit_at(const uint8_t *frame, size_t len, int8_t dbm) {
     tern_time air = tern_lora_airtime(&cfg.mod, (uint32_t)len);
     if (!tern_duty_allows(&duty, board_now(), air)) {
         printf("not sent: this board has transmitted as much as %s allows in %lu s. Wait, and "
@@ -134,15 +149,35 @@ static tern_time transmit(const uint8_t *frame, size_t len) {
             return 0;
         }
     }
-    int err = tern_radio_transmit(&radio, frame, (uint32_t)len);
+    int err = TERN_OK;
+    if (dbm != power_now) {
+        /* The radio interface sets power with everything else. */
+        struct tern_radio_config at = cfg;
+        at.tx_power_dbm = dbm;
+        err = tern_radio_configure(&radio, &at);
+        /* A configuration that fails leaves the radio set to nothing: whatever is asked for
+         * next, it is configured again. */
+        power_now = err == TERN_OK ? dbm : POWER_UNSET;
+    }
+    if (err == TERN_OK) {
+        err = tern_radio_transmit(&radio, frame, (uint32_t)len);
+    }
     if (err != TERN_OK) {
         printf("radio error %d: not sent\n", err);
+        if (power_now == POWER_UNSET && tern_radio_configure(&radio, &cfg) == TERN_OK) {
+            power_now = cfg.tx_power_dbm;
+            tern_radio_receive(&radio);
+        }
         return 0;
     }
     transmitting = true;
     tx_deadline = board_now() + air + 2000000000LL;
     flash_led();
     return air;
+}
+
+static tern_time transmit(const uint8_t *frame, size_t len) {
+    return transmit_at(frame, len, cfg.tx_power_dbm);
 }
 
 static void send(const char *text) {
@@ -191,6 +226,14 @@ static void heard(const struct tern_radio_event *ev) {
     int snr_abs = ev->snr_cdb < 0 ? -ev->snr_cdb : ev->snr_cdb;
     int snr_whole = snr_abs / 100, snr_frac = snr_abs % 100;
 
+    if (tern_route_frame(ev->data, ev->len)) {
+        /* The router takes quarters of a decibel, as the radio measures. */
+        tern_route_heard(&route, board_now(), ev->data, ev->len, (int16_t)(ev->snr_cdb / 25));
+        if (route.seq != route_seq_saved && nvs_save(NULL, "seq", &route.seq, sizeof route.seq)) {
+            route_seq_saved = route.seq;
+        }
+        return;
+    }
     enum demo_heard what = demo_receive(&demo, board_now(), ev->data, ev->len, msg, &got);
     switch (what) {
     case DEMO_HEARD_MESSAGE:
@@ -262,6 +305,10 @@ static void poll_radio(void) {
     switch (ev.kind) {
     case TERN_RADIO_TX_DONE:
         transmitting = false;
+        if (route_out) {
+            tern_route_sent(&route, board_now());
+            route_out = false;
+        }
         tern_radio_receive(&radio);
         if (waiting_len != 0) {
             size_t len = waiting_len;
@@ -303,6 +350,35 @@ static void poll_contact(void) {
     }
 }
 
+/* Sends what the router has to send: its announces, and its requests for routes. A frame the
+ * router has handed over is its only copy, and what it said is counted as said - a retraction as
+ * one of its three - so the frame is kept until it has gone, and the router is not asked for
+ * another while the region's limit would refuse one. */
+static void poll_route(void) {
+    tern_time now = board_now();
+    if (transmitting || waiting_len != 0) {
+        return;
+    }
+    if (route_len == 0) {
+        if (now < tern_route_due(&route) ||
+            !tern_duty_allows(&duty, now, tern_lora_airtime(&cfg.mod, TERN_ROUTE_FRAME_MAX))) {
+            return;
+        }
+        route_len = tern_route_poll(&route, now, route_frame, &route_dbm);
+        route_retry = 0;
+    }
+    if (route_len == 0 || now < route_retry ||
+        !tern_duty_allows(&duty, now, tern_lora_airtime(&cfg.mod, (uint32_t)route_len))) {
+        return;
+    }
+    if (transmit_at(route_frame, route_len, route_dbm) != 0) {
+        route_out = true;
+        route_len = 0;
+    } else {
+        route_retry = now + 1000000000LL; /* the radio, or the flash: not every turn of the loop */
+    }
+}
+
 /* --- The console ---------------------------------------------------------------------------- */
 
 /* Sixty-four hex digits. */
@@ -336,6 +412,17 @@ static void status(void) {
                (long long)(tern_duty_used(&duty, board_now()) / 1000000),
                (long long)(duty.limit / 1000000), (unsigned long)region->duty_window_s);
     }
+    unsigned heard_n = 0, up_n = 0, routed = 0;
+    for (int i = 0; i < NEIGHBOURS; i++) {
+        heard_n += neighbours[i].used;
+        up_n += neighbours[i].used && neighbours[i].up;
+    }
+    for (int i = 0; i < DESTINATIONS; i++) {
+        routed += destinations[i].used && destinations[i].sel != 0;
+    }
+    printf("routing: id %08lx, a %s, hears %u, %u of them both ways, routes to %u. 'routes' lists "
+           "them.\n",
+           (unsigned long)route.id, route.config.relay ? "relay" : "leaf", heard_n, up_n, routed);
     if (demo.h.phase == DEMO_INITIATING || demo.h.phase == DEMO_RESPONDING) {
         printf("first contact: under way, as the %s\n",
                demo.h.phase == DEMO_INITIATING ? "initiator" : "responder");
@@ -352,6 +439,36 @@ static void status(void) {
     if (board_now() < demo.accept_until) {
         printf("accepting contact from a new peer for another %lld s\n",
                (long long)((demo.accept_until - board_now()) / 1000000000LL));
+    }
+}
+
+static void routes(void) {
+    tern_time now = board_now();
+    printf("routing id %08lx, seq %u, announcing every %lld s at most\n", (unsigned long)route.id,
+           route.seq, (long long)(route.interval / 1000000000LL));
+    printf("neighbours:\n");
+    for (int i = 0; i < NEIGHBOURS; i++) {
+        const struct tern_route_neighbour *n = &neighbours[i];
+        if (!n->used) {
+            continue;
+        }
+        printf("  %08lx  %s  %s  needs %ld dBm to reach", (unsigned long)n->id,
+               n->relay ? "relay" : "leaf ", n->up ? "up  " : "down", (long)(n->floor / 16));
+        if (n->theirs != 0) {
+            printf(", hears us with %d dB to spare", n->theirs - 128);
+        } else {
+            printf(", has not said it hears us");
+        }
+        printf(", heard %lld s ago\n", (long long)((now - n->heard) / 1000000000LL));
+    }
+    printf("routes:\n");
+    for (int i = 0; i < DESTINATIONS; i++) {
+        uint32_t next;
+        uint16_t metric;
+        if (destinations[i].used && tern_route_next(&route, destinations[i].id, &next, &metric)) {
+            printf("  %08lx  by %08lx  %u ms on the air\n", (unsigned long)destinations[i].id,
+                   (unsigned long)next, metric);
+        }
     }
 }
 
@@ -470,11 +587,14 @@ static void command(char *line) {
         send(&line[5]);
     } else if (strcmp(line, "status") == 0) {
         status();
+    } else if (strcmp(line, "routes") == 0) {
+        routes();
     } else if (strcmp(line, "selftest") == 0) {
         selftest();
     } else if (line[0] != '\0') {
-        printf("commands: contact <address>, accept, send <text>, status, selftest. PRG sends "
-               "a ping.\n");
+        printf(
+            "commands: contact <address>, accept, send <text>, status, routes, selftest. PRG sends "
+            "a ping.\n");
     }
 }
 
@@ -578,6 +698,25 @@ void app_main(void) {
         return;
     }
 
+    /* Routing: its id from the address, the last sequence number used if one was kept, and
+     * announces no louder than the build's power. */
+#ifdef CONFIG_TERN_RELAY
+    bool relay = true;
+#else
+    bool relay = false;
+#endif
+    struct tern_route_config rc =
+        tern_route_defaults(&cfg.mod, cfg.tx_power_dbm, TX_MIN_DBM, relay);
+    uint64_t seed;
+    if (!board_random(NULL, (uint8_t *)&seed, sizeof seed)) {
+        printf("no random numbers. Not starting.\n");
+        return;
+    }
+    (void)nvs_load(NULL, "seq", &route_seq_saved, sizeof route_seq_saved);
+    tern_route_init(&route, &rc, tern_route_id(demo.id.address), neighbours, NEIGHBOURS,
+                    destinations, DESTINATIONS, route_seq_saved, seed, board_now());
+    power_now = cfg.tx_power_dbm;
+
     int err = board_init(&sx);
     radio = tern_sx126x_radio(&sx);
     if (err == TERN_OK) {
@@ -596,6 +735,7 @@ void app_main(void) {
     for (;;) {
         poll_radio();
         poll_contact();
+        poll_route();
         poll_console();
         poll_button();
         if (transmitting && board_now() > tx_deadline) {

@@ -39,6 +39,7 @@ add_library(tern
     src/lora.c
     src/radio.c
     src/region.c
+    src/route.c
     src/sha256.c
     src/sha512.c
     src/sx126x.c
@@ -50,7 +51,7 @@ target_compile_options(tern PRIVATE ${TERN_WARNINGS})
 
 include(CTest)
 if(BUILD_TESTING)
-    foreach(t address contact crypto duty lora radio region sx126x unicast)
+    foreach(t address contact crypto duty lora mesh radio region route sx126x unicast)
         add_executable(test_${t} tests/${t}.c)
         target_link_libraries(test_${t} PRIVATE tern)
         # The test files define their cases as static functions, so the prototype warning is
@@ -93,6 +94,17 @@ if(BUILD_TESTING)
         VERBATIM)
     target_sources(test_region PRIVATE ${phy_h})
     target_include_directories(test_region PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/vectors)
+
+    set(routing_h ${CMAKE_CURRENT_BINARY_DIR}/vectors/routing.h)
+    add_custom_command(
+        OUTPUT ${routing_h}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/vectors
+        COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tests/vectors/routing_to_c.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/vectors/routing.json ${routing_h}
+        DEPENDS tests/vectors/routing_to_c.py tests/vectors/routing.json
+        VERBATIM)
+    target_sources(test_route PRIVATE ${routing_h})
+    target_include_directories(test_route PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/vectors)
 
     # The Heltec V3 port's node logic touches no hardware, so it is tested here too.
     add_executable(test_demo tests/demo.c ports/heltec-v3/main/demo.c)
