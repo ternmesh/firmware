@@ -2,7 +2,9 @@
  * tests/link_script.py to drive tools/companion.py against as it would a board's USB port.
  *
  * It prints the terminal's path, serves it until stdin closes or a minute passes, and writes a
- * line of console text now and then, as a board does, to show the script reads past it. A message
+ * line of console text now and then, as a board does, to show the script reads past it. A client
+ * that asks nothing for LINK_LAPSE is taken for gone, as on a board; the first argument, in
+ * milliseconds, shortens that, so a test can watch it happen. A message
  * a client sends goes "on the air" a moment later. */
 
 #if defined(__APPLE__)
@@ -115,7 +117,7 @@ static void text_in(void *ctx, uint8_t byte) {
     (void)byte;
 }
 
-int main(void) {
+int main(int argc, char **argv) {
     master = posix_openpt(O_RDWR | O_NOCTTY);
     if (master < 0 || grantpt(master) != 0 || unlockpt(master) != 0) {
         perror("pty");
@@ -132,6 +134,7 @@ int main(void) {
 
     struct link_host host = {.ctx = NULL,
                              .firmware = "tern host test",
+                             .lapse = argc > 1 ? TERN_MS(atoi(argv[1])) : LINK_LAPSE,
                              .out = out,
                              .view = view,
                              .set = set,

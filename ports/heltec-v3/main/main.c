@@ -1403,6 +1403,7 @@ void app_main(void) {
     struct link_host host = {
         .ctx = NULL,
         .firmware = FIRMWARE,
+        .lapse = LINK_LAPSE,
         .out = link_out,
         .view = link_view,
         .set = link_set,

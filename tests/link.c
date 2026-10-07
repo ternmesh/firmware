@@ -134,12 +134,14 @@ static void start(void) {
     link_init(&companion, &host);
 }
 
-static void request(const struct tern_companion_msg *q) {
+static void request_at(tern_time now, const struct tern_companion_msg *q) {
     uint8_t frame[TERN_COMPANION_MAX_FRAME];
     size_t len = tern_companion_write(q, frame);
     board.n_out = 0;
-    link_receive(&companion, TERN_S(100), frame, len);
+    link_receive(&companion, now, frame, len);
 }
+
+static void request(const struct tern_companion_msg *q) { request_at(TERN_S(100), q); }
 
 /* The i-th frame the link sent, read. */
 static struct tern_companion_msg sent(size_t i) {
@@ -408,6 +410,7 @@ static void contacts_are_saved_renamed_and_removed(void) {
 static void settings_are_the_boards_to_refuse(void) {
     start();
     hello();
+    request(&(struct tern_companion_msg){.type = TERN_C_SYNC, .seq = 2});
     board.set_answer = TERN_C_ERR_REFUSED;
     request(&(struct tern_companion_msg){
         .type = TERN_C_SET, .seq = 5, .setting = TERN_C_SET_POWER, .power = 30});
@@ -475,6 +478,49 @@ static void the_air_is_news_no_more_than_every_quiet(void) {
     CHECK_EQ_I64(sent(0).used, 12415);
 }
 
+/* Over USB serial the board cannot see a client close the port, so one that asks nothing for
+ * LINK_LAPSE, counted from the answer to its last request, is gone (draft/companion.md, "Going
+ * quiet"). */
+static void a_silent_serial_client_is_taken_for_gone(void) {
+    start();
+    companion.host.lapse = LINK_LAPSE;
+    tern_time t = TERN_S(100);
+    request_at(t, &(struct tern_companion_msg){.type = TERN_C_HELLO, .seq = 1});
+    request_at(t += TERN_S(10), &(struct tern_companion_msg){.type = TERN_C_SYNC, .seq = 2});
+
+    /* A PING inside the lapse keeps the connection, and the lapse counts from its answer. */
+    request_at(t += LINK_LAPSE - TERN_S(1),
+               &(struct tern_companion_msg){.type = TERN_C_PING, .seq = 3});
+    CHECK_EQ_I64(sent(0).type, TERN_C_OK);
+    link_tick(&companion, t + LINK_LAPSE - TERN_S(1));
+    CHECK(companion.hello);
+
+    /* Silent for the lapse: no more news, and nothing answered but HELLO. */
+    link_tick(&companion, t += LINK_LAPSE);
+    CHECK(!companion.hello);
+    board.n_out = 0;
+    link_add(&companion, bob, 1, TERN_C_RECEIVED, 0, (const uint8_t *)"hi", 2);
+    CHECK_EQ_U64(board.n_out, 0);
+    request_at(t += TERN_S(1), &(struct tern_companion_msg){.type = TERN_C_PING, .seq = 4});
+    CHECK_EQ_I64(sent(0).type, TERN_C_ERROR);
+    CHECK_EQ_I64(sent(0).code, TERN_C_ERR_HELLO_FIRST);
+
+    /* A client that starts again is a client again, its news counted from 0. Until it syncs,
+     * nothing is told twice: the sync tells it all. */
+    request_at(t += TERN_S(1), &(struct tern_companion_msg){.type = TERN_C_HELLO, .seq = 5});
+    CHECK_EQ_I64(sent(0).type, TERN_C_INFO);
+    board.n_out = 0;
+    link_tick(&companion, t += LINK_LOOK);
+    CHECK_EQ_U64(board.n_out, 0);
+    request_at(t += TERN_S(1), &(struct tern_companion_msg){.type = TERN_C_SYNC, .seq = 6});
+    CHECK_EQ_I64(sent(0).type, TERN_C_SELF);
+    CHECK_EQ_I64(sent(0).seq, 0);
+
+    /* A request late enough is refused even before link_tick has looked. */
+    request_at(t += LINK_LAPSE, &(struct tern_companion_msg){.type = TERN_C_PING, .seq = 7});
+    CHECK_EQ_I64(sent(0).code, TERN_C_ERR_HELLO_FIRST);
+}
+
 static void the_oldest_finished_message_makes_room(void) {
     start();
     hello();
@@ -508,5 +554,6 @@ int main(void) {
     RUN(neighbours_are_news_when_they_change);
     RUN(the_air_is_news_no_more_than_every_quiet);
     RUN(the_oldest_finished_message_makes_room);
+    RUN(a_silent_serial_client_is_taken_for_gone);
     return CHECK_DONE();
 }

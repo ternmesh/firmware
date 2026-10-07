@@ -11,38 +11,65 @@ import subprocess
 import sys
 
 BOB = "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c"
+GONE = "the node took this client for gone"
 
 
 def main():
     node_bin, script = sys.argv[1], sys.argv[2]
-    node = subprocess.Popen([node_bin], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
-    port = node.stdout.readline().strip()
     failed = 0
 
-    def run(*args, expect):
+    def run(port, *args, expect, absent=()):
+        """Runs the script; what it prints must hold `expect` in order, and nothing in `absent`."""
         nonlocal failed
         r = subprocess.run([sys.executable, script, "--port", port, *args], capture_output=True,
                            text=True, timeout=60)
-        missing = [e for e in expect if e not in r.stdout]
-        if r.returncode != 0 or missing:
+        at, missing = 0, []
+        for e in expect:
+            found = r.stdout.find(e, at)
+            if found < 0:
+                missing.append(e)
+            else:
+                at = found + len(e)
+        there = [a for a in absent if a in r.stdout]
+        if r.returncode != 0 or missing or there:
             failed += 1
-            print(f"FAIL {' '.join(args)}: missing {missing}\n{r.stdout}{r.stderr}")
+            print(f"FAIL {' '.join(args)}: missing {missing}, not wanted {there}\n"
+                  f"{r.stdout}{r.stderr}")
         else:
             print(f"ok   {' '.join(args)}")
 
+    def node(*args):
+        n = subprocess.Popen([node_bin, *args], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             text=True)
+        return n, n.stdout.readline().strip()
+
+    board, port = node()
     try:
-        run("state", expect=["tern host test", "a relay in EU868, at 14 dBm",
-                             "neighbour 1d2e3f40", "air: 1234 of 360000 ms used in 3600 s"])
-        run("contact", BOB, "Bob", expect=["saved"])
-        run("send", BOB, "On the ridge by six", "--wait", "2",
+        run(port, "state", expect=["tern host test", "a relay in EU868, at 14 dBm",
+                                   "neighbour 1d2e3f40", "air: 1234 of 360000 ms used in 3600 s"])
+        run(port, "contact", BOB, "Bob", expect=["saved"])
+        run(port, "send", BOB, "On the ridge by six", "--wait", "2",
             expect=["queued as message #1",
                     "to 3d4017c3e843895a: 'On the ridge by six' (waiting for the radio)",
                     "message #1: waiting"])
-        run("state", expect=["contact 'Bob'", "message #1 to Bob: 'On the ridge by six' (waiting)"])
-        run("set", "power", "10", expect=["set"])
+        run(port, "state",
+            expect=["contact 'Bob'", "message #1 to Bob: 'On the ridge by six' (waiting)"])
+        run(port, "set", "power", "10", expect=["set"])
     finally:
-        node.stdin.close()
-        node.wait(timeout=10)
+        board.stdin.close()
+        board.wait(timeout=10)
+
+    # A node that takes a client for gone after a second and a half: one that pings more often
+    # than that keeps its connection, and one that pings less often is cut off and starts again.
+    board, port = node("1500")
+    try:
+        run(port, "--idle", "0.5", "watch", "--seconds", "4",
+            expect=["this node:", "neighbour 1d2e3f40"], absent=[GONE])
+        run(port, "--idle", "2", "watch", "--seconds", "6",
+            expect=["this node:", GONE, "this node:", "neighbour 1d2e3f40"])
+    finally:
+        board.stdin.close()
+        board.wait(timeout=10)
     return 1 if failed else 0
 
 
