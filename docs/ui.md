@@ -83,7 +83,9 @@ in the port while there is one board, and probably in the core once a second boa
 thing.
 
 The bench screen already reads from a small first version of this (`node_status` in
-`ports/heltec-v3/main/status.h`), which is the part of it meant to last.
+`ports/heltec-v3/main/status.h`), which is the part of it meant to last. The companion link reads
+the rest: `ports/heltec-v3/main/link.c` keeps the contacts and the messages with their delivery
+states, and is handed the identity, the neighbours and the airtime the way the screen is.
 
 ## The node's own screen
 
@@ -151,7 +153,7 @@ the link between the node and the phone: what the node offers, and in what form.
 | Group or broadcast messages, and whether the home screen is a channel or a list of conversations | broadcast, not drafted (forwarding.md lists it as not yet) |
 | The short code two people compare, the same in every implementation | first contact, addresses |
 | Whether a node accepts first contact from a node it has no contact for | first contact |
-| The companion protocol, and where it is specified | a new specification section |
+| The companion protocol, and where it is specified | settled: [draft/companion.md](https://github.com/ternmesh/spec/blob/main/draft/companion.md), spoken over USB by the Heltec V3 port |
 | Where the node model lives once there are two boards | a second board |
 | What a leaf that sleeps on a schedule shows, and when | sleeping leaves, not drafted |
 
