@@ -111,6 +111,14 @@ static struct tern_companion_parser parser;
 static uint32_t clock_base; /* seconds since 1970 as a client last set them, or 0 */
 static tern_time clock_at;
 static bool restart_due; /* a setting saved that takes a restart, once its answer has gone */
+/* A message sealed and not yet on the air: sealing takes a counter and saves the session, so a
+ * frame the radio or the flash refused is kept and tried again, a second apart, not sealed again
+ * on every turn of the loop. Kept for one session only. */
+static uint32_t sealed_id;
+static uint8_t sealed[TERN_UNICAST_MAX_FRAME];
+static size_t sealed_len;
+static uint32_t sealed_counter;
+static tern_time outgoing_retry;
 /* The handshake begun for a message, and with whom. */
 static bool contacting;
 static uint8_t contacting_peer[TERN_ADDRESS_LEN];
@@ -277,26 +285,30 @@ static void send(const char *text) {
     }
 }
 
-/* Seals a message and puts it on the air. False if it could not go now, with *gone set if it
- * never will. */
+/* Seals a message, once, and puts it on the air. False if it could not go now, with *gone set if
+ * it never will. */
 static bool transmit_message(const struct link_message *x, bool *gone) {
-    uint8_t frame[TERN_UNICAST_MAX_FRAME];
     *gone = false;
-    uint32_t counter = demo.s.session.tx.next;
-    enum demo_result r = demo_seal(&demo, x->text, x->text_len, frame);
-    if (r != DEMO_OK) {
-        printf("not sent: %s\n", result_text(r));
-        *gone = r == DEMO_SPENT;
+    if (sealed_id != x->id) {
+        sealed_counter = demo.s.session.tx.next;
+        enum demo_result r = demo_seal(&demo, x->text, x->text_len, sealed);
+        if (r != DEMO_OK) {
+            printf("not sent: %s\n", result_text(r));
+            *gone = r == DEMO_SPENT;
+            return false;
+        }
+        sealed_id = x->id;
+        sealed_len = x->text_len + TERN_UNICAST_OVERHEAD;
+    }
+    tern_time air = transmit(sealed, sealed_len);
+    if (air == 0) {
         return false;
     }
-    size_t frame_len = x->text_len + TERN_UNICAST_OVERHEAD;
-    tern_time air = transmit(frame, frame_len);
-    if (air != 0) {
-        printf("sent #%lu \"%.*s\": %u bytes, %lld.%03lld ms on the air\n", (unsigned long)counter,
-               (int)x->text_len, (const char *)x->text, (unsigned)frame_len,
-               (long long)(air / 1000000), (long long)(air / 1000 % 1000));
-    }
-    return air != 0;
+    sealed_id = 0;
+    printf("sent #%lu \"%.*s\": %u bytes, %lld.%03lld ms on the air\n",
+           (unsigned long)sealed_counter, (int)x->text_len, (const char *)x->text,
+           (unsigned)sealed_len, (long long)(air / 1000000), (long long)(air / 1000 % 1000));
+    return true;
 }
 
 /* Sends a handshake frame, or keeps it until the frame on the air has gone. */
@@ -385,6 +397,7 @@ static void heard(const struct tern_radio_event *ev) {
                demo.s.role == TERN_INITIATOR ? "initiator" : "responder");
         print_address(got.peer);
         printf("\n");
+        sealed_id = 0; /* a frame sealed in the old session is no use in the new */
         if (contacting && memcmp(contacting_peer, got.peer, TERN_ADDRESS_LEN) == 0) {
             contacting = false;
         }
@@ -537,11 +550,16 @@ static void poll_outgoing(void) {
         link_state(&companion, x->id, TERN_C_WAITING, TERN_C_WAIT_REGION, 0);
         return;
     }
+    if (board_now() < outgoing_retry) {
+        return;
+    }
     bool gone;
     if (transmit_message(x, &gone)) {
         link_aired(&companion, x->id);
     } else if (gone) {
         link_state(&companion, x->id, TERN_C_NOT_DELIVERED, 0, 0);
+    } else {
+        outgoing_retry = board_now() + 1000000000LL; /* the radio, or the flash */
     }
 }
 
