@@ -1,30 +1,54 @@
 menu "Tern demo"
 
-    comment "Defaults are for the US 902-928 MHz band, at bench power. See README.md."
-
-    config TERN_FREQ_HZ
-        int "Frequency, in Hz"
-        range 150000000 960000000
-        default 919000000
+    choice TERN_REGION
+        prompt "Region"
+        default TERN_REGION_US915
         help
-            The SX1262 tunes from 150 to 960 MHz, but a board is built for one band: 863-928 MHz
-            or 433/470-510 MHz for the Heltec V3. Choose a frequency in your board's band that
-            your region allows.
+            Where the board is used. It sets the frequency, bandwidth and spreading factor, and
+            what the region's rules allow: see the profiles in the specification's draft/phy.md.
+            A board is also built for one band, 863-928 MHz or 433/470-510 MHz for the Heltec
+            V3; both of these regions need the first.
+
+        config TERN_REGION_US915
+            bool "US915: 921.25 MHz, 500 kHz, SF9 (United States, Canada)"
+        config TERN_REGION_EU868
+            bool "EU868: 869.475 MHz, 125 kHz, SF7, at most 10% of any hour"
+    endchoice
 
     config TERN_TX_POWER_DBM
         int "Transmit power, in dBm (-9 to 22)"
         range -9 22
         default 2
+        help
+            What the radio puts into the antenna. The default is for a bench. The build refuses
+            a power that, with the antenna's gain, is more than the region allows.
+
+    config TERN_ANTENNA_DBI
+        int "Antenna gain, in dBi"
+        range -10 30
+        default 3
+        help
+            The gain of the antenna fitted, which counts towards the power the region allows.
+            The small antenna sold with the board is 2 to 3 dBi.
+
+    comment "For experiments. Changing these takes the board off its region's profile."
+
+    config TERN_FREQ_HZ
+        int "Frequency, in Hz (0: the region's)"
+        range 0 960000000
+        default 0
 
     config TERN_SF
-        int "Spreading factor (7 to 12)"
-        range 7 12
-        default 7
+        int "Spreading factor, 7 to 12 (0: the region's)"
+        range 0 12
+        default 0
 
     choice TERN_BW
         prompt "Bandwidth"
-        default TERN_BW_250
+        default TERN_BW_REGION
 
+        config TERN_BW_REGION
+            bool "The region's"
         config TERN_BW_62
             bool "62.5 kHz"
         config TERN_BW_125
@@ -37,6 +61,7 @@ menu "Tern demo"
 
     config TERN_BW_HZ
         int
+        default 0 if TERN_BW_REGION
         default 62500 if TERN_BW_62
         default 125000 if TERN_BW_125
         default 250000 if TERN_BW_250
@@ -44,10 +69,9 @@ menu "Tern demo"
 
     config TERN_SYNC_WORD
         hex "Sync word, one-byte form"
-        default 0x24
+        default 0x5E
         help
-            Tern's own is not chosen yet (MSH-28). This one is neither Meshtastic's (0x2B) nor
-            MeshCore's (0x12), nor LoRaWAN's (0x34), so the demo neither hears their traffic nor
-            disturbs it more than any other signal on the channel.
+            Tern's is 0x5E (draft/phy.md). Meshtastic's is 0x2B, MeshCore's 0x12 and LoRaWAN's
+            0x34; a board set to one of those hears that network's frames and can disturb it.
 
 endmenu

@@ -6,14 +6,17 @@ Part of **Tern**, a LoRa mesh protocol that treats airtime as a shared,
 metered resource. The protocol is defined by the specification in
 [ternmesh/spec](https://github.com/ternmesh/spec), not by this code.
 
-**Status:** early. The core implements the two parts of the protocol the specification has
-drafted, secured unicast frames and first contact, and passes every one of their test vectors.
+**Status:** early. The core implements the three parts of the protocol the specification has
+drafted, radio settings, secured unicast frames and first contact, and passes every one of their
+test vectors.
 One board runs both over the air: the [Heltec V3](ports/heltec-v3/), as a two-board bench demo.
 There is no routing yet.
 
 | Module | Header | What it is |
 |---|---|---|
 | Time on air | `tern/lora.h` | LoRa time on air (Semtech's formula, SF7–SF12), in integer nanoseconds, matching the simulator's to the nanosecond. The airtime budget and the routing metric are both measured in it. |
+| Radio settings | `tern/region.h` | The sync word and settings every frame uses, and a profile for each region, [specification draft 0](https://github.com/ternmesh/spec/blob/main/draft/phy.md): US915 and EU868, provisional until a bench confirms them. Checked against the specification's table. |
+| Transmit limit | `tern/duty.h` | The account of time on air that holds a node to a region's limit on transmitting, such as 10% of any hour. Not the airtime budget, which is not specified yet. |
 | Radio seam | `tern/radio.h` | The interface each board port implements for its radio, and the checks the core makes before a port is called. Events are polled, never delivered in interrupt context. |
 | Addresses | `tern/address.h` | A node's identity and address, [specification draft 0](https://github.com/ternmesh/spec/blob/main/draft/first-contact.md#addresses): an Ed25519 key pair from a seed, checking an address (prime-order subgroup included), and converting it to the X25519 key the handshake uses. |
 | First contact | `tern/contact.h` | The EDHOC handshake that gives two nodes a unicast session, [specification draft 0](https://github.com/ternmesh/spec/blob/main/draft/first-contact.md): both roles, four frames, contact tags, and erasure as the specification requires. About 3.6 KB of stack at its deepest. |

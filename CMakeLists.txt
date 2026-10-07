@@ -33,10 +33,12 @@ add_library(tern
     src/aes.c
     src/ccm.c
     src/contact.c
+    src/duty.c
     src/fe25519.c
     src/hkdf.c
     src/lora.c
     src/radio.c
+    src/region.c
     src/sha256.c
     src/sha512.c
     src/sx126x.c
@@ -48,7 +50,7 @@ target_compile_options(tern PRIVATE ${TERN_WARNINGS})
 
 include(CTest)
 if(BUILD_TESTING)
-    foreach(t address contact crypto lora radio sx126x unicast)
+    foreach(t address contact crypto duty lora radio region sx126x unicast)
         add_executable(test_${t} tests/${t}.c)
         target_link_libraries(test_${t} PRIVATE tern)
         # The test files define their cases as static functions, so the prototype warning is
@@ -81,7 +83,18 @@ if(BUILD_TESTING)
     target_sources(test_contact PRIVATE ${contact_h})
     target_include_directories(test_contact PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/vectors)
 
-    # The Heltec V3 port's pairing logic touches no hardware, so it is tested here too.
+    set(phy_h ${CMAKE_CURRENT_BINARY_DIR}/vectors/phy.h)
+    add_custom_command(
+        OUTPUT ${phy_h}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/vectors
+        COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tests/vectors/phy_to_c.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/vectors/phy.json ${phy_h}
+        DEPENDS tests/vectors/phy_to_c.py tests/vectors/phy.json
+        VERBATIM)
+    target_sources(test_region PRIVATE ${phy_h})
+    target_include_directories(test_region PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/vectors)
+
+    # The Heltec V3 port's node logic touches no hardware, so it is tested here too.
     add_executable(test_demo tests/demo.c ports/heltec-v3/main/demo.c)
     target_include_directories(test_demo PRIVATE ports/heltec-v3/main)
     target_link_libraries(test_demo PRIVATE tern)

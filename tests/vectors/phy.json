@@ -1,0 +1,80 @@
+{
+  "description": "Radio settings, draft 0 (draft/phy.md). An implementation MUST use sync_word, in the form its radio takes (sync_word_sx126x for the SX126x family), with preamble_symbols, coding rate 4/coding_rate_denominator, an explicit header and a CRC. For each profile it MUST use frequency_hz, bandwidth_hz and spreading_factor, and MUST compute, for a frame of each length, the time on air ns, in nanoseconds. It MUST NOT transmit for more than duty_cycle_ppm millionths of any duty_window_s seconds; 1000000 means the profile sets no limit. sync_word and sync_word_sx126x are hex.",
+  "generator": "vectors/tools/phy.py",
+  "sync_word": "5e",
+  "sync_word_sx126x": "54e4",
+  "preamble_symbols": 16,
+  "coding_rate_denominator": 5,
+  "profiles": [
+    {
+      "name": "US915",
+      "frequency_hz": 921250000,
+      "bandwidth_hz": 500000,
+      "spreading_factor": 9,
+      "max_eirp_dbm": 36,
+      "duty_cycle_ppm": 1000000,
+      "duty_window_s": 3600,
+      "airtime_ns": [
+        {
+          "length": 16,
+          "ns": 49408000
+        },
+        {
+          "length": 17,
+          "ns": 49408000
+        },
+        {
+          "length": 45,
+          "ns": 85248000
+        },
+        {
+          "length": 53,
+          "ns": 90368000
+        },
+        {
+          "length": 73,
+          "ns": 115968000
+        },
+        {
+          "length": 255,
+          "ns": 320768000
+        }
+      ]
+    },
+    {
+      "name": "EU868",
+      "frequency_hz": 869475000,
+      "bandwidth_hz": 125000,
+      "spreading_factor": 7,
+      "max_eirp_dbm": 29,
+      "duty_cycle_ppm": 100000,
+      "duty_window_s": 3600,
+      "airtime_ns": [
+        {
+          "length": 16,
+          "ns": 59648000
+        },
+        {
+          "length": 17,
+          "ns": 59648000
+        },
+        {
+          "length": 45,
+          "ns": 100608000
+        },
+        {
+          "length": 53,
+          "ns": 110848000
+        },
+        {
+          "length": 73,
+          "ns": 141568000
+        },
+        {
+          "length": 255,
+          "ns": 407808000
+        }
+      ]
+    }
+  ]
+}

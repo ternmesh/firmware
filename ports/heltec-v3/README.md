@@ -40,9 +40,9 @@ idf.py -p /dev/ttyUSB0 flash monitor     # COM3 or similar on Windows
 If flashing stops with "Invalid head of packet", the USB-to-serial chip is not keeping up: add
 `-b 230400`.
 
-`idf.py menuconfig`, under **Tern demo**, changes the frequency, power, spreading factor,
-bandwidth and sync word. The defaults are for the US; with a board for another band, choose a
-frequency in that band that your region allows.
+`idf.py menuconfig`, under **Tern demo**, chooses the region, the transmit power and the
+antenna's gain. The default region is US915. The image CI builds is for US915 too: for EU868,
+build it yourself.
 
 ## Using it
 
@@ -105,23 +105,35 @@ A handshake takes each board between one and one and a half seconds of arithmeti
 ESP32-S3 at 160 MHz: the core's elliptic-curve code is the portable reference, which is written to be checked
 and not to be fast. The board does not listen to its console or button while it works.
 
-## Radio settings and the rules for 902–928 MHz
+## Radio settings
 
-The defaults are 919.0 MHz, SF7, 250 kHz bandwidth, CR 4/5, a 16-symbol preamble and +2 dBm.
+The board uses the specification's [radio settings](https://github.com/ternmesh/spec/blob/main/draft/phy.md),
+which are provisional: chosen from published rules and other projects' sources, and not yet
+confirmed on a bench.
 
-* **Frequency.** 919.0 MHz lies between the LoRaWAN uplink channels (902.3–914.9 MHz) and its
-  downlink channels (923.3–927.5 MHz). It is also well away from Meshtastic's US LongFast default
-  of 906.875 MHz.
-* **Power.** +2 dBm is plenty for a bench: two boards in the same house hear each other easily.
-* **Rules.** In the US, the FCC's Part 15 rules for this band set power and bandwidth limits.
-  A fixed-channel, low-power bench test is the most conservative use of it. Raising the power,
-  or running for long periods, is your responsibility to keep within the rules. Tern's real
-  on-air settings, and how they meet each region's rules, are for the specification to set
-  (MSH-28).
+| Region | Frequency | Bandwidth | SF | Transmitting |
+|---|---|---|---|---|
+| US915 | 921.25 MHz | 500 kHz | 9 | no limit |
+| EU868 | 869.475 MHz | 125 kHz | 7 | at most 10% of any hour |
 
-The sync word is `0x24`. It is neither Meshtastic's (`0x2B`) nor MeshCore's (`0x12`), so these
-boards do not decode those networks' frames. They do hear the frames as energy on the channel,
-as any radio would.
+Every frame has a 16-symbol preamble, coding rate 4/5 and the sync word `0x5E`. That is not
+Meshtastic's (`0x2B`), MeshCore's (`0x12`) or LoRaWAN's (`0x34`), so these boards do not decode
+those networks' frames, nor they these. They do hear each other as energy on the channel, as any
+radio would. Two boards built before this change and after it do not hear each other either.
+
+* **Power.** The default is +2 dBm, plenty for a bench: two boards in the same house hear each
+  other easily. The radio gives up to +22 dBm. The board refuses to start if the power set, with
+  the antenna's gain, is more than the region allows, which this board cannot reach with an
+  ordinary antenna.
+* **EU868's 10%.** The board counts the time on air of every frame it sends and refuses to send
+  one that would take it past 360 s in any hour. `status` shows the count. The count is saved to
+  flash, and after a restart everything in it is treated as just sent, so restarting only makes
+  the wait longer.
+* **The rules are yours to keep.** The profiles follow each region's rules as written (in the US,
+  47 CFR 15.247's 500 kHz for a fixed channel), but nothing here is certified, and whoever
+  operates a radio answers for it. Keep an antenna fitted whenever the board is powered.
+* **Experiments.** `menuconfig` can also set a frequency, spreading factor, bandwidth and sync
+  word that are not the region's. `status` then says so.
 
 ## How it is put together
 

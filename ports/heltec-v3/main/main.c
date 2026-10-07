@@ -28,9 +28,11 @@
 #include "freertos/task.h"
 #include "nvs.h"
 #include "nvs_flash.h"
+#include "tern/duty.h"
 #include "tern/err.h"
 #include "tern/lora.h"
 #include "tern/radio.h"
+#include "tern/region.h"
 #include "tern/sx126x.h"
 
 #define CONSOLE UART_NUM_0
@@ -41,6 +43,9 @@
 static struct tern_sx126x sx;
 static struct tern_radio radio;
 static struct tern_radio_config cfg;
+static const struct tern_region *region;
+static bool off_profile; /* the build changed the region's frequency or modulation */
+static struct tern_duty duty;
 static struct demo demo;
 static bool transmitting;
 /* A handshake frame that had to wait for the one on the air. */
@@ -113,12 +118,27 @@ static const char *result_text(enum demo_result r) {
 
 /* Puts a frame on the air. Returns its time on air, or 0 if the radio refused it. */
 static tern_time transmit(const uint8_t *frame, size_t len) {
+    tern_time air = tern_lora_airtime(&cfg.mod, (uint32_t)len);
+    if (!tern_duty_allows(&duty, board_now(), air)) {
+        printf("not sent: this board has transmitted as much as %s allows in %lu s. Wait, and "
+               "try again.\n",
+               region->name, (unsigned long)region->duty_window_s);
+        return 0;
+    }
+    /* Counted, and the count saved, before the frame goes: a restart must not forget it. */
+    tern_duty_charge(&duty, board_now(), air);
+    if (region->duty_ppm < TERN_DUTY_UNLIMITED) {
+        tern_time used = tern_duty_used(&duty, board_now());
+        if (!nvs_save(NULL, "airtime", &used, sizeof used)) {
+            printf("not sent: could not save the count of time on air to flash\n");
+            return 0;
+        }
+    }
     int err = tern_radio_transmit(&radio, frame, (uint32_t)len);
     if (err != TERN_OK) {
         printf("radio error %d: not sent\n", err);
         return 0;
     }
-    tern_time air = tern_lora_airtime(&cfg.mod, (uint32_t)len);
     transmitting = true;
     tx_deadline = board_now() + air + 2000000000LL;
     flash_led();
@@ -308,9 +328,14 @@ static void status(void) {
     printf("this board's address: ");
     print_address(demo.id.address);
     printf("\n");
-    printf("radio: %lu Hz, SF%u, %lu Hz, CR 4/%u, %d dBm, sync word 0x%02X\n",
-           (unsigned long)cfg.freq_hz, cfg.mod.sf, (unsigned long)cfg.mod.bw_hz, 4 + cfg.mod.cr,
-           cfg.tx_power_dbm, cfg.sync_word);
+    printf("radio: %s%s, %lu Hz, SF%u, %lu Hz, CR 4/%u, %d dBm, sync word 0x%02X\n", region->name,
+           off_profile ? " (changed by this build)" : "", (unsigned long)cfg.freq_hz, cfg.mod.sf,
+           (unsigned long)cfg.mod.bw_hz, 4 + cfg.mod.cr, cfg.tx_power_dbm, cfg.sync_word);
+    if (region->duty_ppm < TERN_DUTY_UNLIMITED) {
+        printf("transmitted: %lld ms of the %lld ms allowed in any %lu s\n",
+               (long long)(tern_duty_used(&duty, board_now()) / 1000000),
+               (long long)(duty.limit / 1000000), (unsigned long)region->duty_window_s);
+    }
     if (demo.h.phase == DEMO_INITIATING || demo.h.phase == DEMO_RESPONDING) {
         printf("first contact: under way, as the %s\n",
                demo.h.phase == DEMO_INITIATING ? "initiator" : "responder");
@@ -508,13 +533,40 @@ void app_main(void) {
      * ADC, I2S, Wi-Fi and Bluetooth), and a port that does must turn it off around them. */
     bootloader_random_enable();
 
-    cfg = (struct tern_radio_config){
-        .mod = tern_lora_default(CONFIG_TERN_SF, CONFIG_TERN_BW_HZ),
-        .freq_hz = CONFIG_TERN_FREQ_HZ,
-        .tx_power_dbm = CONFIG_TERN_TX_POWER_DBM,
-        .sync_word = CONFIG_TERN_SYNC_WORD,
-    };
-    cfg.mod.preamble = 16;
+#if CONFIG_TERN_REGION_EU868
+    region = tern_region(TERN_REGION_EU868);
+#else
+    region = tern_region(TERN_REGION_US915);
+#endif
+    if (tern_region_radio(region, CONFIG_TERN_TX_POWER_DBM, CONFIG_TERN_ANTENNA_DBI, &cfg) !=
+        TERN_OK) {
+        printf("%d dBm into a %d dBi antenna is more than %s allows (%d dBm radiated). Not "
+               "starting.\n",
+               CONFIG_TERN_TX_POWER_DBM, CONFIG_TERN_ANTENNA_DBI, region->name,
+               region->max_eirp_dbm);
+        return;
+    }
+    /* Experiments: a build may move the board off its region's profile. The region's limit on
+     * transmitting still applies. */
+    if (CONFIG_TERN_FREQ_HZ != 0) {
+        cfg.freq_hz = CONFIG_TERN_FREQ_HZ;
+    }
+    if (CONFIG_TERN_SF != 0) {
+        cfg.mod.sf = CONFIG_TERN_SF;
+    }
+    if (CONFIG_TERN_BW_HZ != 0) {
+        cfg.mod.bw_hz = CONFIG_TERN_BW_HZ;
+    }
+    cfg.sync_word = CONFIG_TERN_SYNC_WORD;
+    off_profile = cfg.freq_hz != region->freq_hz || cfg.mod.sf != region->sf ||
+                  cfg.mod.bw_hz != region->bw_hz || cfg.sync_word != TERN_SYNC_WORD;
+    /* The board's clock starts again at a restart, so the times of what it sent before are
+     * lost. All of it is counted as sent now, which can only hold the board back longer. */
+    tern_duty_init(&duty, region->duty_ppm, region->duty_window_s);
+    tern_time before = 0;
+    if (nvs_load(NULL, "airtime", &before, sizeof before)) {
+        tern_duty_charge(&duty, board_now(), before);
+    }
 
     /* How long the initiator waits for an answer: the answer's time on the air and its own
      * frame's, twice over, and two seconds for the other board to work it out. */
