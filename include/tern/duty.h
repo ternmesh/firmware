@@ -25,7 +25,7 @@
 #define TERN_DUTY_SLICES 61
 
 struct tern_duty {
-    tern_time slice;                  /* a sixtieth of the window */
+    tern_time slice;                  /* a sixtieth of the window, rounded up */
     tern_time limit;                  /* time on air allowed in any window, or -1 for no limit */
     int64_t newest;                   /* the number of the latest slice the account has reached */
     tern_time used[TERN_DUTY_SLICES]; /* slice n's is at n % TERN_DUTY_SLICES */

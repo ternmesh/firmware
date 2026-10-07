@@ -2,7 +2,8 @@
 
 void tern_duty_init(struct tern_duty *d, uint32_t ppm, uint32_t window_s) {
     tern_time window = (tern_time)window_s * 1000000000LL;
-    d->slice = window / (TERN_DUTY_SLICES - 1);
+    /* Rounded up: sixty slices must not be shorter than the window. */
+    d->slice = (window + TERN_DUTY_SLICES - 2) / (TERN_DUTY_SLICES - 1);
     d->limit = ppm >= 1000000u || d->slice == 0 ? -1 : window / 1000000 * (tern_time)ppm;
     d->newest = 0;
     for (int i = 0; i < TERN_DUTY_SLICES; i++) {

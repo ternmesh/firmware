@@ -76,6 +76,17 @@ static void a_clock_that_goes_backwards_forgives_nothing(void) {
     CHECK_EQ_I64(tern_duty_used(&d, 10 * HOUR), 361 * S);
 }
 
+/* A window that sixty does not divide: the slices are rounded up, so that sixty of them are
+ * never shorter than the window. */
+static void a_window_sixty_does_not_divide_is_still_whole(void) {
+    struct tern_duty d;
+    tern_time at = 333333332; /* the last nanosecond of the first slice, rounded down */
+    tern_duty_init(&d, 100000, 20);
+    tern_duty_charge(&d, at, 2 * S);
+    CHECK(!tern_duty_allows(&d, at + 20 * S - 1, 1));
+    CHECK(tern_duty_allows(&d, at + 21 * S, 2 * S));
+}
+
 /* The rule itself, checked the slow way: a node that sends whenever it is allowed, at random
  * times and lengths, never puts more than the limit into any period of the window's length. And
  * the account is not much stricter than the rule: such a node gets most of what it is allowed. */
@@ -124,6 +135,7 @@ int main(void) {
     RUN(a_frame_longer_than_the_limit_is_never_allowed);
     RUN(a_long_silence_empties_the_account);
     RUN(a_clock_that_goes_backwards_forgives_nothing);
+    RUN(a_window_sixty_does_not_divide_is_still_whole);
     RUN(no_window_ever_holds_more_than_the_limit);
     return CHECK_DONE();
 }
