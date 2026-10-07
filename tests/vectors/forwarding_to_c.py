@@ -43,8 +43,8 @@ def main():
 
     L.append("static const struct hop_case hop_cases[] = {")
     L += [
-        f"    {{{head(c['sent'])}, {hexbytes(c['sent']['tag'])}, {head(c['heard'])}, "
-        f"{hexbytes(c['heard']['tag'])}, {b(c['ends'])}}},"
+        f"    {{\"{c['why']}\", {hexbytes(c['sent'])}, {len(c['sent']) // 2}, {hexbytes(c['heard'])}, "
+        f"{len(c['heard']) // 2}, {b(c['ends'])}}},"
         for c in v["hops"]
     ]
     L.append("};")

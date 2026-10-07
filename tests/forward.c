@@ -30,10 +30,11 @@ struct rejected_case {
     size_t len;
 };
 struct hop_case {
-    struct tern_forward_head sent;
-    uint8_t sent_tag[TERN_FORWARD_TAG];
-    struct tern_forward_head heard;
-    uint8_t heard_tag[TERN_FORWARD_TAG];
+    const char *why;
+    uint8_t sent[TERN_FORWARD_FRAME_MAX];
+    size_t sent_len;
+    uint8_t heard[TERN_FORWARD_FRAME_MAX];
+    size_t heard_len;
     bool ends;
 };
 struct back_case {
@@ -226,8 +227,54 @@ static void frames_the_specification_rejects_change_nothing(void) {
 static void a_hop_ends_when_the_specification_says(void) {
     for (size_t i = 0; i < COUNT(hop_cases); i++) {
         const struct hop_case *c = &hop_cases[i];
-        CHECK(tern_forward_ends(&c->sent, c->sent_tag, &c->heard, c->heard_tag) == c->ends);
+        if (tern_forward_ends(c->sent, c->sent_len, c->heard, c->heard_len) != c->ends) {
+            fprintf(stderr, "wrong for %s\n", c->why);
+            check_failures++;
+        }
     }
+}
+
+/* Two messages for one node with one tag are two messages: a relay holding the first takes the
+ * second, and hearing the second passed on does not end the first's hop. */
+static void messages_that_share_a_tag_are_told_apart(void) {
+    uint8_t one[TERN_FORWARD_HEAD + BODY] = {0}, two[TERN_FORWARD_HEAD + BODY] = {0};
+    struct tern_forward_head h = {TERN_HDR_MESSAGE, 32, FULL, 0, 0};
+    line();
+    h.next = id_of(1);
+    h.destination = id_of(3);
+    tern_forward_head_write(&h, one);
+    tern_forward_head_write(&h, two);
+    memset(one + TERN_FORWARD_HEAD, 0x77, TERN_FORWARD_TAG);
+    memset(two + TERN_FORWARD_HEAD, 0x77, TERN_FORWARD_TAG);
+    two[sizeof two - 1] = 1;
+    tern_forward_heard(&net.node[1].f, net.now, one, sizeof one, 40,
+                       &(struct tern_forward_heard){0});
+    tern_forward_heard(&net.node[1].f, net.now, two, sizeof two, 40,
+                       &(struct tern_forward_heard){0});
+    CHECK_EQ_I64(in_hand(1), 2);
+    one[1] = 31;
+    two[1] = 30;
+    CHECK(!tern_forward_ends(one, sizeof one, two, sizeof two));
+}
+
+/* Slots come as the caller's memory was left, and no more are used than a handle can name. */
+static void slots_need_not_be_cleared_and_are_no_more_than_a_handle_names(void) {
+    static struct tern_forward_slot many[300];
+    struct tern_forward f;
+    struct tern_forward_config fc = tern_forward_defaults();
+    uint8_t frame[TERN_FORWARD_HEAD + BODY] = {0};
+    struct tern_forward_head h = {TERN_HDR_MESSAGE, 31, FULL, 0, 0};
+    struct tern_forward_heard got;
+    line();
+    memset(many, 0xA5, sizeof many);
+    tern_forward_init(&f, &fc, &net.node[1].r, many, 300, 1);
+    CHECK_EQ_I64(f.cap, TERN_FORWARD_SLOTS_MAX);
+    h.next = id_of(1);
+    h.destination = id_of(3);
+    tern_forward_head_write(&h, frame);
+    tern_forward_heard(&f, net.now, frame, sizeof frame, 40, &got);
+    CHECK_EQ_I64(f.counts.passed_on, 1);
+    CHECK(many[TERN_FORWARD_SLOTS_MAX].state == 0xA5); /* past the last used: untouched */
 }
 
 static void an_answer_goes_loud_enough_for_the_node_it_answers(void) {
@@ -400,6 +447,8 @@ int main(void) {
     RUN(heads_are_written_and_read);
     RUN(frames_the_specification_rejects_change_nothing);
     RUN(a_hop_ends_when_the_specification_says);
+    RUN(messages_that_share_a_tag_are_told_apart);
+    RUN(slots_need_not_be_cleared_and_are_no_more_than_a_handle_names);
     RUN(an_answer_goes_loud_enough_for_the_node_it_answers);
     RUN(a_frame_goes_louder_each_time);
     RUN(a_message_goes_along_the_line_and_is_acknowledged);

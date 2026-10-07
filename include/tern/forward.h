@@ -37,6 +37,8 @@
 #define TERN_FORWARD_MIN (TERN_FORWARD_HEAD + TERN_FORWARD_TAG)
 #define TERN_FORWARD_FRAME_MAX 255
 #define TERN_ACK_LEN (TERN_FORWARD_MIN + 4)
+#define TERN_MESSAGE_MIN (TERN_FORWARD_MIN + 8) /* an empty message: its tag and its check */
+#define TERN_FORWARD_SLOTS_MAX 255
 #define TERN_FORWARD_SALVAGE_MAX 4
 
 /* Whether a frame is one of this layer's, by its first byte. */
@@ -60,10 +62,15 @@ bool tern_forward_head_read(struct tern_forward_head *h, const uint8_t *frame, s
 
 /* --- Rules, each as the specification states it, checked against its vectors. --- */
 
-/* Whether receiving a frame with the head and tag `heard` ends the hop of one this node sent with
- * `sent`: the same frame one hop on, or for a message any acknowledgement of it. */
-bool tern_forward_ends(const struct tern_forward_head *sent, const uint8_t *sent_tag,
-                       const struct tern_forward_head *heard, const uint8_t *heard_tag);
+/* Whether two frames are the same one, whatever hop each is on: of one length, and equal in every
+ * byte from the destination on. A tag alone does not tell: two messages share one now and then. */
+bool tern_forward_same(const uint8_t *a, size_t a_len, const uint8_t *b, size_t b_len);
+
+/* Whether receiving the frame `heard` ends the hop of the frame `sent`, which this node sent: the
+ * same frame one hop on, or for a message any acknowledgement with its tag. Both are frames
+ * tern_forward_head_read() takes. */
+bool tern_forward_ends(const uint8_t *sent, size_t sent_len, const uint8_t *heard,
+                       size_t heard_len);
 
 /* What a frame goes at, in dBm: `neighbour` is what the router gives for its next hop, `back` what
  * the node it came from needs or INT8_MIN for none, `tries` how often it has gone before, each
@@ -135,7 +142,8 @@ struct tern_forward {
     struct tern_forward_counts counts;
 };
 
-/* Starts a forwarder over a router. `seed` is for jitter and need not be secret. */
+/* Starts a forwarder over a router. `seed` is for jitter and need not be secret. The slots need
+ * not be cleared; no more than TERN_FORWARD_SLOTS_MAX of them are used, a handle being a byte. */
 void tern_forward_init(struct tern_forward *f, const struct tern_forward_config *config,
                        struct tern_route *route, struct tern_forward_slot *slots, size_t cap,
                        uint64_t seed);

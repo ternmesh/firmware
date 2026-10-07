@@ -31,7 +31,8 @@ static bool an_id(uint32_t id) { return id != 0 && id != TERN_ROUTE_EVERYONE; }
 
 bool tern_forward_head_read(struct tern_forward_head *h, const uint8_t *frame, size_t len) {
     if (len < TERN_FORWARD_MIN || len > TERN_FORWARD_FRAME_MAX || !tern_forward_frame(frame, len) ||
-        (frame[0] == TERN_HDR_ACK && len != TERN_ACK_LEN)) {
+        (frame[0] == TERN_HDR_ACK && len != TERN_ACK_LEN) ||
+        (frame[0] == TERN_HDR_MESSAGE && len < TERN_MESSAGE_MIN)) {
         return false;
     }
     *h = (struct tern_forward_head){
@@ -44,13 +45,19 @@ bool tern_forward_head_read(struct tern_forward_head *h, const uint8_t *frame, s
     return an_id(h->next) && an_id(h->destination);
 }
 
-bool tern_forward_ends(const struct tern_forward_head *sent, const uint8_t *sent_tag,
-                       const struct tern_forward_head *heard, const uint8_t *heard_tag) {
-    bool tag = memcmp(sent_tag, heard_tag, TERN_FORWARD_TAG) == 0;
-    bool passed = heard->hdr == sent->hdr && heard->destination == sent->destination &&
-                  (int)heard->hops + 1 == (int)sent->hops;
-    bool answered = sent->hdr == TERN_HDR_MESSAGE && heard->hdr == TERN_HDR_ACK;
-    return tag && (passed || answered);
+bool tern_forward_same(const uint8_t *a, size_t a_len, const uint8_t *b, size_t b_len) {
+    return a_len == b_len && a_len >= TERN_FORWARD_MIN && a[0] == b[0] &&
+           memcmp(a + AT_DEST, b + AT_DEST, a_len - AT_DEST) == 0;
+}
+
+bool tern_forward_ends(const uint8_t *sent, size_t sent_len, const uint8_t *heard,
+                       size_t heard_len) {
+    bool passed =
+        tern_forward_same(sent, sent_len, heard, heard_len) && (int)heard[1] + 1 == (int)sent[1];
+    bool answered =
+        sent[0] == TERN_HDR_MESSAGE && heard[0] == TERN_HDR_ACK &&
+        memcmp(sent + TERN_FORWARD_HEAD, heard + TERN_FORWARD_HEAD, TERN_FORWARD_TAG) == 0;
+    return passed || answered;
 }
 
 int8_t tern_forward_power(int8_t neighbour, int8_t back, uint8_t tries, uint8_t step, int8_t full) {
@@ -79,15 +86,13 @@ void tern_forward_init(struct tern_forward *f, const struct tern_forward_config 
         .config = *config,
         .route = route,
         .slot = slots,
-        .cap = cap,
+        .cap = cap > TERN_FORWARD_SLOTS_MAX ? TERN_FORWARD_SLOTS_MAX : cap,
         .rng = seed ? seed : 0x9E3779B97F4A7C15ULL,
     };
     if (f->config.salvage > TERN_FORWARD_SALVAGE_MAX) {
         f->config.salvage = TERN_FORWARD_SALVAGE_MAX;
     }
-    for (size_t i = 0; i < cap; i++) {
-        slots[i].state = TERN_FORWARD_FREE;
-    }
+    memset(slots, 0, f->cap * sizeof *slots); /* every one free */
 }
 
 static uint64_t rand_below(struct tern_forward *f, uint64_t n) {
@@ -175,7 +180,6 @@ bool tern_forward_send(struct tern_forward *f, tern_time now, uint32_t destinati
 void tern_forward_heard(struct tern_forward *f, tern_time now, const uint8_t *frame, size_t len,
                         int16_t snr_q, struct tern_forward_heard *out) {
     struct tern_forward_head h;
-    const uint8_t *tag = frame + TERN_FORWARD_HEAD;
     struct tern_forward_slot *s;
     uint32_t next;
     uint16_t metric;
@@ -188,16 +192,18 @@ void tern_forward_heard(struct tern_forward *f, tern_time now, const uint8_t *fr
     /* A hop of this node's is over once its next hop is heard sending the frame on, one hop
      * further; or, for a message, once an acknowledgement for it is heard at all. */
     for (size_t i = 0; i < f->cap; i++) {
-        struct tern_forward_head mine;
         bool sent, passed;
         s = &f->slot[i];
         sent = s->state == TERN_FORWARD_LISTENING ||
                ((s->state == TERN_FORWARD_WAITING || s->state == TERN_FORWARD_OUT) && s->again);
-        mine = (struct tern_forward_head){s->frame[0], s->hops, 0, s->next, dest_of(s)};
-        if (!sent || !tern_forward_ends(&mine, s->frame + TERN_FORWARD_HEAD, &h, tag)) {
+        if (!sent) {
             continue;
         }
-        passed = h.hdr == mine.hdr;
+        /* The slot's frame holds the hops it last went with. */
+        if (!tern_forward_ends(s->frame, s->len, frame, len)) {
+            continue;
+        }
+        passed = h.hdr == s->frame[0];
         /* What passed it on was its next hop; so was an acknowledgement's first copy, if its next
          * hop was where it was going. */
         if (passed || (s->next == dest_of(s) && h.hops == f->config.hop_max)) {
@@ -232,7 +238,7 @@ void tern_forward_heard(struct tern_forward *f, tern_time now, const uint8_t *fr
     for (size_t i = 0; i < f->cap; i++) {
         s = &f->slot[i];
         if (s->state != TERN_FORWARD_FREE && s->state != TERN_FORWARD_FAILED &&
-            same(s, h.hdr, tag) && dest_of(s) == h.destination) {
+            tern_forward_same(s->frame, s->len, frame, len)) {
             return; /* still passing it on: the hop before will hear that */
         }
     }

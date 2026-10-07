@@ -1,5 +1,5 @@
 {
-  "description": "Frames that follow routes, draft 0 (draft/forwarding.md). Routing ids are numbers; frames and tags are hex. In hops, sent is what the node sent and heard what it then received. In backs, power is what a frame was sent at in dBm and snr_quarter_db what it was heard at, and needs is what an answer must go at for its sender to hear it, between the node's lowest and full power. In powers, neighbour is what Routes gives for the neighbour, its boost included, back is what the node the frame came from needs or null for a frame that answers none, and try counts from 0.",
+  "description": "Frames that follow routes, draft 0 (draft/forwarding.md). Routing ids are numbers; frames and tags are hex. In hops, sent is the frame the node sent and heard the one it then received. In backs, power is what a frame was sent at in dBm and snr_quarter_db what it was heard at, and needs is what an answer must go at for its sender to hear it, between the node's lowest and full power. In powers, neighbour is what Routes gives for the neighbour, its boost included, back is what the node the frame came from needs or null for a frame that answers none, and try counts from 0.",
   "generator": "vectors/tools/forwarding.py",
   "heads": [
     {
@@ -36,6 +36,14 @@
       "frame": "48200e0000000700000009000000"
     },
     {
+      "why": "a message with a tag and no check",
+      "frame": "48200e000000070000000900000000"
+    },
+    {
+      "why": "a message a byte short of its check",
+      "frame": "48200e00000007000000090000000000000000000000"
+    },
+    {
       "why": "not a frame of this section's",
       "frame": "59200e0000000700000009000000000000000000000000"
     },
@@ -66,168 +74,81 @@
   ],
   "hops": [
     {
-      "sent": {
-        "hdr": 72,
-        "hops": 20,
-        "destination": 9,
-        "tag": "30313233"
-      },
-      "heard": {
-        "hdr": 72,
-        "hops": 19,
-        "destination": 9,
-        "tag": "30313233"
-      },
+      "why": "passed on",
+      "sent": "48140e000000070000000930313233606162636465666768696a6b6c",
+      "heard": "4813fe000000080000000930313233606162636465666768696a6b6c",
       "ends": true
     },
     {
-      "sent": {
-        "hdr": 72,
-        "hops": 20,
-        "destination": 9,
-        "tag": "30313233"
-      },
-      "heard": {
-        "hdr": 72,
-        "hops": 20,
-        "destination": 9,
-        "tag": "30313233"
-      },
+      "why": "another copy of what it sent",
+      "sent": "48140e000000070000000930313233606162636465666768696a6b6c",
+      "heard": "48140e000000070000000930313233606162636465666768696a6b6c",
       "ends": false
     },
     {
-      "sent": {
-        "hdr": 72,
-        "hops": 20,
-        "destination": 9,
-        "tag": "30313233"
-      },
-      "heard": {
-        "hdr": 72,
-        "hops": 18,
-        "destination": 9,
-        "tag": "30313233"
-      },
+      "why": "passed on twice: not by its neighbour",
+      "sent": "48140e000000070000000930313233606162636465666768696a6b6c",
+      "heard": "48120e000000070000000930313233606162636465666768696a6b6c",
       "ends": false
     },
     {
-      "sent": {
-        "hdr": 72,
-        "hops": 20,
-        "destination": 9,
-        "tag": "30313233"
-      },
-      "heard": {
-        "hdr": 72,
-        "hops": 19,
-        "destination": 9,
-        "tag": "30313234"
-      },
+      "why": "another tag",
+      "sent": "48140e000000070000000930313233606162636465666768696a6b6c",
+      "heard": "48130e000000070000000940414243606162636465666768696a6b6c",
       "ends": false
     },
     {
-      "sent": {
-        "hdr": 72,
-        "hops": 20,
-        "destination": 9,
-        "tag": "30313233"
-      },
-      "heard": {
-        "hdr": 72,
-        "hops": 19,
-        "destination": 10,
-        "tag": "30313233"
-      },
+      "why": "the same tag and another message",
+      "sent": "48140e000000070000000930313233606162636465666768696a6b6c",
+      "heard": "48130e00000007000000093031323300000000000000000000000000",
       "ends": false
     },
     {
-      "sent": {
-        "hdr": 72,
-        "hops": 20,
-        "destination": 9,
-        "tag": "30313233"
-      },
-      "heard": {
-        "hdr": 80,
-        "hops": 32,
-        "destination": 77,
-        "tag": "30313233"
-      },
+      "why": "the same tag and a longer message",
+      "sent": "48140e000000070000000930313233606162636465666768696a6b6c",
+      "heard": "48130e000000070000000930313233606162636465666768696a6b6c00",
+      "ends": false
+    },
+    {
+      "why": "for another node",
+      "sent": "48140e000000070000000930313233606162636465666768696a6b6c",
+      "heard": "48130e000000070000000a30313233606162636465666768696a6b6c",
+      "ends": false
+    },
+    {
+      "why": "acknowledged",
+      "sent": "48140e000000070000000930313233606162636465666768696a6b6c",
+      "heard": "502003000000070000004d3031323300000000",
       "ends": true
     },
     {
-      "sent": {
-        "hdr": 72,
-        "hops": 20,
-        "destination": 9,
-        "tag": "30313233"
-      },
-      "heard": {
-        "hdr": 80,
-        "hops": 5,
-        "destination": 77,
-        "tag": "30313233"
-      },
+      "why": "acknowledged, heard further off",
+      "sent": "48140e000000070000000930313233606162636465666768696a6b6c",
+      "heard": "500503000000070000004d3031323300000000",
       "ends": true
     },
     {
-      "sent": {
-        "hdr": 72,
-        "hops": 20,
-        "destination": 9,
-        "tag": "30313233"
-      },
-      "heard": {
-        "hdr": 80,
-        "hops": 32,
-        "destination": 77,
-        "tag": "40414243"
-      },
+      "why": "another message acknowledged",
+      "sent": "48140e000000070000000930313233606162636465666768696a6b6c",
+      "heard": "502003000000070000004d4041424300000000",
       "ends": false
     },
     {
-      "sent": {
-        "hdr": 80,
-        "hops": 20,
-        "destination": 9,
-        "tag": "30313233"
-      },
-      "heard": {
-        "hdr": 80,
-        "hops": 19,
-        "destination": 9,
-        "tag": "30313233"
-      },
+      "why": "an acknowledgement passed on",
+      "sent": "50140300000007000000093031323300000000",
+      "heard": "50130300000008000000093031323300000000",
       "ends": true
     },
     {
-      "sent": {
-        "hdr": 80,
-        "hops": 20,
-        "destination": 9,
-        "tag": "30313233"
-      },
-      "heard": {
-        "hdr": 72,
-        "hops": 19,
-        "destination": 9,
-        "tag": "30313233"
-      },
+      "why": "an acknowledgement is not ended by a message",
+      "sent": "50140300000007000000093031323300000000",
+      "heard": "48130e000000070000000930313233606162636465666768696a6b6c",
       "ends": false
     },
     {
-      "sent": {
-        "hdr": 72,
-        "hops": 0,
-        "destination": 9,
-        "tag": "30313233"
-      },
-      "heard": {
-        "hdr": 72,
-        "hops": 255,
-        "destination": 9,
-        "tag": "30313233"
-      },
+      "why": "hops do not wrap",
+      "sent": "48000e000000070000000930313233606162636465666768696a6b6c",
+      "heard": "48ff0e000000070000000930313233606162636465666768696a6b6c",
       "ends": false
     }
   ],
