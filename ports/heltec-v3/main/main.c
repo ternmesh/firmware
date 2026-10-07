@@ -454,11 +454,15 @@ static void poll_beacon(void) {
     frame[BEACON_LEN - 3] = (uint8_t)(beacon_number >> 16);
     frame[BEACON_LEN - 2] = (uint8_t)(beacon_number >> 8);
     frame[BEACON_LEN - 1] = (uint8_t)beacon_number;
-    beacon_next = board_now() + beacon_gap;
-    beacon_left--;
     if (transmit(frame, sizeof frame) != 0) {
+        beacon_next = board_now() + beacon_gap;
+        beacon_left--;
         beacon_sent++;
         beacon_number++;
+    } else {
+        /* Refused, and said why: it is still owed, and tried again no sooner than a second on.
+         * 'bench off' ends a run that cannot finish. */
+        beacon_next = board_now() + (beacon_gap > 1000000000LL ? beacon_gap : 1000000000LL);
     }
 }
 
@@ -711,6 +715,11 @@ static void command(char *line) {
     if (bench_command(line)) {
         return;
     }
+    if (bench && (strncmp(line, "contact ", 8) == 0 || strncmp(line, "send ", 5) == 0 ||
+                  strcmp(line, "accept") == 0)) {
+        printf("not on the bench, where only test frames are sent: 'bench off' first\n");
+        return;
+    }
     if (strncmp(line, "contact ", 8) == 0) {
         uint8_t peer[TERN_ADDRESS_LEN], frame[TERN_CONTACT_MAX_FRAME];
         size_t len;
@@ -777,7 +786,7 @@ static void poll_button(void) {
     static tern_time last;
     static unsigned pings;
     bool now = board_button();
-    if (now && !was && board_now() - last > 300 * 1000000LL) {
+    if (now && !was && !bench && board_now() - last > 300 * 1000000LL) {
         char text[32];
         last = board_now();
         snprintf(text, sizeof text, "ping %u", ++pings);
