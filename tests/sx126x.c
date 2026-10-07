@@ -98,8 +98,9 @@ static void init_sets_up_the_board(void) {
     CHECK(SENT(b, 5, 0x9D, 0x01));                   /* DIO2 drives the RF switch */
     CHECK(b.regs[0x8D8] == 0x1E);                    /* errata 15.2, from a register of 0 */
     CHECK(SENT_ANY(b, 0x8A, 0x01));                  /* SetPacketType(LoRa) */
-    /* TxDone, RxDone, HeaderErr, CrcErr and Timeout: 0x0263, on DIO1 too. */
-    CHECK(SENT_ANY(b, 0x08, 0x02, 0x63, 0x02, 0x63, 0x00, 0x00, 0x00, 0x00));
+    /* TxDone, RxDone, PreambleDetected, HeaderValid, HeaderErr, CrcErr and Timeout: 0x0277, on
+     * DIO1 too. */
+    CHECK(SENT_ANY(b, 0x08, 0x02, 0x77, 0x02, 0x77, 0x00, 0x00, 0x00, 0x00));
 
     struct tern_sx126x_board bad = heltec;
     bad.tcxo_mv = 1900;
@@ -246,11 +247,41 @@ static void poll_reports_what_happened(void) {
     CHECK(ev.kind == TERN_RADIO_RX_ERROR);
 }
 
+static void poll_counts_what_the_receiver_saw(void) {
+    static struct bus b;
+    static struct tern_sx126x d;
+    start(&d, &b);
+    struct tern_radio r = tern_sx126x_radio(&d);
+    struct tern_radio_event ev;
+
+    /* A preamble and nothing after it, as a frame with another sync word is: no event, and the
+     * chip is told it has been counted. */
+    b.irq = 0x0004;
+    CHECK(tern_radio_poll(&r, &ev) == 0);
+    CHECK(d.counts.preambles == 1 && d.counts.headers == 0 && d.counts.frames == 0);
+    CHECK(SENT(b, b.count - 1, 0x02, 0x00, 0x04));
+
+    /* A whole frame, found all at once: preamble, header and RxDone. */
+    b.irq = 0x0016;
+    b.rx_len = 1;
+    CHECK(tern_radio_poll(&r, &ev) == 1);
+    CHECK(ev.kind == TERN_RADIO_RX_DONE);
+    CHECK(d.counts.preambles == 2 && d.counts.headers == 1 && d.counts.frames == 1);
+
+    b.irq = 0x0042; /* a CRC error */
+    CHECK(tern_radio_poll(&r, &ev) == 1);
+    b.irq = 0x0020; /* a bad header */
+    CHECK(tern_radio_poll(&r, &ev) == 1);
+    CHECK(d.counts.crc_errors == 1 && d.counts.header_errors == 1 && d.counts.frames == 1);
+    CHECK(d.counts.preambles == 2 && d.counts.headers == 1);
+}
+
 int main(void) {
     RUN(init_sets_up_the_board);
     RUN(configure_sends_the_datasheet_commands);
     RUN(configure_refuses_what_the_chip_cannot_do);
     RUN(transmit_writes_the_frame_and_starts);
     RUN(poll_reports_what_happened);
+    RUN(poll_counts_what_the_receiver_saw);
     return CHECK_DONE();
 }

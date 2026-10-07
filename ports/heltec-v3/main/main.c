@@ -10,6 +10,14 @@
  *   status                   show this board's address, the session and the radio settings
  *   selftest                 run a handshake between two nodes in memory, and time it
  *
+ * and, for measuring on a bench what one radio hears of another (see README.md):
+ *
+ *   bench on|off             stop routing and first contact, and count what the radio receives
+ *   sync <hex>               the sync word, in its one-byte form
+ *   power <dBm>              the power frames are sent at
+ *   beacon <count> <ms>      send so many test frames, so far apart
+ *   counts [reset]           what has been sent and received since the last reset
+ *
  * Pressing PRG sends a ping, and a board that receives a ping answers with a pong saying how
  * well it heard it. The LED lights while a frame is on the air or has just arrived.
  *
@@ -49,7 +57,7 @@ static struct tern_sx126x sx;
 static struct tern_radio radio;
 static struct tern_radio_config cfg;
 static const struct tern_region *region;
-static bool off_profile; /* the build changed the region's frequency or modulation */
+static bool off_profile; /* the frequency, modulation or sync word is not the region's */
 static struct tern_duty duty;
 static struct demo demo;
 static bool transmitting;
@@ -68,6 +76,16 @@ static uint8_t waiting[TERN_CONTACT_MAX_FRAME];
 static size_t waiting_len;
 static tern_time tx_deadline; /* when a frame on the air should certainly have finished */
 static tern_time led_until;
+
+/* The bench: test frames sent on a timer, and counts of what was received. */
+#define BEACON_LEN 24
+static const char beacon_text[BEACON_LEN - 4] = "tern sync word test ";
+static bool bench;
+static uint32_t beacon_left, beacon_sent, beacon_number;
+static tern_time beacon_gap, beacon_next;
+static bool beacon_running;
+static uint32_t bench_ours, bench_others; /* frames received: test frames, and anything else */
+static int32_t bench_rssi, bench_snr_cdb; /* summed over the test frames */
 
 /* --- Storage: one NVS namespace ------------------------------------------------------------ */
 
@@ -317,10 +335,22 @@ static void poll_radio(void) {
         }
         break;
     case TERN_RADIO_RX_DONE:
+        if (bench) {
+            if (ev.len == BEACON_LEN && memcmp(ev.data, beacon_text, sizeof beacon_text) == 0) {
+                bench_ours++;
+                bench_rssi += ev.rssi_dbm;
+                bench_snr_cdb += ev.snr_cdb;
+            } else {
+                bench_others++;
+            }
+            break;
+        }
         heard(&ev);
         break;
     case TERN_RADIO_RX_ERROR:
-        printf("(a damaged frame)\n");
+        if (!bench) {
+            printf("(a damaged frame)\n");
+        }
         break;
     }
 }
@@ -379,6 +409,126 @@ static void poll_route(void) {
     }
 }
 
+/* --- The bench -------------------------------------------------------------------------------- */
+
+/* Sets the radio up again after a change to cfg, and listens. */
+static bool bench_configure(void) {
+    int err = tern_radio_configure(&radio, &cfg);
+    power_now = err == TERN_OK ? cfg.tx_power_dbm : POWER_UNSET;
+    if (err == TERN_OK) {
+        err = tern_radio_receive(&radio);
+    }
+    if (err != TERN_OK) {
+        printf("radio error %d\n", err);
+    }
+    return err == TERN_OK;
+}
+
+static void bench_counts(void) {
+    const struct tern_sx126x_counts *c = &sx.counts;
+    int32_t rssi = bench_ours ? bench_rssi / (int32_t)bench_ours : 0;
+    int32_t snr = bench_ours ? bench_snr_cdb / (int32_t)bench_ours : 0;
+    printf("counts: sync 0x%02X, %d dBm, sent %lu, preambles %lu, headers %lu, header errors %lu, "
+           "crc errors %lu, frames %lu, test frames %lu, others %lu, mean %ld dBm, SNR %ld cB\n",
+           cfg.sync_word, cfg.tx_power_dbm, (unsigned long)beacon_sent, (unsigned long)c->preambles,
+           (unsigned long)c->headers, (unsigned long)c->header_errors, (unsigned long)c->crc_errors,
+           (unsigned long)c->frames, (unsigned long)bench_ours, (unsigned long)bench_others,
+           (long)rssi, (long)snr);
+}
+
+static void poll_beacon(void) {
+    uint8_t frame[BEACON_LEN];
+    if (!beacon_running || transmitting) {
+        return;
+    }
+    if (beacon_left == 0) {
+        beacon_running = false;
+        printf("beacon: done, %lu sent\n", (unsigned long)beacon_sent);
+        return;
+    }
+    if (board_now() < beacon_next) {
+        return;
+    }
+    memcpy(frame, beacon_text, sizeof beacon_text);
+    frame[BEACON_LEN - 4] = (uint8_t)(beacon_number >> 24);
+    frame[BEACON_LEN - 3] = (uint8_t)(beacon_number >> 16);
+    frame[BEACON_LEN - 2] = (uint8_t)(beacon_number >> 8);
+    frame[BEACON_LEN - 1] = (uint8_t)beacon_number;
+    if (transmit(frame, sizeof frame) != 0) {
+        beacon_next = board_now() + beacon_gap;
+        beacon_left--;
+        beacon_sent++;
+        beacon_number++;
+    } else {
+        /* Refused, and said why: it is still owed, and tried again no sooner than a second on.
+         * 'bench off' ends a run that cannot finish. */
+        beacon_next = board_now() + (beacon_gap > 1000000000LL ? beacon_gap : 1000000000LL);
+    }
+}
+
+/* The bench's commands. False if the line is not one of them. */
+static bool bench_command(char *line) {
+    unsigned long a, b;
+    long dbm;
+    if (strcmp(line, "bench on") == 0 || strcmp(line, "bench off") == 0) {
+        bench = line[7] == 'n';
+        beacon_running = false;
+        printf("bench %s\n", bench ? "on: no routing or first contact until 'bench off'" : "off");
+        return true;
+    }
+    if (strcmp(line, "counts") == 0) {
+        bench_counts();
+        return true;
+    }
+    if (strcmp(line, "counts reset") == 0) {
+        sx.counts = (struct tern_sx126x_counts){0};
+        beacon_sent = bench_ours = bench_others = 0;
+        bench_rssi = bench_snr_cdb = 0;
+        printf("counts reset\n");
+        return true;
+    }
+    bool is_sync = sscanf(line, "sync %lx", &a) == 1;
+    bool is_power = !is_sync && sscanf(line, "power %ld", &dbm) == 1;
+    bool is_beacon = !is_sync && !is_power && sscanf(line, "beacon %lu %lu", &a, &b) == 2;
+    if (!is_sync && !is_power && !is_beacon) {
+        return false;
+    }
+    if (!bench) {
+        printf("that is for the bench: 'bench on' first\n");
+    } else if (transmitting || beacon_running) {
+        printf("busy: frames are still being sent\n");
+    } else if (is_sync) {
+        if (a > 0xFF) {
+            printf("a sync word is one byte\n");
+            return true;
+        }
+        cfg.sync_word = (uint8_t)a;
+        off_profile = off_profile || cfg.sync_word != TERN_SYNC_WORD;
+        if (bench_configure()) {
+            printf("sync word 0x%02X, which the radio takes as 0x%04X\n", cfg.sync_word,
+                   tern_sync_word_sx126x(cfg.sync_word));
+        }
+    } else if (is_power) {
+        struct tern_radio_config allowed;
+        if (dbm < TX_MIN_DBM || dbm > 22 ||
+            tern_region_radio(region, (int8_t)dbm, CONFIG_TERN_ANTENNA_DBI, &allowed) != TERN_OK) {
+            printf("%ld dBm is not a power this radio gives and %s allows\n", dbm, region->name);
+            return true;
+        }
+        cfg.tx_power_dbm = (int8_t)dbm;
+        if (bench_configure()) {
+            printf("power %d dBm\n", cfg.tx_power_dbm);
+        }
+    } else {
+        beacon_left = (uint32_t)a;
+        beacon_gap = (tern_time)b * 1000000;
+        beacon_next = board_now();
+        beacon_running = true;
+        printf("beacon: %lu frames of %d bytes, %lu ms apart\n", a, BEACON_LEN, b);
+    }
+    return true;
+}
+
 /* --- The console ---------------------------------------------------------------------------- */
 
 /* Sixty-four hex digits. */
@@ -405,8 +555,9 @@ static void status(void) {
     print_address(demo.id.address);
     printf("\n");
     printf("radio: %s%s, %lu Hz, SF%u, %lu Hz, CR 4/%u, %d dBm, sync word 0x%02X\n", region->name,
-           off_profile ? " (changed by this build)" : "", (unsigned long)cfg.freq_hz, cfg.mod.sf,
-           (unsigned long)cfg.mod.bw_hz, 4 + cfg.mod.cr, cfg.tx_power_dbm, cfg.sync_word);
+           off_profile ? " (not the region's settings)" : "", (unsigned long)cfg.freq_hz,
+           cfg.mod.sf, (unsigned long)cfg.mod.bw_hz, 4 + cfg.mod.cr, cfg.tx_power_dbm,
+           cfg.sync_word);
     if (region->duty_ppm < TERN_DUTY_UNLIMITED) {
         printf("transmitted: %lld ms of the %lld ms allowed in any %lu s\n",
                (long long)(tern_duty_used(&duty, board_now()) / 1000000),
@@ -561,6 +712,14 @@ static void selftest(void) {
 }
 
 static void command(char *line) {
+    if (bench_command(line)) {
+        return;
+    }
+    if (bench && (strncmp(line, "contact ", 8) == 0 || strncmp(line, "send ", 5) == 0 ||
+                  strcmp(line, "accept") == 0)) {
+        printf("not on the bench, where only test frames are sent: 'bench off' first\n");
+        return;
+    }
     if (strncmp(line, "contact ", 8) == 0) {
         uint8_t peer[TERN_ADDRESS_LEN], frame[TERN_CONTACT_MAX_FRAME];
         size_t len;
@@ -594,7 +753,8 @@ static void command(char *line) {
     } else if (line[0] != '\0') {
         printf(
             "commands: contact <address>, accept, send <text>, status, routes, selftest. PRG sends "
-            "a ping.\n");
+            "a ping. For the bench: bench on|off, sync <hex>, power <dBm>, beacon <count> <ms>, "
+            "counts [reset].\n");
     }
 }
 
@@ -626,7 +786,7 @@ static void poll_button(void) {
     static tern_time last;
     static unsigned pings;
     bool now = board_button();
-    if (now && !was && board_now() - last > 300 * 1000000LL) {
+    if (now && !was && !bench && board_now() - last > 300 * 1000000LL) {
         char text[32];
         last = board_now();
         snprintf(text, sizeof text, "ping %u", ++pings);
@@ -734,8 +894,12 @@ void app_main(void) {
     status();
     for (;;) {
         poll_radio();
-        poll_contact();
-        poll_route();
+        if (bench) {
+            poll_beacon();
+        } else {
+            poll_contact();
+            poll_route();
+        }
         poll_console();
         poll_button();
         if (transmitting && board_now() > tx_deadline) {
