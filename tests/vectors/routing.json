@@ -1,5 +1,5 @@
 {
-  "description": "Routing, draft 0 (draft/routing.md). Routing ids, sequence numbers, promise codes and metrics are numbers; addresses and frames are hex. In floors, powers are dBm, snr_quarter_db is the signal-to-noise ratio in quarters of a decibel, as the SX126x reports it, and floor_sixteenths is the floor in sixteenths of a dBm. In links, own_margin_sixteenths is the node's full power less its floor for the neighbour, in sixteenths of a decibel, and their_margin is the margin byte the neighbour gave; either is null when it is missing, and the steps follow one another. In selection and kept, each route's metric is the one its neighbour announced, every link costs link_cost, and selected, selects and replaces are indexes into routes.",
+  "description": "Routing, draft 0 (draft/routing.md). Routing ids, sequence numbers, promise codes and metrics are numbers; addresses and frames are hex. In floors, powers are dBm, snr_quarter_db is the signal-to-noise ratio in quarters of a decibel, as the SX126x reports it, and floor_sixteenths is the floor in sixteenths of a dBm. In links, own_margin_sixteenths is the node's full power less its floor for the neighbour, in sixteenths of a decibel, and their_margin is the margin byte the neighbour gave; either is null when it is missing, and the steps follow one another. In places, neighbours is a full table, each with the node's floor for it and whether its link is up, floor_sixteenths is the floor an announce from a node not in it gives, and replaces is an index into neighbours. In selection and kept, each route's metric is the one its neighbour announced, every link costs link_cost, and selected, selects and replaces are indexes into routes.",
   "generator": "vectors/tools/routing.py",
   "ids": [
     {
@@ -627,6 +627,204 @@
       "number": 32768,
       "round": 32767,
       "withdrawn": true
+    }
+  ],
+  "places": [
+    {
+      "neighbours": [
+        {
+          "floor_sixteenths": -320,
+          "up": false
+        },
+        {
+          "floor_sixteenths": -80,
+          "up": false
+        },
+        {
+          "floor_sixteenths": -200,
+          "up": false
+        },
+        {
+          "floor_sixteenths": -400,
+          "up": false
+        }
+      ],
+      "floor_sixteenths": -176,
+      "replaces": 1
+    },
+    {
+      "neighbours": [
+        {
+          "floor_sixteenths": -320,
+          "up": false
+        },
+        {
+          "floor_sixteenths": -80,
+          "up": false
+        },
+        {
+          "floor_sixteenths": -200,
+          "up": false
+        },
+        {
+          "floor_sixteenths": -400,
+          "up": false
+        }
+      ],
+      "floor_sixteenths": -175,
+      "replaces": null
+    },
+    {
+      "neighbours": [
+        {
+          "floor_sixteenths": -320,
+          "up": false
+        },
+        {
+          "floor_sixteenths": -80,
+          "up": false
+        },
+        {
+          "floor_sixteenths": -200,
+          "up": false
+        },
+        {
+          "floor_sixteenths": -400,
+          "up": false
+        }
+      ],
+      "floor_sixteenths": -600,
+      "replaces": 1
+    },
+    {
+      "neighbours": [
+        {
+          "floor_sixteenths": -320,
+          "up": false
+        },
+        {
+          "floor_sixteenths": -80,
+          "up": false
+        },
+        {
+          "floor_sixteenths": -200,
+          "up": false
+        },
+        {
+          "floor_sixteenths": -400,
+          "up": false
+        }
+      ],
+      "floor_sixteenths": 0,
+      "replaces": null
+    },
+    {
+      "neighbours": [
+        {
+          "floor_sixteenths": -320,
+          "up": true
+        },
+        {
+          "floor_sixteenths": -80,
+          "up": true
+        },
+        {
+          "floor_sixteenths": -200,
+          "up": false
+        },
+        {
+          "floor_sixteenths": -400,
+          "up": false
+        }
+      ],
+      "floor_sixteenths": -296,
+      "replaces": 2
+    },
+    {
+      "neighbours": [
+        {
+          "floor_sixteenths": -320,
+          "up": true
+        },
+        {
+          "floor_sixteenths": -80,
+          "up": true
+        },
+        {
+          "floor_sixteenths": -200,
+          "up": false
+        },
+        {
+          "floor_sixteenths": -400,
+          "up": false
+        }
+      ],
+      "floor_sixteenths": -295,
+      "replaces": null
+    },
+    {
+      "neighbours": [
+        {
+          "floor_sixteenths": -320,
+          "up": true
+        },
+        {
+          "floor_sixteenths": -80,
+          "up": true
+        },
+        {
+          "floor_sixteenths": -200,
+          "up": false
+        },
+        {
+          "floor_sixteenths": -400,
+          "up": false
+        }
+      ],
+      "floor_sixteenths": -176,
+      "replaces": null
+    },
+    {
+      "neighbours": [
+        {
+          "floor_sixteenths": -320,
+          "up": true
+        },
+        {
+          "floor_sixteenths": -80,
+          "up": true
+        },
+        {
+          "floor_sixteenths": -200,
+          "up": true
+        },
+        {
+          "floor_sixteenths": -400,
+          "up": true
+        }
+      ],
+      "floor_sixteenths": -2000,
+      "replaces": null
+    },
+    {
+      "neighbours": [
+        {
+          "floor_sixteenths": 100,
+          "up": false
+        }
+      ],
+      "floor_sixteenths": 4,
+      "replaces": 0
+    },
+    {
+      "neighbours": [
+        {
+          "floor_sixteenths": 100,
+          "up": false
+        }
+      ],
+      "floor_sixteenths": 5,
+      "replaces": null
     }
   ],
   "numbering": [

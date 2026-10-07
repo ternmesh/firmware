@@ -221,6 +221,12 @@ struct tern_route_neighbour {
     tern_time promise; /* how soon it said it would announce again */
 };
 
+/* Which neighbour of a full table of `n` a node just heard takes the place of, `floor` being what
+ * its one frame gives: the one with the highest floor of those whose link is not up, if the node
+ * heard is 6 dB nearer; an index, or -1. A link that is up is never given up for one that might
+ * come up. */
+int tern_route_place(const struct tern_route_neighbour *full, size_t n, int32_t floor);
+
 struct tern_route_entry {
     uint8_t slot; /* the neighbour's place in the table plus 1; 0 for none */
     uint16_t seq;

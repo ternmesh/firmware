@@ -22,7 +22,8 @@ every receiver setting and cases for the limit on transmitting).
 
 `routing.json` is a copy of
 [`vectors/routing.json`](https://github.com/ternmesh/spec/blob/main/vectors/routing.json), as of
-the routing draft in [ternmesh/spec#6](https://github.com/ternmesh/spec/pull/6). `routing_to_c.py`
+the routing draft in [ternmesh/spec#8](https://github.com/ternmesh/spec/pull/8), which adds a full
+table's cases. `routing_to_c.py`
 turns it into a header for `tests/route.c`.
 
 When the specification's vectors change, copy the new file here in the same pull request that
