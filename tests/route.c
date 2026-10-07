@@ -185,6 +185,62 @@ static void frames_the_specification_rejects_change_nothing(void) {
     }
 }
 
+/* One announce from `id`, heard at `snr` decibels, naming this node with `margin` if that is not
+ * 0. Sent at 0 dBm, so the floor it gives is the modulation's floor less `snr`. */
+static void hear(struct tern_route *r, uint32_t id, int snr, uint8_t margin) {
+    uint8_t frame[TERN_ROUTE_FRAME_MAX];
+    struct tern_announce a = {.sender = id, .number = 1, .seq = 1, .promise = 60, .round = 1};
+    if (margin) {
+        a.named_count = 1;
+        a.named[0] = (struct tern_announce_named){.id = VECTOR_OWN_ID, .margin = margin};
+    }
+    tern_route_heard(r, r->now + TERN_S(1), frame, tern_announce_write(&a, frame),
+                     (int16_t)(4 * snr));
+}
+
+static bool keeps(const struct tern_route_neighbour *nb, size_t cap, uint32_t id) {
+    for (size_t i = 0; i < cap; i++) {
+        if (nb[i].used && nb[i].id == id) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void a_full_table_keeps_the_nearest_and_every_link_that_is_up(void) {
+    const struct tern_region *us = tern_region(TERN_REGION_US915);
+    struct tern_lora lora = tern_region_lora(us);
+    struct tern_route_config config = tern_route_defaults(&lora, 22, -9, true);
+    struct tern_route_neighbour nb[2];
+    struct tern_route_dest dest[8];
+    struct tern_route r;
+
+    /* Neither link up: the one further off gives way, to a node 6 dB nearer and no less. */
+    tern_route_init(&r, &config, VECTOR_OWN_ID, nb, 2, dest, 8, 0, 7, 0);
+    hear(&r, 0xA, 0, 0);
+    hear(&r, 0xB, 10, 0);
+    hear(&r, 0xC, 5, 0);
+    CHECK(keeps(nb, 2, 0xA) && keeps(nb, 2, 0xB) && !keeps(nb, 2, 0xC));
+    hear(&r, 0xC, 6, 0);
+    CHECK(!keeps(nb, 2, 0xA) && keeps(nb, 2, 0xB) && keeps(nb, 2, 0xC));
+    /* And what was held through the one that went has gone with it. */
+    CHECK(!tern_route_next(&r, 0xA, &(uint32_t){0}, &(uint16_t){0}));
+
+    /* A link that is up stays, however far off: the other gives way. */
+    tern_route_init(&r, &config, VECTOR_OWN_ID, nb, 2, dest, 8, 0, 7, 0);
+    hear(&r, 0xA, 0, 200);
+    hear(&r, 0xB, 10, 0);
+    hear(&r, 0xC, 30, 0);
+    CHECK(keeps(nb, 2, 0xA) && !keeps(nb, 2, 0xB) && keeps(nb, 2, 0xC));
+
+    /* With every link up there is no room, whoever asks. */
+    tern_route_init(&r, &config, VECTOR_OWN_ID, nb, 2, dest, 8, 0, 7, 0);
+    hear(&r, 0xA, 0, 200);
+    hear(&r, 0xB, 10, 200);
+    hear(&r, 0xC, 30, 0);
+    CHECK(keeps(nb, 2, 0xA) && keeps(nb, 2, 0xB) && !keeps(nb, 2, 0xC));
+}
+
 static void floors_average_and_margins_round_down(void) {
     for (size_t i = 0; i < COUNT(floors); i++) {
         const struct floor_case *c = &floors[i];
@@ -270,6 +326,7 @@ int main(void) {
     RUN(links_come_up_and_stay_within_the_band);
     RUN(margins_are_withdrawn_after_eight_rounds);
     RUN(a_neighbour_that_starts_again_is_told_from_a_late_frame);
+    RUN(a_full_table_keeps_the_nearest_and_every_link_that_is_up);
     RUN(a_link_costs_the_reference_frame);
     RUN(feasibility_is_babels);
     RUN(the_lowest_feasible_metric_is_selected_with_hysteresis);

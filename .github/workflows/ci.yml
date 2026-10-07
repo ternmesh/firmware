@@ -76,7 +76,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: ternmesh/sim
-          ref: 6084a852298275de5d7317ba4180d2ee76a62022
+          ref: 4b19737aa0b2284c54d2b87e664eebf76c6b2600
           path: sim
       - run: sudo apt-get update && sudo apt-get install -y ninja-build
       - name: Configure

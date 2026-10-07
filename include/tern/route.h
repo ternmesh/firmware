@@ -203,7 +203,8 @@ struct tern_route_config tern_route_defaults(const struct tern_lora *lora, int8_
                                              int8_t min_dbm, bool relay);
 
 /* The tables below are the caller's to allocate and the router's to fill. Their fields are for
- * the router, and for showing a person what it knows. */
+ * the router, and for showing a person what it knows. With more nodes to hear than it has places
+ * for neighbours, the router keeps every link that is up and otherwise the nearest. */
 
 struct tern_route_neighbour {
     uint32_t id;

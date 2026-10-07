@@ -8,6 +8,7 @@
 #define AGE_MAX 0x7FFFu /* the most announces a margin may outlast, whatever the round */
 #define LINK_MARGIN 0   /* sixteenths of a decibel */
 #define LINK_BAND (3 * 16)
+#define REPLACE_BAND (6 * 16)
 #define MARGIN_ZERO 128
 #define RETRACTS 3
 #define ASK_FRAME 62 /* a request frame of eight, which a request's jitter is reckoned in */
@@ -620,14 +621,32 @@ static void forget(struct tern_route *r, uint8_t s) {
     r->changed = false;
 }
 
-static uint8_t neighbour_make(struct tern_route *r, uint32_t id) {
+/* A place for a neighbour just heard, `floor` being what its one frame says. With the table full
+ * it takes the place of the neighbour with the highest floor of those whose link is not up, if it
+ * is REPLACE_BAND nearer; a link that is up is never given up for one that might come up. */
+static uint8_t neighbour_make(struct tern_route *r, uint32_t id, int32_t floor) {
+    size_t worst = 0;
     for (size_t i = 0; i < r->nb_cap; i++) {
-        if (!r->nb[i].used) {
-            r->nb[i] = (struct tern_route_neighbour){.id = id, .used = true, .owed = true};
-            return (uint8_t)(i + 1);
+        const struct tern_route_neighbour *n = &r->nb[i];
+        if (!n->used) {
+            worst = i + 1;
+            break;
+        }
+        if (!n->up && (!worst || n->floor > r->nb[worst - 1].floor)) {
+            worst = i + 1;
         }
     }
-    return 0;
+    if (!worst) {
+        return 0;
+    }
+    if (r->nb[worst - 1].used) {
+        if (floor + REPLACE_BAND > r->nb[worst - 1].floor) {
+            return 0;
+        }
+        forget(r, (uint8_t)worst);
+    }
+    r->nb[worst - 1] = (struct tern_route_neighbour){.id = id, .used = true, .owed = true};
+    return (uint8_t)worst;
 }
 
 /* --- Power --- */
@@ -932,7 +951,8 @@ static void on_announce(struct tern_route *r, const struct tern_announce *a, int
         }
     }
     if (fresh) {
-        s = neighbour_make(r, a->sender);
+        s = neighbour_make(r, a->sender,
+                           tern_route_floor(true, 0, a->power, snr_q, r->config.lora.sf));
         if (!s) {
             return; /* no room for another neighbour */
         }
