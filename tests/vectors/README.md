@@ -14,5 +14,10 @@ as of commit `522065e` (first contact, draft 0, with the impersonation case adde
 [ternmesh/spec#4](https://github.com/ternmesh/spec/pull/4)). `contact_to_c.py` turns it into a
 header for `tests/contact.c` the same way.
 
+`phy.json` is a copy of
+[`vectors/phy.json`](https://github.com/ternmesh/spec/blob/main/vectors/phy.json), as of commit
+`f5da327` (radio settings, draft 0, in [ternmesh/spec#5](https://github.com/ternmesh/spec/pull/5)).
+`phy_to_c.py` turns it into a header for `tests/region.c`.
+
 When the specification's vectors change, copy the new file here in the same pull request that
 changes the code to match, and update the commit above.

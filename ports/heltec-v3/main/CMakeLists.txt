@@ -10,10 +10,12 @@ idf_component_register(
         ${root}/src/aes.c
         ${root}/src/ccm.c
         ${root}/src/contact.c
+        ${root}/src/duty.c
         ${root}/src/fe25519.c
         ${root}/src/hkdf.c
         ${root}/src/lora.c
         ${root}/src/radio.c
+        ${root}/src/region.c
         ${root}/src/sha256.c
         ${root}/src/sha512.c
         ${root}/src/sx126x.c

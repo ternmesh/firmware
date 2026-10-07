@@ -21,8 +21,7 @@ struct tern_radio_config {
     uint32_t freq_hz;
     int8_t tx_power_dbm;
     /* The sync word in its one-byte form, as SX127x radios take it. Ports for other chips convert
-     * it (tern_sync_word_sx126x()). Tern's own is not yet chosen (MSH-28); until the specification
-     * sets it, the port's caller supplies one. */
+     * it (tern_sync_word_sx126x()). Tern's own is TERN_SYNC_WORD (tern/region.h). */
     uint8_t sync_word;
 };
 
