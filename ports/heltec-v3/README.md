@@ -160,6 +160,25 @@ radio would. Two boards built before this change and after it do not hear each o
 * **Experiments.** `menuconfig` can also set a frequency, spreading factor, bandwidth and sync
   word that are not the region's. `status` then says so.
 
+## On a bench
+
+For measuring what one radio hears of another, the board has a second set of commands. `bench on`
+stops routing and first contact, so that the only frames a board sends are the ones asked for,
+until `bench off` or a restart.
+
+| Command | |
+|---|---|
+| `bench on`, `bench off` | |
+| `sync <hex>` | The sync word, in its one-byte form: `sync 2B` is Meshtastic's. |
+| `power <dBm>` | The power frames are sent at, -9 to 22. |
+| `beacon <count> <ms>` | Send so many 24-byte test frames, so far apart. |
+| `counts`, `counts reset` | Frames sent, and what the receiver saw: preambles, headers that checked, headers and frames that did not, whole frames, and of those the test frames. |
+
+A frame with another sync word shows as a preamble and nothing more. The simulator's
+`calibration/syncword/run.py` drives two boards through every pair of sync words this way. A
+board set to another network's sync word hears that network and can disturb it: use these where
+none is in range, and put the board back (`sync 5E`, or restart it) afterwards.
+
 ## How it is put together
 
 | File | |

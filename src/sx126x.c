@@ -41,12 +41,16 @@ enum {
 enum {
     IRQ_TX_DONE = 1u << 0,
     IRQ_RX_DONE = 1u << 1,
+    IRQ_PREAMBLE = 1u << 2,
+    IRQ_HEADER_VALID = 1u << 4,
     IRQ_HEADER_ERR = 1u << 5,
     IRQ_CRC_ERR = 1u << 6,
     IRQ_TIMEOUT = 1u << 9,
 };
 
-#define IRQ_USED (IRQ_TX_DONE | IRQ_RX_DONE | IRQ_HEADER_ERR | IRQ_CRC_ERR | IRQ_TIMEOUT)
+#define IRQ_COUNTED (IRQ_PREAMBLE | IRQ_HEADER_VALID)
+#define IRQ_USED                                                                                   \
+    (IRQ_TX_DONE | IRQ_RX_DONE | IRQ_HEADER_ERR | IRQ_CRC_ERR | IRQ_TIMEOUT | IRQ_COUNTED)
 #define STANDBY_RC 0x00
 #define PACKET_TYPE_LORA 0x01
 #define RX_CONTINUOUS 0xFFFFFFu
@@ -95,6 +99,7 @@ int tern_sx126x_init(struct tern_sx126x *d, const struct tern_sx126x_bus *bus,
     d->bus = *bus;
     d->board = *board;
     d->configured = false;
+    d->counts = (struct tern_sx126x_counts){0};
 
     int err = CMD(d, CMD_SET_STANDBY, STANDBY_RC);
     if (err == TERN_OK && board->dcdc) {
@@ -314,6 +319,17 @@ static int sx_poll(void *ctx, struct tern_radio_event *ev) {
     }
     uint16_t irq = (uint16_t)(rx[2] << 8 | rx[3]);
 
+    /* What the receiver got as far as, counted whether or not a frame comes of it: a frame with
+     * another network's sync word is a preamble and nothing more. */
+    if (irq & IRQ_COUNTED) {
+        d->counts.preambles += (irq & IRQ_PREAMBLE) != 0;
+        d->counts.headers += (irq & IRQ_HEADER_VALID) != 0;
+        err = clear_irq(d, irq & IRQ_COUNTED);
+        if (err != TERN_OK) {
+            return err;
+        }
+    }
+
     if (irq & IRQ_TX_DONE) {
         *ev = (struct tern_radio_event){.kind = TERN_RADIO_TX_DONE, .at = d->bus.now(d->bus.ctx)};
         err = clear_irq(d, IRQ_TX_DONE);
@@ -323,6 +339,8 @@ static int sx_poll(void *ctx, struct tern_radio_event *ev) {
     if (irq & (IRQ_RX_DONE | IRQ_HEADER_ERR)) {
         tern_time at = d->bus.now(d->bus.ctx);
         if (irq & (IRQ_HEADER_ERR | IRQ_CRC_ERR)) {
+            d->counts.header_errors += (irq & IRQ_HEADER_ERR) != 0;
+            d->counts.crc_errors += (irq & IRQ_HEADER_ERR) == 0;
             *ev = (struct tern_radio_event){.kind = TERN_RADIO_RX_ERROR, .at = at};
             err = clear_irq(d, IRQ_RX_DONE | IRQ_HEADER_ERR | IRQ_CRC_ERR);
             return err == TERN_OK ? 1 : err;
@@ -361,6 +379,7 @@ static int sx_poll(void *ctx, struct tern_radio_event *ev) {
             .rssi_dbm = (int16_t)(-(int16_t)rx[2] / 2),
             .snr_cdb = (int16_t)((int8_t)rx[3] * 25),
         };
+        d->counts.frames++;
         err = clear_irq(d, IRQ_RX_DONE);
         return err == TERN_OK ? 1 : err;
     }

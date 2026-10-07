@@ -36,9 +36,21 @@ struct tern_sx126x_board {
     bool dcdc;           /* the DC-DC regulator is fitted (as on most modules), not just the LDO */
 };
 
+/* What the receiver has seen since tern_sx126x_init(), as tern_radio_poll() found it. The chip
+ * says once that it has seen a preamble or a header however many came between two polls, so these
+ * are exact only when frames come further apart than the polls. The caller may clear them. */
+struct tern_sx126x_counts {
+    uint32_t preambles; /* preambles detected, whatever followed */
+    uint32_t headers;   /* of them, those with this radio's sync word and a header that checked */
+    uint32_t header_errors; /* headers that did not check */
+    uint32_t crc_errors;    /* frames that failed their CRC */
+    uint32_t frames;        /* frames received whole */
+};
+
 struct tern_sx126x {
     struct tern_sx126x_bus bus;
     struct tern_sx126x_board board;
+    struct tern_sx126x_counts counts;
     struct tern_radio_config cfg; /* as last configured */
     bool configured;
     uint8_t rx[255]; /* the last frame received; RX_DONE events point here */
