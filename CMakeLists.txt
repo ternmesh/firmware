@@ -29,21 +29,26 @@ endif()
 # libc beyond the freestanding headers, so the same library builds for a microcontroller
 # (cmake/arm-none-eabi.cmake) and for a host. Board ports and the Linux build link against it.
 add_library(tern
+    src/address.c
     src/aes.c
     src/ccm.c
+    src/contact.c
+    src/fe25519.c
     src/hkdf.c
     src/lora.c
     src/radio.c
     src/sha256.c
+    src/sha512.c
     src/sx126x.c
     src/unicast.c
+    src/x25519.c
 )
 target_include_directories(tern PUBLIC include)
 target_compile_options(tern PRIVATE ${TERN_WARNINGS})
 
 include(CTest)
 if(BUILD_TESTING)
-    foreach(t crypto lora radio sx126x unicast)
+    foreach(t address contact crypto lora radio sx126x unicast)
         add_executable(test_${t} tests/${t}.c)
         target_link_libraries(test_${t} PRIVATE tern)
         # The test files define their cases as static functions, so the prototype warning is
@@ -64,6 +69,17 @@ if(BUILD_TESTING)
         DEPENDS tests/vectors/unicast_to_c.py tests/vectors/unicast-security.json
         VERBATIM)
     target_sources(test_unicast PRIVATE ${vectors_h})
+
+    set(contact_h ${CMAKE_CURRENT_BINARY_DIR}/vectors/first_contact.h)
+    add_custom_command(
+        OUTPUT ${contact_h}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/vectors
+        COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tests/vectors/contact_to_c.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/vectors/first-contact.json ${contact_h}
+        DEPENDS tests/vectors/contact_to_c.py tests/vectors/first-contact.json
+        VERBATIM)
+    target_sources(test_contact PRIVATE ${contact_h})
+    target_include_directories(test_contact PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/vectors)
 
     # The Heltec V3 port's pairing logic touches no hardware, so it is tested here too.
     add_executable(test_demo tests/demo.c ports/heltec-v3/main/demo.c)

@@ -8,5 +8,11 @@ specification's `vectors/`, it is dedicated to the public domain (CC0-1.0).
 The build turns it into a C header with `unicast_to_c.py`, which only reformats: no value is
 computed there. `tests/unicast.c` checks the core against it.
 
+`first-contact.json` is likewise a copy of
+[`vectors/first-contact.json`](https://github.com/ternmesh/spec/blob/main/vectors/first-contact.json),
+as of commit `522065e` (first contact, draft 0, with the impersonation case added in
+[ternmesh/spec#4](https://github.com/ternmesh/spec/pull/4)). `contact_to_c.py` turns it into a
+header for `tests/contact.c` the same way.
+
 When the specification's vectors change, copy the new file here in the same pull request that
 changes the code to match, and update the commit above.
