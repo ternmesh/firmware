@@ -18,11 +18,12 @@
  *   beacon <count> <ms>      send so many test frames, so far apart
  *   counts [reset]           what has been sent and received since the last reset
  *
- * Pressing PRG sends a ping, and a board that receives a ping answers with a pong saying how
- * well it heard it. The LED lights while a frame is on the air or has just arrived.
+ * Pressing PRG shows the bench screen's next page; holding it for a second sends a ping, and a
+ * board that receives a ping answers with a pong saying how well it heard it. (With no screen,
+ * a press sends a ping.) The LED lights while a frame is on the air or has just arrived.
  *
  * Everything runs in one loop: the core never runs in interrupt context, so the loop polls the
- * radio, the serial port and the button in turn. */
+ * radio, the serial port, the button and the screen in turn. */
 
 #include <stdio.h>
 #include <string.h>
@@ -30,12 +31,14 @@
 #include "board.h"
 #include "bootloader_random.h"
 #include "demo.h"
+#include "display.h"
 #include "driver/uart.h"
 #include "esp_random.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "nvs.h"
 #include "nvs_flash.h"
+#include "status.h"
 #include "tern/duty.h"
 #include "tern/err.h"
 #include "tern/lora.h"
@@ -52,6 +55,9 @@
 #define DESTINATIONS 128
 #define TX_MIN_DBM (-9) /* the SX1262's least */
 #define POWER_UNSET INT8_MIN
+#define SCREEN_MS 500  /* how often the bench screen is drawn again */
+#define HOLD_MS 1000   /* how long PRG is held to send a ping */
+#define SCREEN_TRIES 5 /* writes failed in a row before the screen is given up */
 
 static struct tern_sx126x sx;
 static struct tern_radio radio;
@@ -76,6 +82,17 @@ static uint8_t waiting[TERN_CONTACT_MAX_FRAME];
 static size_t waiting_len;
 static tern_time tx_deadline; /* when a frame on the air should certainly have finished */
 static tern_time led_until;
+/* What the bench screen shows that nothing else keeps. */
+static uint32_t frames_out, frames_in;
+static tern_time air_total;
+static char last_text[STATUS_TEXT];
+static tern_time last_at; /* when last_text was heard, or 0 for nothing yet */
+static struct display screen;
+static bool have_screen;
+static int screen_page;
+static tern_time screen_due;
+static tern_time screen_retry; /* after a failed write, when to try again */
+static unsigned screen_failures;
 
 /* The bench: test frames sent on a timer, and counts of what was received. */
 #define BEACON_LEN 24
@@ -189,6 +206,8 @@ static tern_time transmit_at(const uint8_t *frame, size_t len, int8_t dbm) {
         return 0;
     }
     transmitting = true;
+    frames_out++;
+    air_total += air;
     tx_deadline = board_now() + air + 2000000000LL;
     flash_led();
     return air;
@@ -259,6 +278,11 @@ static void heard(const struct tern_radio_event *ev) {
         msg[got.msg_len] = '\0';
         printf("heard #%lu \"%s\" at %d dBm, SNR %s%d.%02d dB\n", (unsigned long)got.counter,
                (const char *)msg, ev->rssi_dbm, snr_sign, snr_whole, snr_frac);
+        /* As much as the screen keeps of it. */
+        size_t keep = got.msg_len < sizeof last_text - 1 ? got.msg_len : sizeof last_text - 1;
+        memcpy(last_text, msg, keep);
+        last_text[keep] = '\0';
+        last_at = board_now();
         if (strncmp((const char *)msg, "ping", 4) == 0) {
             char reply[64];
             snprintf(reply, sizeof reply, "pong to #%lu: %d dBm, SNR %s%d.%02d dB",
@@ -273,6 +297,7 @@ static void heard(const struct tern_radio_event *ev) {
         break;
     case DEMO_HEARD_PAIRED:
         flash_led();
+        last_at = 0; /* the last message was the old session's */
         printf("first contact: complete. Session started, as the %s, with ",
                demo.s.role == TERN_INITIATOR ? "initiator" : "responder");
         print_address(got.peer);
@@ -335,6 +360,7 @@ static void poll_radio(void) {
         }
         break;
     case TERN_RADIO_RX_DONE:
+        frames_in++;
         if (bench) {
             if (ev.len == BEACON_LEN && memcmp(ev.data, beacon_text, sizeof beacon_text) == 0) {
                 bench_ours++;
@@ -752,9 +778,9 @@ static void command(char *line) {
         selftest();
     } else if (line[0] != '\0') {
         printf(
-            "commands: contact <address>, accept, send <text>, status, routes, selftest. PRG sends "
-            "a ping. For the bench: bench on|off, sync <hex>, power <dBm>, beacon <count> <ms>, "
-            "counts [reset].\n");
+            "commands: contact <address>, accept, send <text>, status, routes, selftest. Holding "
+            "PRG sends a ping. For the bench: bench on|off, sync <hex>, power <dBm>, beacon "
+            "<count> <ms>, counts [reset].\n");
     }
 }
 
@@ -781,18 +807,145 @@ static void poll_console(void) {
     }
 }
 
-static void poll_button(void) {
-    static bool was;
-    static tern_time last;
-    static unsigned pings;
-    bool now = board_button();
-    if (now && !was && !bench && board_now() - last > 300 * 1000000LL) {
-        char text[32];
-        last = board_now();
-        snprintf(text, sizeof text, "ping %u", ++pings);
-        send(text);
+/* --- The bench screen ------------------------------------------------------------------------ */
+
+/* The board as the screen shows it (status.h). */
+static void fill_status(struct node_status *st) {
+    tern_time now = board_now();
+    memset(st, 0, sizeof *st);
+    st->id = route.id;
+    st->relay = route.config.relay;
+    st->region = region->name;
+    st->off_profile = off_profile;
+    st->freq_hz = cfg.freq_hz;
+    st->bw_hz = cfg.mod.bw_hz;
+    st->sf = cfg.mod.sf;
+    st->dbm = cfg.tx_power_dbm;
+    st->uptime_s = (uint32_t)(now / 1000000000LL);
+    st->air_total_ms = air_total / 1000000;
+    st->limited = region->duty_ppm < TERN_DUTY_UNLIMITED;
+    if (st->limited) {
+        st->air_used_ms = tern_duty_used(&duty, now) / 1000000;
+        st->air_limit_ms = duty.limit / 1000000;
+        st->window_s = region->duty_window_s;
     }
-    was = now;
+    st->frames_out = frames_out;
+    st->frames_in = frames_in;
+
+    /* Neighbours whose link is up are listed first. */
+    for (int pass = 0; pass < 2; pass++) {
+        for (int i = 0; i < NEIGHBOURS; i++) {
+            const struct tern_route_neighbour *n = &neighbours[i];
+            if (!n->used || n->up != (pass == 0)) {
+                continue;
+            }
+            st->heard++;
+            st->up += n->up;
+            if (st->n_neighbours < STATUS_LISTED) {
+                st->neighbours[st->n_neighbours++] = (struct status_neighbour){
+                    .id = n->id,
+                    .relay = n->relay,
+                    .up = n->up,
+                    .floor_dbm = (int16_t)(n->floor / 16),
+                    .spare_db = n->theirs != 0 ? (int16_t)(n->theirs - 128) : INT16_MIN,
+                };
+            }
+        }
+    }
+    for (int i = 0; i < DESTINATIONS; i++) {
+        uint32_t next;
+        uint16_t metric;
+        if (!destinations[i].used || !tern_route_next(&route, destinations[i].id, &next, &metric)) {
+            continue;
+        }
+        st->routed++;
+        if (st->n_routes < STATUS_LISTED) {
+            st->routes[st->n_routes++] = (struct status_route){
+                .dest = destinations[i].id, .next = next, .metric_ms = metric};
+        }
+    }
+
+    st->session = demo.s.role != 0;
+    st->contacting = demo.h.phase == DEMO_INITIATING || demo.h.phase == DEMO_RESPONDING;
+    st->peer = (uint32_t)demo.s.peer[0] << 24 | (uint32_t)demo.s.peer[1] << 16 |
+               (uint32_t)demo.s.peer[2] << 8 | demo.s.peer[3];
+    st->sent = demo.s.sent;
+    st->received = demo.s.heard;
+    st->have_last = last_at != 0;
+    memcpy(st->last, last_text, sizeof st->last);
+    st->last_s = (uint32_t)((now - last_at) / 1000000000LL);
+}
+
+/* Draws the page shown every SCREEN_MS, and sends at most one changed page of the picture each
+ * turn of the loop, about 3 ms, so the radio is never kept waiting long. A write that fails can
+ * take 50 ms (board.c), so after one the screen waits a second, and after SCREEN_TRIES in a row
+ * it is given up. */
+static void poll_screen(void) {
+    if (!have_screen) {
+        return;
+    }
+    if (board_now() >= screen_due) {
+        static struct node_status st;
+        char rows[STATUS_ROWS][STATUS_COLS + 1];
+        fill_status(&st);
+        status_page(&st, screen_page, rows);
+        for (int i = 0; i < STATUS_ROWS; i++) {
+            display_text(&screen, i, rows[i], i == 0);
+        }
+        screen_due = board_now() + (tern_time)SCREEN_MS * 1000000;
+    }
+    if (board_now() < screen_retry) {
+        return;
+    }
+    int page = display_take(&screen);
+    if (page < 0) {
+        return;
+    }
+    if (board_screen_page(page, screen.px[page])) {
+        screen_failures = 0;
+        return;
+    }
+    screen.dirty |= (uint8_t)(1u << page);
+    screen_retry = board_now() + 1000000000LL;
+    if (++screen_failures >= SCREEN_TRIES) {
+        have_screen = false;
+        printf("the screen stopped answering; carrying on without it. PRG now sends a ping.\n");
+    }
+}
+
+static void ping(void) {
+    static unsigned pings;
+    char text[32];
+    if (bench) {
+        return; /* on the bench, only test frames are sent */
+    }
+    snprintf(text, sizeof text, "ping %u", ++pings);
+    send(text);
+}
+
+/* A press shows the next page; holding PRG for HOLD_MS sends a ping, once, while it is still
+ * held. With no screen, a press sends a ping, as it did before there was one. */
+static void poll_button(void) {
+    static bool was, held;
+    static tern_time down, last;
+    tern_time now = board_now();
+    bool pressed = board_button();
+    if (pressed && !was) {
+        down = now;
+        held = false;
+    } else if (have_screen && pressed && !held && now - down >= (tern_time)HOLD_MS * 1000000) {
+        held = true;
+        ping();
+    } else if (!pressed && was && !held && now - last > 300 * 1000000LL) {
+        last = now;
+        if (have_screen) {
+            screen_page = (screen_page + 1) % STATUS_PAGES;
+            screen_due = 0;
+        } else {
+            ping();
+        }
+    }
+    was = pressed;
 }
 
 void app_main(void) {
@@ -890,7 +1043,15 @@ void app_main(void) {
         return;
     }
 
-    printf("\nTern demo on the Heltec V3. Type 'status', or press PRG to ping.\n");
+    have_screen = board_screen_init();
+    if (have_screen) {
+        display_init(&screen);
+        printf("\nTern demo on the Heltec V3. Type 'status'. PRG shows the screen's next page; "
+               "hold it to ping.\n");
+    } else {
+        printf("\nTern demo on the Heltec V3, with no screen found. Type 'status', or press PRG "
+               "to ping.\n");
+    }
     status();
     for (;;) {
         poll_radio();
@@ -902,6 +1063,7 @@ void app_main(void) {
         }
         poll_console();
         poll_button();
+        poll_screen();
         if (transmitting && board_now() > tx_deadline) {
             /* TX_DONE never came. Listen again rather than stay busy for ever. */
             printf("the radio never said the frame had gone; listening again\n");
