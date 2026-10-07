@@ -2,3 +2,9 @@ CONFIG_IDF_TARGET="esp32s3"
 CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
 CONFIG_ESP_CONSOLE_UART_DEFAULT=y
 CONFIG_FREERTOS_HZ=1000
+# A handshake's elliptic-curve arithmetic needs more stack than the main task's default 3.5 KB
+# (tern/contact.h). The demo's 'selftest' command reports how much is left.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=12288
+# Optimised for speed: the core's portable elliptic-curve arithmetic is several times slower at
+# ESP-IDF's default, -Og, and a handshake is mostly that arithmetic.
+CONFIG_COMPILER_OPTIMIZATION_PERF=y

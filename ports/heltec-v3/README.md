@@ -1,11 +1,13 @@
 # Heltec WiFi LoRa 32 V3
 
-The first board port: an ESP32-S3 with an SX1262, built with ESP-IDF 5.5. Two boards paired with
-the same passphrase send each other [secured unicast frames](https://github.com/ternmesh/spec/blob/main/draft/unicast-security.md)
+The first board port: an ESP32-S3 with an SX1262, built with ESP-IDF 5.5. Each board has an
+address. One makes [first contact](https://github.com/ternmesh/spec/blob/main/draft/first-contact.md)
+with the other's, and the two then send each other
+[secured unicast frames](https://github.com/ternmesh/spec/blob/main/draft/unicast-security.md)
 over the air.
 
-It is a bench demo, not a node. There is no routing, no airtime budget and no real first contact
-yet, because the specification has none of them yet.
+It is a bench demo, not a node. There is no routing and no airtime budget yet, because the
+specification has neither yet, and a board talks to one other board at a time.
 
 ## Flashing
 
@@ -21,8 +23,8 @@ Flashing replaces whatever is on the board, Meshtastic included, along with its 
 4. Press the board's RST button, then open a serial terminal at 115200 baud: esptool-js has one
    under **Console**, or use the Arduino IDE's serial monitor, or `screen /dev/ttyUSB0 115200`.
 
-Flashing the full image this way also erases the board's saved session. Pair it again, with a new
-passphrase, afterwards (see below).
+Flashing the full image this way also erases the board's identity and its session. It starts
+again with a new address, and the other board has to make contact with that one.
 
 ### With ESP-IDF
 
@@ -35,6 +37,9 @@ idf.py build
 idf.py -p /dev/ttyUSB0 flash monitor     # COM3 or similar on Windows
 ```
 
+If flashing stops with "Invalid head of packet", the USB-to-serial chip is not keeping up: add
+`-b 230400`.
+
 `idf.py menuconfig`, under **Tern demo**, changes the frequency, power, spreading factor,
 bandwidth and sync word. The defaults are for the US; with a board for another band, choose a
 frequency in that band that your region allows.
@@ -45,9 +50,11 @@ Type commands into the serial terminal:
 
 | Command | |
 |---|---|
-| `status` | This board's ID, the radio settings and the session. |
-| `pair <id> <passphrase>` | Pair with the board whose ID is `<id>`. |
+| `status` | This board's address, the radio settings and the session. |
+| `contact <address>` | Make first contact with the board whose address that is. |
+| `accept` | For two minutes, let a board other than the present peer make contact. |
 | `send <text>` | Send up to 239 bytes. |
+| `selftest` | Run a handshake between two nodes in the board's memory, and time it. |
 
 Pressing **PRG** sends a ping. A board that hears a ping answers with a pong saying how strongly
 it heard it, so one press checks both directions. The white LED blinks for each frame sent or
@@ -55,35 +62,48 @@ received.
 
 To start:
 
-1. Type `status` on each board and note its ID, twelve hex digits such as `3c8427a1b2c4`.
-2. On the first board, type `pair` with the second board's ID and a passphrase:
-   `pair 3c8427a1b2c4 correct horse`.
-3. On the second board, do the same with the first board's ID and the same passphrase.
-4. Press PRG on either board.
+1. Type `status` on the second board and copy its address, sixty-four hex digits.
+2. On the first board, type `contact` and that address. Four frames cross, taking two or three
+   seconds, and both boards say that a session has started and with whom.
+3. Press PRG on either board.
 
-## The rules of the stopgap pairing
+With only one board, `selftest` shows that the handshake and a message each way work on it, with
+nothing sent.
 
-The specification does not yet say how two nodes first meet; that will be EDHOC. Until then the
-demo makes the session secret from the passphrase and both boards' IDs.
+## Identity and first contact
 
-* **Roles come from the IDs.** One end of a session is the initiator and the other the
-  responder, and the two must never be the same, or both boards would send with the same keys.
-  The board with the lower ID is always the initiator, so that cannot happen.
-* **The IDs go into the secret.** A third board given the same passphrase gets a different
-  secret, and hears nothing.
-* **A new passphrase for each pairing.** The same IDs and passphrase always give the same keys,
-  so a session that started again from the beginning would reuse them. A board remembers its
-  last 32 pairings and refuses to repeat one.
-* **After erasing a board, a passphrase neither board has used before.** Erasing the flash
-  (including flashing the full image) makes the board forget its session and its list of
-  pairings. It is the one mistake the board cannot catch.
+A board makes its identity the first time it starts: 32 random bytes from the ESP32's hardware
+generator, saved to flash. Its address is the Ed25519 public key of that seed, and stays the same
+until the flash is erased.
+
+First contact is the specification's: an EDHOC handshake of four frames, of 45, 53, 73 and 17
+bytes. Neither address goes over the air in clear, each board proves it holds the key behind its
+address, and each handshake gives a new session secret, so nothing has to be remembered to stop
+keys repeating.
+
+What the specification has not settled yet, the demo decides for itself. None of this is Tern
+yet:
+
+* **Lost frames.** The board that began sends each of its two frames up to four times, a little
+  over two seconds apart at the default settings, and then gives up. The other board never sends
+  unasked: a frame it has already answered gets the same answer again.
+* **Whom a board accepts.** A board with no session accepts whoever makes contact, and says who
+  it was. One with a session accepts its own peer again, and refuses anyone else unless `accept`
+  was typed in the last two minutes. A board that is refused is told nothing.
+* **One peer, one handshake.** A new session replaces the old one, and while one handshake is
+  under way another is not answered.
 
 The session is saved to flash after every message: before a frame goes out, and before a
 received message is shown. So a reset or a power cut carries on where it left off, never reuses
-a counter, and never shows the same message twice.
+a counter, and never shows the same message twice. A handshake is not saved; a reset in the
+middle of one abandons it, and `contact` starts another.
 
-The keys sit in flash unencrypted. Anyone holding the board can read them. That is acceptable
-for a bench demo, and is one of the things a real node will do differently.
+The seed and the session keys sit in flash unencrypted. Anyone holding the board can read them.
+That is acceptable for a bench demo, and is one of the things a real node will do differently.
+
+A handshake takes each board between one and one and a half seconds of arithmetic in all, on the
+ESP32-S3 at 160 MHz: the core's elliptic-curve code is the portable reference, which is written to be checked
+and not to be fast. The board does not listen to its console or button while it works.
 
 ## Radio settings and the rules for 902–928 MHz
 
@@ -108,7 +128,7 @@ as any radio would.
 | File | |
 |---|---|
 | `main/board.c` | The pins, the SPI bus, the radio's reset and BUSY line, the button and the LED. |
-| `main/demo.c` | The stopgap pairing and the saved session. It has no hardware code, so `tests/demo.c` tests it on a host. |
+| `main/demo.c` | The board's identity, first contact with its retries, and the saved session. It has no hardware code, so `tests/demo.c` tests it on a host. |
 | `main/main.c` | One loop that polls the radio, the serial port and the button. |
 | `../../src/sx126x.c` | The SX1262 driver, part of the core and shared with future boards. |
 

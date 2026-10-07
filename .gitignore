@@ -5,3 +5,4 @@ ports/*/sdkconfig
 ports/*/sdkconfig.old
 ports/*/dependencies.lock
 ports/*/managed_components/
+.cache/
