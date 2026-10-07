@@ -8,8 +8,8 @@ metered resource. The protocol is defined by the specification in
 
 **Status:** early. The core implements the two parts of the protocol the specification has
 drafted, secured unicast frames and first contact, and passes every one of their test vectors.
-One board runs unicast over the air: the [Heltec V3](ports/heltec-v3/), as a two-board bench demo
-that pairs without first contact. There is no routing yet.
+One board runs both over the air: the [Heltec V3](ports/heltec-v3/), as a two-board bench demo.
+There is no routing yet.
 
 | Module | Header | What it is |
 |---|---|---|
@@ -51,7 +51,7 @@ cmake --build build-arm
 
 | Board | Directory | |
 |---|---|---|
-| Heltec WiFi LoRa 32 V3 (ESP32-S3, SX1262) | [`ports/heltec-v3/`](ports/heltec-v3/) | A two-board bench demo with stopgap pairing. CI builds an image you can flash from a browser. |
+| Heltec WiFi LoRa 32 V3 (ESP32-S3, SX1262) | [`ports/heltec-v3/`](ports/heltec-v3/) | A two-board bench demo: first contact, then unicast. CI builds an image you can flash from a browser. |
 
 ## Licence
 
