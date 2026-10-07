@@ -137,6 +137,15 @@ def main():
     ]
     L.append("};")
 
+    L.append("static const struct place_case places[] = {")
+    L += [
+        f"    {{{len(c['neighbours'])}, {{"
+        + ", ".join(f"{{{n['floor_sixteenths']}, {b(n['up'])}}}" for n in c["neighbours"])
+        + f"}}, {c['floor_sixteenths']}, {idx(c['replaces'])}}},"
+        for c in v["places"]
+    ]
+    L.append("};")
+
     L.append("static const struct kept_case kepts[] = {")
     L += [
         f"    {{{fd(c['feasibility_distance'])}, {routes(c['routes'], c['link_cost'])}, "

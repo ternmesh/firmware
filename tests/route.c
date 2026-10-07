@@ -77,6 +77,15 @@ struct selection_case {
     struct tern_route_choice routes[4];
     int selected, selects;
 };
+struct place_case {
+    int n;
+    struct {
+        int32_t floor;
+        bool up;
+    } neighbours[4];
+    int32_t floor;
+    int replaces;
+};
 struct kept_case {
     struct tern_route_fd fd;
     struct tern_route_choice routes[4];
@@ -241,6 +250,18 @@ static void a_full_table_keeps_the_nearest_and_every_link_that_is_up(void) {
     CHECK(keeps(nb, 2, 0xA) && keeps(nb, 2, 0xB) && !keeps(nb, 2, 0xC));
 }
 
+static void a_full_table_gives_the_place_the_specification_says(void) {
+    for (size_t i = 0; i < COUNT(places); i++) {
+        const struct place_case *c = &places[i];
+        struct tern_route_neighbour nb[4] = {0};
+        for (int k = 0; k < c->n; k++) {
+            nb[k] = (struct tern_route_neighbour){
+                .used = true, .floor = c->neighbours[k].floor, .up = c->neighbours[k].up};
+        }
+        CHECK_EQ_I64(tern_route_place(nb, (size_t)c->n, c->floor), c->replaces);
+    }
+}
+
 static void floors_average_and_margins_round_down(void) {
     for (size_t i = 0; i < COUNT(floors); i++) {
         const struct floor_case *c = &floors[i];
@@ -326,6 +347,7 @@ int main(void) {
     RUN(links_come_up_and_stay_within_the_band);
     RUN(margins_are_withdrawn_after_eight_rounds);
     RUN(a_neighbour_that_starts_again_is_told_from_a_late_frame);
+    RUN(a_full_table_gives_the_place_the_specification_says);
     RUN(a_full_table_keeps_the_nearest_and_every_link_that_is_up);
     RUN(a_link_costs_the_reference_frame);
     RUN(feasibility_is_babels);

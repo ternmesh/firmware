@@ -183,6 +183,16 @@ bool tern_route_link_up(bool up, int32_t own, uint8_t theirs) {
            (own < their ? own : their) >= (up ? LINK_MARGIN - LINK_BAND : LINK_MARGIN);
 }
 
+int tern_route_place(const struct tern_route_neighbour *full, size_t n, int32_t floor) {
+    int worst = -1;
+    for (size_t i = 0; i < n; i++) {
+        if (!full[i].up && (worst < 0 || full[i].floor > full[worst].floor)) {
+            worst = (int)i;
+        }
+    }
+    return worst >= 0 && floor + REPLACE_BAND <= full[worst].floor ? worst : -1;
+}
+
 bool tern_route_withdrawn(uint16_t named, uint16_t number, uint16_t round) {
     uint32_t allowed = NAMED_ROUNDS * (round > 1 ? (uint32_t)round : 1u) + 1u;
     return (uint16_t)(number - named) >= (allowed > AGE_MAX ? AGE_MAX : allowed);
@@ -621,32 +631,22 @@ static void forget(struct tern_route *r, uint8_t s) {
     r->changed = false;
 }
 
-/* A place for a neighbour just heard, `floor` being what its one frame says. With the table full
- * it takes the place of the neighbour with the highest floor of those whose link is not up, if it
- * is REPLACE_BAND nearer; a link that is up is never given up for one that might come up. */
+/* A place for a neighbour just heard, `floor` being what its one frame says: a free one, or with
+ * the table full the one tern_route_place gives. */
 static uint8_t neighbour_make(struct tern_route *r, uint32_t id, int32_t floor) {
-    size_t worst = 0;
-    for (size_t i = 0; i < r->nb_cap; i++) {
-        const struct tern_route_neighbour *n = &r->nb[i];
-        if (!n->used) {
-            worst = i + 1;
-            break;
-        }
-        if (!n->up && (!worst || n->floor > r->nb[worst - 1].floor)) {
-            worst = i + 1;
-        }
+    size_t at = 0;
+    for (; at < r->nb_cap && r->nb[at].used; at++) {
     }
-    if (!worst) {
-        return 0;
-    }
-    if (r->nb[worst - 1].used) {
-        if (floor + REPLACE_BAND > r->nb[worst - 1].floor) {
+    if (at == r->nb_cap) {
+        int worst = tern_route_place(r->nb, r->nb_cap, floor);
+        if (worst < 0) {
             return 0;
         }
-        forget(r, (uint8_t)worst);
+        at = (size_t)worst;
+        forget(r, (uint8_t)(at + 1));
     }
-    r->nb[worst - 1] = (struct tern_route_neighbour){.id = id, .used = true, .owed = true};
-    return (uint8_t)worst;
+    r->nb[at] = (struct tern_route_neighbour){.id = id, .used = true, .owed = true};
+    return (uint8_t)(at + 1);
 }
 
 /* --- Power --- */
