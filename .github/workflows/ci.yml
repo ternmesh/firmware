@@ -64,6 +64,28 @@ jobs:
             exit 1
           fi
 
+  # The simulator (ternmesh/sim) links this core and runs it as a routing plugin, so its scenarios
+  # are the core's regression suite: a mesh of two hundred nodes has to hold its routes, follow
+  # them without going round, and keep to its cap. The simulator is taken at the commit named
+  # here, moved on by hand, so that a change there cannot fail a check here.
+  sim:
+    name: test (in the simulator)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: ternmesh/sim
+          ref: 6084a852298275de5d7317ba4180d2ee76a62022
+          path: sim
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - name: Configure
+        run: >-
+          cmake -S sim -B sim/build -G Ninja -DCMAKE_BUILD_TYPE=Release -DTSIM_WERROR=ON
+          -DTSIM_FIRMWARE_DIR=$PWD -DTSIM_REQUIRE_CORE=ON
+      - run: cmake --build sim/build
+      - run: ctest --test-dir sim/build --output-on-failure -R core
+
   # The Heltec V3 port, built with ESP-IDF in Espressif's own container. The images it makes are
   # kept with the run, so a board can be flashed without installing anything (ports/heltec-v3).
   heltec-v3:

@@ -48,6 +48,18 @@ cmake -S . -B build-arm -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/arm-none-eabi.cmak
 cmake --build build-arm
 ```
 
+The simulator ([ternmesh/sim](https://github.com/ternmesh/sim)) links this core and runs it as
+its `core` routing, so a change to the routing can be run over a mesh of hundreds of nodes before
+it reaches a board. With a checkout of it beside this one:
+
+```bash
+cmake -S ../sim -B ../sim/build -G Ninja -DCMAKE_BUILD_TYPE=Release -DTSIM_FIRMWARE_DIR=$PWD
+cmake --build ../sim/build
+ctest --test-dir ../sim/build -R core
+```
+
+CI runs the same.
+
 `-DTERN_SANITIZE=ON` builds with AddressSanitizer and UndefinedBehaviorSanitizer, and
 `-DTERN_WERROR=ON` makes warnings errors; CI runs both, with GCC and Clang. Format with
 `clang-format` 18 before pushing.
