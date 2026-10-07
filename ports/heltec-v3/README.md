@@ -55,7 +55,7 @@ Type commands into the serial terminal:
 | `status` | This board's address, the radio settings and the session. |
 | `contact <address>` | Make first contact with the board whose address that is. |
 | `accept` | For two minutes, let a board other than the present peer make contact. |
-| `send <text>` | Send up to 239 bytes. |
+| `send <text>` | Send up to 128 bytes to the peer. |
 | `routes` | The boards this one hears, how well each hears the other, and the routes it has. |
 | `selftest` | Run a handshake between two nodes in the board's memory, and time it. |
 
@@ -200,6 +200,46 @@ A frame with another sync word shows as a preamble and nothing more. The simulat
 board set to another network's sync word hears that network and can disturb it: use these where
 none is in range, and put the board back (`sync 5E`, or restart it) afterwards.
 
+## The companion link
+
+The same USB port speaks the
+[companion protocol](https://github.com/ternmesh/spec/blob/main/draft/companion.md), so a
+program on a computer can drive the board while the console carries on. Its frames start with
+the byte `0xF5`, which typed text never contains, so the board tells them from commands byte by
+byte, and a terminal that has not said `HELLO` is never sent one.
+
+`tools/companion.py`, at the top of the repository, is an example client:
+
+```bash
+pip install pyserial                       # on Linux and macOS, optional
+python3 tools/companion.py --port /dev/ttyUSB0 state
+python3 tools/companion.py --port /dev/ttyUSB0 contact <address> Bob
+python3 tools/companion.py --port /dev/ttyUSB0 send <address> "On the ridge by six"
+python3 tools/companion.py --port /dev/ttyUSB0 watch
+```
+
+`state` sets the board's clock from the computer's and prints what it holds: itself, its
+contacts, the messages it has kept, the boards it hears, and its time on the air. Close the
+serial monitor first: only one program can have the port.
+
+What the board offers is what the demo is:
+
+* **Messages** are the ones sent and received since it started, up to 32; they are not saved.
+  Contacts, up to 16, are saved to flash.
+* **One session at a time.** A message to a node the board has no session with starts first
+  contact with it, which replaces the present session once it completes. Its state says it is
+  waiting for a session meanwhile, and "not delivered" if the handshake gives up.
+* **A message on the air stays waiting.** The demo sends straight to its peer, with no
+  forwarding and no acknowledgement, so it never learns whether a message arrived. The draft
+  forbids claiming more than the node knows, so the state never reaches "sent" or "delivered".
+  That changes when the board sends along routes ([forwarding](https://github.com/ternmesh/spec/blob/main/draft/forwarding.md)).
+* **Settings.** Region, role and power are saved to flash and applied by a restart, after the
+  board has answered; a power or region the antenna setting does not allow is refused. A
+  Bluetooth passkey is kept for when there is Bluetooth.
+* **Battery** is not measured yet, and is reported as unknown.
+
+Messages sent with `send` and pings go the same way as a client's, so a client sees them too.
+
 ## How it is put together
 
 | File | |
@@ -208,6 +248,7 @@ none is in range, and put the board back (`sync 5E`, or restart it) afterwards.
 | `main/demo.c` | The board's identity, first contact with its retries, and the saved session. It has no hardware code, so `tests/demo.c` tests it on a host. |
 | `main/status.c` | The snapshot the screen is drawn from, and its pages as lines of text. |
 | `main/display.c` | The picture of the screen, its font, and which parts of it have changed. With `status.c`, tested on a host by `tests/status.c`. |
+| `main/link.c` | The companion link: contacts, messages and what became of them, and the answers and news a client gets. No hardware code; tested on a host by `tests/link.c`, and with `tools/companion.py` by `tests/link_script.py`. |
 | `main/main.c` | One loop that polls the radio, the serial port, the button and the screen. |
 | `../../src/sx126x.c` | The SX1262 driver, part of the core and shared with future boards. |
 

@@ -4,6 +4,7 @@ set(root ${CMAKE_CURRENT_LIST_DIR}/../../..)
 idf_component_register(
     SRCS
         main.c
+        link.c
         board.c
         demo.c
         display.c
@@ -11,6 +12,7 @@ idf_component_register(
         ${root}/src/address.c
         ${root}/src/aes.c
         ${root}/src/ccm.c
+        ${root}/src/companion.c
         ${root}/src/contact.c
         ${root}/src/duty.c
         ${root}/src/fe25519.c

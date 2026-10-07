@@ -32,6 +32,7 @@ add_library(tern
     src/address.c
     src/aes.c
     src/ccm.c
+    src/companion.c
     src/contact.c
     src/duty.c
     src/fe25519.c
@@ -52,7 +53,7 @@ target_compile_options(tern PRIVATE ${TERN_WARNINGS})
 
 include(CTest)
 if(BUILD_TESTING)
-    foreach(t address contact crypto duty forward lora mesh radio region route sx126x unicast)
+    foreach(t address companion contact crypto duty forward lora mesh radio region route sx126x unicast)
         add_executable(test_${t} tests/${t}.c)
         target_link_libraries(test_${t} PRIVATE tern)
         # The test files define their cases as static functions, so the prototype warning is
@@ -118,12 +119,52 @@ if(BUILD_TESTING)
     target_sources(test_forward PRIVATE ${forwarding_h})
     target_include_directories(test_forward PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/vectors)
 
+    set(companion_h ${CMAKE_CURRENT_BINARY_DIR}/vectors/companion.h)
+    add_custom_command(
+        OUTPUT ${companion_h}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/vectors
+        COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tests/vectors/companion_to_c.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/vectors/companion.json ${companion_h}
+        DEPENDS tests/vectors/companion_to_c.py tests/vectors/companion.json
+        VERBATIM)
+    target_sources(test_companion PRIVATE ${companion_h})
+    target_include_directories(test_companion PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/vectors)
+
+    set(exchange_h ${CMAKE_CURRENT_BINARY_DIR}/vectors/companion_exchange.h)
+    add_custom_command(
+        OUTPUT ${exchange_h}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/vectors
+        COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tests/vectors/companion_to_c.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/vectors/companion.json ${exchange_h} exchange
+        DEPENDS tests/vectors/companion_to_c.py tests/vectors/companion.json
+        VERBATIM)
+
     # The Heltec V3 port's node logic touches no hardware, so it is tested here too.
     add_executable(test_demo tests/demo.c ports/heltec-v3/main/demo.c)
     target_include_directories(test_demo PRIVATE ports/heltec-v3/main)
     target_link_libraries(test_demo PRIVATE tern)
     target_compile_options(test_demo PRIVATE ${TERN_WARNINGS} -Wno-missing-prototypes)
     add_test(NAME demo COMMAND test_demo)
+    add_executable(test_link tests/link.c ports/heltec-v3/main/link.c ${exchange_h})
+    target_include_directories(test_link PRIVATE ports/heltec-v3/main
+        ${CMAKE_CURRENT_BINARY_DIR}/vectors)
+    target_link_libraries(test_link PRIVATE tern)
+    target_compile_options(test_link PRIVATE ${TERN_WARNINGS} -Wno-missing-prototypes)
+    add_test(NAME link COMMAND test_link)
+    # The laptop script (tools/companion.py), against the vectors and against the link on a
+    # pseudo-terminal: everything but the radio and the USB cable.
+    add_test(NAME companion_script COMMAND Python3::Interpreter
+        ${CMAKE_CURRENT_SOURCE_DIR}/tools/companion.py selftest
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/vectors/companion.json)
+    if(UNIX)
+        add_executable(test_link_pty tests/link_pty.c ports/heltec-v3/main/link.c)
+        target_include_directories(test_link_pty PRIVATE ports/heltec-v3/main)
+        target_link_libraries(test_link_pty PRIVATE tern)
+        target_compile_options(test_link_pty PRIVATE ${TERN_WARNINGS} -Wno-missing-prototypes)
+        add_test(NAME link_script COMMAND Python3::Interpreter
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/link_script.py $<TARGET_FILE:test_link_pty>
+            ${CMAKE_CURRENT_SOURCE_DIR}/tools/companion.py)
+    endif()
     add_executable(test_status tests/status.c ports/heltec-v3/main/status.c
         ports/heltec-v3/main/display.c)
     target_include_directories(test_status PRIVATE ports/heltec-v3/main)

@@ -1,0 +1,173 @@
+#ifndef TERN_COMPANION_H
+#define TERN_COMPANION_H
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include "tern/address.h"
+#include "tern/time.h"
+
+/* The companion protocol: specification draft 0, draft/companion.md in ternmesh/spec.
+ *
+ * The link between a node and the client driving it, a phone or a computer, over USB serial, TCP
+ * or Bluetooth LE. It never goes over LoRa. This is the part every node and every client needs:
+ * a frame's fields, read and written, and how frames are found in a byte stream shared with a
+ * text console. What a node answers and when is the node's business, not the core's (on the
+ * Heltec V3, ports/heltec-v3/main/link.c). */
+
+#define TERN_COMPANION_VERSION 0
+#define TERN_COMPANION_MAX_FRAME 180
+#define TERN_COMPANION_STREAM_MAX (TERN_COMPANION_MAX_FRAME + 6) /* magic, length, CRC */
+#define TERN_COMPANION_NAME_MAX 31
+#define TERN_COMPANION_TEXT_MAX 128
+#define TERN_COMPANION_FIRMWARE_MAX 31
+#define TERN_COMPANION_REGION_MAX 15
+#define TERN_COMPANION_GAP TERN_MS(500) /* a partial frame idle this long is not a frame */
+
+enum tern_companion_type {
+    /* Requests, client to node. */
+    TERN_C_HELLO = 0x01,
+    TERN_C_SYNC = 0x02,
+    TERN_C_PING = 0x03,
+    TERN_C_SET_TIME = 0x04,
+    TERN_C_SET = 0x05,
+    TERN_C_SEND = 0x10,
+    TERN_C_READ = 0x11,
+    TERN_C_SAVE_CONTACT = 0x18,
+    TERN_C_REMOVE_CONTACT = 0x19,
+    /* Answers, node to client. */
+    TERN_C_OK = 0x40,
+    TERN_C_ERROR = 0x41,
+    TERN_C_INFO = 0x42,
+    TERN_C_SYNCED = 0x43,
+    TERN_C_QUEUED = 0x44,
+    /* News, node to client. */
+    TERN_C_SELF = 0x80,
+    TERN_C_CONTACT = 0x81,
+    TERN_C_CONTACT_GONE = 0x82,
+    TERN_C_MESSAGE = 0x83,
+    TERN_C_STATE = 0x84,
+    TERN_C_NEIGHBOUR = 0x85,
+    TERN_C_NEIGHBOUR_GONE = 0x86,
+    TERN_C_AIRTIME = 0x87,
+    TERN_C_POWER = 0x88,
+};
+
+/* Which range a type is in. */
+bool tern_companion_request(uint8_t type);
+bool tern_companion_news(uint8_t type);
+
+enum tern_companion_setting {
+    TERN_C_SET_REGION = 1,  /* text */
+    TERN_C_SET_ROLE = 2,    /* role */
+    TERN_C_SET_POWER = 3,   /* power */
+    TERN_C_SET_PASSKEY = 4, /* passkey */
+};
+
+enum tern_companion_error {
+    TERN_C_ERR_UNKNOWN = 1,
+    TERN_C_ERR_MALFORMED = 2,
+    TERN_C_ERR_REFUSED = 3,
+    TERN_C_ERR_ADDRESS = 4,
+    TERN_C_ERR_FULL = 5,
+    TERN_C_ERR_HELLO_FIRST = 6,
+    TERN_C_ERR_MTU = 7,
+    TERN_C_ERR_NOT_NOW = 8,
+};
+
+enum tern_companion_state {
+    TERN_C_WAITING = 0,
+    TERN_C_SENT = 1,
+    TERN_C_DELIVERED = 2,
+    TERN_C_NOT_DELIVERED = 3,
+    TERN_C_RECEIVED = 4,
+};
+
+enum tern_companion_reason {
+    TERN_C_WAIT_UNNAMED = 0,
+    TERN_C_WAIT_ROUTE = 1,
+    TERN_C_WAIT_SESSION = 2,
+    TERN_C_WAIT_REGION = 3,
+    TERN_C_WAIT_BUDGET = 4,
+    TERN_C_WAIT_RADIO = 5,
+};
+
+#define TERN_C_READ_FLAG 0x01      /* MESSAGE flags: a received message has been read */
+#define TERN_C_CHARGING 0x01       /* POWER flags */
+#define TERN_C_EXTERNAL_POWER 0x02 /* POWER flags */
+
+/* Any frame, as its fields. Each type uses the members its table in the draft names, under the
+ * same names, with three folded together: the one string a frame carries (text, name, firmware,
+ * region, or SET's region) is `text`; the one address (to, address, contact) is `address`; and
+ * `wait` is MESSAGE's and STATE's u16 or AIRTIME's u32. SET's value is `text`, `role`, `power` or
+ * `passkey` as `setting` says. Members a type does not use are ignored when writing and left as
+ * they were when reading. */
+struct tern_companion_msg {
+    uint8_t type, seq;
+    uint8_t version, setting, code, role, session, flags, state, reason, percent;
+    int8_t power, snr;
+    uint16_t heard, millivolts;
+    uint32_t after, time, ref, through, id, routing_id, period, allowed, used, wait, passkey;
+    uint8_t address[TERN_ADDRESS_LEN];
+    uint8_t text_len;
+    uint8_t text[TERN_COMPANION_TEXT_MAX];
+};
+
+enum tern_companion_read {
+    TERN_C_READ_OK = 0,
+    TERN_C_READ_UNKNOWN = TERN_C_ERR_UNKNOWN,     /* a type, or a setting, this version lacks */
+    TERN_C_READ_MALFORMED = TERN_C_ERR_MALFORMED, /* cut short, a string too long or not UTF-8 */
+    TERN_C_READ_SHORT = 3,                        /* under two bytes: nothing to answer */
+};
+
+/* Reads a frame's fields. Bytes after the last field this version defines are ignored. */
+enum tern_companion_read tern_companion_read(struct tern_companion_msg *m, const uint8_t *frame,
+                                             size_t len);
+
+/* Writes a frame from its fields into out (TERN_COMPANION_MAX_FRAME bytes). Returns its length,
+ * or 0 if the type is not one this version defines or a string is too long for its field. The
+ * strings are not checked for UTF-8: a writer is trusted to give text. */
+size_t tern_companion_write(const struct tern_companion_msg *m, uint8_t *out);
+
+/* Whether len bytes are UTF-8 with no overlong form, surrogate, or code point past U+10FFFF. */
+bool tern_companion_utf8(const uint8_t *text, size_t len);
+
+/* The longest prefix of text, at most max bytes, that ends on a whole character and is UTF-8:
+ * what a node keeps of a received message to give a client. */
+size_t tern_companion_utf8_prefix(const uint8_t *text, size_t len, size_t max);
+
+/* --- Byte streams --------------------------------------------------------------------------- */
+
+/* CRC-16/IBM-3740: polynomial 0x1021, initial value 0xFFFF, no reflection, no final XOR. */
+uint16_t tern_companion_crc(const uint8_t *data, size_t len);
+
+/* Wraps a frame of 2 to TERN_COMPANION_MAX_FRAME bytes for a byte stream: magic, length, the
+ * frame, CRC. out holds TERN_COMPANION_STREAM_MAX bytes. Returns the length, or 0 if the frame's
+ * length is out of range. */
+size_t tern_companion_wrap(const uint8_t *frame, size_t len, uint8_t *out);
+
+/* What a stream holds besides frames is text: the console's, both ways. */
+struct tern_companion_sink {
+    void *ctx;
+    void (*frame)(void *ctx, const uint8_t *frame, size_t len);
+    void (*text)(void *ctx, uint8_t byte);
+};
+
+/* Finds frames in a byte stream. Bytes are pushed as they arrive; each reaches the sink as part
+ * of a frame or as text, in order, as soon as it can be told which. */
+struct tern_companion_parser {
+    uint8_t buf[TERN_COMPANION_STREAM_MAX];
+    size_t len;
+    tern_time last; /* when the last byte arrived */
+};
+
+void tern_companion_parser_init(struct tern_companion_parser *p);
+void tern_companion_push(struct tern_companion_parser *p, tern_time now, uint8_t byte,
+                         const struct tern_companion_sink *sink);
+/* Call it now and then: a partial frame that has had nothing for TERN_COMPANION_GAP is not a
+ * frame, and its first byte is given up as text. */
+void tern_companion_idle(struct tern_companion_parser *p, tern_time now,
+                         const struct tern_companion_sink *sink);
+
+#endif
