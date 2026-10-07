@@ -59,19 +59,40 @@ Type commands into the serial terminal:
 | `routes` | The boards this one hears, how well each hears the other, and the routes it has. |
 | `selftest` | Run a handshake between two nodes in the board's memory, and time it. |
 
-Pressing **PRG** sends a ping. A board that hears a ping answers with a pong saying how strongly
-it heard it, so one press checks both directions. The white LED blinks for each frame sent or
-received.
+Holding **PRG** for a second sends a ping. A board that hears a ping answers with a pong saying
+how strongly it heard it, so one ping checks both directions. A short press shows the
+[screen](#the-screen)'s next page. (On a board whose screen does not answer, a short press sends
+the ping.) The white LED blinks for each frame sent or received.
 
 To start:
 
 1. Type `status` on the second board and copy its address, sixty-four hex digits.
 2. On the first board, type `contact` and that address. Four frames cross, taking two or three
    seconds, and both boards say that a session has started and with whom.
-3. Press PRG on either board.
+3. Hold PRG on either board for a second.
 
 With only one board, `selftest` shows that the handshake and a message each way work on it, with
 nothing sent.
+
+## The screen
+
+The board's display shows what the console would, without a laptop: four pages, moved through by
+pressing PRG.
+
+| Page | |
+|---|---|
+| **Node** | The routing id, relay or leaf, the radio settings, how many boards it hears and has routes to, frames sent and heard, and time on the air: against the region's limit in EU868, in all since starting in US915. The title shows how long since it started. A `*` after the region means the build moved it off the region's settings. |
+| **Neighbours** | Up to six boards it hears, those both ways first: routing id, `R` relay or `L` leaf, the link `up` or `dn`, the dBm it needs us to send at, and the dB to spare it says it hears us with (`?` until it says). |
+| **Routes** | Up to six: the board, the neighbour a frame to it goes to, and the route's milliseconds on the air. |
+| **Session** | The peer's first four bytes, messages sent and heard, and the last message heard. |
+
+It is a bench screen, for whoever is developing Tern, and it will be thrown away. What a Tern node
+should show the person carrying it is a different question, and
+[docs/ui.md](../../docs/ui.md) is where it is being worked out.
+
+The screen is drawn from one snapshot of the board (`main/status.h`), not from the demo's own
+variables, and only the lines that change are sent to it, one at a time between turns of the
+loop. If it reads upside down, `menuconfig`, **Turn the screen upside down**.
 
 ## Identity and first contact
 
@@ -183,9 +204,11 @@ none is in range, and put the board back (`sync 5E`, or restart it) afterwards.
 
 | File | |
 |---|---|
-| `main/board.c` | The pins, the SPI bus, the radio's reset and BUSY line, the button and the LED. |
+| `main/board.c` | The pins, the SPI bus, the radio's reset and BUSY line, the button, the LED, and the display (an SSD1306 on its own I2C bus). |
 | `main/demo.c` | The board's identity, first contact with its retries, and the saved session. It has no hardware code, so `tests/demo.c` tests it on a host. |
-| `main/main.c` | One loop that polls the radio, the serial port and the button. |
+| `main/status.c` | The snapshot the screen is drawn from, and its pages as lines of text. |
+| `main/display.c` | The picture of the screen, its font, and which parts of it have changed. With `status.c`, tested on a host by `tests/status.c`. |
+| `main/main.c` | One loop that polls the radio, the serial port, the button and the screen. |
 | `../../src/sx126x.c` | The SX1262 driver, part of the core and shared with future boards. |
 
 The core is compiled into the app unchanged, from the repository's `src/`.

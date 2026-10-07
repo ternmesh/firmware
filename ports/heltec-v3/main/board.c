@@ -1,6 +1,9 @@
 #include "board.h"
 
+#include <string.h>
+
 #include "driver/gpio.h"
+#include "driver/i2c_master.h"
 #include "driver/spi_master.h"
 #include "esp_rom_sys.h"
 #include "esp_timer.h"
@@ -15,10 +18,18 @@
 #define PIN_BUSY 13
 #define PIN_BUTTON 0 /* PRG, low when pressed */
 #define PIN_LED 35
+#define PIN_VEXT 36 /* powers the display (and the header's 3.3 V pin), on when low */
+#define PIN_OLED_SDA 17
+#define PIN_OLED_SCL 18
+#define PIN_OLED_RESET 21
+
+#define OLED_ADDRESS 0x3C
+#define OLED_TIMEOUT_MS 50
 
 #define BUSY_TIMEOUT_US 100000 /* far longer than any command; calibration takes a few ms */
 
 static spi_device_handle_t spi;
+static i2c_master_dev_handle_t oled;
 
 tern_time board_now(void) { return (tern_time)esp_timer_get_time() * 1000; }
 
@@ -83,3 +94,89 @@ int board_init(struct tern_sx126x *radio) {
 bool board_button(void) { return gpio_get_level(PIN_BUTTON) == 0; }
 
 void board_led(bool on) { gpio_set_level(PIN_LED, on ? 1 : 0); }
+
+/* --- The display ---------------------------------------------------------------------------- */
+
+/* The first byte of each I2C write says what follows (SSD1306 datasheet, section 8.1.5). */
+#define OLED_COMMANDS 0x00
+#define OLED_DATA 0x40
+
+static bool oled_send(const uint8_t *buf, size_t len) {
+    return i2c_master_transmit(oled, buf, len, OLED_TIMEOUT_MS) == ESP_OK;
+}
+
+bool board_screen_init(void) {
+    gpio_config_t out = {.pin_bit_mask = 1ull << PIN_VEXT | 1ull << PIN_OLED_RESET,
+                         .mode = GPIO_MODE_OUTPUT};
+    if (gpio_config(&out) != ESP_OK) {
+        return false;
+    }
+    /* Power, then hold RES# low for more than the 3 us the datasheet asks (section 8.9). */
+    gpio_set_level(PIN_VEXT, 0);
+    gpio_set_level(PIN_OLED_RESET, 0);
+    esp_rom_delay_us(20000);
+    gpio_set_level(PIN_OLED_RESET, 1);
+    esp_rom_delay_us(10000);
+
+    i2c_master_bus_config_t bus = {.i2c_port = -1,
+                                   .sda_io_num = PIN_OLED_SDA,
+                                   .scl_io_num = PIN_OLED_SCL,
+                                   .clk_source = I2C_CLK_SRC_DEFAULT,
+                                   .glitch_ignore_cnt = 7,
+                                   .flags.enable_internal_pullup = true};
+    i2c_master_bus_handle_t handle;
+    i2c_device_config_t dev = {.dev_addr_length = I2C_ADDR_BIT_LEN_7,
+                               .device_address = OLED_ADDRESS,
+                               .scl_speed_hz = 400000};
+    if (i2c_new_master_bus(&bus, &handle) != ESP_OK ||
+        i2c_master_probe(handle, OLED_ADDRESS, OLED_TIMEOUT_MS) != ESP_OK ||
+        i2c_master_bus_add_device(handle, &dev, &oled) != ESP_OK) {
+        return false;
+    }
+
+    /* The datasheet's software set-up (its application note's flow), for a 128x64 panel whose
+     * charge pump is on the chip. */
+    /* clang-format off */
+    static const uint8_t setup[] = {
+        OLED_COMMANDS,
+        0xAE,       /* display off while it is set up */
+        0xD5, 0x80, /* clock: the reset default */
+        0xA8, 0x3F, /* 64 rows */
+        0xD3, 0x00, /* no vertical offset */
+        0x40,       /* start at row 0 */
+        0x8D, 0x14, /* charge pump on */
+        0x20, 0x02, /* page addressing: a page at a time, as board_screen_page() sends them */
+#if CONFIG_TERN_SCREEN_FLIP
+        0xA0, 0xC0, /* columns and rows in the order the controller numbers them */
+#else
+        0xA1, 0xC8, /* both reversed, the usual way round for this panel */
+#endif
+        0xDA, 0x12, /* the panel's rows wired alternately */
+        0x81, 0xCF, /* contrast */
+        0xD9, 0xF1, /* pre-charge, for the internal charge pump */
+        0xDB, 0x40, /* VCOMH */
+        0xA4,       /* show what is in RAM */
+        0xA6,       /* light on dark */
+    };
+    /* clang-format on */
+    static const uint8_t on[] = {OLED_COMMANDS, 0xAF};
+    static const uint8_t blank[128];
+    if (!oled_send(setup, sizeof setup)) {
+        return false;
+    }
+    for (int page = 0; page < 8; page++) {
+        if (!board_screen_page(page, blank)) {
+            return false;
+        }
+    }
+    return oled_send(on, sizeof on);
+}
+
+bool board_screen_page(int page, const uint8_t data[128]) {
+    /* The page, then its first column, low half and high half. */
+    uint8_t where[] = {OLED_COMMANDS, (uint8_t)(0xB0 | (page & 7)), 0x00, 0x10};
+    uint8_t buf[1 + 128];
+    buf[0] = OLED_DATA;
+    memcpy(&buf[1], data, 128);
+    return oled_send(where, sizeof where) && oled_send(buf, sizeof buf);
+}
