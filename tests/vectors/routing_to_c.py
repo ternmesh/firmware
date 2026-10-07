@@ -59,7 +59,7 @@ def main():
             or "{0, 0, 0}"
         )
         L.append(
-            f"    {{{{{c['sender']}u, {c['number']}, {c['seq']}, {b(c['relay'])}, {c['promise']}, "
+            f"    {{{{{c['sender']}u, {c['number']}, {c['seq']}, {b(c['relay'])}, {b(c['starting'])}, {c['promise']}, "
             f"{c['round']}, {c['power']}, {len(c['neighbours'])}, {len(c['routes'])}, "
             f"{{{named}}}, {{{rts}}}}}, {len(c['frame']) // 2}, {hexbytes(c['frame'])}}},"
         )
@@ -110,8 +110,8 @@ def main():
 
     L.append("static const struct numbering_case numberings[] = {")
     L += [
-        f"    {{{c['last']}, {c['number']}, {b(c['promise_passed'])}, {b(c['names_none'])}, "
-        f"{b(c['had_margin'])}, {json.dumps(c['does'])}}},"
+        f"    {{{c['last']}, {c['number']}, {b(c['promise_passed'])}, {b(c['starting'])}, "
+        f"{b(c['was_starting'])}, {json.dumps(c['does'])}}},"
         for c in v["numbering"]
     ]
     L.append("};")

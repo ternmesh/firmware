@@ -43,6 +43,7 @@
 #define NEIGHBOURS 32
 #define DESTINATIONS 128
 #define TX_MIN_DBM (-9) /* the SX1262's least */
+#define POWER_UNSET INT8_MIN
 
 static struct tern_sx126x sx;
 static struct tern_radio radio;
@@ -57,7 +58,11 @@ static struct tern_route_neighbour neighbours[NEIGHBOURS];
 static struct tern_route_dest destinations[DESTINATIONS];
 static uint16_t route_seq_saved;
 static bool route_out;   /* the frame on the air is the router's */
-static int8_t power_now; /* what the radio is set to send at */
+static int8_t power_now; /* what the radio is set to send at, or POWER_UNSET */
+static uint8_t route_frame[TERN_ROUTE_FRAME_MAX]; /* the router's, until it has gone */
+static size_t route_len;
+static int8_t route_dbm;
+static tern_time route_retry; /* when to try it again, if the radio refused it */
 /* A handshake frame that had to wait for the one on the air. */
 static uint8_t waiting[TERN_CONTACT_MAX_FRAME];
 static size_t waiting_len;
@@ -150,13 +155,19 @@ static tern_time transmit_at(const uint8_t *frame, size_t len, int8_t dbm) {
         struct tern_radio_config at = cfg;
         at.tx_power_dbm = dbm;
         err = tern_radio_configure(&radio, &at);
-        power_now = dbm;
+        /* A configuration that fails leaves the radio set to nothing: whatever is asked for
+         * next, it is configured again. */
+        power_now = err == TERN_OK ? dbm : POWER_UNSET;
     }
     if (err == TERN_OK) {
         err = tern_radio_transmit(&radio, frame, (uint32_t)len);
     }
     if (err != TERN_OK) {
         printf("radio error %d: not sent\n", err);
+        if (power_now == POWER_UNSET && tern_radio_configure(&radio, &cfg) == TERN_OK) {
+            power_now = cfg.tx_power_dbm;
+            tern_radio_receive(&radio);
+        }
         return 0;
     }
     transmitting = true;
@@ -339,17 +350,32 @@ static void poll_contact(void) {
     }
 }
 
-/* Sends what the router has to send: its announces, and its requests for routes. */
+/* Sends what the router has to send: its announces, and its requests for routes. A frame the
+ * router has handed over is its only copy, and what it said is counted as said - a retraction as
+ * one of its three - so the frame is kept until it has gone, and the router is not asked for
+ * another while the region's limit would refuse one. */
 static void poll_route(void) {
-    uint8_t frame[TERN_ROUTE_FRAME_MAX];
-    int8_t dbm;
-    size_t len;
-    if (transmitting || waiting_len != 0 || board_now() < tern_route_due(&route)) {
+    tern_time now = board_now();
+    if (transmitting || waiting_len != 0) {
         return;
     }
-    len = tern_route_poll(&route, board_now(), frame, &dbm);
-    if (len != 0) {
-        route_out = transmit_at(frame, len, dbm) != 0;
+    if (route_len == 0) {
+        if (now < tern_route_due(&route) ||
+            !tern_duty_allows(&duty, now, tern_lora_airtime(&cfg.mod, TERN_ROUTE_FRAME_MAX))) {
+            return;
+        }
+        route_len = tern_route_poll(&route, now, route_frame, &route_dbm);
+        route_retry = 0;
+    }
+    if (route_len == 0 || now < route_retry ||
+        !tern_duty_allows(&duty, now, tern_lora_airtime(&cfg.mod, (uint32_t)route_len))) {
+        return;
+    }
+    if (transmit_at(route_frame, route_len, route_dbm) != 0) {
+        route_out = true;
+        route_len = 0;
+    } else {
+        route_retry = now + 1000000000LL; /* the radio, or the flash: not every turn of the loop */
     }
 }
 

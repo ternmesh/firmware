@@ -129,18 +129,20 @@
       "number": 65535,
       "seq": 0,
       "relay": false,
+      "starting": true,
       "promise": 600,
       "round": 0,
       "power": 22,
       "neighbours": [],
       "routes": [],
-      "frame": "591147f825ffff00000002580000160000"
+      "frame": "591147f825ffff00000202580000160000"
     },
     {
       "sender": 3167332448,
       "number": 258,
       "seq": 32769,
       "relay": true,
+      "starting": false,
       "promise": 33435,
       "round": 2,
       "power": -9,
@@ -173,6 +175,7 @@
       "number": 5,
       "seq": 9,
       "relay": true,
+      "starting": false,
       "promise": 65535,
       "round": 1,
       "power": 2,
@@ -371,7 +374,7 @@
     },
     {
       "why": "an announce with an unknown flag",
-      "frame": "59bcc9a8600102800103829b0002f702021147f82580536f6411ff536f64110007003668757e77fffeffff"
+      "frame": "59bcc9a8600102800105829b0002f702021147f82580536f6411ff536f64110007003668757e77fffeffff"
     },
     {
       "why": "an announce from routing id 0",
@@ -383,7 +386,7 @@
     },
     {
       "why": "an announce from the receiver's own routing id",
-      "frame": "5968757e77ffff00000002580000160000"
+      "frame": "5968757e77ffff00000202580000160000"
     },
     {
       "why": "a request a byte short",
@@ -631,104 +634,120 @@
       "last": 10,
       "number": 11,
       "promise_passed": false,
-      "names_none": false,
-      "had_margin": true,
+      "starting": false,
+      "was_starting": false,
       "does": "take"
     },
     {
       "last": 10,
       "number": 10,
       "promise_passed": false,
-      "names_none": false,
-      "had_margin": true,
+      "starting": false,
+      "was_starting": false,
       "does": "discard"
     },
     {
       "last": 10,
       "number": 10,
       "promise_passed": true,
-      "names_none": true,
-      "had_margin": true,
-      "does": "discard"
+      "starting": false,
+      "was_starting": false,
+      "does": "again"
     },
     {
       "last": 10,
       "number": 9,
       "promise_passed": false,
-      "names_none": false,
-      "had_margin": true,
+      "starting": false,
+      "was_starting": false,
       "does": "discard"
     },
     {
       "last": 10,
       "number": 9,
       "promise_passed": true,
-      "names_none": false,
-      "had_margin": true,
+      "starting": false,
+      "was_starting": false,
+      "does": "again"
+    },
+    {
+      "last": 10,
+      "number": 11,
+      "promise_passed": false,
+      "starting": true,
+      "was_starting": false,
       "does": "again"
     },
     {
       "last": 10,
       "number": 9,
       "promise_passed": false,
-      "names_none": true,
-      "had_margin": false,
+      "starting": true,
+      "was_starting": false,
+      "does": "again"
+    },
+    {
+      "last": 10,
+      "number": 10,
+      "promise_passed": false,
+      "starting": true,
+      "was_starting": false,
       "does": "again"
     },
     {
       "last": 10,
       "number": 11,
       "promise_passed": false,
-      "names_none": true,
-      "had_margin": true,
-      "does": "again"
+      "starting": true,
+      "was_starting": true,
+      "does": "take"
     },
     {
       "last": 10,
-      "number": 11,
+      "number": 9,
       "promise_passed": false,
-      "names_none": true,
-      "had_margin": false,
+      "starting": true,
+      "was_starting": true,
       "does": "take"
     },
     {
       "last": 10,
       "number": 11,
-      "promise_passed": true,
-      "names_none": false,
-      "had_margin": false,
+      "promise_passed": false,
+      "starting": false,
+      "was_starting": true,
       "does": "take"
     },
     {
       "last": 65535,
       "number": 0,
       "promise_passed": false,
-      "names_none": false,
-      "had_margin": false,
+      "starting": false,
+      "was_starting": false,
       "does": "take"
     },
     {
       "last": 0,
       "number": 32767,
       "promise_passed": false,
-      "names_none": false,
-      "had_margin": true,
+      "starting": false,
+      "was_starting": false,
       "does": "take"
     },
     {
       "last": 0,
       "number": 32768,
       "promise_passed": false,
-      "names_none": false,
-      "had_margin": true,
+      "starting": false,
+      "was_starting": false,
       "does": "discard"
     },
     {
       "last": 0,
       "number": 32768,
       "promise_passed": true,
-      "names_none": false,
-      "had_margin": true,
+      "starting": false,
+      "was_starting": false,
       "does": "again"
     }
   ],

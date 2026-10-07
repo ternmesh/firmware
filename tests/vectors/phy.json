@@ -1,10 +1,13 @@
 {
-  "description": "Radio settings, draft 0 (draft/phy.md). An implementation MUST use sync_word, in the form its radio takes (sync_word_sx126x for the SX126x family), with preamble_symbols, coding rate 4/coding_rate_denominator, an explicit header and a CRC. For each profile it MUST use frequency_hz, bandwidth_hz and spreading_factor, and MUST compute, for a frame of each length, the time on air ns, in nanoseconds. It MUST NOT transmit for more than duty_cycle_ppm millionths of any duty_window_s seconds; 1000000 means the profile sets no limit. sync_word and sync_word_sx126x are hex.",
+  "description": "Radio settings, draft 0 (draft/phy.md). An implementation MUST use sync_word, in the form its radio takes (sync_word_sx126x for the SX126x family), with preamble_symbols, coding rate 4/coding_rate_denominator, an explicit header and a CRC. For each profile it MUST use frequency_hz, bandwidth_hz and spreading_factor, and MUST compute, for a frame of each length, the time on air ns, in nanoseconds. It MUST NOT transmit for more than duty_cycle_ppm millionths of any duty_window_s seconds; 1000000 means the profile sets no limit. sync_word and sync_word_sx126x are hex. Each case in duty gives frames already sent, as runs of count frames of length bytes, the first beginning at first_at_ns and each every_ns after the one before, and a frame asked for at at_ns: where must_refuse is true the node MUST NOT send it then; where it is false the limit does not forbid it, and a node may still hold it back.",
   "generator": "vectors/tools/phy.py",
   "sync_word": "5e",
   "sync_word_sx126x": "54e4",
   "preamble_symbols": 16,
   "coding_rate_denominator": 5,
+  "explicit_header": true,
+  "crc": true,
+  "iq_inverted": false,
   "profiles": [
     {
       "name": "US915",
@@ -14,6 +17,7 @@
       "max_eirp_dbm": 36,
       "duty_cycle_ppm": 1000000,
       "duty_window_s": 3600,
+      "low_data_rate_optimisation": false,
       "airtime_ns": [
         {
           "length": 16,
@@ -39,7 +43,8 @@
           "length": 255,
           "ns": 320768000
         }
-      ]
+      ],
+      "duty": []
     },
     {
       "name": "EU868",
@@ -49,6 +54,7 @@
       "max_eirp_dbm": 29,
       "duty_cycle_ppm": 100000,
       "duty_window_s": 3600,
+      "low_data_rate_optimisation": false,
       "airtime_ns": [
         {
           "length": 16,
@@ -73,6 +79,133 @@
         {
           "length": 255,
           "ns": 407808000
+        }
+      ],
+      "duty": [
+        {
+          "why": "nothing sent",
+          "sent": [],
+          "at_ns": 0,
+          "length": 255,
+          "must_refuse": false
+        },
+        {
+          "why": "one frame short of the limit",
+          "sent": [
+            {
+              "first_at_ns": 0,
+              "count": 881,
+              "every_ns": 1000000000,
+              "length": 255
+            }
+          ],
+          "at_ns": 882000000000,
+          "length": 255,
+          "must_refuse": false
+        },
+        {
+          "why": "at the limit",
+          "sent": [
+            {
+              "first_at_ns": 0,
+              "count": 882,
+              "every_ns": 1000000000,
+              "length": 255
+            }
+          ],
+          "at_ns": 882000000000,
+          "length": 255,
+          "must_refuse": true
+        },
+        {
+          "why": "at the limit, the first frame a nanosecond short of leaving the window",
+          "sent": [
+            {
+              "first_at_ns": 0,
+              "count": 882,
+              "every_ns": 1000000000,
+              "length": 255
+            }
+          ],
+          "at_ns": 3599999999999,
+          "length": 255,
+          "must_refuse": true
+        },
+        {
+          "why": "at the limit, as the first frame leaves the window",
+          "sent": [
+            {
+              "first_at_ns": 0,
+              "count": 882,
+              "every_ns": 1000000000,
+              "length": 255
+            }
+          ],
+          "at_ns": 3600000000000,
+          "length": 255,
+          "must_refuse": false
+        },
+        {
+          "why": "the limit used just before the hour, asked just after it",
+          "sent": [
+            {
+              "first_at_ns": 2718000000000,
+              "count": 882,
+              "every_ns": 1000000000,
+              "length": 255
+            }
+          ],
+          "at_ns": 3601000000000,
+          "length": 255,
+          "must_refuse": true
+        },
+        {
+          "why": "the same, as the first of them leaves the window",
+          "sent": [
+            {
+              "first_at_ns": 2718000000000,
+              "count": 882,
+              "every_ns": 1000000000,
+              "length": 255
+            }
+          ],
+          "at_ns": 6318000000000,
+          "length": 255,
+          "must_refuse": false
+        },
+        {
+          "why": "the limit used across the hour",
+          "sent": [
+            {
+              "first_at_ns": 3159000000000,
+              "count": 441,
+              "every_ns": 1000000000,
+              "length": 255
+            },
+            {
+              "first_at_ns": 3600000000000,
+              "count": 441,
+              "every_ns": 1000000000,
+              "length": 255
+            }
+          ],
+          "at_ns": 4482000000000,
+          "length": 255,
+          "must_refuse": true
+        },
+        {
+          "why": "long silence after the limit",
+          "sent": [
+            {
+              "first_at_ns": 0,
+              "count": 882,
+              "every_ns": 1000000000,
+              "length": 255
+            }
+          ],
+          "at_ns": 18000000000000,
+          "length": 255,
+          "must_refuse": false
         }
       ]
     }

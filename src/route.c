@@ -12,6 +12,7 @@
 #define RETRACTS 3
 #define ASK_FRAME 62 /* a request frame of eight, which a request's jitter is reckoned in */
 #define FLAG_RELAY 0x01
+#define FLAG_STARTING 0x02
 #define NS_PER_S 1000000000LL
 #define MILLION 1000000LL
 
@@ -44,7 +45,7 @@ size_t tern_announce_write(const struct tern_announce *a, uint8_t frame[TERN_ROU
     put32(frame + 1, a->sender);
     put16(frame + 5, a->number);
     put16(frame + 7, a->seq);
-    frame[9] = a->relay ? FLAG_RELAY : 0;
+    frame[9] = (uint8_t)((a->relay ? FLAG_RELAY : 0) | (a->starting ? FLAG_STARTING : 0));
     put16(frame + 10, a->promise);
     put16(frame + 12, a->round);
     frame[14] = (uint8_t)a->power;
@@ -66,13 +67,14 @@ bool tern_announce_read(struct tern_announce *a, const uint8_t *frame, size_t le
     const uint8_t *p = frame + TERN_ANNOUNCE_HEAD;
     if (len < TERN_ANNOUNCE_HEAD || len > TERN_ROUTE_FRAME_MAX || frame[0] != TERN_HDR_ANNOUNCE ||
         len != TERN_ANNOUNCE_HEAD + 5u * frame[15] + 8u * frame[16] ||
-        (frame[9] & ~FLAG_RELAY) != 0 || reserved(get32(frame + 1))) {
+        (frame[9] & ~(FLAG_RELAY | FLAG_STARTING)) != 0 || reserved(get32(frame + 1))) {
         return false;
     }
     a->sender = get32(frame + 1);
     a->number = get16(frame + 5);
     a->seq = get16(frame + 7);
     a->relay = (frame[9] & FLAG_RELAY) != 0;
+    a->starting = (frame[9] & FLAG_STARTING) != 0;
     a->promise = get16(frame + 10);
     a->round = get16(frame + 12);
     a->power = (int8_t)frame[14];
@@ -186,16 +188,16 @@ bool tern_route_withdrawn(uint16_t named, uint16_t number, uint16_t round) {
 }
 
 enum tern_route_numbering tern_route_numbering(uint16_t last, uint16_t number, bool promise_passed,
-                                               bool names_none, bool had_margin) {
+                                               bool starting, bool was_starting) {
     uint16_t gap = (uint16_t)(number - last);
-    bool late = gap >= 0x8000;
-    /* A node that names no one, having named this one or numbered its announces further on, has
-     * started again; so has one numbered out of order after a promise of silence. */
-    bool again = names_none && (late || had_margin);
-    if (gap == 0 || (late && !again && !promise_passed)) {
-        return TERN_ROUTE_DISCARD;
+    if (starting) {
+        return was_starting ? TERN_ROUTE_TAKE : TERN_ROUTE_AGAIN;
     }
-    return late || again ? TERN_ROUTE_AGAIN : TERN_ROUTE_TAKE;
+    if (gap == 0 || gap >= 0x8000) {
+        /* A copy, or late; or, after a promise of silence, it started again unheard. */
+        return promise_passed ? TERN_ROUTE_AGAIN : TERN_ROUTE_DISCARD;
+    }
+    return TERN_ROUTE_TAKE;
 }
 
 uint16_t tern_route_link_cost(const struct tern_lora *lora) {
@@ -297,6 +299,7 @@ struct tern_route_config tern_route_defaults(const struct tern_lora *lora, int8_
         .request_tries = 5,
         .hop_max = 32,
         .jitter = 2,
+        .start_announces = 4,
     };
 }
 
@@ -372,11 +375,11 @@ static struct tern_route_entry *entry_by(struct tern_route_dest *d, uint8_t s) {
     return NULL;
 }
 
-/* Whether a route to `id` through slot `s` may be used: the link is up, and the neighbour is a
- * relay or the destination itself. */
+/* Whether a route to `id` through slot `s` may be used: the link is up, and the neighbour is the
+ * destination itself, or a relay once this node is done starting. */
 static bool usable(const struct tern_route *r, uint8_t s, uint32_t id) {
     const struct tern_route_neighbour *n = slot(r, s);
-    return n->used && n->up && (n->relay || n->id == id);
+    return n->used && n->up && (n->id == id || (n->relay && !r->starting));
 }
 
 static void choices(const struct tern_route *r, const struct tern_route_dest *d,
@@ -700,7 +703,7 @@ static size_t neighbours(const struct tern_route *r) {
 static size_t planned(const struct tern_route *r) {
     size_t named = neighbours(r), room = named_room(r);
     size_t len = TERN_ANNOUNCE_HEAD + 5 * (named < room ? named : room);
-    if (r->config.relay) {
+    if (r->config.relay && !r->starting) {
         size_t routes = (size_t)r->urgent_count + r->selected + r->retracting;
         room = (TERN_ROUTE_FRAME_MAX - len) / 8;
         len += 8 * (routes < room ? routes : room);
@@ -775,6 +778,7 @@ static size_t build(struct tern_route *r, uint8_t *frame, int8_t *power) {
         .number = r->number,
         .seq = r->seq,
         .relay = r->config.relay,
+        .starting = r->starting != 0,
         .promise = tern_route_promise_code(promise(r)),
         .power = power_all(r),
     };
@@ -802,7 +806,7 @@ static size_t build(struct tern_route *r, uint8_t *frame, int8_t *power) {
         slot(r, slot_of(r, a.named[k].id))->owed = false;
     }
 
-    if (r->config.relay) {
+    if (r->config.relay && !r->starting) {
         size_t most = (TERN_ROUTE_FRAME_MAX - TERN_ANNOUNCE_HEAD - 5u * a.named_count) / 8;
         /* Changed routes first. */
         for (size_t k = 0; k < r->dest_cap && r->urgent_count && a.route_count < most; k++) {
@@ -843,8 +847,8 @@ static size_t announce(struct tern_route *r, uint8_t *frame, int8_t *power) {
     struct tern_route_bucket *b = &r->announces;
     tern_time cost = airtime(r, planned(r)) * MILLION;
     size_t len;
-    if (r->burst > 0 && r->urgent_count == 0) {
-        r->announcing = false; /* a burst lasts only while changed routes remain */
+    if (r->burst > 0 && (r->urgent_count == 0 || r->starting)) {
+        r->announcing = false; /* a burst lasts only while changed routes remain, and can go */
         return 0;
     }
     refill(b, r->now);
@@ -860,6 +864,17 @@ static size_t announce(struct tern_route *r, uint8_t *frame, int8_t *power) {
     r->out_at = r->now;
     if (++r->burst >= r->config.burst) {
         r->announcing = false;
+    }
+    if (r->starting && --r->starting == 0) {
+        /* It has said it started as often as it must: routes through its neighbours may be
+         * selected now. */
+        for (size_t i = 0; i < r->dest_cap; i++) {
+            if (r->dest[i].used) {
+                reselect(r, &r->dest[i]);
+            }
+        }
+        r->changed = false;
+        trickle_reset(r);
     }
     return len;
 }
@@ -905,7 +920,7 @@ static void on_announce(struct tern_route *r, const struct tern_announce *a, int
     if (!fresh) {
         const struct tern_route_neighbour *was = slot(r, s);
         switch (tern_route_numbering(was->number, a->number, r->now - was->heard > was->promise,
-                                     a->named_count == 0 && a->round == 0, was->theirs != 0)) {
+                                     a->starting, was->starting)) {
         case TERN_ROUTE_DISCARD:
             return;
         case TERN_ROUTE_AGAIN:
@@ -925,6 +940,7 @@ static void on_announce(struct tern_route *r, const struct tern_announce *a, int
     }
     n = slot(r, s);
     n->number = a->number;
+    n->starting = a->starting;
     n->heard = r->now;
     was_relay = n->relay;
     n->relay = a->relay;
@@ -950,7 +966,7 @@ static void on_announce(struct tern_route *r, const struct tern_announce *a, int
         reselect_through(r, s); /* routes through it now usable, or not */
     }
     update(r, a->sender, a->seq, 0, s);
-    for (int k = 0; n->relay && k < a->route_count; k++) {
+    for (int k = 0; n->relay && !a->starting && k < a->route_count; k++) {
         update(r, a->routes[k].destination, a->routes[k].seq, a->routes[k].metric, s);
     }
     if (r->changed) {
@@ -1039,6 +1055,7 @@ void tern_route_init(struct tern_route *r, const struct tern_route_config *confi
         .id = id,
         .seq = seq,
         .cost = tern_route_link_cost(&config->lora),
+        .starting = config->start_announces,
         .nb = neighbours_,
         .nb_cap = neighbour_cap > 255 ? 255 : neighbour_cap,
         .dest = dests,
@@ -1096,7 +1113,7 @@ size_t tern_route_poll(struct tern_route *r, tern_time now, uint8_t frame[TERN_R
         r->fired = true;
         /* Changed routes waiting are an inconsistency of this node's own: never suppressed. */
         if (r->config.redundancy == 0 || r->heard < r->config.redundancy ||
-            r->quiet >= r->config.quiet_max || r->urgent_count > 0 || r->asked) {
+            r->quiet >= r->config.quiet_max || r->urgent_count > 0 || r->asked || r->starting) {
             r->quiet = 0;
             if (!r->announcing) {
                 r->announcing = true;
@@ -1110,7 +1127,7 @@ size_t tern_route_poll(struct tern_route *r, tern_time now, uint8_t frame[TERN_R
     if (r->fired && now >= r->interval_end) {
         /* With changes of its own still waiting it stays where it is rather than doubling, so
          * they go within the next interval. */
-        if (r->urgent_count == 0 && !r->asked) {
+        if (r->urgent_count == 0 && !r->asked && !r->starting) {
             r->interval = r->interval * 2 > i_max(r) ? i_max(r) : r->interval * 2;
         }
         trickle_begin(r);

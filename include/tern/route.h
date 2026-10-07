@@ -31,7 +31,9 @@
  *     ... tern_route_sent(&r, now) once each has gone on the air ...
  *     sleep until tern_route_due(&r), or a frame arrives
  *
- * Nothing here is authenticated yet: the specification leaves that open. */
+ * A node that restarts has lost what Babel's condition rests on, so a router starts by saying so
+ * and selecting nothing through a neighbour until it has: the specification's "Starting". Nothing
+ * here is authenticated yet: the specification leaves that open. */
 
 #define TERN_ROUTE_EVERYONE 0xFFFFFFFFu /* in a request: every neighbour */
 #define TERN_ROUTE_INF 0xFFFFu          /* a metric that retracts a route */
@@ -83,6 +85,7 @@ struct tern_announce {
     uint16_t number;
     uint16_t seq;
     bool relay;
+    bool starting;
     uint16_t promise; /* as it goes on the air */
     uint16_t round;
     int8_t power;
@@ -131,13 +134,13 @@ bool tern_route_link_up(bool up, int32_t own, uint8_t theirs);
 bool tern_route_withdrawn(uint16_t named, uint16_t number, uint16_t round);
 
 /* What a node does with an announce numbered `number` from a neighbour whose last was `last`:
- * takes it, discards it as a copy or late, or takes the neighbour to have started again and lost
- * what it announced. `promise_passed` is whether nothing was heard from the neighbour for one of
- * its promises, `names_none` whether the announce names no neighbours with a round of 0, and
- * `had_margin` whether the neighbour had given this node a margin. */
+ * takes it, discards it as a copy or late, or forgets the neighbour and takes it as found again,
+ * because it has started again and lost what it announced. `promise_passed` is whether nothing was
+ * heard from the neighbour for one of its promises, `starting` whether the announce says its
+ * sender is starting, and `was_starting` whether the neighbour's last did. */
 enum tern_route_numbering { TERN_ROUTE_TAKE, TERN_ROUTE_DISCARD, TERN_ROUTE_AGAIN };
 enum tern_route_numbering tern_route_numbering(uint16_t last, uint16_t number, bool promise_passed,
-                                               bool names_none, bool had_margin);
+                                               bool starting, bool was_starting);
 
 /* What a link that is up costs: the reference frame's time on air in milliseconds, rounded up. */
 uint16_t tern_route_link_cost(const struct tern_lora *lora);
@@ -191,7 +194,8 @@ struct tern_route_config {
     tern_time request_interval;
     uint8_t request_tries;
     uint8_t hop_max;
-    uint8_t jitter; /* airtimes a request waits, at most */
+    uint8_t jitter;          /* airtimes a request waits, at most */
+    uint8_t start_announces; /* announces a node is starting for */
 };
 
 /* The specification's parameters. */
@@ -205,7 +209,8 @@ struct tern_route_neighbour {
     uint32_t id;
     bool used;
     bool relay;
-    bool owed; /* found since the last announce: named before the rest */
+    bool owed;     /* found since the last announce: named before the rest */
+    bool starting; /* its last announce said so */
     bool up;
     uint8_t theirs;    /* the margin it gave this node, or 0 for none */
     uint16_t number;   /* its last announce's */
@@ -250,9 +255,10 @@ struct tern_route_bucket {
 struct tern_route {
     struct tern_route_config config;
     uint32_t id;
-    uint16_t seq;    /* of this node's route to itself */
-    uint16_t number; /* of its next announce */
-    uint16_t cost;   /* a link's */
+    uint16_t seq;     /* of this node's route to itself */
+    uint16_t number;  /* of its next announce */
+    uint16_t cost;    /* a link's */
+    uint8_t starting; /* announces it has still to send before it selects routes through others */
 
     struct tern_route_neighbour *nb;
     size_t nb_cap;

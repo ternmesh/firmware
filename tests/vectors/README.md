@@ -16,7 +16,8 @@ header for `tests/contact.c` the same way.
 
 `phy.json` is a copy of
 [`vectors/phy.json`](https://github.com/ternmesh/spec/blob/main/vectors/phy.json), as of commit
-`f5da327` (radio settings, draft 0, in [ternmesh/spec#5](https://github.com/ternmesh/spec/pull/5)).
+its latest in [ternmesh/spec#5](https://github.com/ternmesh/spec/pull/5) (radio settings, draft 0, with
+every receiver setting and cases for the limit on transmitting).
 `phy_to_c.py` turns it into a header for `tests/region.c`.
 
 `routing.json` is a copy of

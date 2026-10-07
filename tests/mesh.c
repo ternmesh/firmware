@@ -465,9 +465,10 @@ static void routes_never_loop_whatever_is_lost(void) {
 }
 
 /* A node that restarts has lost what it announced, which is what the rule above rests on: until
- * its neighbours hear that it has, a route can lead back through it. The specification leaves that
- * open. What is checked here is that it passes: with nodes restarting and changing role all the
- * while, the network left alone heals, and nothing loops once it has. */
+ * its neighbours hear that it has, a route can lead back through it. So it says it is starting, and
+ * waits; a neighbour that hears none of that can still loop. What is checked here is that it
+ * passes: with nodes restarting and changing role all the while, the network left alone heals, and
+ * nothing loops once it has. Over five seeds, three had no loop and the longest lasted 82 s. */
 static void restarts_heal(void) {
     static int16_t base[NODES][NODES];
     rnd_state = 999;
@@ -492,7 +493,7 @@ static void restarts_heal(void) {
     run(&net, net.now + TERN_S(3600));
     CHECK_EQ_I64(unreached(&net), 0);
     CHECK(net.loop_last < net.now - TERN_S(3000));
-    CHECK(net.loop_longest < TERN_S(600)); /* about three minutes, as this is written */
+    CHECK(net.loop_longest < TERN_S(120));
 }
 
 int main(void) {

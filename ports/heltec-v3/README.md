@@ -114,7 +114,7 @@ Each board announces itself by radio: every eight seconds at first, and less and
 to once in eight and a half minutes, while nothing changes. From the announces it hears, a board
 works out which boards it can reach and through which neighbour, as the specification's
 [routing draft](https://github.com/ternmesh/spec/blob/main/draft/routing.md) describes. Two boards
-on a bench find each other in under half a minute; `routes` shows it:
+on a bench find each other within a minute; `routes` shows it:
 
 ```
 neighbours:

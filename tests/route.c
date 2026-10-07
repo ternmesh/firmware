@@ -59,7 +59,7 @@ struct named_case {
 };
 struct numbering_case {
     uint16_t last, number;
-    bool promise_passed, names_none, had_margin;
+    bool promise_passed, starting, was_starting;
     const char *does;
 };
 struct cost_case {
@@ -121,6 +121,7 @@ static void announces_are_written_and_read(void) {
         CHECK(tern_announce_read(&a, c->frame, c->len));
         CHECK(a.sender == c->fields.sender && a.number == c->fields.number);
         CHECK(a.seq == c->fields.seq && a.relay == c->fields.relay);
+        CHECK(a.starting == c->fields.starting);
         CHECK(a.promise == c->fields.promise && a.round == c->fields.round);
         CHECK(a.power == c->fields.power);
         CHECK(a.named_count == c->fields.named_count && a.route_count == c->fields.route_count);
@@ -216,8 +217,8 @@ static void a_neighbour_that_starts_again_is_told_from_a_late_frame(void) {
     static const char *const names[] = {"take", "discard", "again"};
     for (size_t i = 0; i < COUNT(numberings); i++) {
         const struct numbering_case *c = &numberings[i];
-        CHECK(strcmp(names[tern_route_numbering(c->last, c->number, c->promise_passed,
-                                                c->names_none, c->had_margin)],
+        CHECK(strcmp(names[tern_route_numbering(c->last, c->number, c->promise_passed, c->starting,
+                                                c->was_starting)],
                      c->does) == 0);
     }
 }

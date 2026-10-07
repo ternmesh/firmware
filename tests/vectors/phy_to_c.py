@@ -22,6 +22,9 @@ def main():
         f"#define VECTOR_PREAMBLE {v['preamble_symbols']}",
         f"#define VECTOR_CR_DENOMINATOR {v['coding_rate_denominator']}",
         f"#define VECTOR_LENGTHS {len(v['profiles'][0]['airtime_ns'])}",
+        f"#define VECTOR_EXPLICIT_HEADER {int(v['explicit_header'])}",
+        f"#define VECTOR_CRC {int(v['crc'])}",
+        f"#define VECTOR_IQ_INVERTED {int(v['iq_inverted'])}",
         "",
         "static const struct profile_case profiles[] = {",
     ]
@@ -30,8 +33,20 @@ def main():
         lines.append(
             f"    {{{json.dumps(p['name'])}, {p['frequency_hz']}, {p['bandwidth_hz']}, "
             f"{p['spreading_factor']}, {p['max_eirp_dbm']}, {p['duty_cycle_ppm']}, "
-            f"{p['duty_window_s']}, {{{air}}}}},"
+            f"{p['duty_window_s']}, {{{air}}}, {int(p['low_data_rate_optimisation'])}}},"
         )
+    lines.append("};")
+    lines.append("static const struct duty_case duties[] = {")
+    for p in v["profiles"]:
+        for c in p["duty"]:
+            runs = ", ".join(
+                f"{{{r['first_at_ns']}LL, {r['count']}, {r['every_ns']}LL, {r['length']}}}"
+                for r in c["sent"]
+            ) or "{0, 0, 0, 0}"
+            lines.append(
+                f"    {{{json.dumps(p['name'])}, {json.dumps(c['why'])}, {len(c['sent'])}, "
+                f"{{{runs}}}, {c['at_ns']}LL, {c['length']}, {int(c['must_refuse'])}}},"
+            )
     lines.append("};")
     with open(out, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
