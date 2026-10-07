@@ -26,5 +26,10 @@ the routing draft in [ternmesh/spec#8](https://github.com/ternmesh/spec/pull/8),
 table's cases. `routing_to_c.py`
 turns it into a header for `tests/route.c`.
 
+`forwarding.json` is a copy of
+[`vectors/forwarding.json`](https://github.com/ternmesh/spec/blob/main/vectors/forwarding.json), as of
+the forwarding draft's first version. `forwarding_to_c.py` turns it into a header for
+`tests/forward.c`.
+
 When the specification's vectors change, copy the new file here in the same pull request that
 changes the code to match, and update the commit above.

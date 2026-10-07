@@ -309,6 +309,8 @@ struct tern_route_config tern_route_defaults(const struct tern_lora *lora, int8_
         .request_interval = TERN_S(10),
         .request_tries = 5,
         .hop_max = 32,
+        .step_db = 3,
+        .dead_hops = 24,
         .jitter = 2,
         .start_announces = 4,
     };
@@ -681,7 +683,9 @@ static int8_t power_all(const struct tern_route *r) {
 
 static int8_t power_to(const struct tern_route *r, uint32_t id) {
     uint8_t s = id == TERN_ROUTE_EVERYONE ? 0 : slot_of(r, id);
-    return s ? clamp_dbm(r, slot(r, s)->floor + 16 * r->config.power_margin_db) : power_all(r);
+    return s ? clamp_dbm(r, slot(r, s)->floor +
+                                16 * (r->config.power_margin_db + (int32_t)slot(r, s)->boost))
+             : power_all(r);
 }
 
 /* --- The cap --- */
@@ -962,6 +966,7 @@ static void on_announce(struct tern_route *r, const struct tern_announce *a, int
     n->number = a->number;
     n->starting = a->starting;
     n->heard = r->now;
+    n->lost = 0;
     was_relay = n->relay;
     n->relay = a->relay;
     /* A neighbour that has taken up or given up the relay's role, or a relay new to this node. */
@@ -1179,4 +1184,102 @@ bool tern_route_next(const struct tern_route *r, uint32_t destination, uint32_t 
     *next = slot(r, d->sel)->id;
     *metric = total(e->metric, r->cost);
     return true;
+}
+
+/* --- For the frames that follow routes --- */
+
+int8_t tern_route_power(const struct tern_route *r, uint32_t neighbour) {
+    return power_to(r, neighbour);
+}
+
+int8_t tern_route_power_back(const struct tern_route *r, int8_t power, int16_t snr_q) {
+    return clamp_dbm(r, tern_route_floor(true, 0, power, snr_q, r->config.lora.sf) +
+                            16 * r->config.power_margin_db);
+}
+
+static bool tried_already(uint32_t id, const uint32_t *tried, int n) {
+    for (int i = 0; i < n; i++) {
+        if (tried[i] == id) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool tern_route_other(const struct tern_route *r, uint32_t destination, const uint32_t *tried,
+                      int tried_count, uint32_t *next) {
+    struct tern_route_dest *d = dest_of(r, destination);
+    uint16_t best = INF;
+    bool found = false;
+    for (int i = 0; d && i < TERN_ROUTE_KEPT; i++) {
+        const struct tern_route_entry *e = &d->e[i];
+        uint16_t t;
+        /* The selected route is feasible by what it was when selected, though its metric may now
+         * equal the feasibility distance. */
+        if (!e->slot || !usable(r, e->slot, d->id) ||
+            tried_already(slot(r, e->slot)->id, tried, tried_count) ||
+            (e->slot != d->sel && !tern_route_feasible(&d->fd, e->seq, e->metric))) {
+            continue;
+        }
+        t = total(e->metric, r->cost);
+        if (t < best) {
+            best = t;
+            *next = slot(r, e->slot)->id;
+            found = true;
+        }
+    }
+    return found;
+}
+
+void tern_route_lost(struct tern_route *r, tern_time now, uint32_t neighbour) {
+    uint8_t s = slot_of(r, neighbour);
+    struct tern_route_neighbour *n;
+    int room = r->config.full_dbm - r->config.min_dbm;
+    r->now = now;
+    if (!s) {
+        return;
+    }
+    n = slot(r, s);
+    n->boost = (uint8_t)(n->boost + r->config.step_db > room ? room : n->boost + r->config.step_db);
+    if (n->lost < UINT8_MAX) {
+        n->lost++;
+    }
+    if (r->config.dead_hops && n->lost >= r->config.dead_hops) {
+        forget(r, s);
+    }
+}
+
+void tern_route_passed(struct tern_route *r, tern_time now, uint32_t neighbour, int8_t power,
+                       int16_t snr_q) {
+    uint8_t s = slot_of(r, neighbour);
+    struct tern_route_neighbour *n;
+    bool was_up;
+    r->now = now;
+    if (!s) {
+        return;
+    }
+    n = slot(r, s);
+    n->floor = tern_route_floor(false, n->floor, power, snr_q, r->config.lora.sf);
+    n->heard = now;
+    n->lost = 0;
+    n->boost = n->boost > 0 ? (uint8_t)(n->boost - 1) : 0;
+    was_up = n->up;
+    n->up = tern_route_link_up(was_up, 16 * (int32_t)r->config.full_dbm - n->floor, n->theirs);
+    if (n->up != was_up) {
+        r->changed = true;
+        reselect_through(r, s);
+        trickle_reset(r);
+        r->changed = false;
+    }
+}
+
+void tern_route_want(struct tern_route *r, tern_time now, uint32_t destination) {
+    struct tern_route_dest *d;
+    r->now = now;
+    if (destination == r->id || !(d = dest_make(r, destination)) || d->sel) {
+        return;
+    }
+    if (d->asked < 0 || now - d->asked >= r->config.request_interval) {
+        ask(r, d);
+    }
 }

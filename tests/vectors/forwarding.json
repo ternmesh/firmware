@@ -1,0 +1,380 @@
+{
+  "description": "Frames that follow routes, draft 0 (draft/forwarding.md). Routing ids are numbers; frames and tags are hex. In hops, sent is what the node sent and heard what it then received. In backs, power is what a frame was sent at in dBm and snr_quarter_db what it was heard at, and needs is what an answer must go at for its sender to hear it, between the node's lowest and full power. In powers, neighbour is what Routes gives for the neighbour, its boost included, back is what the node the frame came from needs or null for a frame that answers none, and try counts from 0.",
+  "generator": "vectors/tools/forwarding.py",
+  "heads": [
+    {
+      "hdr": 72,
+      "hops": 32,
+      "power": 22,
+      "next": 489570112,
+      "destination": 168496141,
+      "tag": "30313233",
+      "frame": "4820161d2e3f400a0b0c0d303132333435363738393a3b3c3d3e3f40"
+    },
+    {
+      "hdr": 72,
+      "hops": 1,
+      "power": -9,
+      "next": 1,
+      "destination": 4294967294,
+      "tag": "80818283",
+      "frame": "4801f700000001fffffffe808182838485868788898a8b"
+    },
+    {
+      "hdr": 80,
+      "hops": 31,
+      "power": 0,
+      "next": 168496141,
+      "destination": 489570112,
+      "tag": "30313233",
+      "frame": "501f000a0b0c0d1d2e3f4030313233c0ffee01"
+    }
+  ],
+  "rejected": [
+    {
+      "why": "shorter than a head and a tag",
+      "frame": "48200e0000000700000009000000"
+    },
+    {
+      "why": "not a frame of this section's",
+      "frame": "59200e0000000700000009000000000000000000000000"
+    },
+    {
+      "why": "an acknowledgement too long",
+      "frame": "50200e0000000700000009000000000000000000"
+    },
+    {
+      "why": "an acknowledgement too short",
+      "frame": "50200e000000070000000900000000000000"
+    },
+    {
+      "why": "for every neighbour",
+      "frame": "48200effffffff00000009000000000000000000000000"
+    },
+    {
+      "why": "for neighbour zero",
+      "frame": "48200e0000000000000009000000000000000000000000"
+    },
+    {
+      "why": "for destination zero",
+      "frame": "48200e0000000700000000000000000000000000000000"
+    },
+    {
+      "why": "for every destination",
+      "frame": "48200e00000007ffffffff000000000000000000000000"
+    }
+  ],
+  "hops": [
+    {
+      "sent": {
+        "hdr": 72,
+        "hops": 20,
+        "destination": 9,
+        "tag": "30313233"
+      },
+      "heard": {
+        "hdr": 72,
+        "hops": 19,
+        "destination": 9,
+        "tag": "30313233"
+      },
+      "ends": true
+    },
+    {
+      "sent": {
+        "hdr": 72,
+        "hops": 20,
+        "destination": 9,
+        "tag": "30313233"
+      },
+      "heard": {
+        "hdr": 72,
+        "hops": 20,
+        "destination": 9,
+        "tag": "30313233"
+      },
+      "ends": false
+    },
+    {
+      "sent": {
+        "hdr": 72,
+        "hops": 20,
+        "destination": 9,
+        "tag": "30313233"
+      },
+      "heard": {
+        "hdr": 72,
+        "hops": 18,
+        "destination": 9,
+        "tag": "30313233"
+      },
+      "ends": false
+    },
+    {
+      "sent": {
+        "hdr": 72,
+        "hops": 20,
+        "destination": 9,
+        "tag": "30313233"
+      },
+      "heard": {
+        "hdr": 72,
+        "hops": 19,
+        "destination": 9,
+        "tag": "30313234"
+      },
+      "ends": false
+    },
+    {
+      "sent": {
+        "hdr": 72,
+        "hops": 20,
+        "destination": 9,
+        "tag": "30313233"
+      },
+      "heard": {
+        "hdr": 72,
+        "hops": 19,
+        "destination": 10,
+        "tag": "30313233"
+      },
+      "ends": false
+    },
+    {
+      "sent": {
+        "hdr": 72,
+        "hops": 20,
+        "destination": 9,
+        "tag": "30313233"
+      },
+      "heard": {
+        "hdr": 80,
+        "hops": 32,
+        "destination": 77,
+        "tag": "30313233"
+      },
+      "ends": true
+    },
+    {
+      "sent": {
+        "hdr": 72,
+        "hops": 20,
+        "destination": 9,
+        "tag": "30313233"
+      },
+      "heard": {
+        "hdr": 80,
+        "hops": 5,
+        "destination": 77,
+        "tag": "30313233"
+      },
+      "ends": true
+    },
+    {
+      "sent": {
+        "hdr": 72,
+        "hops": 20,
+        "destination": 9,
+        "tag": "30313233"
+      },
+      "heard": {
+        "hdr": 80,
+        "hops": 32,
+        "destination": 77,
+        "tag": "40414243"
+      },
+      "ends": false
+    },
+    {
+      "sent": {
+        "hdr": 80,
+        "hops": 20,
+        "destination": 9,
+        "tag": "30313233"
+      },
+      "heard": {
+        "hdr": 80,
+        "hops": 19,
+        "destination": 9,
+        "tag": "30313233"
+      },
+      "ends": true
+    },
+    {
+      "sent": {
+        "hdr": 80,
+        "hops": 20,
+        "destination": 9,
+        "tag": "30313233"
+      },
+      "heard": {
+        "hdr": 72,
+        "hops": 19,
+        "destination": 9,
+        "tag": "30313233"
+      },
+      "ends": false
+    },
+    {
+      "sent": {
+        "hdr": 72,
+        "hops": 0,
+        "destination": 9,
+        "tag": "30313233"
+      },
+      "heard": {
+        "hdr": 72,
+        "hops": 255,
+        "destination": 9,
+        "tag": "30313233"
+      },
+      "ends": false
+    }
+  ],
+  "backs": [
+    {
+      "power": 2,
+      "snr_quarter_db": 46,
+      "spreading_factor": 9,
+      "lowest": -9,
+      "full": 22,
+      "needs": -9
+    },
+    {
+      "power": 2,
+      "snr_quarter_db": 46,
+      "spreading_factor": 9,
+      "lowest": -20,
+      "full": 22,
+      "needs": -12
+    },
+    {
+      "power": 22,
+      "snr_quarter_db": -50,
+      "spreading_factor": 9,
+      "lowest": -9,
+      "full": 22,
+      "needs": 22
+    },
+    {
+      "power": 22,
+      "snr_quarter_db": -49,
+      "spreading_factor": 9,
+      "lowest": -9,
+      "full": 22,
+      "needs": 22
+    },
+    {
+      "power": 22,
+      "snr_quarter_db": -47,
+      "spreading_factor": 9,
+      "lowest": -9,
+      "full": 20,
+      "needs": 20
+    },
+    {
+      "power": 14,
+      "snr_quarter_db": 3,
+      "spreading_factor": 7,
+      "lowest": -9,
+      "full": 22,
+      "needs": 16
+    },
+    {
+      "power": -9,
+      "snr_quarter_db": 127,
+      "spreading_factor": 7,
+      "lowest": -9,
+      "full": 22,
+      "needs": -9
+    },
+    {
+      "power": 10,
+      "snr_quarter_db": -30,
+      "spreading_factor": 7,
+      "lowest": -9,
+      "full": 14,
+      "needs": 14
+    },
+    {
+      "power": 0,
+      "snr_quarter_db": 1,
+      "spreading_factor": 12,
+      "lowest": -9,
+      "full": 22,
+      "needs": -9
+    }
+  ],
+  "powers": [
+    {
+      "neighbour": 5,
+      "back": null,
+      "try": 0,
+      "full": 22,
+      "power": 5
+    },
+    {
+      "neighbour": 5,
+      "back": null,
+      "try": 1,
+      "full": 22,
+      "power": 8
+    },
+    {
+      "neighbour": 5,
+      "back": null,
+      "try": 2,
+      "full": 22,
+      "power": 11
+    },
+    {
+      "neighbour": 5,
+      "back": 9,
+      "try": 0,
+      "full": 22,
+      "power": 9
+    },
+    {
+      "neighbour": 5,
+      "back": 9,
+      "try": 2,
+      "full": 22,
+      "power": 15
+    },
+    {
+      "neighbour": 9,
+      "back": 5,
+      "try": 0,
+      "full": 22,
+      "power": 9
+    },
+    {
+      "neighbour": 20,
+      "back": null,
+      "try": 1,
+      "full": 22,
+      "power": 22
+    },
+    {
+      "neighbour": -9,
+      "back": -9,
+      "try": 0,
+      "full": 22,
+      "power": -9
+    },
+    {
+      "neighbour": 22,
+      "back": null,
+      "try": 2,
+      "full": 22,
+      "power": 22
+    },
+    {
+      "neighbour": 12,
+      "back": 14,
+      "try": 1,
+      "full": 14,
+      "power": 14
+    }
+  ]
+}

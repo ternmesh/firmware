@@ -194,6 +194,8 @@ struct tern_route_config {
     tern_time request_interval;
     uint8_t request_tries;
     uint8_t hop_max;
+    uint8_t step_db;         /* more for a neighbour, for each frame to it given up on */
+    uint8_t dead_hops;       /* frames given up on running, unheard between, that forget one */
     uint8_t jitter;          /* airtimes a request waits, at most */
     uint8_t start_announces; /* announces a node is starting for */
 };
@@ -217,6 +219,8 @@ struct tern_route_neighbour {
     uint16_t number;   /* its last announce's */
     uint16_t named;    /* the announce it last named this node in */
     int32_t floor;     /* sixteenths of a dBm */
+    uint8_t lost;      /* frames sent to it and given up on since it was last heard */
+    uint8_t boost;     /* decibels more a frame to it goes at, for those it has lost */
     tern_time heard;   /* when it was last heard */
     tern_time promise; /* how soon it said it would announce again */
 };
@@ -343,5 +347,34 @@ void tern_route_sent(struct tern_route *r, tern_time now);
  * has no route. */
 bool tern_route_next(const struct tern_route *r, uint32_t destination, uint32_t *next,
                      uint16_t *metric);
+
+/* --- For the frames that follow routes (tern/forward.h) --- */
+
+/* What a frame for one neighbour goes at; a frame for one this node does not keep goes as a frame
+ * for every neighbour does. */
+int8_t tern_route_power(const struct tern_route *r, uint32_t neighbour);
+
+/* What a frame must go at to be heard by the node a frame came from, sent at `power` dBm and heard
+ * at `snr_q`: its floor by that one frame, and the margin. */
+int8_t tern_route_power_back(const struct tern_route *r, int8_t power, int16_t snr_q);
+
+/* Another neighbour to hand a frame for `destination` to, having given up on the `tried` ones:
+ * the best feasible route through one that is none of them, so that the frame cannot come back.
+ * False if there is none. */
+bool tern_route_other(const struct tern_route *r, uint32_t destination, const uint32_t *tried,
+                      int tried_count, uint32_t *next);
+
+/* A frame sent to a neighbour was given up on: the next goes louder, and after dead_hops of them
+ * with nothing heard from it between, it is forgotten, and every route through it. */
+void tern_route_lost(struct tern_route *r, tern_time now, uint32_t neighbour);
+
+/* A neighbour was heard passing on a frame sent to it, which it sent at `power` dBm and was heard
+ * at `snr_q`: it is there, and how well it is heard is known as from an announce. */
+void tern_route_passed(struct tern_route *r, tern_time now, uint32_t neighbour, int8_t power,
+                       int16_t snr_q);
+
+/* There is a frame for `destination` and no route: asks the neighbours for one, unless it asked
+ * within request_interval. */
+void tern_route_want(struct tern_route *r, tern_time now, uint32_t destination);
 
 #endif
