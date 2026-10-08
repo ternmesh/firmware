@@ -218,6 +218,72 @@ static void utf8_is_checked_and_cut_on_a_character(void) {
     CHECK(tern_companion_utf8(NULL, 0));
 }
 
+/* Each connection's frames read as the version its client speaks has them, and written back the
+ * same: an older one's SYNCED is two bytes. A request its version lacks (version 1's last, which
+ * a client must not send) is unknown to it. */
+static void each_connection_is_read_by_its_version(void) {
+    const struct {
+        const struct step *steps;
+        size_t n;
+        uint8_t version;
+    } runs[] = {
+        {exchange, COUNT(exchange), TERN_COMPANION_VERSION},
+        {older_0, COUNT(older_0), 0},
+        {older_1, COUNT(older_1), 1},
+        {older_2, COUNT(older_2), 2},
+    };
+    for (size_t r = 0; r < COUNT(runs); r++) {
+        for (size_t i = 0; i < runs[r].n; i++) {
+            const struct step *s = &runs[r].steps[i];
+            struct tern_companion_msg m = {0};
+            uint8_t out[TERN_COMPANION_MAX_FRAME];
+            enum tern_companion_read got =
+                tern_companion_read_as(&m, s->frame, s->len, runs[r].version);
+            if (tern_companion_since(s->frame[0]) > runs[r].version) {
+                CHECK_EQ_I64(got, TERN_C_READ_UNKNOWN);
+                continue;
+            }
+            CHECK_EQ_I64(got, TERN_C_READ_OK);
+            CHECK_EQ_U64(tern_companion_write_as(&m, out, runs[r].version), s->len);
+            CHECK(memcmp(out, s->frame, s->len) == 0);
+        }
+    }
+}
+
+/* SYNCED's count came with version 3: a node writes it to no earlier client, and a client reads
+ * it from no earlier node. */
+static void synced_carries_the_count_from_version_3(void) {
+    struct tern_companion_msg m = {.type = TERN_C_SYNCED, .seq = 2, .news = 6};
+    uint8_t out[TERN_COMPANION_MAX_FRAME];
+    CHECK_EQ_U64(tern_companion_write_as(&m, out, 3), 3);
+    CHECK(out[2] == 6);
+    CHECK_EQ_U64(tern_companion_write_as(&m, out, 2), 2);
+    CHECK_EQ_U64(tern_companion_write_as(&m, out, 0), 2);
+
+    const uint8_t short_synced[] = {TERN_C_SYNCED, 2};
+    m = (struct tern_companion_msg){.news = 9};
+    CHECK_EQ_I64(tern_companion_read_as(&m, short_synced, sizeof short_synced, 2), TERN_C_READ_OK);
+    CHECK(m.type == TERN_C_SYNCED && m.news == 9);
+    CHECK_EQ_I64(tern_companion_read(&m, short_synced, sizeof short_synced), TERN_C_READ_MALFORMED);
+}
+
+/* A type a later version added is unknown to an earlier one before its fields are looked at, so
+ * one cut short is still unknown, not malformed; and it is written to none. */
+static void a_later_type_is_unknown_to_an_earlier_version(void) {
+    const uint8_t end_session[] = {TERN_C_END_SESSION, 1}; /* cut short */
+    const uint8_t group[] = {TERN_C_GROUP, 1};
+    struct tern_companion_msg m = {0};
+    CHECK_EQ_I64(tern_companion_read_as(&m, end_session, sizeof end_session, 0),
+                 TERN_C_READ_UNKNOWN);
+    CHECK_EQ_I64(tern_companion_read_as(&m, end_session, sizeof end_session, 1),
+                 TERN_C_READ_MALFORMED);
+    CHECK_EQ_I64(tern_companion_read_as(&m, group, sizeof group, 1), TERN_C_READ_UNKNOWN);
+    uint8_t out[TERN_COMPANION_MAX_FRAME];
+    m = (struct tern_companion_msg){.type = TERN_C_GROUP_GONE, .seq = 1};
+    CHECK_EQ_U64(tern_companion_write_as(&m, out, 1), 0);
+    CHECK_EQ_U64(tern_companion_write_as(&m, out, 2), 2 + TERN_COMPANION_GROUP);
+}
+
 static void nothing_is_written_that_cannot_be_read(void) {
     struct tern_companion_msg m = {.type = TERN_C_SET, .seq = 1, .setting = 9};
     uint8_t out[TERN_COMPANION_MAX_FRAME];
@@ -238,6 +304,9 @@ int main(void) {
     RUN(streams_are_split_into_frames_and_text);
     RUN(a_partial_frame_lapses);
     RUN(utf8_is_checked_and_cut_on_a_character);
+    RUN(each_connection_is_read_by_its_version);
+    RUN(synced_carries_the_count_from_version_3);
+    RUN(a_later_type_is_unknown_to_an_earlier_version);
     RUN(nothing_is_written_that_cannot_be_read);
     return CHECK_DONE();
 }
