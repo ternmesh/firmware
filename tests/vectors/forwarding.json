@@ -685,6 +685,90 @@
           "radio": "preamble"
         },
         {
+          "at_ns": 46056000,
+          "radio": "header"
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 35816000,
+          "receiving": false
+        },
+        {
+          "at_ns": 46056000,
+          "receiving": true
+        },
+        {
+          "at_ns": 326888000,
+          "receiving": true
+        },
+        {
+          "at_ns": 366823999,
+          "receiving": true
+        },
+        {
+          "at_ns": 366824000,
+          "receiving": false
+        }
+      ]
+    },
+    {
+      "spreading_factor": 9,
+      "bandwidth_hz": 500000,
+      "events": [
+        {
+          "at_ns": 6120000,
+          "radio": "preamble"
+        },
+        {
+          "at_ns": 35816000,
+          "radio": "header"
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 326888000,
+          "receiving": true
+        },
+        {
+          "at_ns": 356583999,
+          "receiving": true
+        }
+      ]
+    },
+    {
+      "spreading_factor": 9,
+      "bandwidth_hz": 500000,
+      "events": [
+        {
+          "at_ns": 6120000,
+          "radio": "preamble"
+        },
+        {
+          "at_ns": 35815999,
+          "radio": "header"
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 326887999,
+          "receiving": true
+        },
+        {
+          "at_ns": 326888000,
+          "receiving": false
+        }
+      ]
+    },
+    {
+      "spreading_factor": 9,
+      "bandwidth_hz": 500000,
+      "events": [
+        {
+          "at_ns": 6120000,
+          "radio": "preamble"
+        },
+        {
           "at_ns": 22504000,
           "radio": "header"
         },
@@ -928,6 +1012,90 @@
           "radio": "preamble"
         },
         {
+          "at_ns": 46056000,
+          "radio": "header"
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 35816000,
+          "receiving": false
+        },
+        {
+          "at_ns": 46056000,
+          "receiving": true
+        },
+        {
+          "at_ns": 413928000,
+          "receiving": true
+        },
+        {
+          "at_ns": 453863999,
+          "receiving": true
+        },
+        {
+          "at_ns": 453864000,
+          "receiving": false
+        }
+      ]
+    },
+    {
+      "spreading_factor": 7,
+      "bandwidth_hz": 125000,
+      "events": [
+        {
+          "at_ns": 6120000,
+          "radio": "preamble"
+        },
+        {
+          "at_ns": 35816000,
+          "radio": "header"
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 413928000,
+          "receiving": true
+        },
+        {
+          "at_ns": 443623999,
+          "receiving": true
+        }
+      ]
+    },
+    {
+      "spreading_factor": 7,
+      "bandwidth_hz": 125000,
+      "events": [
+        {
+          "at_ns": 6120000,
+          "radio": "preamble"
+        },
+        {
+          "at_ns": 35815999,
+          "radio": "header"
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 413927999,
+          "receiving": true
+        },
+        {
+          "at_ns": 413928000,
+          "receiving": false
+        }
+      ]
+    },
+    {
+      "spreading_factor": 7,
+      "bandwidth_hz": 125000,
+      "events": [
+        {
+          "at_ns": 6120000,
+          "radio": "preamble"
+        },
+        {
           "at_ns": 22504000,
           "radio": "header"
         },
@@ -1152,6 +1320,90 @@
           "at_ns": 164840000,
           "receiving": true
         },
+        {
+          "at_ns": 9446375999,
+          "receiving": true
+        },
+        {
+          "at_ns": 9446376000,
+          "receiving": false
+        }
+      ]
+    },
+    {
+      "spreading_factor": 12,
+      "bandwidth_hz": 125000,
+      "events": [
+        {
+          "at_ns": 164840000,
+          "radio": "preamble"
+        },
+        {
+          "at_ns": 1442792000,
+          "radio": "header"
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 1115112000,
+          "receiving": false
+        },
+        {
+          "at_ns": 1442792000,
+          "receiving": true
+        },
+        {
+          "at_ns": 9446376000,
+          "receiving": true
+        },
+        {
+          "at_ns": 10724327999,
+          "receiving": true
+        },
+        {
+          "at_ns": 10724328000,
+          "receiving": false
+        }
+      ]
+    },
+    {
+      "spreading_factor": 12,
+      "bandwidth_hz": 125000,
+      "events": [
+        {
+          "at_ns": 164840000,
+          "radio": "preamble"
+        },
+        {
+          "at_ns": 1115112000,
+          "radio": "header"
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 9446376000,
+          "receiving": true
+        },
+        {
+          "at_ns": 10396647999,
+          "receiving": true
+        }
+      ]
+    },
+    {
+      "spreading_factor": 12,
+      "bandwidth_hz": 125000,
+      "events": [
+        {
+          "at_ns": 164840000,
+          "radio": "preamble"
+        },
+        {
+          "at_ns": 1115111999,
+          "radio": "header"
+        }
+      ],
+      "asks": [
         {
           "at_ns": 9446375999,
           "receiving": true

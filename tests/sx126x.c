@@ -319,6 +319,25 @@ static void receiving_follows_the_chips_flags(void) {
     b.now = 100000000 + longest - 1;
     CHECK(tern_radio_receiving(&r) == 1);
 
+    /* A header found after the wait for one ran out is held from itself, not from that preamble. */
+    b.irq = 0x0002;
+    b.rx_len = 1;
+    CHECK(tern_radio_poll(&r, &ev) == 1);
+    b.now = 1000000000;
+    b.irq = 0x0004;
+    CHECK(tern_radio_receiving(&r) == 1);
+    b.irq = 0x0010;
+    b.now += wait + 1000000;
+    CHECK(tern_radio_receiving(&r) == 1);
+    b.irq = 0;
+    b.now = 1000000000 + longest;
+    CHECK(tern_radio_receiving(&r) == 1);
+    b.now = 1000000000 + wait + 1000000 + longest;
+    CHECK(tern_radio_receiving(&r) == 0);
+    b.irq = 0x0014;
+    CHECK(tern_radio_receiving(&r) == 1);
+    b.irq = 0;
+
     /* The frame has ended and poll has not collected it: no longer receiving, and the frame is
      * still there to collect. */
     b.irq = 0x0002;

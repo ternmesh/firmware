@@ -31,8 +31,9 @@ void tern_listen_init(struct tern_listen *l);
 /* The radio found a preamble: one found while a header is waited for starts the wait again. */
 void tern_listen_preamble(struct tern_listen *l, tern_time now);
 
-/* The radio found a header: with no preamble before it, it counts as both. */
-void tern_listen_header(struct tern_listen *l, tern_time now);
+/* The radio found a header, on modulation m: with no preamble before it, or one whose wait for a
+ * header has run out, it counts as both. */
+void tern_listen_header(struct tern_listen *l, const struct tern_lora *m, tern_time now);
 
 /* The radio said the frame ended, whole or not, or the node began to send. */
 void tern_listen_over(struct tern_listen *l);

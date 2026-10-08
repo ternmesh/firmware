@@ -249,9 +249,10 @@ static const char *result_text(enum demo_result r) {
 /* Whether a frame must wait: the radio is receiving one, and a node does not start to send over
  * it (draft/forwarding.md, "Listening first"). Asked of the chip just before each frame, since a
  * frame can begin at any moment; the bench's frames are not held, which measures the radio and
- * not the protocol. A radio that cannot be asked holds nothing. */
+ * not the protocol. A radio with no way to tell holds nothing; one that fails to answer holds the
+ * frame, since it may be receiving. */
 static bool held(void) {
-    bool is = tern_radio_receiving(&radio) == 1;
+    bool is = tern_radio_receiving(&radio) != 0;
     held_back += is && !holding;
     holding = is;
     return is;

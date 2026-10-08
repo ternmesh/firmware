@@ -35,13 +35,13 @@ static struct tern_lora modulation(uint8_t sf, uint32_t bw_hz) {
     return m;
 }
 
-static void tell(struct tern_listen *l, const struct listen_event *e) {
+static void tell(struct tern_listen *l, const struct tern_lora *m, const struct listen_event *e) {
     switch (e->radio) {
     case PREAMBLE:
         tern_listen_preamble(l, e->at);
         break;
     case HEADER:
-        tern_listen_header(l, e->at);
+        tern_listen_header(l, m, e->at);
         break;
     case END:
     case SENT:
@@ -52,7 +52,7 @@ static void tell(struct tern_listen *l, const struct listen_event *e) {
 
 /* Each ask is answered by a listener told every event at or before it, and no other. */
 static void the_vectors_say_when_a_radio_is_receiving(void) {
-    CHECK(COUNT(listen_cases) >= 27);
+    CHECK(COUNT(listen_cases) >= 36);
     for (size_t i = 0; i < COUNT(listen_cases); i++) {
         const struct listen_case *c = &listen_cases[i];
         struct tern_lora m = modulation(c->sf, c->bw_hz);
@@ -60,7 +60,7 @@ static void the_vectors_say_when_a_radio_is_receiving(void) {
             struct tern_listen l;
             tern_listen_init(&l);
             for (size_t e = 0; e < c->event_count && c->events[e].at <= c->asks[a].at; e++) {
-                tell(&l, &c->events[e]);
+                tell(&l, &m, &c->events[e]);
             }
             bool got = tern_listen_receiving(&l, &m, c->asks[a].at);
             if (got != c->asks[a].receiving) {

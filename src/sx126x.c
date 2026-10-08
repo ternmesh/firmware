@@ -328,14 +328,20 @@ static int read_irq(struct tern_sx126x *d, uint16_t *irq) {
     }
     *irq = (uint16_t)(rx[2] << 8 | rx[3]);
     if (*irq & IRQ_COUNTED) {
+        /* Before it is configured there is no modulation to reckon a wait from, and nothing is
+         * received. */
         tern_time now = d->bus.now(d->bus.ctx);
         if (*irq & IRQ_PREAMBLE) {
             d->counts.preambles++;
-            tern_listen_preamble(&d->listen, now);
+            if (d->configured) {
+                tern_listen_preamble(&d->listen, now);
+            }
         }
         if (*irq & IRQ_HEADER_VALID) {
             d->counts.headers++;
-            tern_listen_header(&d->listen, now);
+            if (d->configured) {
+                tern_listen_header(&d->listen, &d->cfg.mod, now);
+            }
         }
         err = clear_irq(d, *irq & IRQ_COUNTED);
     }

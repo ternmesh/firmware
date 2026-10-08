@@ -7,8 +7,8 @@ void tern_listen_preamble(struct tern_listen *l, tern_time now) {
     l->header = false;
 }
 
-void tern_listen_header(struct tern_listen *l, tern_time now) {
-    if (l->found < 0) {
+void tern_listen_header(struct tern_listen *l, const struct tern_lora *m, tern_time now) {
+    if (!tern_listen_receiving(l, m, now)) {
         l->found = now;
     }
     l->header = true;
