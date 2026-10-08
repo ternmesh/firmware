@@ -40,13 +40,19 @@ static tern_time now_ns(void) {
     return (tern_time)t.tv_sec * 1000000000LL + t.tv_nsec;
 }
 
+/* Bytes to the port. With no program holding it open, macOS fails the write (EIO) where Linux
+ * buffers it; either way they are lost, as a board's UART loses them, and the node carries on. */
+static void to_port(const void *bytes, size_t n) {
+    if (write(master, bytes, n) < 0) {
+        return;
+    }
+}
+
 static void out(void *ctx, const uint8_t *frame, size_t len) {
     uint8_t wrapped[TERN_COMPANION_STREAM_MAX];
     size_t n = tern_companion_wrap(frame, len, wrapped);
     (void)ctx;
-    if (write(master, wrapped, n) != (ssize_t)n) {
-        exit(2);
-    }
+    to_port(wrapped, n);
 }
 
 static void view(void *ctx, struct link_view *v) {
@@ -197,9 +203,7 @@ int main(int argc, char **argv) {
         if (now - chatter > TERN_MS(300)) {
             static const char line[] = "(a 23-byte frame for someone else, at -97 dBm)\r\n";
             chatter = now;
-            if (write(master, line, sizeof line - 1) < 0) {
-                return 1;
-            }
+            to_port(line, sizeof line - 1);
         }
     }
     return 0;
