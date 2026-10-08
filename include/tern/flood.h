@@ -147,6 +147,12 @@ void tern_flood_init(struct tern_flood *f, const struct tern_flood_config *confi
  * frame of this layer's, or there is no slot for it. */
 bool tern_flood_send(struct tern_flood *f, tern_time now, const uint8_t *frame, size_t len);
 
+/* A frame of this node's is no longer to go: its id is as tern_flood_id() gives for it. True if it
+ * was still waiting and has been let go of, and what it had been charged, if anything, given
+ * back. One already with the caller is not wanted (tern_flood_wanted()), and goes when the
+ * caller says what became of it. False if no such frame is held. */
+bool tern_flood_cancel(struct tern_flood *f, tern_time now, const uint8_t id[TERN_FLOOD_ID]);
+
 /* A frame of this layer's was received. True if the node had not seen it: the caller then hands
  * it on to whatever opens its kind. A relay passes it on by itself. */
 bool tern_flood_heard(struct tern_flood *f, tern_time now, const uint8_t *frame, size_t len);

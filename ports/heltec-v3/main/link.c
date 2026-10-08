@@ -28,7 +28,7 @@ static void error(struct link *l, uint8_t seq, uint8_t code) {
 /* News goes only to a client that has said HELLO, numbered by its count, and only news its
  * version defines. */
 static void tell(struct link *l, struct link_conn *c, struct tern_companion_msg *m) {
-    if (!c->hello || (m->type == TERN_C_ASKED && c->version < 1)) {
+    if (!c->hello || c->version < tern_companion_since(m->type)) {
         return;
     }
     m->seq = c->news++;
@@ -80,10 +80,19 @@ static void news_contact(struct link *l, struct link_conn *to, const struct link
     news(l, to, &m);
 }
 
+/* The frame a message is told of in, by its kind. */
+static uint8_t type_of(const struct link_message *x) {
+    return x->kind == LINK_KIND_GROUP    ? TERN_C_GROUP_MESSAGE
+           : x->kind == LINK_KIND_INVITE ? TERN_C_INVITE
+                                         : TERN_C_MESSAGE;
+}
+
+/* A message as news, of whichever kind it is. */
 static void news_message(struct link *l, struct link_conn *to, const struct link_message *x) {
     struct tern_companion_msg m = {
-        .type = TERN_C_MESSAGE,
+        .type = type_of(x),
         .id = x->id,
+        .from = x->from,
         .time = x->time,
         .flags = x->flags,
         .state = x->state,
@@ -91,7 +100,15 @@ static void news_message(struct link *l, struct link_conn *to, const struct link
         .wait = x->wait,
     };
     memcpy(m.address, x->address, TERN_ADDRESS_LEN);
+    memcpy(m.group, x->group, sizeof m.group);
     put_text(&m, x->text, x->text_len);
+    news(l, to, &m);
+}
+
+static void news_group(struct link *l, struct link_conn *to, const struct link_group *g) {
+    struct tern_companion_msg m = {.type = TERN_C_GROUP};
+    memcpy(m.group, g->id, sizeof m.group);
+    put_text(&m, g->name, g->name_len);
     news(l, to, &m);
 }
 
@@ -177,6 +194,69 @@ static void digest(const uint8_t *text, size_t len, uint8_t out[8]) {
     memcpy(out, d, 8);
 }
 
+/* --- Groups ------------------------------------------------------------------------------------
+ */
+
+static void hold_group(struct link_group *g, const uint8_t secret[TERN_GROUP_SECRET],
+                       const uint8_t *name, size_t name_len) {
+    g->used = true;
+    tern_group_init(&g->g, secret);
+    tern_companion_group_id(secret, g->id);
+    g->name_len = (uint8_t)name_len;
+    memcpy(g->name, name, name_len);
+}
+
+static struct link_group *find_group(struct link *l, const uint8_t id[TERN_COMPANION_GROUP]) {
+    for (size_t i = 0; i < LINK_GROUPS; i++) {
+        if (l->groups[i].used && memcmp(l->groups[i].id, id, TERN_COMPANION_GROUP) == 0) {
+            return &l->groups[i];
+        }
+    }
+    return NULL;
+}
+
+static struct link_group *free_group(struct link *l) {
+    for (size_t i = 0; i < LINK_GROUPS; i++) {
+        if (!l->groups[i].used) {
+            return &l->groups[i];
+        }
+    }
+    return NULL;
+}
+
+static bool save_groups(struct link *l) {
+    struct link_group_saved kept[LINK_GROUPS] = {0};
+    for (size_t i = 0; i < LINK_GROUPS; i++) {
+        const struct link_group *g = &l->groups[i];
+        if (g->used) {
+            kept[i].used = true;
+            kept[i].name_len = g->name_len;
+            memcpy(kept[i].secret, g->g.secret, TERN_GROUP_SECRET);
+            memcpy(kept[i].name, g->name, g->name_len);
+        }
+    }
+    bool ok = l->host.save_groups(l->host.ctx, kept, sizeof kept);
+    tern_wipe(kept, sizeof kept);
+    return ok;
+}
+
+void link_groups(struct link *l, struct tern_group *out[LINK_GROUPS]) {
+    for (size_t i = 0; i < LINK_GROUPS; i++) {
+        out[i] = l->groups[i].used ? &l->groups[i].g : NULL;
+    }
+}
+
+const struct tern_group *link_group_of(struct link *l, const struct link_message *x) {
+    const struct link_group *g = find_group(l, x->group);
+    return g != NULL ? &g->g : NULL;
+}
+
+size_t link_invite_write(struct link *l, const struct link_message *x,
+                         uint8_t out[TERN_GROUP_INVITE_MAX]) {
+    const struct link_group *g = find_group(l, x->group);
+    return g == NULL ? 0 : tern_group_invite_write(g->g.secret, x->text, x->text_len, out);
+}
+
 void link_init(struct link *l, const struct link_host *host) {
     memset(l, 0, sizeof *l);
     l->host = *host;
@@ -189,6 +269,15 @@ void link_init(struct link *l, const struct link_host *host) {
     if (!l->host.load(l->host.ctx, l->contacts, sizeof l->contacts)) {
         memset(l->contacts, 0, sizeof l->contacts);
     }
+    struct link_group_saved kept[LINK_GROUPS];
+    if (l->host.load_groups(l->host.ctx, kept, sizeof kept)) {
+        for (size_t i = 0; i < LINK_GROUPS; i++) {
+            if (kept[i].used && kept[i].name_len <= TERN_COMPANION_NAME_MAX) {
+                hold_group(&l->groups[i], kept[i].secret, kept[i].name, kept[i].name_len);
+            }
+        }
+    }
+    tern_wipe(kept, sizeof kept);
 }
 
 /* Sets the next message id aside in flash, if it is not yet. Done before the id is told to
@@ -202,21 +291,57 @@ static void reserve_id(struct link *l) {
     }
 }
 
-uint32_t link_add(struct link *l, const uint8_t address[TERN_ADDRESS_LEN], uint32_t time,
-                  uint8_t state, uint8_t reason, const uint8_t *text, size_t len) {
-    size_t keep = tern_companion_utf8_prefix(text, len, TERN_COMPANION_TEXT_MAX);
-    struct link_message *x = keep == 0 ? NULL : room(l);
+/* Keeps a message of any kind, and tells of it: `like` gives everything but its id and its text.
+ * An invite's text is its group's name, which may be empty; any other's may not. */
+static uint32_t keep_message(struct link *l, const struct link_message *like, const uint8_t *text,
+                             size_t len) {
+    bool invite = like->kind == LINK_KIND_INVITE;
+    size_t keep = tern_companion_utf8_prefix(
+        text, len, invite ? TERN_COMPANION_NAME_MAX : TERN_COMPANION_TEXT_MAX);
+    struct link_message *x = keep == 0 && !invite ? NULL : room(l);
     if (x == NULL) {
         return 0;
     }
     reserve_id(l);
-    *x = (struct link_message){
-        .used = true, .id = l->next_id++, .time = time, .state = state, .reason = reason};
-    memcpy(x->address, address, TERN_ADDRESS_LEN);
+    tern_wipe(x->secret, sizeof x->secret);
+    *x = *like;
+    x->used = true;
+    x->taken = false;
+    x->id = l->next_id++;
     memcpy(x->text, text, keep);
     x->text_len = (uint8_t)keep;
     news_message(l, NULL, x);
     return x->id;
+}
+
+uint32_t link_add(struct link *l, const uint8_t address[TERN_ADDRESS_LEN], uint32_t time,
+                  uint8_t state, uint8_t reason, const uint8_t *text, size_t len) {
+    struct link_message x = {.time = time, .state = state, .reason = reason};
+    memcpy(x.address, address, TERN_ADDRESS_LEN);
+    return keep_message(l, &x, text, len);
+}
+
+uint32_t link_add_group(struct link *l, size_t place, uint32_t from, uint32_t time,
+                        const uint8_t *text, size_t len) {
+    if (place >= LINK_GROUPS || !l->groups[place].used) {
+        return 0;
+    }
+    struct link_message x = {
+        .kind = LINK_KIND_GROUP, .time = time, .state = TERN_C_RECEIVED, .from = from};
+    memcpy(x.group, l->groups[place].id, sizeof x.group);
+    return keep_message(l, &x, text, len);
+}
+
+uint32_t link_add_invite(struct link *l, const uint8_t from[TERN_ADDRESS_LEN], uint32_t time,
+                         const uint8_t secret[TERN_GROUP_SECRET], const uint8_t *name,
+                         size_t name_len) {
+    struct link_message x = {.kind = LINK_KIND_INVITE, .time = time, .state = TERN_C_RECEIVED};
+    memcpy(x.address, from, TERN_ADDRESS_LEN);
+    memcpy(x.secret, secret, sizeof x.secret);
+    tern_companion_group_id(secret, x.group);
+    uint32_t id = keep_message(l, &x, name, name_len);
+    tern_wipe(&x, sizeof x);
+    return id;
 }
 
 struct link_message *link_outgoing(struct link *l) {
@@ -244,10 +369,22 @@ void link_state(struct link *l, uint32_t id, uint8_t state, uint8_t reason, uint
     x->reason = reason;
     x->wait = wait;
     if (changed) {
-        struct tern_companion_msg m = {
-            .type = TERN_C_STATE, .id = id, .state = state, .reason = reason, .wait = wait};
-        news(l, NULL, &m);
+        /* Only to a client that was told of the message: one from before groups was not sent a
+         * group message or an invite, and news of what became of one would be of nothing. */
+        uint8_t since = tern_companion_since(type_of(x));
+        for (size_t i = 0; i < LINK_CONNS; i++) {
+            struct tern_companion_msg m = {
+                .type = TERN_C_STATE, .id = id, .state = state, .reason = reason, .wait = wait};
+            if (l->conns[i].version >= since) {
+                tell(l, &l->conns[i], &m);
+            }
+        }
     }
+}
+
+bool link_wanted(struct link *l, uint32_t id) {
+    const struct link_message *x = find_message(l, id);
+    return x != NULL && (x->state == TERN_C_WAITING || x->state == TERN_C_SENT);
 }
 
 void link_taken(struct link *l, uint32_t id) {
@@ -261,7 +398,8 @@ void link_taken(struct link *l, uint32_t id) {
 void link_unreachable(struct link *l, const uint8_t address[TERN_ADDRESS_LEN]) {
     for (size_t i = 0; i < LINK_MESSAGES; i++) {
         struct link_message *x = &l->messages[i];
-        if (x->used && waiting(x) && x->reason == TERN_C_WAIT_SESSION &&
+        if (x->used && x->kind != LINK_KIND_GROUP && waiting(x) &&
+            x->reason == TERN_C_WAIT_SESSION &&
             memcmp(x->address, address, TERN_ADDRESS_LEN) == 0) {
             link_state(l, x->id, TERN_C_NOT_DELIVERED, 0, 0);
         }
@@ -315,6 +453,11 @@ static void sync(struct link *l, const struct tern_companion_msg *q, tern_time n
             news_contact(l, c, &l->contacts[i]);
         }
     }
+    for (size_t i = 0; i < LINK_GROUPS; i++) {
+        if (l->groups[i].used) {
+            news_group(l, c, &l->groups[i]);
+        }
+    }
     /* Oldest first, as a client would have heard them. */
     uint32_t after = q->after;
     for (;;) {
@@ -345,11 +488,23 @@ static void sync(struct link *l, const struct tern_companion_msg *q, tern_time n
     answer(l, TERN_C_SYNCED, q->seq);
 }
 
+/* SEND and SEND_GROUP: a message to an address or to a group, once for each ref. */
 static void send_request(struct link *l, const struct tern_companion_msg *q) {
+    bool group = q->type == TERN_C_SEND_GROUP;
+    uint8_t to[TERN_ADDRESS_LEN] = {0};
     l->host.view(l->host.ctx, &l->view);
-    if (!usable_address(l, q->address)) {
-        error(l, q->seq, TERN_C_ERR_ADDRESS);
-        return;
+    if (group) {
+        if (find_group(l, q->group) == NULL) {
+            error(l, q->seq, TERN_C_ERR_NOT_HELD);
+            return;
+        }
+        memcpy(to, q->group, TERN_COMPANION_GROUP);
+    } else {
+        if (!usable_address(l, q->address)) {
+            error(l, q->seq, TERN_C_ERR_ADDRESS);
+            return;
+        }
+        memcpy(to, q->address, TERN_ADDRESS_LEN);
     }
     if (q->text_len == 0) {
         error(l, q->seq, TERN_C_ERR_REFUSED);
@@ -359,8 +514,8 @@ static void send_request(struct link *l, const struct tern_companion_msg *q) {
     digest(q->text, q->text_len, d);
     for (size_t i = 0; i < LINK_REFS; i++) {
         const struct link_ref *r = &l->refs[i];
-        if (r->used && r->ref == q->ref && memcmp(r->to, q->address, TERN_ADDRESS_LEN) == 0 &&
-            memcmp(r->digest, d, sizeof d) == 0) {
+        if (r->used && r->group == group && r->ref == q->ref &&
+            memcmp(r->to, to, TERN_ADDRESS_LEN) == 0 && memcmp(r->digest, d, sizeof d) == 0) {
             struct tern_companion_msg a = {.type = TERN_C_QUEUED, .seq = q->seq, .id = r->id};
             send_msg(l, l->asker, &a);
             return;
@@ -376,29 +531,43 @@ static void send_request(struct link *l, const struct tern_companion_msg *q) {
     reserve_id(l);
     struct tern_companion_msg a = {.type = TERN_C_QUEUED, .seq = q->seq, .id = l->next_id};
     send_msg(l, l->asker, &a);
-    uint32_t id = link_add(l, q->address, l->view.time, TERN_C_WAITING,
-                           l->host.why(l->host.ctx, q->address), q->text, q->text_len);
+    struct link_message like = {.time = l->view.time, .state = TERN_C_WAITING};
+    if (group) {
+        like.kind = LINK_KIND_GROUP;
+        memcpy(like.group, q->group, sizeof like.group);
+    } else {
+        like.reason = l->host.why(l->host.ctx, q->address);
+        memcpy(like.address, q->address, TERN_ADDRESS_LEN);
+    }
+    uint32_t id = keep_message(l, &like, q->text, q->text_len);
     struct link_ref *r = &l->refs[l->next_ref];
-    *r = (struct link_ref){.used = true, .ref = q->ref, .id = id};
-    memcpy(r->to, q->address, TERN_ADDRESS_LEN);
+    *r = (struct link_ref){.used = true, .group = group, .ref = q->ref, .id = id};
+    memcpy(r->to, to, TERN_ADDRESS_LEN);
     memcpy(r->digest, d, sizeof d);
     l->next_ref = (l->next_ref + 1) % LINK_REFS;
 }
 
-void link_read(struct link *l, uint32_t through) {
+/* Marks received messages read, up to an id: those of the kinds a client of `version` is sent. */
+static void read_through(struct link *l, uint32_t through, uint8_t version) {
     for (size_t i = 0; i < LINK_MESSAGES; i++) {
         struct link_message *x = &l->messages[i];
         if (x->used && x->state == TERN_C_RECEIVED && x->id <= through &&
-            !(x->flags & TERN_C_READ_FLAG)) {
+            !(x->flags & TERN_C_READ_FLAG) &&
+            (x->kind == LINK_KIND_MESSAGE || version >= tern_companion_since(TERN_C_INVITE))) {
             x->flags |= TERN_C_READ_FLAG;
             news_message(l, NULL, x);
         }
     }
 }
 
+void link_read(struct link *l, uint32_t through) {
+    read_through(l, through, TERN_COMPANION_VERSION);
+}
+
+/* A client has not shown its user what it was never sent: its READ leaves those unread. */
 static void read_request(struct link *l, const struct tern_companion_msg *q) {
     answer(l, TERN_C_OK, q->seq);
-    link_read(l, q->through);
+    read_through(l, q->through, l->asker->version);
 }
 
 static void save_contact(struct link *l, const struct tern_companion_msg *q) {
@@ -460,12 +629,150 @@ static void end_session(struct link *l, const struct tern_companion_msg *q) {
      * of those, and said nothing, so that the answer comes before the news. */
     for (size_t i = 0; i < LINK_MESSAGES; i++) {
         struct link_message *x = &l->messages[i];
-        if (x->used && (x->state == TERN_C_WAITING || x->state == TERN_C_SENT) &&
+        if (x->used && x->kind != LINK_KIND_GROUP &&
+            (x->state == TERN_C_WAITING || x->state == TERN_C_SENT) &&
             memcmp(x->address, q->address, TERN_ADDRESS_LEN) == 0) {
             link_state(l, x->id, TERN_C_NOT_DELIVERED, 0, 0);
         }
     }
     link_session_changed(l, q->address);
+}
+
+static void made(struct link *l, uint8_t seq, const struct link_group *g) {
+    struct tern_companion_msg a = {.type = TERN_C_MADE, .seq = seq};
+    memcpy(a.group, g->id, sizeof a.group);
+    send_msg(l, l->asker, &a);
+}
+
+/* Takes a group into a free place and saves it. 0, or the ERROR code to answer with. */
+static uint8_t take_group(struct link *l, const uint8_t secret[TERN_GROUP_SECRET],
+                          const uint8_t *name, size_t name_len, struct link_group **out) {
+    struct link_group *g = free_group(l);
+    if (g == NULL) {
+        return TERN_C_ERR_FULL;
+    }
+    hold_group(g, secret, name, name_len);
+    if (!save_groups(l)) {
+        tern_wipe(g, sizeof *g);
+        return TERN_C_ERR_NOT_NOW;
+    }
+    *out = g;
+    return 0;
+}
+
+static void make_group(struct link *l, const struct tern_companion_msg *q) {
+    uint8_t secret[TERN_GROUP_SECRET];
+    struct link_group *g = NULL;
+    uint8_t code = l->host.random(l->host.ctx, secret, sizeof secret)
+                       ? take_group(l, secret, q->text, q->text_len, &g)
+                       : TERN_C_ERR_NOT_NOW;
+    tern_wipe(secret, sizeof secret);
+    if (code != 0) {
+        error(l, q->seq, code);
+        return;
+    }
+    made(l, q->seq, g);
+    news_group(l, NULL, g);
+}
+
+static void join(struct link *l, const struct tern_companion_msg *q) {
+    struct link_message *x = find_message(l, q->id);
+    if (x == NULL || x->kind != LINK_KIND_INVITE || x->state != TERN_C_RECEIVED) {
+        error(l, q->seq, TERN_C_ERR_NOT_HELD);
+        return;
+    }
+    struct link_group *g = find_group(l, x->group);
+    if (g != NULL) {
+        answer(l, TERN_C_OK, q->seq); /* held already: nothing changes */
+        return;
+    }
+    uint8_t code = take_group(l, x->secret, x->text, x->text_len, &g);
+    if (code != 0) {
+        error(l, q->seq, code);
+        return;
+    }
+    answer(l, TERN_C_OK, q->seq);
+    news_group(l, NULL, g);
+}
+
+static void leave_group(struct link *l, const struct tern_companion_msg *q) {
+    struct link_group *g = find_group(l, q->group);
+    if (g != NULL) {
+        struct link_group was = *g;
+        g->used = false;
+        if (!save_groups(l)) {
+            *g = was;
+            tern_wipe(&was, sizeof was);
+            error(l, q->seq, TERN_C_ERR_NOT_NOW);
+            return;
+        }
+        tern_wipe(&was, sizeof was);
+        tern_wipe(g, sizeof *g);
+    }
+    answer(l, TERN_C_OK, q->seq);
+    if (g == NULL) {
+        return;
+    }
+    struct tern_companion_msg m = {.type = TERN_C_GROUP_GONE};
+    memcpy(m.group, q->group, sizeof m.group);
+    news(l, NULL, &m);
+    /* What was still to go to the group, or to invite someone to it, never will: with the board
+     * already or not, since it asks whether each is still wanted (link_wanted()) and lets go of
+     * the frame of one that is not. */
+    for (size_t i = 0; i < LINK_MESSAGES; i++) {
+        struct link_message *x = &l->messages[i];
+        if (x->used && x->kind != LINK_KIND_MESSAGE && x->state == TERN_C_WAITING &&
+            memcmp(x->group, q->group, sizeof x->group) == 0) {
+            link_state(l, x->id, TERN_C_NOT_DELIVERED, 0, 0);
+        }
+    }
+}
+
+static void name_group(struct link *l, const struct tern_companion_msg *q) {
+    struct link_group *g = find_group(l, q->group);
+    if (g == NULL) {
+        error(l, q->seq, TERN_C_ERR_NOT_HELD);
+        return;
+    }
+    uint8_t was_len = g->name_len, was[TERN_COMPANION_NAME_MAX];
+    memcpy(was, g->name, sizeof was);
+    g->name_len = q->text_len;
+    memcpy(g->name, q->text, q->text_len);
+    if (!save_groups(l)) {
+        g->name_len = was_len;
+        memcpy(g->name, was, sizeof was);
+        error(l, q->seq, TERN_C_ERR_NOT_NOW);
+        return;
+    }
+    answer(l, TERN_C_OK, q->seq);
+    news_group(l, NULL, g);
+}
+
+static void send_invite(struct link *l, const struct tern_companion_msg *q) {
+    l->host.view(l->host.ctx, &l->view);
+    const struct link_group *g = find_group(l, q->group);
+    if (g == NULL) {
+        error(l, q->seq, TERN_C_ERR_NOT_HELD);
+        return;
+    }
+    if (!usable_address(l, q->address)) {
+        error(l, q->seq, TERN_C_ERR_ADDRESS);
+        return;
+    }
+    if (room(l) == NULL) {
+        error(l, q->seq, TERN_C_ERR_FULL);
+        return;
+    }
+    reserve_id(l);
+    struct tern_companion_msg a = {.type = TERN_C_QUEUED, .seq = q->seq, .id = l->next_id};
+    send_msg(l, l->asker, &a);
+    struct link_message like = {.kind = LINK_KIND_INVITE,
+                                .time = l->view.time,
+                                .state = TERN_C_WAITING,
+                                .reason = l->host.why(l->host.ctx, q->address)};
+    memcpy(like.address, q->address, TERN_ADDRESS_LEN);
+    memcpy(like.group, q->group, sizeof like.group);
+    keep_message(l, &like, g->name, g->name_len);
 }
 
 /* A serial client that has asked nothing for the lapse is taken for gone. */
@@ -510,6 +817,12 @@ void link_receive(struct link *l, unsigned conn, tern_time now, const uint8_t *f
         error(l, q.seq, TERN_C_ERR_HELLO_FIRST);
         return;
     }
+    /* A request the client's version does not have is one this node does not know from it: it
+     * could not be told what the request changed. */
+    if (c->hello && q.type != TERN_C_HELLO && c->version < tern_companion_since(q.type)) {
+        error(l, q.seq, TERN_C_ERR_UNKNOWN);
+        return;
+    }
     switch (q.type) {
     case TERN_C_HELLO: {
         /* Over Bluetooth a frame is one notification, which the ATT MTU bounds: 3 bytes of it
@@ -549,7 +862,23 @@ void link_receive(struct link *l, unsigned conn, tern_time now, const uint8_t *f
         break;
     }
     case TERN_C_SEND:
+    case TERN_C_SEND_GROUP:
         send_request(l, &q);
+        break;
+    case TERN_C_MAKE_GROUP:
+        make_group(l, &q);
+        break;
+    case TERN_C_LEAVE_GROUP:
+        leave_group(l, &q);
+        break;
+    case TERN_C_NAME_GROUP:
+        name_group(l, &q);
+        break;
+    case TERN_C_SEND_INVITE:
+        send_invite(l, &q);
+        break;
+    case TERN_C_JOIN:
+        join(l, &q);
         break;
     case TERN_C_READ:
         read_request(l, &q);

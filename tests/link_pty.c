@@ -132,6 +132,28 @@ static void text_in(void *ctx, uint8_t byte) {
     (void)byte;
 }
 
+/* This node holds no groups, and has nothing to make one with. */
+static bool load_groups(void *ctx, void *buf, size_t len) {
+    (void)ctx;
+    (void)buf;
+    (void)len;
+    return false;
+}
+
+static bool save_groups(void *ctx, const void *buf, size_t len) {
+    (void)ctx;
+    (void)buf;
+    (void)len;
+    return true;
+}
+
+static bool no_random(void *ctx, uint8_t *buf, size_t len) {
+    (void)ctx;
+    (void)buf;
+    (void)len;
+    return false;
+}
+
 static bool load_ids(void *ctx, uint32_t *next) {
     (void)ctx;
     (void)next;
@@ -175,6 +197,9 @@ int main(int argc, char **argv) {
                              .end_session = end_session,
                              .load = load,
                              .save = save,
+                             .load_groups = load_groups,
+                             .save_groups = save_groups,
+                             .random = no_random,
                              .load_ids = load_ids,
                              .save_ids = save_ids};
     link_init(&node, &host);

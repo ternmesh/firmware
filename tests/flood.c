@@ -346,6 +346,31 @@ static void test_own(void) {
     CHECK_EQ_U64(x.f.counts.heard, 0);
 }
 
+/* A frame of this node's that is no longer to go: let go of while it waits, and not wanted if the
+ * caller already has it, with what it was charged given back. */
+static void test_cancel(void) {
+    struct node x;
+    uint8_t frame[TERN_FLOOD_FRAME_MAX], out[TERN_FLOOD_FRAME_MAX], id[TERN_FLOOD_ID];
+    int8_t dbm;
+    enum tern_flood_kind kind;
+    uint8_t h;
+    start(&x, false, 11);
+    int64_t full = x.f.own.have;
+    size_t len = make(frame, 60, 0, 1);
+    tern_flood_id(frame, len, id);
+    CHECK(!tern_flood_cancel(&x.f, 0, id));
+    CHECK(tern_flood_send(&x.f, 0, frame, len));
+    CHECK(tern_flood_cancel(&x.f, 0, id) && tern_flood_due(&x.f) == INT64_MAX);
+    CHECK(!tern_flood_cancel(&x.f, 0, id));
+
+    CHECK(tern_flood_send(&x.f, 0, frame, len));
+    CHECK(tern_flood_poll(&x.f, 0, out, &dbm, &kind, &h) == len && x.f.own.have < full);
+    CHECK(tern_flood_cancel(&x.f, 0, id) && !tern_flood_wanted(&x.f, h));
+    tern_flood_withdrawn(&x.f, 0, h);
+    CHECK(x.f.own.have == full && tern_flood_due(&x.f) == INT64_MAX);
+    CHECK(tern_flood_poll(&x.f, 1, out, &dbm, &kind, &h) == 0);
+}
+
 /* Frames to pass on that the allowance cannot pay for are dropped, not kept. */
 static void test_unpaid(void) {
     struct node x;
@@ -497,6 +522,7 @@ int main(void) {
     RUN(test_seen);
     RUN(test_own);
     RUN(test_unpaid);
+    RUN(test_cancel);
     RUN(test_power);
     RUN(test_reach);
     return CHECK_DONE();

@@ -2,9 +2,11 @@
 
 #include <string.h>
 
+#include "tern/crypto.h"
+
 #define MAGIC0 0xF5
 #define MAGIC1 0x54
-#define FIELDS_MAX 8
+#define FIELDS_MAX 10
 
 /* Each frame is a list of fields, read and written in order. A field is a member of the message
  * and the kind of bytes it is on the wire. */
@@ -36,7 +38,9 @@ enum field {
     USED,     /* u32 */
     WAIT32,   /* u32, into wait */
     PASSKEY,  /* u32 */
+    FROM,     /* u32 */
     ADDRESS,  /* 32 bytes */
+    GROUP,    /* 8 bytes: a group's id */
     TEXT,     /* a string of up to TERN_COMPANION_TEXT_MAX */
     NAME,     /* a string of up to TERN_COMPANION_NAME_MAX, into text */
     FIRMWARE, /* a string of up to TERN_COMPANION_FIRMWARE_MAX, into text */
@@ -59,11 +63,18 @@ static const struct layout layouts[] = {
     {TERN_C_SAVE_CONTACT, {ADDRESS, NAME}},
     {TERN_C_REMOVE_CONTACT, {ADDRESS}},
     {TERN_C_END_SESSION, {ADDRESS}},
+    {TERN_C_MAKE_GROUP, {NAME}},
+    {TERN_C_LEAVE_GROUP, {GROUP}},
+    {TERN_C_NAME_GROUP, {GROUP, NAME}},
+    {TERN_C_SEND_GROUP, {REF, GROUP, TEXT}},
+    {TERN_C_SEND_INVITE, {GROUP, ADDRESS}},
+    {TERN_C_JOIN, {ID}},
     {TERN_C_OK, {END}},
     {TERN_C_ERROR, {CODE}},
     {TERN_C_INFO, {VERSION, FIRMWARE}},
     {TERN_C_SYNCED, {END}},
     {TERN_C_QUEUED, {ID}},
+    {TERN_C_MADE, {GROUP}},
     {TERN_C_SELF, {ADDRESS, ROLE, REGION, POWER, TIME}},
     {TERN_C_CONTACT, {ADDRESS, SESSION, NAME}},
     {TERN_C_CONTACT_GONE, {ADDRESS}},
@@ -74,6 +85,10 @@ static const struct layout layouts[] = {
     {TERN_C_AIRTIME, {PERIOD, ALLOWED, USED, WAIT32}},
     {TERN_C_POWER, {MV, PERCENT, FLAGS}},
     {TERN_C_ASKED, {ADDRESS, WHY}},
+    {TERN_C_GROUP, {GROUP, NAME}},
+    {TERN_C_GROUP_GONE, {GROUP}},
+    {TERN_C_GROUP_MESSAGE, {ID, GROUP, FROM, TIME, FLAGS, STATE, REASON, WAIT16, TEXT}},
+    {TERN_C_INVITE, {ID, ADDRESS, GROUP, TIME, FLAGS, STATE, REASON, WAIT16, NAME}},
 };
 
 /* SET's value, by setting. */
@@ -101,13 +116,28 @@ static const struct layout *layout_of(uint8_t type) {
     return NULL;
 }
 
+uint8_t tern_companion_since(uint8_t type) {
+    if ((type >= TERN_C_MAKE_GROUP && type <= TERN_C_JOIN) || type == TERN_C_MADE ||
+        (type >= TERN_C_GROUP && type <= TERN_C_INVITE)) {
+        return 2;
+    }
+    return type == TERN_C_END_SESSION || type == TERN_C_ASKED ? 1 : 0;
+}
+
+void tern_companion_group_id(const uint8_t secret[16], uint8_t id[TERN_COMPANION_GROUP]) {
+    static const uint8_t info[] = "tern v0 group id";
+    (void)tern_hkdf_expand(id, TERN_COMPANION_GROUP, secret, 16, info, sizeof info - 1);
+}
+
 bool tern_companion_request(uint8_t type) { return type >= 0x01 && type <= 0x3F; }
 
 bool tern_companion_news(uint8_t type) { return type >= 0x80 && type <= 0xBF; }
 
 static size_t width(enum field f) {
     if (f >= ADDRESS) {
-        return f == ADDRESS ? TERN_ADDRESS_LEN : 0; /* strings vary */
+        return f == ADDRESS ? TERN_ADDRESS_LEN
+               : f == GROUP ? TERN_COMPANION_GROUP
+                            : 0; /* strings vary */
     }
     if (f >= AFTER) {
         return 4;
@@ -182,6 +212,8 @@ static void *member(struct tern_companion_msg *m, enum field f) {
         return &m->wait;
     case PASSKEY:
         return &m->passkey;
+    case FROM:
+        return &m->from;
     default:
         return NULL;
     }
@@ -260,11 +292,11 @@ enum tern_companion_read tern_companion_read(struct tern_companion_msg *m, const
             return TERN_C_READ_OK;
         }
         size_t w = width(f);
-        if (f == ADDRESS) {
+        if (f == ADDRESS || f == GROUP) {
             if (at + w > len) {
                 return TERN_C_READ_MALFORMED;
             }
-            memcpy(m->address, frame + at, w);
+            memcpy(f == ADDRESS ? m->address : m->group, frame + at, w);
             at += w;
         } else if (w == 0) {
             if (at + 1 > len || at + 1 + frame[at] > len) {
@@ -305,8 +337,8 @@ size_t tern_companion_write(const struct tern_companion_msg *m, uint8_t *out) {
             return l->type == TERN_C_SET && i == 1 ? 0 : at;
         }
         size_t w = width(f);
-        if (f == ADDRESS) {
-            memcpy(out + at, m->address, w);
+        if (f == ADDRESS || f == GROUP) {
+            memcpy(out + at, f == ADDRESS ? m->address : m->group, w);
             at += w;
         } else if (w == 0) {
             if (m->text_len > string_max(f)) {

@@ -709,21 +709,24 @@ static void frames_that_are_not_terns_are_malformed(void) {
     CHECK(r.reply_len == 0);
 }
 
-/* A message for the node itself, such as a group's invite, is not this board's to take yet. It
- * is not opened, so nothing is shown as words, nothing answers it, and its counter is not spent:
- * the board that sent it finds out, and a board that learns to take such messages still can. */
-static void a_message_for_the_node_is_not_taken(void) {
+/* A message for the node itself, such as a group's invite, is taken as any other is, counted and
+ * acknowledged, and said to be the node's: whoever shows messages does not show it as words. */
+static void a_message_for_the_node_is_said_to_be(void) {
     struct board *a = new_board(), *b = new_board();
     uint8_t frame[TERN_UNICAST_MAX_FRAME], msg[TERN_UNICAST_MAX_PLAINTEXT];
     struct demo_received r;
     CHECK(contact(a, b, 0) == DEMO_HEARD_PAIRED);
+    CHECK(demo_seal_node(&a->ram, 0, (const uint8_t *)"\x01invite", 7, frame) == DEMO_OK);
+    CHECK(frame[0] == TERN_UNICAST_HDR_NODE);
+    CHECK(demo_receive(&b->ram, 0, frame, 30, msg, &r) == DEMO_HEARD_MESSAGE);
+    CHECK(r.node && r.acks == 1 && r.counter == 0 && r.msg_len == 7 && msg[0] == 0x01);
+    CHECK(demo_seal(&a->ram, 0, (const uint8_t *)"hi", 2, frame) == DEMO_OK);
+    CHECK(demo_receive(&b->ram, 0, frame, 25, msg, &r) == DEMO_HEARD_MESSAGE);
+    CHECK(!r.node && r.counter == 1);
+    /* The flag is part of what is sealed: a frame for the user with it set is no frame. */
     CHECK(demo_seal(&a->ram, 0, (const uint8_t *)"hi", 2, frame) == DEMO_OK);
     frame[0] = TERN_UNICAST_HDR_NODE;
-    CHECK(demo_receive(&b->ram, 0, frame, 25, msg, &r) == DEMO_HEARD_MALFORMED);
-    CHECK(r.acks == 0 && r.msg_len == 0);
-    frame[0] = TERN_UNICAST_HDR;
-    CHECK(demo_receive(&b->ram, 0, frame, 25, msg, &r) == DEMO_HEARD_MESSAGE);
-    CHECK(r.counter == 0);
+    CHECK(demo_receive(&b->ram, 0, frame, 25, msg, &r) == DEMO_HEARD_FORGED);
 }
 
 int main(void) {
@@ -756,6 +759,6 @@ int main(void) {
     RUN(a_session_is_forgotten_only_if_the_store_forgets_it);
     RUN(the_one_session_of_an_earlier_build_is_kept);
     RUN(frames_that_are_not_terns_are_malformed);
-    RUN(a_message_for_the_node_is_not_taken);
+    RUN(a_message_for_the_node_is_said_to_be);
     return CHECK_DONE();
 }

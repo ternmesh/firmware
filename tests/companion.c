@@ -28,6 +28,10 @@ struct rejected_case {
     size_t len;
     int answer; /* the ERROR code a node answers with, or -1 for none */
 };
+struct group_id_case {
+    uint8_t secret[16];
+    uint8_t id[TERN_COMPANION_GROUP];
+};
 struct item {
     bool frame; /* else a run of text */
     uint8_t bytes[BYTES];
@@ -85,6 +89,27 @@ static void bytes_past_the_fields_are_ignored(void) {
         CHECK_EQ_U64(tern_companion_write(&c->msg, want), n);
         CHECK(memcmp(got, want, n) == 0);
     }
+}
+
+static void a_groups_id_is_worked_out_from_its_secret(void) {
+    for (size_t i = 0; i < COUNT(group_ids); i++) {
+        uint8_t id[TERN_COMPANION_GROUP];
+        tern_companion_group_id(group_ids[i].secret, id);
+        CHECK(memcmp(id, group_ids[i].id, sizeof id) == 0);
+    }
+}
+
+/* Which version first has each type: what a node goes by in what it sends an older client. */
+static void each_type_has_the_version_it_came_in(void) {
+    CHECK(tern_companion_since(TERN_C_SEND) == 0 && tern_companion_since(TERN_C_MESSAGE) == 0);
+    CHECK(tern_companion_since(TERN_C_END_SESSION) == 1 && tern_companion_since(TERN_C_ASKED) == 1);
+    for (unsigned t = TERN_C_MAKE_GROUP; t <= TERN_C_JOIN; t++) {
+        CHECK(tern_companion_since((uint8_t)t) == 2);
+    }
+    for (unsigned t = TERN_C_GROUP; t <= TERN_C_INVITE; t++) {
+        CHECK(tern_companion_since((uint8_t)t) == 2);
+    }
+    CHECK(tern_companion_since(TERN_C_MADE) == 2 && tern_companion_since(TERN_C_QUEUED) == 0);
 }
 
 static void rejected_frames_are_answered_as_the_draft_says(void) {
@@ -197,7 +222,7 @@ static void nothing_is_written_that_cannot_be_read(void) {
     struct tern_companion_msg m = {.type = TERN_C_SET, .seq = 1, .setting = 9};
     uint8_t out[TERN_COMPANION_MAX_FRAME];
     CHECK_EQ_U64(tern_companion_write(&m, out), 0);
-    m = (struct tern_companion_msg){.type = 0x20};
+    m = (struct tern_companion_msg){.type = 0x2f};
     CHECK_EQ_U64(tern_companion_write(&m, out), 0);
     m = (struct tern_companion_msg){.type = TERN_C_SAVE_CONTACT, .text_len = 32};
     CHECK_EQ_U64(tern_companion_write(&m, out), 0);
@@ -208,6 +233,8 @@ int main(void) {
     RUN(frames_are_written_and_read);
     RUN(bytes_past_the_fields_are_ignored);
     RUN(rejected_frames_are_answered_as_the_draft_says);
+    RUN(a_groups_id_is_worked_out_from_its_secret);
+    RUN(each_type_has_the_version_it_came_in);
     RUN(streams_are_split_into_frames_and_text);
     RUN(a_partial_frame_lapses);
     RUN(utf8_is_checked_and_cut_on_a_character);
