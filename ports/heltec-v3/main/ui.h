@@ -25,6 +25,8 @@ enum ui_page {
     UI_AIR,      /* the region's limit on transmitting, and what is used of it */
     UI_SHARE,    /* this node's address as a QR code, for a phone to scan */
     UI_NODE,     /* this node's address in digits, to read out or copy */
+    UI_PHONES,   /* the phones paired over Bluetooth, and forgetting them */
+    UI_RESET,    /* erasing everything the node keeps, for a new owner or a fresh start */
     UI_PAGES
 };
 
@@ -65,7 +67,13 @@ struct ui_node {
     uint8_t battery; /* percent, or UI_BATTERY_UNKNOWN */
     bool charging;   /* as far as the board can tell (power.h): it has no wire from its charger */
     bool phone;      /* a client is connected over Bluetooth */
-    bool bench;      /* the console's bench mode: the board sends only the test frames asked for */
+    bool bluetooth;  /* Bluetooth started, so phones can pair */
+    uint8_t paired;  /* phones that have paired and are remembered */
+    /* Holding PRG on the Phones or Reset page asks first: held once, the page asks to be sure,
+     * for `confirm_s` more seconds, and held again in that time, it acts. 0 when it is not
+     * asking. */
+    uint8_t confirm_s;
+    bool bench; /* the console's bench mode: the board sends only the test frames asked for */
 
     uint16_t nearby;    /* nodes heard directly */
     uint16_t reachable; /* nodes it has a route to, nearby ones included */
@@ -94,6 +102,10 @@ struct ui_node {
 
 /* Draws page `page` (an enum ui_page) of the node into the picture. */
 void ui_draw(const struct ui_node *n, int page, struct display *d);
+
+/* Draws what the board says while it erases itself, from the Reset page: it starts again at
+ * once, as a new node. */
+void ui_erasing(struct display *d);
 
 /* Draws what a Bluetooth client that is pairing needs: the passkey to type into it. */
 void ui_pairing(uint32_t passkey, struct display *d);

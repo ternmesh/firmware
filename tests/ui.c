@@ -433,6 +433,59 @@ static void the_share_page_is_the_address_as_a_code(void) {
     }
 }
 
+static void the_phones_page_says_who_is_paired(void) {
+    struct ui_node n = alone();
+    n.bluetooth = true;
+    draw(&n, UI_PHONES, "phones-none");
+    CHECK_ROW(0, "Phones");
+    CHECK_ROW(2, "None paired");
+    CHECK_ROW(5, "the passkey shown");
+    n.paired = 2;
+    n.phone = true;
+    draw(&n, UI_PHONES, "phones");
+    CHECK_ROW(0, "Phones              " DISPLAY_BLUETOOTH_S);
+    CHECK(big(2, "2 paired"));
+    CHECK_ROW(4, "One is connected");
+    CHECK_ROW(6, "Hold PRG to forget");
+    n.bluetooth = false;
+    draw(&n, UI_PHONES, "phones-off");
+    CHECK_ROW(2, "Bluetooth is off: it");
+}
+
+static void forgetting_phones_asks_first(void) {
+    struct ui_node n = alone();
+    n.bluetooth = true;
+    n.paired = 1;
+    n.confirm_s = 9;
+    draw(&n, UI_PHONES, "phones-confirm");
+    CHECK_ROW(0, "Forget phones?     9s");
+    CHECK_ROW(2, "Hold PRG again to");
+    CHECK_ROW(3, "forget 1 phone.");
+    CHECK_ROW(7, "A press keeps them");
+    n.paired = 0; /* forgotten some other way while it asked */
+    draw(&n, UI_PHONES, "phones-confirm-none");
+    CHECK_ROW(2, "None paired");
+}
+
+static void erasing_asks_first(void) {
+    struct ui_node n = alone();
+    draw(&n, UI_RESET, "reset");
+    CHECK_ROW(0, "Erase this node");
+    CHECK_ROW(2, "Erases its address,");
+    CHECK_ROW(5, "settings: a new node.");
+    CHECK_ROW(7, "Hold PRG to erase");
+    n.confirm_s = 10;
+    draw(&n, UI_RESET, "reset-confirm");
+    CHECK_ROW(0, "Erase everything? 10s");
+    CHECK_ROW(2, "Hold PRG again to");
+    CHECK_ROW(7, "A press keeps it all");
+    display_init(&d);
+    ui_erasing(&d);
+    picture("erasing");
+    CHECK_ROW(0, "Erasing");
+    CHECK_ROW(4, "new node...");
+}
+
 static void the_battery_shows_once_it_is_known(void) {
     struct ui_node n = alone();
     n.battery = 87;
@@ -624,6 +677,9 @@ int main(int argc, char **argv) {
     RUN(the_share_page_is_the_address_as_a_code);
     RUN(the_node_page_gives_its_short_code);
     RUN(the_battery_shows_once_it_is_known);
+    RUN(the_phones_page_says_who_is_paired);
+    RUN(forgetting_phones_asks_first);
+    RUN(erasing_asks_first);
     RUN(pairing_shows_the_passkey);
     RUN(holding_prg_counts_down_to_off);
     RUN(off_says_how_to_turn_it_on);

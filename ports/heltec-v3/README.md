@@ -114,7 +114,7 @@ nothing sent.
 ## The screen
 
 The board's display shows what someone carrying it needs at a glance, in their words rather than
-the protocol's: six pages, moved through by pressing PRG. It is the first version of the screen
+the protocol's: eight pages, moved through by pressing PRG. It is the first version of the screen
 [docs/ui.md](../../docs/ui.md) describes.
 
 | Page | |
@@ -125,6 +125,8 @@ the protocol's: six pages, moved through by pressing PRG. It is the first versio
 | **Air** | The region's limit on time on the air, as a bar: what is counted against it, of how much, over what span, and when the next frame may go. In a region with no limit, how long it has sent for. |
 | **Share** | Its address as a QR code holding its link, `HTTPS://TERNMESH.ORG/A/` and the address in base32, which a phone's camera opens as a web page showing the address and its short code; and beside it, its short code. |
 | **This node** | Its short code, twelve digits two people compare to check a phone has the right node; its address, sixty-four hex digits in groups of eight, to read out or copy; relay or leaf, the region and the power; and the firmware's version. |
+| **Phones** | How many phones have paired over Bluetooth and are remembered, and whether one is connected. Hold PRG, and hold it again within ten seconds, to forget them all, as `forget` does: each must pair again. |
+| **Reset** | Erases the board for a new owner or a fresh start. Hold PRG, and hold it again within ten seconds: the board restarts, erases its flash's storage whole (its identity, sessions, contacts, groups, settings and the phones' bonds), and starts as a new node, with a new address and the build's settings. The time it has spent on the air is kept, so the region's limit still counts it. |
 
 When it starts, the board shows its name and firmware version at once, then its region and
 short code as it reads them (and **New address made** on the start that gave it its address), for two and a half seconds after it is on the air, or until PRG is
@@ -441,7 +443,8 @@ A client must pair before it can write or hear anything: LE Secure Connections o
 passkey. By default the passkey is a new one for each pairing, shown on the screen; type it into
 the client. `SET` 4 sets a fixed one instead, from 0 to 999999. A board with no screen and no
 fixed passkey does not pair. A client that has paired keeps its bond, kept in flash, and may
-connect again without a passkey. `forget` on the console forgets every bonded client.
+connect again without a passkey. `forget` on the console, or the screen's **Phones** page,
+forgets every bonded client.
 
 Bluetooth is always on. What it costs a battery is not measured yet.
 

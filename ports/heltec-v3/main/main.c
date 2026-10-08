@@ -37,7 +37,8 @@
  * list until this loop seals it and hands it to the forwarder.
  *
  * Pressing PRG shows the screen's next page (ui.h), and holding it for a second acts on the page
- * shown: on Messages it shows the one before, on Nearby the next nodes. 'screen bench on' adds the
+ * shown: on Messages it shows the one before, on Nearby the next nodes, and on Phones and Reset it
+ * asks to be sure, then forgets every paired phone or erases the board. 'screen bench on' adds the
  * bench screen's pages (status.h) after them, where holding PRG sends a ping, and a board that
  * receives a ping answers with a pong saying how well it heard it. (With no screen, a press sends a
  * ping.) The LED lights while a frame is on the air or has just arrived, and blinks while a message
@@ -57,6 +58,7 @@
 #include "demo.h"
 #include "display.h"
 #include "driver/uart.h"
+#include "esp_attr.h"
 #include "esp_random.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
@@ -103,6 +105,7 @@
 #define HOLD_MS 1000       /* how long PRG is held to send a ping */
 #define OFF_WARN_MS 2000   /* held this long, PRG warns that the board is turning off */
 #define OFF_MS 5000        /* and this long, it turns off */
+#define CONFIRM_S 10       /* held once on Phones or Reset, how long it asks to be sure */
 #define EMPTY_CHECK_S 1800 /* turned off for an empty battery, how often it wakes to look again */
 #define SCREEN_TRIES 5     /* writes failed in a row before the screen is given up */
 #define FIRMWARE "tern " CONFIG_TERN_VERSION " heltec-v3"
@@ -183,6 +186,8 @@ static bool have_screen;
 static int screen_page;
 static uint8_t message_shown; /* which message the Messages page shows, counted from the newest */
 static uint16_t nearby_first; /* the first node the Nearby page shows, most recently heard first */
+static int confirm_page = -1; /* the page asking to be sure of what a second hold does, or -1 */
+static tern_time confirm_until;
 /* The page shown was reached by a press, so its reader has seen it: a message shown because it
  * has just arrived is not read until a press says someone is looking. */
 static bool screen_looked;
@@ -2257,6 +2262,17 @@ static bool unread(const struct link_message *x) {
     return x->state == TERN_C_RECEIVED && !(x->flags & TERN_C_READ_FLAG);
 }
 
+/* The seconds the page shown has left of asking to be sure, rounded up, or 0 if it is not asking:
+ * it stops at CONFIRM_S, or once another page is shown. */
+static unsigned confirm_left(void) {
+    tern_time left = confirm_until - board_now();
+    if (confirm_page != screen_page || left <= 0) {
+        confirm_page = -1;
+        return 0;
+    }
+    return (unsigned)((left + 999999999) / 1000000000);
+}
+
 /* The node as the user's pages show it (ui.h). */
 static void fill_ui(struct ui_node *u) {
     tern_time now = board_now();
@@ -2272,6 +2288,10 @@ static void fill_ui(struct ui_node *u) {
     u->battery = power_percent(battery_mv);
     u->charging = watch.charging;
     u->phone = phone;
+    u->bluetooth = have_ble;
+    unsigned paired = have_ble ? ble_paired() : 0;
+    u->paired = (uint8_t)(paired > UINT8_MAX ? UINT8_MAX : paired);
+    u->confirm_s = (uint8_t)confirm_left();
     /* The neighbours, most recently heard first, and of them the ones the Nearby page shows. */
     uint8_t heard[NEIGHBOURS];
     for (int i = 0; i < NEIGHBOURS; i++) {
@@ -2563,6 +2583,23 @@ static void poll_led(void) {
     }
 }
 
+/* Asked for on the Reset page, and done as the board next starts, before anything has opened the
+ * flash, so nothing is using it: kept through esp_restart(), and lost with the asking if the power
+ * goes first. */
+static RTC_NOINIT_ATTR uint32_t erase_asked;
+#define ERASE_ASKED 0x45524153u /* "ERAS"; anything else, as at power on, is not asking */
+
+/* Restarts the board to be erased (erase_storage()). Nothing is saved first: all of it goes. */
+__attribute__((noreturn)) static void erase_and_restart(void) {
+    printf("PRG held on Reset: erasing this board and starting again, with a new address\n");
+    if (have_screen) {
+        ui_erasing(&screen);
+        screen_flush();
+    }
+    erase_asked = ERASE_ASKED;
+    esp_restart();
+}
+
 static void ping(void) {
     static unsigned pings;
     char text[32];
@@ -2574,8 +2611,29 @@ static void ping(void) {
 }
 
 /* Holding PRG acts on the page shown: on Messages, it shows the message before; on Nearby, the
- * next nodes; on a bench page, it sends a ping. Elsewhere it does nothing. */
+ * next nodes; on a bench page, it sends a ping. On Phones and Reset, it first asks to be sure, and
+ * only a second hold while it asks forgets the phones or erases the board. Elsewhere it does
+ * nothing. */
 static void screen_hold(void) {
+    if (screen_page == UI_PHONES || screen_page == UI_RESET) {
+        bool sure = confirm_left() > 0;
+        screen_due = 0;
+        if (screen_page == UI_PHONES && (!have_ble || ble_paired() == 0)) {
+            return; /* nothing to forget */
+        }
+        if (!sure) {
+            confirm_page = screen_page;
+            confirm_until = board_now() + (tern_time)CONFIRM_S * 1000000000LL;
+            return;
+        }
+        confirm_page = -1;
+        if (screen_page == UI_RESET) {
+            erase_and_restart();
+        }
+        ble_forget();
+        printf("PRG held on Phones: every Bluetooth client is forgotten, and must pair again\n");
+        return;
+    }
     if (screen_page == UI_MESSAGES) {
         message_shown++; /* fill_ui() goes round to the newest after the oldest */
         screen_looked = true;
@@ -2628,6 +2686,7 @@ static void poll_button(void) {
             screen_page = (screen_page + 1) % screen_pages();
             message_shown = 0;
             nearby_first = 0;
+            confirm_page = -1; /* a press keeps what the page asked about */
             screen_looked = true;
             screen_due = 0;
         } else {
@@ -2701,6 +2760,30 @@ __attribute__((noreturn)) static void halt(enum ui_fault why, int code) {
     }
 }
 
+/* Erases the whole of the flash's NVS partition, as the Reset page asked: the identity, the
+ * sessions, contacts, groups, settings and message ids, and the Bluetooth bonds NimBLE keeps
+ * there too. Erased, not marked deleted, so the old identity's keys cannot be read back out of
+ * the flash. The time on the air is kept: the region's limit on transmitting does not start again
+ * because the board did. `e` is what nvs_flash_init() gave; returns what it gives after. */
+static esp_err_t erase_storage(esp_err_t e) {
+    tern_time used = 0;
+    bool had_air = e == ESP_OK && nvs_load(NULL, "airtime", &used, sizeof used);
+    if (e == ESP_OK) {
+        (void)nvs_flash_deinit();
+    }
+    e = nvs_flash_erase();
+    if (e == ESP_OK) {
+        e = nvs_flash_init();
+    }
+    if (e == ESP_OK && had_air && !nvs_save(NULL, "airtime", &used, sizeof used)) {
+        e = ESP_FAIL; /* not starting with the count forgotten */
+    }
+    if (e == ESP_OK) {
+        printf("erased, as the Reset page asked: this board is new\n");
+    }
+    return e;
+}
+
 void app_main(void) {
     /* Turned off for an empty battery, and woken to look at it again: off again at once, with
      * nothing lit, unless it has been charged a little. The radio is still asleep. */
@@ -2727,7 +2810,16 @@ void app_main(void) {
     }
     power_watch(&watch, battery_mv);
 
+    bool erasing = erase_asked == ERASE_ASKED;
+    erase_asked = 0; /* once: a board that fails while erasing starts as it is the next time */
     esp_err_t e = nvs_flash_init();
+    if (erasing) {
+        e = erase_storage(e);
+        if (e != ESP_OK) {
+            printf("could not erase the flash (%s). Not starting.\n", esp_err_to_name(e));
+            halt(UI_FAULT_STORAGE, e);
+        }
+    }
     if (e == ESP_ERR_NVS_NO_FREE_PAGES || e == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         /* Never erased to make room: the saved session is what stops counters repeating, and the
          * identity is the board's address. */
