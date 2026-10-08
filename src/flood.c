@@ -207,7 +207,9 @@ bool tern_flood_heard(struct tern_flood *f, tern_time now, const uint8_t *frame,
             if (s->state == TERN_FLOOD_FREE || s->own || memcmp(s->id, id, TERN_FLOOD_ID) != 0) {
                 continue;
             }
-            s->copies += s->copies < UINT8_MAX;
+            if (s->copies < UINT8_MAX) {
+                s->copies++;
+            }
             if (f->config.copies && s->copies >= f->config.copies) {
                 f->counts.cancelled++;
                 if (s->state == TERN_FLOOD_OUT) {
