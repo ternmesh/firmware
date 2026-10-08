@@ -377,6 +377,57 @@ static void pairing_shows_the_passkey(void) {
     CHECK(big(5, "004213"));
 }
 
+static void the_boot_screen_fills_in_as_the_board_starts(void) {
+    struct ui_node n = alone();
+    struct ui_start s = {.version = "0.1.0-alpha.3"};
+    display_init(&d);
+    ui_boot(&s, &d);
+    picture("boot-first");
+    CHECK(big(0, "Tern"));
+    CHECK_ROW(3, "Version 0.1.0-alpha.3");
+    CHECK_ROW(5, "Starting...");
+    CHECK_ROW(6, "");
+    s.region = "US915";
+    s.address = n.address;
+    ui_boot(&s, &d);
+    picture("boot");
+    char sc[TERN_SHORT_CODE_LEN + 1], want[COLS + 1];
+    tern_short_code(n.address, sc);
+    snprintf(want, sizeof want, "Code %s", sc);
+    CHECK_ROW(5, "US915, starting...");
+    CHECK_ROW(6, want);
+    CHECK_ROW(7, "");
+    s.new_address = true;
+    ui_boot(&s, &d);
+    CHECK_ROW(7, "New address made");
+}
+
+static void a_fault_says_why_and_what_to_do(void) {
+    struct ui_start s = {.version = "0.1.0-alpha.3"};
+    display_init(&d);
+    ui_fault(UI_FAULT_RADIO, &s, -5, &d);
+    picture("fault-radio");
+    CHECK_ROW(0, "Did not start");
+    CHECK_ROW(1, "The radio did not");
+    CHECK_ROW(4, "Error -5");
+    CHECK_ROW(5, "Restart it. If this");
+    CHECK_ROW(7, "Tern 0.1.0-alpha.3");
+    ui_fault(UI_FAULT_STORAGE, &s, 0, &d);
+    picture("fault-storage");
+    CHECK_ROW(4, "");
+    CHECK_ROW(6, "it gets a new address");
+    /* Every fault's words fit their lines, a version as long as a release's included. */
+    s.version = "1.20.30-alpha.40";
+    for (int why = UI_FAULT_STORAGE; why <= UI_FAULT_RADIO; why++) {
+        ui_fault((enum ui_fault)why, &s, -32768, &d);
+        for (int r = 0; r < DISPLAY_PAGES; r++) {
+            CHECK(strchr(row(r), '#') == NULL);
+        }
+        CHECK_ROW(7, "Tern 1.20.30-alpha.40");
+        CHECK(strlen(row(1)) > 0 && strlen(row(5)) > 0);
+    }
+}
+
 static void large_text_is_centred_and_cut(void) {
     display_init(&d);
     display_big(&d, 2, "A");
@@ -454,6 +505,8 @@ int main(int argc, char **argv) {
     RUN(the_node_page_gives_its_short_code);
     RUN(the_battery_shows_once_it_is_known);
     RUN(pairing_shows_the_passkey);
+    RUN(the_boot_screen_fills_in_as_the_board_starts);
+    RUN(a_fault_says_why_and_what_to_do);
     RUN(large_text_is_centred_and_cut);
     RUN(huge_numbers_stay_on_the_screen);
     RUN(an_unchanged_page_is_not_sent_again);

@@ -406,3 +406,64 @@ void ui_pairing(uint32_t passkey, struct display *d) {
     snprintf(f.big_text, sizeof f.big_text, "%06lu", (unsigned long)(passkey % 1000000));
     draw(&f, d);
 }
+
+void ui_boot(const struct ui_start *s, struct display *d) {
+    struct frame f;
+    blank(&f);
+    f.big = 0; /* in place of a heading */
+    snprintf(f.big_text, sizeof f.big_text, "Tern");
+    line(f.rows[3], "Version %s", s->version);
+    if (s->region != NULL) {
+        line(f.rows[5], "%s, starting...", s->region);
+    } else {
+        line(f.rows[5], "Starting...");
+    }
+    if (s->address != NULL) {
+        char sc[TERN_SHORT_CODE_LEN + 1];
+        tern_short_code(s->address, sc);
+        line(f.rows[6], "Code %s", sc);
+        if (s->new_address) {
+            line(f.rows[7], "New address made");
+        }
+    }
+    draw(&f, d);
+}
+
+/* What went wrong, up to three lines, and what to do about it, up to two. */
+struct fault_words {
+    const char *what[3], *todo[2];
+};
+
+static const struct fault_words fault_words[] = {
+    [UI_FAULT_STORAGE] = {{"Its saved data is", "from a layout this", "firmware can't read."},
+                          {"Erase and flash it;", "it gets a new address"}},
+    [UI_FAULT_IDENTITY] = {{"Could not make or", "save its identity", "to flash."},
+                           {"Restart it. If this", "repeats, erase it."}},
+    [UI_FAULT_POWER] = {{"Its power is more", "than the region", "allows."},
+                        {"Lower the power and", "flash it again."}},
+    [UI_FAULT_RANDOM] = {{"No random numbers", "to start the mesh", "with."},
+                         {"Restart it.", NULL}},
+    [UI_FAULT_RADIO] = {{"The radio did not", "answer.", NULL},
+                        {"Restart it. If this", "repeats, ask for help"}},
+};
+
+void ui_fault(enum ui_fault why, const struct ui_start *s, int code, struct display *d) {
+    struct frame f;
+    blank(&f);
+    line(f.rows[0], "Did not start");
+    if ((unsigned)why < sizeof fault_words / sizeof fault_words[0]) {
+        const struct fault_words *w = &fault_words[why];
+        for (int i = 0; i < 3 && w->what[i] != NULL; i++) {
+            line(f.rows[1 + i], "%s", w->what[i]);
+        }
+        for (int i = 0; i < 2 && w->todo[i] != NULL; i++) {
+            line(f.rows[5 + i], "%s", w->todo[i]);
+        }
+    }
+    /* For whoever is asked for help: the driver's own number for what failed, and which build. */
+    if (code != 0) {
+        line(f.rows[4], "Error %d", code);
+    }
+    line(f.rows[7], "Tern %s", s->version);
+    draw(&f, d);
+}

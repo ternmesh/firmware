@@ -73,11 +73,7 @@ int board_init(struct tern_sx126x *radio) {
     gpio_config_t out = {.pin_bit_mask = 1ull << PIN_RESET | 1ull << PIN_LED,
                          .mode = GPIO_MODE_OUTPUT};
     gpio_config_t in = {.pin_bit_mask = 1ull << PIN_BUSY, .mode = GPIO_MODE_INPUT};
-    gpio_config_t button = {.pin_bit_mask = 1ull << PIN_BUTTON,
-                            .mode = GPIO_MODE_INPUT,
-                            .pull_up_en = GPIO_PULLUP_ENABLE};
-    if (gpio_config(&out) != ESP_OK || gpio_config(&in) != ESP_OK ||
-        gpio_config(&button) != ESP_OK) {
+    if (gpio_config(&out) != ESP_OK || gpio_config(&in) != ESP_OK) {
         return TERN_EIO;
     }
     board_led(false);
@@ -108,7 +104,21 @@ int board_init(struct tern_sx126x *radio) {
     return tern_sx126x_init(radio, &sb, &wiring);
 }
 
-bool board_button(void) { return gpio_get_level(PIN_BUTTON) == 0; }
+/* Set up the first time it is read, so that PRG works before the radio has started, or when it
+ * never does (main.c's halt()). */
+bool board_button(void) {
+    static bool ready;
+    if (!ready) {
+        gpio_config_t button = {.pin_bit_mask = 1ull << PIN_BUTTON,
+                                .mode = GPIO_MODE_INPUT,
+                                .pull_up_en = GPIO_PULLUP_ENABLE};
+        if (gpio_config(&button) != ESP_OK) {
+            return false;
+        }
+        ready = true;
+    }
+    return gpio_get_level(PIN_BUTTON) == 0;
+}
 
 void board_led(bool on) { gpio_set_level(PIN_LED, on ? 1 : 0); }
 

@@ -77,4 +77,31 @@ void ui_draw(const struct ui_node *n, int page, struct display *d);
 /* Draws what a Bluetooth client that is pairing needs: the passkey to type into it. */
 void ui_pairing(uint32_t passkey, struct display *d);
 
+/* What the board knows of itself while it starts: shown at once, before anything else, and filled
+ * in as it is learned. */
+struct ui_start {
+    const char *version;
+    const char *region;     /* NULL until the settings are read */
+    const uint8_t *address; /* TERN_ADDRESS_LEN bytes, or NULL until the identity is loaded */
+    bool new_address;       /* the identity was made on this start, not loaded */
+};
+
+/* Why the board did not start. Each is something its owner can see and do something about
+ * without a laptop, or at least know to take it to one. */
+enum ui_fault {
+    UI_FAULT_STORAGE,  /* the flash's saved data is from a layout this build cannot read */
+    UI_FAULT_IDENTITY, /* the identity could not be made or saved */
+    UI_FAULT_POWER,    /* the transmit power is more than the region allows into this antenna */
+    UI_FAULT_RANDOM,   /* no random numbers to seed the router */
+    UI_FAULT_RADIO,    /* the radio did not answer, or would not take its settings */
+};
+
+/* Draws the screen shown while the board starts: its name, its firmware's version, and, once they
+ * are known, its region and short code. */
+void ui_boot(const struct ui_start *s, struct display *d);
+
+/* Draws why the board stopped starting, and what to do about it; `code` is the error a driver
+ * gave, or 0 if there is none to show. */
+void ui_fault(enum ui_fault why, const struct ui_start *s, int code, struct display *d);
+
 #endif
