@@ -780,10 +780,13 @@ static bool bench_command(char *line) {
 
 /* --- The companion link --------------------------------------------------------------------- */
 
-/* One frame to the client, after whatever the console has printed. */
-static void link_out(void *ctx, const uint8_t *frame, size_t len) {
+/* One frame to a client: on the USB port, wrapped, after whatever the console has printed. */
+static void link_out(void *ctx, unsigned conn, const uint8_t *frame, size_t len) {
     uint8_t wrapped[TERN_COMPANION_STREAM_MAX];
     (void)ctx;
+    if (conn != LINK_SERIAL) {
+        return;
+    }
     size_t n = tern_companion_wrap(frame, len, wrapped);
     fflush(stdout);
     if (n != 0) {
@@ -1190,7 +1193,7 @@ static void console_text(void *ctx, uint8_t c) {
 /* A companion frame. A setting that takes a restart is applied once its answer has gone. */
 static void console_frame(void *ctx, const uint8_t *frame, size_t len) {
     (void)ctx;
-    link_receive(&companion, board_now(), frame, len);
+    link_receive(&companion, LINK_SERIAL, board_now(), frame, len);
     if (restart_due) {
         printf("restarting to apply a setting\n");
         fflush(stdout);
@@ -1469,7 +1472,6 @@ void app_main(void) {
     struct link_host host = {
         .ctx = NULL,
         .firmware = FIRMWARE,
-        .lapse = LINK_LAPSE,
         .out = link_out,
         .view = link_view,
         .set = link_set,
@@ -1480,6 +1482,7 @@ void app_main(void) {
         .save = link_save,
     };
     link_init(&companion, &host);
+    link_open(&companion, LINK_SERIAL, LINK_LAPSE, 0);
     tern_companion_parser_init(&parser);
 
     have_screen = board_screen_init();

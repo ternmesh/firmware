@@ -21,6 +21,10 @@
  * Messages go on the air from main.c, which asks for the next one waiting (link_outgoing()) and
  * says what became of it (link_state()). A client never reaches past this into the protocol.
  *
+ * Several clients may drive the node at once, one on each connection: the USB port and a
+ * Bluetooth central. Each has its own HELLO, sync and news count, and is answered alone; the
+ * contacts and messages are the node's, and news of a change to them goes to every client.
+ *
  * Nothing here touches the hardware, so tests/link.c runs it on a host. */
 
 #define LINK_CONTACTS 16
@@ -31,6 +35,9 @@
 #define LINK_LOOK TERN_S(1)   /* how often the link looks for changes to tell */
 #define LINK_SNR_STEP 4       /* quarter-dB: a neighbour's SNR moved this much is news */
 #define LINK_LAPSE TERN_S(60) /* a serial client silent this long since its last answer is gone */
+
+/* The connections: where a frame came from, and where one goes. */
+enum { LINK_SERIAL, LINK_BLE, LINK_CONNS };
 
 struct link_neighbour {
     uint32_t id;
@@ -57,12 +64,8 @@ struct link_view {
 struct link_host {
     void *ctx;
     const char *firmware;
-    /* How long a client may go without a request, counted from the answer to its last, before
-     * the connection is taken as ended (draft/companion.md, "Going quiet"): LINK_LAPSE on a serial
-     * port, which cannot see a client close it, and 0 on one that can. */
-    tern_time lapse;
-    /* One frame to the client. */
-    void (*out)(void *ctx, const uint8_t *frame, size_t len);
+    /* One frame to the client on a connection. */
+    void (*out)(void *ctx, unsigned conn, const uint8_t *frame, size_t len);
     void (*view)(void *ctx, struct link_view *v);
     /* SET: 0, or the ERROR code to answer with. */
     uint8_t (*set)(void *ctx, const struct tern_companion_msg *m);
@@ -107,20 +110,19 @@ struct link_told {
     tern_time at;
 };
 
-struct link {
-    struct link_host host;
+/* One client's connection, and what that client was last told, to tell it what changed. */
+struct link_conn {
+    bool open;
+    /* How long the client may go without a request, counted from the answer to its last, before
+     * the connection is taken as ended (draft/companion.md, "Going quiet"): LINK_LAPSE on a serial
+     * port, which cannot see a client close it, and 0 on one that can. */
+    tern_time lapse;
+    size_t mtu; /* the ATT MTU over Bluetooth; 0 on a byte stream, which carries any frame */
     bool hello;
     bool synced;           /* told everything since HELLO: link_tick tells what changed since */
     uint8_t news;          /* the count: the next news frame's seq */
     tern_time answered_at; /* when the last request was answered */
 
-    struct link_contact contacts[LINK_CONTACTS];
-    struct link_message messages[LINK_MESSAGES];
-    uint32_t next_id;
-    struct link_ref refs[LINK_REFS];
-    size_t next_ref;
-
-    /* What the client was last told, to tell it what changed. */
     struct link_told told[LINK_NEIGHBOURS];
     size_t n_told;
     uint8_t self_role;
@@ -128,15 +130,37 @@ struct link {
     const char *self_region;
     struct tern_companion_msg air, power;
     tern_time air_at, power_at, look_at;
+};
+
+struct link {
+    struct link_host host;
+    struct link_conn conns[LINK_CONNS];
+    struct link_conn *asker; /* the connection whose request is being answered */
+
+    struct link_contact contacts[LINK_CONTACTS];
+    struct link_message messages[LINK_MESSAGES];
+    uint32_t next_id;
+    struct link_ref refs[LINK_REFS];
+    size_t next_ref;
 
     struct link_view view; /* scratch, filled by the host */
 };
 
-/* Loads the contacts. */
+/* Loads the contacts. Every connection starts closed. */
 void link_init(struct link *l, const struct link_host *host);
 
-/* One frame from the client. */
-void link_receive(struct link *l, tern_time now, const uint8_t *frame, size_t len);
+/* A connection opened: a client connected, or a port that one may open at any time. It starts
+ * before HELLO. `lapse` and `mtu` are as in struct link_conn. */
+void link_open(struct link *l, unsigned conn, tern_time lapse, size_t mtu);
+
+/* The connection's ATT MTU changed, as a Bluetooth central may ask after connecting. */
+void link_mtu(struct link *l, unsigned conn, size_t mtu);
+
+/* A client went: nothing more is sent on the connection until it is opened again. */
+void link_close(struct link *l, unsigned conn);
+
+/* One frame from the client on a connection. */
+void link_receive(struct link *l, unsigned conn, tern_time now, const uint8_t *frame, size_t len);
 
 /* Tells the client what has changed: neighbours, the air, power, the node itself. Call it often;
  * it looks at most every LINK_LOOK. A connection that has lapsed is ended here, and hears nothing

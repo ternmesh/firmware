@@ -48,10 +48,11 @@ static void to_port(const void *bytes, size_t n) {
     }
 }
 
-static void out(void *ctx, const uint8_t *frame, size_t len) {
+static void out(void *ctx, unsigned conn, const uint8_t *frame, size_t len) {
     uint8_t wrapped[TERN_COMPANION_STREAM_MAX];
     size_t n = tern_companion_wrap(frame, len, wrapped);
     (void)ctx;
+    (void)conn;
     to_port(wrapped, n);
 }
 
@@ -117,7 +118,7 @@ static bool save(void *ctx, const void *buf, size_t len) {
 
 static void frame_in(void *ctx, const uint8_t *frame, size_t len) {
     (void)ctx;
-    link_receive(&node, now_ns(), frame, len);
+    link_receive(&node, LINK_SERIAL, now_ns(), frame, len);
 }
 
 static void text_in(void *ctx, uint8_t byte) {
@@ -144,9 +145,9 @@ int main(int argc, char **argv) {
                                                   0x92, 0xb7, 0x0a, 0xa7, 0x4d, 0x1b, 0x7e, 0xbc,
                                                   0x9c, 0x98, 0x2c, 0xcf, 0x2e, 0xc4, 0x96, 0x8c,
                                                   0xc0, 0xcd, 0x55, 0xf1, 0x2a, 0xf4, 0x66, 0x0c};
+    tern_time lapse = argc > 1 ? TERN_MS(atoi(argv[1])) : LINK_LAPSE;
     struct link_host host = {.ctx = NULL,
                              .firmware = "tern host test",
-                             .lapse = argc > 1 ? TERN_MS(atoi(argv[1])) : LINK_LAPSE,
                              .out = out,
                              .view = view,
                              .set = set,
@@ -156,6 +157,7 @@ int main(int argc, char **argv) {
                              .load = load,
                              .save = save};
     link_init(&node, &host);
+    link_open(&node, LINK_SERIAL, lapse, 0);
     struct tern_companion_parser parser;
     tern_companion_parser_init(&parser);
     const struct tern_companion_sink sink = {NULL, frame_in, text_in};
@@ -178,6 +180,7 @@ int main(int argc, char **argv) {
             }
             if (c == 'r') {
                 link_init(&node, &host);
+                link_open(&node, LINK_SERIAL, lapse, 0);
                 link_add(&node, bob, clock_s, TERN_C_RECEIVED, 0, (const uint8_t *)back,
                          sizeof back - 1);
             }
