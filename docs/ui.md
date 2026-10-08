@@ -7,7 +7,7 @@ drafted yet, so each part below says which draft it waits on.
 
 This document is about the interface someone uses when they carry a Tern node about, as they
 would a Meshtastic or MeshCore one. The Heltec V3 port draws [a first version](../ports/heltec-v3/README.md#the-screen)
-of [the node's own screen](#the-nodes-own-screen): Home, Messages, Air and This node. The bench
+of [the node's own screen](#the-nodes-own-screen): Home, Messages, Air, Share and This node. The bench
 screen it had before, the serial console drawn on the display for developers, is now a developer
 setting.
 
@@ -95,9 +95,9 @@ On the boards Tern starts with, a 128×64 monochrome display and one button. Its
 
 | Page | Shows | On the Heltec V3 |
 |---|---|---|
-| Home | whether the node is on the air, how many nodes it hears, unread messages, battery, airtime left | all but the battery |
+| Home | whether the node is on the air, how many nodes it hears, unread messages, battery, airtime left | all of it; the battery as a charge estimated from its voltage |
 | Messages | the latest few, newest first, with who they are from and their delivery state | one at a time; a long press shows the one before |
-| Contact card | this node's address as a QR code and a short code to read aloud, for someone adding it | **This node**: the address in hex, without the QR code or the short code |
+| Contact card | this node's address as a QR code and a short code to read aloud, for someone adding it | **Share**, the QR code, and **This node**, the address in hex; not the short code |
 | Air | the airtime account: used, allowed, and when more is free | the region's limit; the budget is not drafted |
 | Mesh | neighbours and routes, for whoever is curious; the bench screen's pages, more or less | the bench pages, behind `screen bench on` |
 
@@ -109,7 +109,9 @@ get more, but nothing should need them.
 
 A QR code fits: a 32-byte address is 64 characters of upper-case hex, which a version 3 code holds
 in its alphanumeric mode at its lowest error correction (77 characters). That is 29 modules square,
-so 58 pixels at two pixels a module.
+so 58 pixels at two pixels a module. The Heltec V3 draws it so, dark on light. What the code holds
+is only the hex for now; a form every implementation reads (a scheme in front of it, say) is a
+specification question, like the short code.
 
 ## Addresses and contacts
 

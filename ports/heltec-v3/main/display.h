@@ -37,6 +37,17 @@ void display_big(struct display *d, int page, const char *text);
  * the left. A part that is not nothing always shows, and one past the whole fills it. */
 void display_bar(struct display *d, int page, int64_t part, int64_t whole);
 
+/* Lights pixel (x, y), or darkens it; off the screen is ignored. */
+void display_set(struct display *d, int x, int y, bool on);
+
+/* Draws text across page `page` from column `x`, light on dark, leaving the rest of the page as it
+ * was: for a line beside a picture rather than across the screen. Cut at the right edge. */
+void display_text_at(struct display *d, int page, int x, const char *text);
+
+/* Makes the picture `from`, marking only the pages that differ: so a page can be drawn whole into a
+ * scratch picture first, and only what changed is sent. */
+void display_copy(struct display *d, const struct display *from);
+
 /* A page that has changed and not yet been sent, or -1 if there is none. It is then counted as
  * sent: take one page at a time and send it before taking another. */
 int display_take(struct display *d);

@@ -100,14 +100,15 @@ nothing sent.
 ## The screen
 
 The board's display shows what someone carrying it needs at a glance, in their words rather than
-the protocol's: four pages, moved through by pressing PRG. It is the first version of the screen
+the protocol's: five pages, moved through by pressing PRG. It is the first version of the screen
 [docs/ui.md](../../docs/ui.md) describes.
 
 | Page | |
 |---|---|
-| **Home** | The region, and in large letters the one thing most worth knowing: how many new messages, or else how many nodes it hears, or that it is still listening for one. Below, what that does not say: how many nodes it hears and can reach by routes, who the last new message is from or how many of its own await delivery, and how much of the region's limit on the air is left. |
+| **Home** | The battery's charge, once the board has read it, and the region; in large letters the one thing most worth knowing: how many new messages, or else how many nodes it hears, or that it is still listening for one. Below, what that does not say: how many nodes it hears and can reach by routes, who the last new message is from or how many of its own await delivery, and how much of the region's limit on the air is left. |
 | **Messages** | One message at a time, newest first: who it is from or to, how long ago (once a client has set the board's clock), and its text, wrapped. A message this board sent says what became of it: waiting, and why (no route yet, making contact, the region's limit, the radio busy), then delivered or not delivered. Hold PRG for the one before. |
 | **Air** | The region's limit on time on the air, as a bar: what is counted against it, of how much, over what span, and when the next frame may go. In a region with no limit, how long it has sent for. |
+| **Share** | Its address as a QR code, which a phone's camera reads as the same sixty-four digits **This node** shows, to copy into whatever is to make contact with it. |
 | **This node** | Its address, sixty-four hex digits in groups of eight, to read out or copy; relay or leaf, the region and the power; and the firmware's version. |
 
 A message that arrives turns the screen on and shows it. It counts as read, here and on every
@@ -130,9 +131,20 @@ variables, and only the parts of the picture that change are sent to it, a strip
 at a time between turns of the loop. If it reads upside down, `menuconfig`, **Turn the screen
 upside down**.
 
-Not there yet: the battery, which the board does not measure; a QR code of the address, for a
-phone to scan; and a short code two people can compare to check they have the right node, which
-the specification has not settled and every implementation should show the same.
+The QR code is dark on light, as every scanner reads it: on this screen, a lit block with the
+dark modules left unlit, two pixels a module, with as wide a margin as the screen leaves (three
+pixels above and below, six to each side). Two decoders, ZXing's and OpenCV's, read it off the
+screen's picture, blurred as a camera would see it.
+
+The battery is read every thirty seconds, from Heltec's divider on GPIO1. Its charge is an estimate
+from the voltage, good to ten percent or so, and reads high while the battery charges; with no
+battery fitted, the board shows none. GPIO37 turns the divider on, low on a V3 or V3.1 and high
+on a V3.2, and the board does not need telling which it is: it reads both ways the first time, and
+the way that is off reads nothing. Checked against Heltec's schematics, not yet against a meter on
+each revision.
+
+Not there yet: a short code two people can compare to check they have the right node, which the
+specification has not settled and every implementation should show the same.
 
 ### The bench pages
 
@@ -334,7 +346,9 @@ What the board offers is what the demo is:
 * **Settings.** Region, role and power are saved to flash and applied by a restart, after the
   board has answered; a power or region the antenna setting does not allow is refused. The
   Bluetooth passkey applies from the next pairing.
-* **Battery** is not measured yet, and is reported as unknown.
+* **Battery**: its voltage, and the charge it is taken for, as [the screen](#the-screen) shows
+  them; unknown when none is fitted. Whether it is charging is not known: the charger tells only
+  its LED.
 
 Messages sent with `send` and pings go the same way as a client's, so a client sees them too.
 
@@ -361,6 +375,8 @@ Bluetooth is always on. What it costs a battery is not measured yet.
 | `main/board.c` | The pins, the SPI bus, the radio's reset and BUSY line, the button, the LED, and the display (an SSD1306 on its own I2C bus). |
 | `main/demo.c` | The board's identity, first contact, and the saved sessions. It has no hardware code, so `tests/demo.c` tests it on a host, and `tests/relay.c` with the router and the forwarder: boards that make a session through a relay. |
 | `main/ui.c` | The screen's pages, drawn from a snapshot of the node in the user's words. Tested on a host by `tests/ui.c`, which also writes each page it checks as a picture: `build/test_ui <directory>`. |
+| `main/qr.c` | The QR code: version 3, level L, alphanumeric, written from ISO/IEC 18004. `tests/qr.c` checks every mask against another encoder's symbols. |
+| `main/power.c` | Which of the battery's readings to believe, and the charge a voltage is taken for. Tested on a host by `tests/power.c`; `board.c` does the reading. |
 | `main/status.c` | The bench pages, and the snapshot they are drawn from, as lines of text. Tested on a host by `tests/status.c`. |
 | `main/display.c` | The picture of the screen, its font in two sizes, the bar, and which parts of it have changed. |
 | `main/link.c` | The companion link: contacts, messages and what became of them, and the answers and news each client gets, on USB and over Bluetooth. No hardware code; tested on a host by `tests/link.c`, and with `tools/companion.py` by `tests/link_script.py`. |

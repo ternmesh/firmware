@@ -5,6 +5,7 @@
 
 #include "check.h"
 #include "display.h"
+#include "qr.h"
 
 /* The Heltec V3 port's screen for the person carrying the board (ports/heltec-v3/main/ui.c),
  * which has no hardware in it. Each page is drawn into a picture and read back from it, a line at
@@ -95,6 +96,7 @@ static struct ui_node alone(void) {
         .version = "0.1.0-alpha.3",
         .relay = true,
         .dbm = 2,
+        .battery = UI_BATTERY_UNKNOWN,
     };
     for (int i = 0; i < TERN_ADDRESS_LEN; i++) {
         n.address[i] = (uint8_t)(0x48 + i * 7);
@@ -309,6 +311,51 @@ static void the_node_page_gives_its_address(void) {
     CHECK_ROW(7, "Tern 0.1.0-alpha.3");
 }
 
+static bool lit(int x, int y) { return (d.px[y / 8][x] >> (y % 8) & 1) != 0; }
+
+/* The code is the address in the digits the next page shows, dark on light: each module two pixels
+ * square, unlit where it is dark, in a lit block with a margin round it. */
+static void the_share_page_is_the_address_as_a_code(void) {
+    struct ui_node n = alone();
+    struct qr want;
+    draw(&n, UI_SHARE, "share");
+    char text[2 * TERN_ADDRESS_LEN + 1];
+    static const char hex[] = "0123456789ABCDEF";
+    for (int i = 0; i < TERN_ADDRESS_LEN; i++) {
+        text[2 * i] = hex[n.address[i] >> 4];
+        text[2 * i + 1] = hex[n.address[i] & 0x0F];
+    }
+    text[2 * TERN_ADDRESS_LEN] = '\0';
+    CHECK(qr_encode(&want, text, QR_MASK_BEST));
+    int wrong = 0;
+    for (int my = 0; my < QR_SIZE; my++) {
+        for (int mx = 0; mx < QR_SIZE; mx++) {
+            for (int k = 0; k < 4; k++) {
+                int x = 6 + 2 * mx + k % 2, y = 3 + 2 * my + k / 2;
+                wrong += lit(x, y) == qr_dark(&want, mx, my);
+            }
+        }
+    }
+    CHECK_EQ_I64(wrong, 0);
+    for (int y = 0; y < 64; y++) { /* the margin: lit, left and right of the code */
+        CHECK(lit(0, y) && lit(5, y) && lit(64, y) && lit(69, y));
+        CHECK(!lit(70, y));
+    }
+    for (int x = 0; x < 70; x++) {
+        CHECK(lit(x, 0) && lit(x, 2) && lit(x, 61) && lit(x, 63));
+    }
+}
+
+static void the_battery_shows_once_it_is_known(void) {
+    struct ui_node n = alone();
+    n.battery = 87;
+    draw(&n, UI_HOME, "home-battery");
+    CHECK_ROW(0, "Tern        87% US915");
+    n.battery = 100;
+    draw(&n, UI_HOME, "x");
+    CHECK_ROW(0, "Tern       100% US915");
+}
+
 static void pairing_shows_the_passkey(void) {
     display_init(&d);
     ui_pairing(4213, &d);
@@ -348,7 +395,8 @@ static void huge_numbers_stay_on_the_screen(void) {
         /* Every cell of every line is a character, so nothing ran off the edge or over another;
          * the rows the large line and the bar take are not text. */
         for (int r = 0; r < DISPLAY_PAGES; r++) {
-            bool text = !(page == UI_HOME && (r == 2 || r == 3)) && !(page == UI_AIR && r == 4);
+            bool text = !(page == UI_HOME && (r == 2 || r == 3)) && !(page == UI_AIR && r == 4) &&
+                        page != UI_SHARE;
             CHECK(!text || strchr(row(r), '#') == NULL);
         }
     }
@@ -390,6 +438,8 @@ int main(int argc, char **argv) {
     RUN(a_message_sent_says_what_became_of_it);
     RUN(no_messages_says_where_they_come_from);
     RUN(the_node_page_gives_its_address);
+    RUN(the_share_page_is_the_address_as_a_code);
+    RUN(the_battery_shows_once_it_is_known);
     RUN(pairing_shows_the_passkey);
     RUN(large_text_is_centred_and_cut);
     RUN(huge_numbers_stay_on_the_screen);

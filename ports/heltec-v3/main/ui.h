@@ -22,9 +22,12 @@ enum ui_page {
     UI_HOME,     /* whether it is on the air, who is nearby, what is new, the air left */
     UI_MESSAGES, /* one message at a time, newest first */
     UI_AIR,      /* the region's limit on transmitting, and what is used of it */
-    UI_NODE,     /* this node's address, to give to someone */
+    UI_SHARE,    /* this node's address as a QR code, for a phone to scan */
+    UI_NODE,     /* this node's address in digits, to read out or copy */
     UI_PAGES
 };
+
+#define UI_BATTERY_UNKNOWN 255
 
 #define UI_NAME 20 /* bytes of a name kept to show, which is as many as a line has room for */
 
@@ -46,7 +49,8 @@ struct ui_node {
     bool relay;
     int8_t dbm;
     uint8_t address[TERN_ADDRESS_LEN];
-    bool bench; /* the console's bench mode: the board sends only the test frames asked for */
+    uint8_t battery; /* percent, or UI_BATTERY_UNKNOWN */
+    bool bench;      /* the console's bench mode: the board sends only the test frames asked for */
 
     uint16_t nearby;    /* nodes heard directly */
     uint16_t reachable; /* nodes it has a route to, nearby ones included */
