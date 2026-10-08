@@ -1547,6 +1547,97 @@ static bool link_save_ids(void *ctx, uint32_t next) {
     return nvs_save(ctx, "ids", &next, sizeof next);
 }
 
+/* The messages share the flash's storage with the identity, the sessions and everything else
+ * the board must be able to save, and must never be why one of those cannot be. The storage has
+ * 630 entries of 32 bytes to use. A board with nothing but a session and a contact uses 180; one
+ * with all eight sessions, its groups and three phones bonded would use about 420, and writing
+ * its largest record again wants 35 more. So the messages have MESSAGE_ENTRIES between them
+ * whatever else is there, and one more is saved only if it fits in that, with MESSAGE_SPARE
+ * still free besides. One that is not saved is held until the board restarts. */
+#define MESSAGE_ENTRIES 160
+#define MESSAGE_SPARE 40
+
+/* What each place's message takes in flash: an entry for every 32 bytes, two that say what it is,
+ * and one for its word. */
+static uint16_t message_entries[LINK_MESSAGES];
+
+static uint16_t entries_for(size_t len) { return len == 0 ? 0 : (uint16_t)((len + 31) / 32 + 3); }
+
+static size_t link_load_message(void *ctx, size_t place, uint8_t *buf, size_t cap) {
+    nvs_handle_t h;
+    char key[8];
+    size_t len = cap;
+    (void)ctx;
+    snprintf(key, sizeof key, "m%02u", (unsigned)place);
+    if (nvs_open("tern", NVS_READONLY, &h) != ESP_OK) {
+        return 0;
+    }
+    bool ok = nvs_get_blob(h, key, buf, &len) == ESP_OK;
+    nvs_close(h);
+    message_entries[place] = entries_for(ok ? len : 0);
+    return ok ? len : 0;
+}
+
+static bool link_save_message(void *ctx, size_t place, const uint8_t *buf, size_t len) {
+    nvs_handle_t h;
+    nvs_stats_t stats;
+    char key[8];
+    (void)ctx;
+    snprintf(key, sizeof key, "m%02u", (unsigned)place);
+    if (nvs_open("tern", NVS_READWRITE, &h) != ESP_OK) {
+        return false;
+    }
+    unsigned others = 0;
+    for (size_t i = 0; i < LINK_MESSAGES; i++) {
+        others += i == place ? 0 : message_entries[i];
+    }
+    esp_err_t e;
+    if (len == 0) {
+        e = nvs_erase_key(h, key);
+        if (e == ESP_ERR_NVS_NOT_FOUND) {
+            e = ESP_OK;
+        }
+    } else if (others + entries_for(len) > MESSAGE_ENTRIES ||
+               nvs_get_stats(NULL, &stats) != ESP_OK ||
+               stats.available_entries < MESSAGE_SPARE + entries_for(len)) {
+        e = ESP_ERR_NVS_NOT_ENOUGH_SPACE;
+    } else {
+        e = nvs_set_blob(h, key, buf, len);
+    }
+    bool ok = e == ESP_OK && nvs_commit(h) == ESP_OK;
+    nvs_close(h);
+    if (ok) {
+        message_entries[place] = entries_for(len);
+    }
+    return ok;
+}
+
+static bool link_load_state(void *ctx, size_t place, uint64_t *state) {
+    nvs_handle_t h;
+    char key[8];
+    (void)ctx;
+    snprintf(key, sizeof key, "s%02u", (unsigned)place);
+    if (nvs_open("tern", NVS_READONLY, &h) != ESP_OK) {
+        return false;
+    }
+    bool ok = nvs_get_u64(h, key, state) == ESP_OK;
+    nvs_close(h);
+    return ok;
+}
+
+static bool link_save_state(void *ctx, size_t place, uint64_t state) {
+    nvs_handle_t h;
+    char key[8];
+    (void)ctx;
+    snprintf(key, sizeof key, "s%02u", (unsigned)place);
+    if (nvs_open("tern", NVS_READWRITE, &h) != ESP_OK) {
+        return false;
+    }
+    bool ok = nvs_set_u64(h, key, state) == ESP_OK && nvs_commit(h) == ESP_OK;
+    nvs_close(h);
+    return ok;
+}
+
 /* --- The console ---------------------------------------------------------------------------- */
 
 /* The sessions this board holds, by the numbers 'to' and 'drop' take. */
@@ -1749,6 +1840,18 @@ static void status(void) {
     if (board_now() < demo.accept_until) {
         printf("accepting contact from a new peer for another %lld s\n",
                (long long)((demo.accept_until - board_now()) / 1000000000LL));
+    }
+    unsigned kept = 0, held = 0;
+    for (size_t i = 0; i < LINK_MESSAGES; i++) {
+        kept += companion.messages[i].used && companion.messages[i].saved;
+        held += companion.messages[i].used && !companion.messages[i].saved;
+    }
+    nvs_stats_t stored;
+    if (nvs_get_stats(NULL, &stored) == ESP_OK) {
+        printf("messages: %u saved, %u held only until a restart; storage: %u of %u entries used, "
+               "%u to spare\n",
+               kept, held, (unsigned)stored.used_entries, (unsigned)stored.total_entries,
+               (unsigned)stored.available_entries);
     }
 }
 
@@ -2761,10 +2864,10 @@ __attribute__((noreturn)) static void halt(enum ui_fault why, int code) {
 }
 
 /* Erases the whole of the flash's NVS partition, as the Reset page asked: the identity, the
- * sessions, contacts, groups, settings and message ids, and the Bluetooth bonds NimBLE keeps
- * there too. Erased, not marked deleted, so the old identity's keys cannot be read back out of
- * the flash. The time on the air is kept: the region's limit on transmitting does not start again
- * because the board did. `e` is what nvs_flash_init() gave; returns what it gives after. */
+ * sessions, contacts, groups, messages, settings and message ids, and the Bluetooth bonds NimBLE
+ * keeps there too. Erased, not marked deleted, so the old identity's keys cannot be read back out
+ * of the flash. The time on the air is kept: the region's limit on transmitting does not start
+ * again because the board did. `e` is what nvs_flash_init() gave; returns what it gives after. */
 static esp_err_t erase_storage(esp_err_t e) {
     tern_time used = 0;
     bool had_air = e == ESP_OK && nvs_load(NULL, "airtime", &used, sizeof used);
@@ -2963,6 +3066,10 @@ void app_main(void) {
         .random = board_random,
         .load_ids = link_load_ids,
         .save_ids = link_save_ids,
+        .load_message = link_load_message,
+        .save_message = link_save_message,
+        .load_state = link_load_state,
+        .save_state = link_save_state,
     };
     link_init(&companion, &host);
     demo_trust(&demo, link_trusted, NULL);
