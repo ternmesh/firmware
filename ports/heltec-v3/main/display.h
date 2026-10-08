@@ -28,6 +28,15 @@ void display_init(struct display *d);
  * marks the page if that changed it. Printable ASCII is drawn; anything else is a blank. */
 void display_text(struct display *d, int page, const char *text, bool inverse);
 
+/* Draws a line of text twice the size, ten pixels a character and twelve apart, across pages
+ * `page` and `page + 1`, centred: at most DISPLAY_BIG_COLS characters, light on dark. */
+#define DISPLAY_BIG_COLS 10
+void display_big(struct display *d, int page, const char *text);
+
+/* Draws a bar across page `page`: an outline the width of the screen, filled `part` of `whole` from
+ * the left. A part that is not nothing always shows, and one past the whole fills it. */
+void display_bar(struct display *d, int page, int64_t part, int64_t whole);
+
 /* A page that has changed and not yet been sent, or -1 if there is none. It is then counted as
  * sent: take one page at a time and send it before taking another. */
 int display_take(struct display *d);

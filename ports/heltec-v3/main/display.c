@@ -111,6 +111,19 @@ void display_init(struct display *d) {
     d->dirty = 0xFF;
 }
 
+/* Puts a page's new picture in place, and marks it if that changed it. */
+static void put(struct display *d, int page, const uint8_t row[DISPLAY_WIDTH]) {
+    if (memcmp(d->px[page], row, DISPLAY_WIDTH) != 0) {
+        memcpy(d->px[page], row, DISPLAY_WIDTH);
+        d->dirty |= (uint8_t)(1u << page);
+    }
+}
+
+static const uint8_t *glyph(char ch) {
+    unsigned char c = (unsigned char)ch;
+    return font[c < 0x20 || c > 0x7E ? 0 : c - 0x20];
+}
+
 void display_text(struct display *d, int page, const char *text, bool inverse) {
     uint8_t row[DISPLAY_WIDTH];
     uint8_t mask = inverse ? 0xFF : 0x00;
@@ -120,18 +133,78 @@ void display_text(struct display *d, int page, const char *text, bool inverse) {
     }
     memset(row, mask, sizeof row);
     for (; *text != '\0' && x + GLYPH_W <= DISPLAY_WIDTH; text++, x += CELL_W) {
-        unsigned char c = (unsigned char)*text;
-        if (c < 0x20 || c > 0x7E) {
-            c = ' ';
-        }
+        const uint8_t *g = glyph(*text);
         for (size_t i = 0; i < GLYPH_W; i++) {
-            row[x + i] = (uint8_t)(font[c - 0x20][i] ^ mask);
+            row[x + i] = (uint8_t)(g[i] ^ mask);
         }
     }
-    if (memcmp(d->px[page], row, sizeof row) != 0) {
-        memcpy(d->px[page], row, sizeof row);
-        d->dirty |= (uint8_t)(1u << page);
+    put(d, page, row);
+}
+
+/* Four bits of a glyph's column, each made two pixels tall: a byte of the doubled column. */
+static uint8_t doubled(unsigned bits) {
+    uint8_t out = 0;
+    for (unsigned i = 0; i < 4; i++) {
+        if (bits & 1u << i) {
+            out |= (uint8_t)(3u << (2 * i));
+        }
     }
+    return out;
+}
+
+void display_big(struct display *d, int page, const char *text) {
+    uint8_t top[DISPLAY_WIDTH], bottom[DISPLAY_WIDTH];
+    size_t n = strlen(text);
+    if (page < 0 || page + 1 >= DISPLAY_PAGES) {
+        return;
+    }
+    if (n > DISPLAY_BIG_COLS) {
+        n = DISPLAY_BIG_COLS;
+    }
+    memset(top, 0, sizeof top);
+    memset(bottom, 0, sizeof bottom);
+    size_t x = n == 0 ? 0 : (DISPLAY_WIDTH - (n * 2 * CELL_W - 2)) / 2;
+    for (size_t k = 0; k < n; k++, x += 2 * CELL_W) {
+        const uint8_t *g = glyph(text[k]);
+        for (size_t i = 0; i < GLYPH_W; i++) {
+            for (size_t half = 0; half < 2; half++) {
+                top[x + 2 * i + half] = doubled(g[i] & 0x0F);
+                bottom[x + 2 * i + half] = doubled(g[i] >> 4);
+            }
+        }
+    }
+    put(d, page, top);
+    put(d, page + 1, bottom);
+}
+
+#define BAR_LEFT 2
+#define BAR_RIGHT (DISPLAY_WIDTH - 3)
+#define BAR_EDGE 0x42 /* the outline's top and bottom: rows 1 and 6 of the page */
+#define BAR_FULL 0x7E /* rows 1 to 6 */
+
+void display_bar(struct display *d, int page, int64_t part, int64_t whole) {
+    uint8_t row[DISPLAY_WIDTH];
+    int inner = BAR_RIGHT - BAR_LEFT - 1;
+    int64_t fill = 0;
+    if (page < 0 || page >= DISPLAY_PAGES) {
+        return;
+    }
+    if (part > 0 && whole > 0) {
+        if (part >= whole) {
+            fill = inner;
+        } else if (whole <= INT64_MAX / inner) {
+            fill = part * inner / whole; /* part < whole, so this cannot overflow */
+        } else {
+            fill = part / (whole / inner);
+        }
+        fill = fill < 1 ? 1 : fill > inner ? inner : fill;
+    }
+    memset(row, 0, sizeof row);
+    row[BAR_LEFT] = row[BAR_RIGHT] = BAR_FULL;
+    for (int x = BAR_LEFT + 1; x < BAR_RIGHT; x++) {
+        row[x] = x - BAR_LEFT <= fill ? BAR_FULL : BAR_EDGE;
+    }
+    put(d, page, row);
 }
 
 int display_take(struct display *d) {

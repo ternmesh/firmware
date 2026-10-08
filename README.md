@@ -29,7 +29,7 @@ nothing is heard of it, and acknowledged by the node it is for.
 | Crypto | `tern/crypto.h` | SHA-256, SHA-512, HMAC, HKDF-Expand, AES-128, AES-CCM and X25519, in portable constant-time C, each tested against its standard's published vectors. A reference to check hardware against, not a fast one. |
 
 * [docs/architecture.md](docs/architecture.md) — the core, the ports, and the seam between them
-* [docs/ui.md](docs/ui.md) — a proposal for what a node shows the person carrying it
+* [docs/ui.md](docs/ui.md) — what a node shows the person carrying it, and what it will
 * [CONTRIBUTING.md](CONTRIBUTING.md) — DCO sign-off and the clean-room rule
 * [Governance](https://github.com/ternmesh/spec/blob/main/GOVERNANCE.md)
 
@@ -71,7 +71,7 @@ CI runs the same.
 
 | Board | Directory | |
 |---|---|---|
-| Heltec WiFi LoRa 32 V3 (ESP32-S3, SX1262) | [`ports/heltec-v3/`](ports/heltec-v3/) | A bench demo: first contact, then messages that follow routes and are acknowledged, with a debug screen. CI builds an image you can flash from a browser. |
+| Heltec WiFi LoRa 32 V3 (ESP32-S3, SX1262) | [`ports/heltec-v3/`](ports/heltec-v3/) | A bench demo: first contact, then messages that follow routes and are acknowledged, with a screen that says, in plain words, what it hears, what came in and how much of the air it may use. CI builds an image you can flash from a browser. |
 
 ## Licence
 

@@ -218,6 +218,10 @@ void link_taken(struct link *l, uint32_t id);
 uint32_t link_add(struct link *l, const uint8_t address[TERN_ADDRESS_LEN], uint32_t time,
                   uint8_t state, uint8_t reason, const uint8_t *text, size_t len);
 
+/* Every received message whose id is `through` or less has been read: what READ does, for when the
+ * user saw them on the board itself. Each one newly read is news to every client. */
+void link_read(struct link *l, uint32_t through);
+
 /* Every message to an address that waits for a session, given up: first contact failed. */
 void link_unreachable(struct link *l, const uint8_t address[TERN_ADDRESS_LEN]);
 

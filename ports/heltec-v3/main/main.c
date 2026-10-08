@@ -30,9 +30,11 @@
  * answered by link.c. A message a client sends, and one sent with 'send', waits in the link's
  * list until this loop seals it and hands it to the forwarder.
  *
- * Pressing PRG shows the bench screen's next page; holding it for a second sends a ping, and a
- * board that receives a ping answers with a pong saying how well it heard it. (With no screen,
- * a press sends a ping.) The LED lights while a frame is on the air or has just arrived.
+ * Pressing PRG shows the screen's next page (ui.h), and holding it for a second acts on the page
+ * shown: on Messages it shows the one before. 'screen bench on' adds the bench screen's pages
+ * (status.h) after them, where holding PRG sends a ping, and a board that receives a ping answers
+ * with a pong saying how well it heard it. (With no screen, a press sends a ping.) The LED lights
+ * while a frame is on the air or has just arrived.
  *
  * Everything runs in one loop: the core never runs in interrupt context, so the loop polls the
  * radio, the serial port, the button and the screen in turn. */
@@ -65,6 +67,7 @@
 #include "tern/region.h"
 #include "tern/route.h"
 #include "tern/sx126x.h"
+#include "ui.h"
 
 #define CONSOLE UART_NUM_0
 #define CONSOLE_LINE 300
@@ -136,7 +139,12 @@ static char last_text[STATUS_TEXT];
 static tern_time last_at; /* when last_text was heard, or 0 for nothing yet */
 static struct display screen;
 static bool have_screen;
+/* The page shown: one of the user's (enum ui_page), or past them, the bench screen's. */
 static int screen_page;
+static uint8_t message_shown; /* which message the Messages page shows, counted from the newest */
+/* The page shown was reached by a press, so its reader has seen it: a message shown because it
+ * has just arrived is not read until a press says someone is looking. */
+static bool screen_looked;
 static tern_time screen_due;
 static tern_time screen_retry; /* after a failed write, when to try again */
 static unsigned screen_failures;
@@ -182,9 +190,18 @@ struct settings {
     uint32_t passkey;
     /* Added later: a board that saved its settings before has none, and takes the build's. */
     uint16_t screen_sleep; /* seconds, or 0 for never */
+    /* Later still. Four bytes, so that the struct grows: one would sit in what was padding, and
+     * read whatever an earlier build left there. */
+    uint32_t screen_flags;
 };
+#define SCREEN_BENCH 0x01u /* screen_flags: the bench screen's pages follow the user's */
+#if CONFIG_TERN_SCREEN_BENCH
+#define SCREEN_FLAGS SCREEN_BENCH
+#else
+#define SCREEN_FLAGS 0u
+#endif
 static struct settings settings = {
-    SETTINGS_MAGIC, 0, 0xFF, POWER_UNSET, PASSKEY_RANDOM, CONFIG_TERN_SCREEN_SLEEP_S};
+    SETTINGS_MAGIC, 0, 0xFF, POWER_UNSET, PASSKEY_RANDOM, CONFIG_TERN_SCREEN_SLEEP_S, SCREEN_FLAGS};
 
 /* The bench: test frames sent on a timer, and counts of what was received. */
 #define BEACON_LEN 24
@@ -566,7 +583,15 @@ static void heard(const struct tern_radio_event *ev) {
         last_text[keep] = '\0';
         last_at = board_now();
         screen_wake();
-        link_add(&companion, got.peer, clock_now(), TERN_C_RECEIVED, 0, msg, got.msg_len);
+        uint32_t kept =
+            link_add(&companion, got.peer, clock_now(), TERN_C_RECEIVED, 0, msg, got.msg_len);
+        if (kept != 0 && have_screen) {
+            /* Shown at once, and read once someone presses PRG to say they saw it. */
+            screen_page = UI_MESSAGES;
+            message_shown = 0;
+            screen_looked = false;
+            screen_due = 0;
+        }
         if (strncmp((const char *)msg, "ping", 4) == 0) {
             char reply[64];
             snprintf(reply, sizeof reply, "pong to #%lu: %d dBm, SNR %s%d.%02d dB",
@@ -1468,25 +1493,36 @@ static void selftest(void) {
     memset(node, 0, sizeof node);
 }
 
-/* 'screen' says how long the screen stays on; 'screen sleep <seconds>' changes it, 0 for never. */
+/* 'screen' says how long the screen stays on and whether it shows the bench pages; 'screen sleep
+ * <seconds>' changes the first, 0 for never, and 'screen bench on|off' the second. */
 static void screen_command(const char *rest) {
     unsigned long s;
     char extra;
+    struct settings next = settings;
     if (rest[0] == '\0') {
         /* as it is */
     } else if (sscanf(rest, " sleep %lu %c", &s, &extra) == 1 && s <= UINT16_MAX) {
-        struct settings next = settings;
         next.screen_sleep = (uint16_t)s;
+    } else if (strcmp(rest, " bench on") == 0) {
+        next.screen_flags |= SCREEN_BENCH;
+    } else if (strcmp(rest, " bench off") == 0) {
+        next.screen_flags &= ~SCREEN_BENCH;
+    } else {
+        printf("screen sleep <seconds>, 0 to %u, or 0 for never; screen bench on|off\n",
+               (unsigned)UINT16_MAX);
+        return;
+    }
+    if (rest[0] != '\0') {
         if (!nvs_save(NULL, "settings", &next, sizeof next)) {
             printf("not saved: the flash refused it\n");
             return;
         }
         settings = next;
+        screen_due = 0;
         screen_wake();
-    } else {
-        printf("screen sleep <seconds>, 0 to %u, or 0 for never\n", (unsigned)UINT16_MAX);
-        return;
     }
+    printf("the bench pages are %s\n",
+           settings.screen_flags & SCREEN_BENCH ? "after the others" : "not shown");
     if (settings.screen_sleep == 0) {
         printf("the screen stays on\n");
     } else {
@@ -1573,8 +1609,9 @@ static void command(char *line) {
     } else if (line[0] != '\0') {
         printf("commands: contact <address>, accept, peers, to <number>, send <text>, drop "
                "<number>, status, routes, selftest, forget "
-               "(Bluetooth clients), screen sleep <seconds>. Holding "
-               "PRG sends a ping. For the bench: bench on|off, sync <hex>, power <dBm>, freq <Hz>, "
+               "(Bluetooth clients), screen sleep <seconds>, screen bench on|off. Holding "
+               "PRG on a bench page sends a ping. For the bench: bench on|off, sync <hex>, power "
+               "<dBm>, freq <Hz>, "
                "sf <n>, bw <Hz>, beacon <count> <ms>, counts [reset].\n");
     }
 }
@@ -1686,7 +1723,7 @@ static void poll_console(void) {
     link_tick(&companion, board_now());
 }
 
-/* --- The bench screen ------------------------------------------------------------------------ */
+/* --- The bench screen ------------------------------------------------------------------------- */
 
 /* The board as the screen shows it (status.h). */
 static void fill_status(struct node_status *st) {
@@ -1758,6 +1795,128 @@ static void fill_status(struct node_status *st) {
     st->last_s = (uint32_t)((now - last_at) / 1000000000LL);
 }
 
+/* --- The user's screen ------------------------------------------------------------------------ */
+
+static int screen_pages(void) {
+    return UI_PAGES + (settings.screen_flags & SCREEN_BENCH ? STATUS_PAGES : 0);
+}
+
+/* The link's messages, newest first: where each is in its list. */
+static size_t newest_first(uint8_t order[LINK_MESSAGES]) {
+    size_t n = 0;
+    for (size_t i = 0; i < LINK_MESSAGES; i++) {
+        if (!companion.messages[i].used) {
+            continue;
+        }
+        size_t at = n++;
+        while (at > 0 && companion.messages[order[at - 1]].id < companion.messages[i].id) {
+            order[at] = order[at - 1];
+            at--;
+        }
+        order[at] = (uint8_t)i;
+    }
+    return n;
+}
+
+/* Whom an address is to the user: the name they saved it as, or failing that the start of the
+ * address, as the This node page shows it. */
+static void name_of(const uint8_t address[TERN_ADDRESS_LEN], char out[UI_NAME + 1]) {
+    for (size_t i = 0; i < LINK_CONTACTS; i++) {
+        const struct link_contact *k = &companion.contacts[i];
+        if (k->used && memcmp(k->address, address, TERN_ADDRESS_LEN) == 0 && k->name_len > 0) {
+            size_t len = k->name_len < UI_NAME ? k->name_len : UI_NAME;
+            memcpy(out, k->name, len);
+            out[len] = '\0';
+            return;
+        }
+    }
+    snprintf(out, UI_NAME + 1, "%02X%02X%02X%02X", address[0], address[1], address[2], address[3]);
+}
+
+static bool unread(const struct link_message *x) {
+    return x->state == TERN_C_RECEIVED && !(x->flags & TERN_C_READ_FLAG);
+}
+
+/* The node as the user's pages show it (ui.h). */
+static void fill_ui(struct ui_node *u) {
+    tern_time now = board_now();
+    uint32_t clock = clock_now();
+    uint8_t order[LINK_MESSAGES];
+    memset(u, 0, sizeof *u);
+    u->region = region->name;
+    u->version = CONFIG_TERN_VERSION;
+    u->relay = route.config.relay;
+    u->dbm = cfg.tx_power_dbm;
+    memcpy(u->address, demo.id.address, TERN_ADDRESS_LEN);
+    u->bench = bench;
+    for (int i = 0; i < NEIGHBOURS; i++) {
+        if (neighbours[i].used) {
+            u->nearby++;
+        }
+    }
+    for (int i = 0; i < DESTINATIONS; i++) {
+        uint32_t next;
+        uint16_t metric;
+        if (destinations[i].used && tern_route_next(&route, destinations[i].id, &next, &metric)) {
+            u->reachable++;
+        }
+    }
+    u->air_total_ms = air_total / 1000000;
+    u->limited = region->duty_ppm < TERN_DUTY_UNLIMITED;
+    if (u->limited) {
+        u->air_used_ms = tern_duty_used(&duty, now) / 1000000;
+        u->air_limit_ms = duty.limit / 1000000;
+        u->window_s = region->duty_window_s;
+        u->wait_ms = duty_wait_ms(now);
+    }
+
+    size_t n = newest_first(order);
+    u->messages = (uint8_t)n;
+    for (size_t k = 0; k < n; k++) {
+        const struct link_message *x = &companion.messages[order[k]];
+        if (unread(x) && u->unread++ == 0) {
+            name_of(x->address, u->from);
+        }
+        if (x->state == TERN_C_WAITING || x->state == TERN_C_SENT) {
+            u->waiting++;
+        }
+    }
+    if (message_shown >= n) {
+        message_shown = 0; /* past the oldest: round to the newest again */
+    }
+    u->shown = message_shown;
+    if (n > 0) {
+        const struct link_message *x = &companion.messages[order[message_shown]];
+        struct ui_message *m = &u->message;
+        m->received = x->state == TERN_C_RECEIVED;
+        m->unread = unread(x);
+        name_of(x->address, m->who);
+        m->aged = clock != 0 && x->time != 0 && clock >= x->time;
+        m->ago_s = m->aged ? clock - x->time : 0;
+        m->state = x->state;
+        m->reason = x->reason;
+        m->wait_s = x->wait;
+        m->text_len = x->text_len;
+        memcpy(m->text, x->text, x->text_len);
+    }
+}
+
+/* Someone is looking at the Messages page: the message it shows, and any before it, are read, here
+ * and on every client. Not if it is not there to be seen: no screen, the screen off, or a pairing's
+ * passkey over it. */
+static void screen_seen(void) {
+    uint8_t order[LINK_MESSAGES];
+    size_t n = newest_first(order);
+    if (!have_screen || screen_asleep || pairing_passkey != PAIRING_NONE ||
+        screen_page != UI_MESSAGES || message_shown >= n) {
+        return;
+    }
+    const struct link_message *x = &companion.messages[order[message_shown]];
+    if (unread(x)) {
+        link_read(&companion, x->id);
+    }
+}
+
 /* A write the screen did not take: try again in a second, and after SCREEN_TRIES in a row, give
  * the screen up. */
 static void screen_failed(void) {
@@ -1799,20 +1958,27 @@ static void poll_screen(void) {
         return; /* the picture is brought up to date when it wakes */
     }
     if (board_now() >= screen_due) {
-        static struct node_status st;
-        char rows[STATUS_ROWS][STATUS_COLS + 1];
-        fill_status(&st);
-        status_page(&st, screen_page, rows);
+        if (screen_page >= screen_pages()) {
+            screen_page = UI_HOME; /* the bench pages were turned off while one was shown */
+        }
         if (pairing_passkey != PAIRING_NONE) {
             /* A client is pairing: the passkey to type into it, over whatever page was shown. */
-            memset(rows, 0, sizeof rows);
-            snprintf(rows[0], sizeof rows[0], "Bluetooth pairing");
-            snprintf(rows[2], sizeof rows[2], "Type this passkey");
-            snprintf(rows[3], sizeof rows[3], "into the client:");
-            snprintf(rows[5], sizeof rows[5], "      %06lu", (unsigned long)pairing_passkey);
-        }
-        for (int i = 0; i < STATUS_ROWS; i++) {
-            display_text(&screen, i, rows[i], i == 0);
+            ui_pairing(pairing_passkey, &screen);
+        } else if (screen_page < UI_PAGES) {
+            static struct ui_node u;
+            if (screen_looked) {
+                screen_seen();
+            }
+            fill_ui(&u);
+            ui_draw(&u, screen_page, &screen);
+        } else {
+            static struct node_status st;
+            char rows[STATUS_ROWS][STATUS_COLS + 1];
+            fill_status(&st);
+            status_page(&st, screen_page - UI_PAGES, rows);
+            for (int i = 0; i < STATUS_ROWS; i++) {
+                display_text(&screen, i, rows[i], i == 0);
+            }
         }
         screen_due = board_now() + (tern_time)SCREEN_MS * 1000000;
     }
@@ -1838,8 +2004,21 @@ static void ping(void) {
     send(text);
 }
 
-/* A press shows the next page; holding PRG for HOLD_MS sends a ping, once, while it is still
- * held. With no screen, a press sends a ping, as it did before there was one. */
+/* Holding PRG acts on the page shown: on Messages, it shows the message before; on a bench page,
+ * it sends a ping. Elsewhere it does nothing. */
+static void screen_hold(void) {
+    if (screen_page == UI_MESSAGES) {
+        message_shown++; /* fill_ui() goes round to the newest after the oldest */
+        screen_looked = true;
+        screen_due = 0;
+    } else if (screen_page >= UI_PAGES) {
+        ping();
+    }
+}
+
+/* A press shows the next page; holding PRG for HOLD_MS acts on the page, once, while it is still
+ * held. A press that wakes the screen shows the Home page, and does nothing else. With no screen,
+ * a press sends a ping, as it did before there was one. */
 static void poll_button(void) {
     static bool was, held, waking;
     static tern_time down, last;
@@ -1848,17 +2027,25 @@ static void poll_button(void) {
     if (pressed && !was) {
         down = now;
         held = false;
-        waking = have_screen && screen_asleep; /* a press that wakes the screen does only that */
+        waking = have_screen && screen_asleep;
+        if (waking) {
+            screen_page = UI_HOME;
+            screen_due = 0;
+        } else {
+            screen_seen(); /* someone is looking at what is shown */
+        }
         screen_wake();
     } else if (waking) {
         /* nothing until it is let go */
     } else if (have_screen && pressed && !held && now - down >= (tern_time)HOLD_MS * 1000000) {
         held = true;
-        ping();
+        screen_hold();
     } else if (!pressed && was && !held && now - last > 300 * 1000000LL) {
         last = now;
         if (have_screen) {
-            screen_page = (screen_page + 1) % STATUS_PAGES;
+            screen_page = (screen_page + 1) % screen_pages();
+            message_shown = 0;
+            screen_looked = true;
             screen_due = 0;
         } else {
             ping();
@@ -1898,7 +2085,9 @@ void app_main(void) {
      * antenna when it was set; if the pair no longer fits, the build's settings are used. */
     struct settings saved;
     saved.screen_sleep = CONFIG_TERN_SCREEN_SLEEP_S;
+    saved.screen_flags = SCREEN_FLAGS;
     if ((nvs_load(NULL, "settings", &saved, sizeof saved) ||
+         nvs_load(NULL, "settings", &saved, offsetof(struct settings, screen_flags)) ||
          nvs_load(NULL, "settings", &saved, offsetof(struct settings, screen_sleep))) &&
         saved.magic == SETTINGS_MAGIC) {
         settings = saved;
@@ -2012,7 +2201,7 @@ void app_main(void) {
     if (have_screen) {
         display_init(&screen);
         printf("\nTern demo on the Heltec V3. Type 'status'. PRG shows the screen's next page; "
-               "hold it to ping.\n");
+               "'screen bench on' adds the bench pages.\n");
     } else {
         printf("\nTern demo on the Heltec V3, with no screen found. Type 'status', or press PRG "
                "to ping.\n");

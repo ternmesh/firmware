@@ -79,26 +79,67 @@ Type commands into the serial terminal:
 | `selftest` | Run a handshake between two nodes in the board's memory, and time it. |
 | `forget` | Forget every Bluetooth client that has paired ([the companion link](#over-bluetooth)). |
 | `screen sleep <seconds>` | How long the [screen](#the-screen) stays on; `0` keeps it on. `screen` alone says. |
+| `screen bench on`, `screen bench off` | Add the [bench pages](#the-bench-pages) to the screen, after the others, or take them away. The board keeps the choice. |
 
-Holding **PRG** for a second sends a ping. A board that hears a ping answers with a pong saying
-how strongly it heard it, so one ping checks both directions. A short press shows the
-[screen](#the-screen)'s next page. (On a board whose screen does not answer, a short press sends
-the ping.) The white LED blinks for each frame sent or received.
+A short press of **PRG** shows the [screen](#the-screen)'s next page, and holding it for a second
+acts on the page shown. On a [bench page](#the-bench-pages), holding it sends a ping: a board
+that hears a ping answers with a pong saying how strongly it heard it, so one ping checks both
+directions. (On a board whose screen does not answer, a short press sends the ping.) The white
+LED blinks for each frame sent or received.
 
 To start:
 
 1. Type `status` on the second board and copy its address, sixty-four hex digits.
 2. On the first board, type `contact` and that address. Four frames cross, taking two or three
    seconds, and both boards say that a session has started and with whom.
-3. Hold PRG on either board for a second.
+3. Type `send hello` on either board: the other wakes its screen and shows it.
 
 With only one board, `selftest` shows that the handshake and a message each way work on it, with
 nothing sent.
 
 ## The screen
 
-The board's display shows what the console would, without a laptop: four pages, moved through by
-pressing PRG.
+The board's display shows what someone carrying it needs at a glance, in their words rather than
+the protocol's: four pages, moved through by pressing PRG. It is the first version of the screen
+[docs/ui.md](../../docs/ui.md) describes.
+
+| Page | |
+|---|---|
+| **Home** | The region, and in large letters the one thing most worth knowing: how many new messages, or else how many nodes it hears, or that it is still listening for one. Below, what that does not say: how many nodes it hears and can reach by routes, who the last new message is from or how many of its own await delivery, and how much of the region's limit on the air is left. |
+| **Messages** | One message at a time, newest first: who it is from or to, how long ago (once a client has set the board's clock), and its text, wrapped. A message this board sent says what became of it: waiting, and why (no route yet, making contact, the region's limit, the radio busy), then delivered or not delivered. Hold PRG for the one before. |
+| **Air** | The region's limit on time on the air, as a bar: what is counted against it, of how much, over what span, and when the next frame may go. In a region with no limit, how long it has sent for. |
+| **This node** | Its address, sixty-four hex digits in groups of eight, to read out or copy; relay or leaf, the region and the power; and the firmware's version. |
+
+A message that arrives turns the screen on and shows it. It counts as read, here and on every
+connected [client](#the-companion-link), once PRG is pressed while it is shown, or when a
+client says so; until then Home counts it as new. Names are the ones a client saved for its
+contacts; a node with none is shown by the first eight digits of its address. Characters the
+font cannot draw, such as accents and emoji, show as `?`.
+
+While a [Bluetooth client pairs](#over-bluetooth), the screen shows the passkey to type into it,
+over whatever page was shown.
+
+The screen turns off a minute after the last thing worth seeing: a press of PRG, a message heard,
+or a [pairing](#over-bluetooth), whose passkey stays up until the pairing ends. A press while it
+is off only turns it on again, at Home. `screen sleep <seconds>` changes the minute, and the board
+keeps the change; `menuconfig`, **Seconds before the screen sleeps**, sets what a new board starts
+with. Off, the panel keeps its picture and draws a few microamps instead of several milliamps.
+
+The pages are drawn from one snapshot of the board (`main/ui.h`), not from the demo's own
+variables, and only the parts of the picture that change are sent to it, a strip of eight rows
+at a time between turns of the loop. If it reads upside down, `menuconfig`, **Turn the screen
+upside down**.
+
+Not there yet: the battery, which the board does not measure; a QR code of the address, for a
+phone to scan; and a short code two people can compare to check they have the right node, which
+the specification has not settled and every implementation should show the same.
+
+### The bench pages
+
+For whoever is developing Tern, `screen bench on` adds four more pages after **This node**, with
+the routing ids, signal margins and frame counts the console shows (`menuconfig`, **Show the
+bench screen's pages**, sets what a new board starts with). On these pages, holding PRG sends a
+ping.
 
 | Page | |
 |---|---|
@@ -107,19 +148,7 @@ pressing PRG.
 | **Routes** | Up to six: the board, the neighbour a frame to it goes to, and the route's milliseconds on the air. |
 | **Session** | The peer's first four bytes, messages sent and heard, and the last message heard. |
 
-It is a bench screen, for whoever is developing Tern, and it will be thrown away. What a Tern node
-should show the person carrying it is a different question, and
-[docs/ui.md](../../docs/ui.md) is where it is being worked out.
-
-The screen is drawn from one snapshot of the board (`main/status.h`), not from the demo's own
-variables, and only the lines that change are sent to it, one at a time between turns of the
-loop. If it reads upside down, `menuconfig`, **Turn the screen upside down**.
-
-The screen turns off a minute after the last thing worth seeing: a press of PRG, a message heard,
-or a [pairing](#over-bluetooth), whose passkey stays up until the pairing ends. A press while it
-is off only turns it on again. `screen sleep <seconds>` changes the minute, and the board keeps
-the change; `menuconfig`, **Seconds before the screen sleeps**, sets what a new board starts with.
-Off, the panel keeps its picture and draws a few microamps instead of several milliamps.
+They are drawn from their own snapshot (`main/status.h`).
 
 ## Identity and first contact
 
@@ -331,8 +360,9 @@ Bluetooth is always on. What it costs a battery is not measured yet.
 |---|---|
 | `main/board.c` | The pins, the SPI bus, the radio's reset and BUSY line, the button, the LED, and the display (an SSD1306 on its own I2C bus). |
 | `main/demo.c` | The board's identity, first contact, and the saved sessions. It has no hardware code, so `tests/demo.c` tests it on a host, and `tests/relay.c` with the router and the forwarder: boards that make a session through a relay. |
-| `main/status.c` | The snapshot the screen is drawn from, and its pages as lines of text. |
-| `main/display.c` | The picture of the screen, its font, and which parts of it have changed. With `status.c`, tested on a host by `tests/status.c`. |
+| `main/ui.c` | The screen's pages, drawn from a snapshot of the node in the user's words. Tested on a host by `tests/ui.c`, which also writes each page it checks as a picture: `build/test_ui <directory>`. |
+| `main/status.c` | The bench pages, and the snapshot they are drawn from, as lines of text. Tested on a host by `tests/status.c`. |
+| `main/display.c` | The picture of the screen, its font in two sizes, the bar, and which parts of it have changed. |
 | `main/link.c` | The companion link: contacts, messages and what became of them, and the answers and news each client gets, on USB and over Bluetooth. No hardware code; tested on a host by `tests/link.c`, and with `tools/companion.py` by `tests/link_script.py`. |
 | `main/ble.c` | The companion link's Bluetooth LE service, pairing and advertising, over NimBLE, which runs in its own task and reports to the loop through a queue. |
 | `main/main.c` | One loop that polls the radio, the serial port, the button and the screen. |

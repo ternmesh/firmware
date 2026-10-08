@@ -385,16 +385,20 @@ static void send_request(struct link *l, const struct tern_companion_msg *q) {
     l->next_ref = (l->next_ref + 1) % LINK_REFS;
 }
 
-static void read_request(struct link *l, const struct tern_companion_msg *q) {
-    answer(l, TERN_C_OK, q->seq);
+void link_read(struct link *l, uint32_t through) {
     for (size_t i = 0; i < LINK_MESSAGES; i++) {
         struct link_message *x = &l->messages[i];
-        if (x->used && x->state == TERN_C_RECEIVED && x->id <= q->through &&
+        if (x->used && x->state == TERN_C_RECEIVED && x->id <= through &&
             !(x->flags & TERN_C_READ_FLAG)) {
             x->flags |= TERN_C_READ_FLAG;
             news_message(l, NULL, x);
         }
     }
+}
+
+static void read_request(struct link *l, const struct tern_companion_msg *q) {
+    answer(l, TERN_C_OK, q->seq);
+    link_read(l, q->through);
 }
 
 static void save_contact(struct link *l, const struct tern_companion_msg *q) {
