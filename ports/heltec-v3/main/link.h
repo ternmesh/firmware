@@ -30,6 +30,7 @@
 #define LINK_QUIET TERN_S(10) /* the least time between two news frames about one thing */
 #define LINK_LOOK TERN_S(1)   /* how often the link looks for changes to tell */
 #define LINK_SNR_STEP 4       /* quarter-dB: a neighbour's SNR moved this much is news */
+#define LINK_LAPSE TERN_S(60) /* a serial client silent this long since its last answer is gone */
 
 struct link_neighbour {
     uint32_t id;
@@ -56,6 +57,10 @@ struct link_view {
 struct link_host {
     void *ctx;
     const char *firmware;
+    /* How long a client may go without a request, counted from the answer to its last, before
+     * the connection is taken as ended (draft/companion.md, "Going quiet"): LINK_LAPSE on a serial
+     * port, which cannot see a client close it, and 0 on one that can. */
+    tern_time lapse;
     /* One frame to the client. */
     void (*out)(void *ctx, const uint8_t *frame, size_t len);
     void (*view)(void *ctx, struct link_view *v);
@@ -105,7 +110,9 @@ struct link_told {
 struct link {
     struct link_host host;
     bool hello;
-    uint8_t news; /* the count: the next news frame's seq */
+    bool synced;           /* told everything since HELLO: link_tick tells what changed since */
+    uint8_t news;          /* the count: the next news frame's seq */
+    tern_time answered_at; /* when the last request was answered */
 
     struct link_contact contacts[LINK_CONTACTS];
     struct link_message messages[LINK_MESSAGES];
@@ -132,7 +139,8 @@ void link_init(struct link *l, const struct link_host *host);
 void link_receive(struct link *l, tern_time now, const uint8_t *frame, size_t len);
 
 /* Tells the client what has changed: neighbours, the air, power, the node itself. Call it often;
- * it looks at most every LINK_LOOK. */
+ * it looks at most every LINK_LOOK. A connection that has lapsed is ended here, and hears nothing
+ * more until it says HELLO again. */
 void link_tick(struct link *l, tern_time now);
 
 /* The oldest message waiting that has not been on the air, or NULL. */

@@ -277,6 +277,7 @@ static void sync(struct link *l, const struct tern_companion_msg *q, tern_time n
     l->power = power_of(&l->view);
     news(l, &l->power);
     l->look_at = l->air_at = l->power_at = now;
+    l->synced = true;
     answer(l, TERN_C_SYNCED, q->seq);
 }
 
@@ -378,6 +379,13 @@ static void remove_contact(struct link *l, const struct tern_companion_msg *q) {
     }
 }
 
+/* A serial client that has asked nothing for the lapse is taken for gone. */
+static void lapse(struct link *l, tern_time now) {
+    if (l->hello && l->host.lapse != 0 && now - l->answered_at >= l->host.lapse) {
+        l->hello = l->synced = false; /* whoever opens the port next says HELLO */
+    }
+}
+
 void link_receive(struct link *l, tern_time now, const uint8_t *frame, size_t len) {
     static struct tern_companion_msg q; /* a request is answered before the next is read */
     memset(&q, 0, sizeof q);
@@ -385,6 +393,10 @@ void link_receive(struct link *l, tern_time now, const uint8_t *frame, size_t le
     if (r == TERN_C_READ_SHORT || !tern_companion_request(frame[0])) {
         return; /* nothing to answer: too short, or not a request */
     }
+    /* Late is gone, even if link_tick has not yet looked. Every request is answered here, before
+     * the next is read, so now is when this one was. */
+    lapse(l, now);
+    l->answered_at = now;
     if (r != TERN_C_READ_OK) {
         error(l, frame[1], (uint8_t)r);
         return;
@@ -401,6 +413,7 @@ void link_receive(struct link *l, tern_time now, const uint8_t *frame, size_t le
                  cstr_len(l->host.firmware, TERN_COMPANION_FIRMWARE_MAX));
         send_msg(l, &a);
         l->hello = true;
+        l->synced = false;
         l->news = 0;
         break;
     }
@@ -495,7 +508,9 @@ static void look_at_neighbours(struct link *l, tern_time now) {
 }
 
 void link_tick(struct link *l, tern_time now) {
-    if (!l->hello || now - l->look_at < LINK_LOOK) {
+    lapse(l, now);
+    /* Before a sync there is nothing told to say what changed from: the sync tells it all. */
+    if (!l->synced || now - l->look_at < LINK_LOOK) {
         return;
     }
     l->look_at = now;
