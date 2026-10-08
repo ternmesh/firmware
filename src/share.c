@@ -72,9 +72,10 @@ static int digit(char c) {
 
 static char upper(char c) { return c >= 'a' && c <= 'z' ? (char)(c - 'a' + 'A') : c; }
 
+/* The core takes nothing from the C library but memcpy and its kind, so no strchr or strlen. */
 static int base32_value(char c) {
-    const char *at = c != '\0' ? strchr(base32, upper(c)) : NULL;
-    return at != NULL ? (int)(at - base32) : -1;
+    c = upper(c);
+    return c >= 'A' && c <= 'Z' ? c - 'A' : c >= '2' && c <= '7' ? c - '2' + 26 : -1;
 }
 
 /* The base32 of a link: exactly 52 characters, either case, the last four bits zero. */
@@ -82,11 +83,8 @@ static bool read_base32(const char *text, uint8_t address[TERN_ADDRESS_LEN]) {
     uint8_t got[TERN_ADDRESS_LEN];
     unsigned n = 0, bits = 0;
     size_t k = 0;
-    if (strlen(text) != TERN_ADDRESS_BASE32_LEN) {
-        return false;
-    }
     for (size_t i = 0; i < TERN_ADDRESS_BASE32_LEN; i++) {
-        int v = base32_value(text[i]);
+        int v = base32_value(text[i]); /* a NUL here, too short, is not base32 */
         if (v < 0) {
             return false;
         }
@@ -97,7 +95,7 @@ static bool read_base32(const char *text, uint8_t address[TERN_ADDRESS_LEN]) {
             got[k++] = (uint8_t)(n >> bits);
         }
     }
-    if ((n & ((1u << bits) - 1)) != 0) {
+    if (text[TERN_ADDRESS_BASE32_LEN] != '\0' || (n & ((1u << bits) - 1)) != 0) {
         return false; /* a spare bit set: not the one link this address has */
     }
     memcpy(address, got, TERN_ADDRESS_LEN);
