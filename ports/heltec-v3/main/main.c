@@ -34,6 +34,8 @@
  * Everything runs in one loop: the core never runs in interrupt context, so the loop polls the
  * radio, the serial port, the button and the screen in turn. */
 
+#include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -126,6 +128,9 @@ static int screen_page;
 static tern_time screen_due;
 static tern_time screen_retry; /* after a failed write, when to try again */
 static unsigned screen_failures;
+static bool screen_asleep;
+static tern_time screen_woken; /* the last reason to be on: a press, a message, a pairing */
+static void screen_wake(void);
 
 /* The companion link: the client's half of the conversation is link.c's; this is the port. */
 static struct link companion;
@@ -161,8 +166,11 @@ struct settings {
     uint8_t role;   /* 0 leaf, 1 relay, or 0xFF for the build's */
     int8_t power;   /* dBm, or POWER_UNSET for the build's */
     uint32_t passkey;
+    /* Added later: a board that saved its settings before has none, and takes the build's. */
+    uint16_t screen_sleep; /* seconds, or 0 for never */
 };
-static struct settings settings = {SETTINGS_MAGIC, 0, 0xFF, POWER_UNSET, PASSKEY_RANDOM};
+static struct settings settings = {
+    SETTINGS_MAGIC, 0, 0xFF, POWER_UNSET, PASSKEY_RANDOM, CONFIG_TERN_SCREEN_SLEEP_S};
 
 /* The bench: test frames sent on a timer, and counts of what was received. */
 #define BEACON_LEN 24
@@ -472,6 +480,7 @@ static void heard(const struct tern_radio_event *ev) {
         memcpy(last_text, msg, keep);
         last_text[keep] = '\0';
         last_at = board_now();
+        screen_wake();
         link_add(&companion, got.peer, clock_now(), TERN_C_RECEIVED, 0, msg, got.msg_len);
         if (strncmp((const char *)msg, "ping", 4) == 0) {
             char reply[64];
@@ -1325,6 +1334,33 @@ static void selftest(void) {
     memset(node, 0, sizeof node);
 }
 
+/* 'screen' says how long the screen stays on; 'screen sleep <seconds>' changes it, 0 for never. */
+static void screen_command(const char *rest) {
+    unsigned long s;
+    char extra;
+    if (rest[0] == '\0') {
+        /* as it is */
+    } else if (sscanf(rest, " sleep %lu %c", &s, &extra) == 1 && s <= UINT16_MAX) {
+        struct settings next = settings;
+        next.screen_sleep = (uint16_t)s;
+        if (!nvs_save(NULL, "settings", &next, sizeof next)) {
+            printf("not saved: the flash refused it\n");
+            return;
+        }
+        settings = next;
+        screen_wake();
+    } else {
+        printf("screen sleep <seconds>, 0 to %u, or 0 for never\n", (unsigned)UINT16_MAX);
+        return;
+    }
+    if (settings.screen_sleep == 0) {
+        printf("the screen stays on\n");
+    } else {
+        printf("the screen sleeps %u s after a press, a message or a pairing; a press wakes it\n",
+               (unsigned)settings.screen_sleep);
+    }
+}
+
 static void command(char *line) {
     if (bench_command(line)) {
         return;
@@ -1364,6 +1400,8 @@ static void command(char *line) {
         routes();
     } else if (strcmp(line, "selftest") == 0) {
         selftest();
+    } else if (strncmp(line, "screen", 6) == 0) {
+        screen_command(&line[6]);
     } else if (strcmp(line, "forget") == 0) {
         if (have_ble) {
             ble_forget();
@@ -1373,7 +1411,7 @@ static void command(char *line) {
         }
     } else if (line[0] != '\0') {
         printf("commands: contact <address>, accept, send <text>, status, routes, selftest, forget "
-               "(Bluetooth clients). Holding "
+               "(Bluetooth clients), screen sleep <seconds>. Holding "
                "PRG sends a ping. For the bench: bench on|off, sync <hex>, power <dBm>, freq <Hz>, "
                "sf <n>, bw <Hz>, beacon <count> <ms>, counts [reset].\n");
     }
@@ -1461,12 +1499,14 @@ static void poll_ble(void) {
         case BLE_PASSKEY:
             pairing_passkey = e.passkey;
             screen_due = 0;
+            screen_wake();
             printf("bluetooth: pairing; the passkey is on the screen\n");
             break;
         case BLE_PAIRED:
             if (pairing_passkey != PAIRING_NONE) {
                 pairing_passkey = PAIRING_NONE;
                 screen_due = 0;
+                screen_wake();
             }
             break;
         }
@@ -1553,13 +1593,45 @@ static void fill_status(struct node_status *st) {
     st->last_s = (uint32_t)((now - last_at) / 1000000000LL);
 }
 
+/* A write the screen did not take: try again in a second, and after SCREEN_TRIES in a row, give
+ * the screen up. */
+static void screen_failed(void) {
+    screen_retry = board_now() + 1000000000LL;
+    screen_failures++;
+    if (screen_failures >= SCREEN_TRIES) {
+        have_screen = false;
+        printf("the screen stopped answering; carrying on without it. PRG now sends a ping.\n");
+    }
+}
+
+/* Something to see: the screen is on, or turned on by poll_screen(), for screen_sleep more. */
+static void screen_wake(void) { screen_woken = board_now(); }
+
 /* Draws the page shown every SCREEN_MS, and sends at most one changed page of the picture each
  * turn of the loop, about 3 ms, so the radio is never kept waiting long. A write that fails can
  * take 50 ms (board.c), so after one the screen waits a second, and after SCREEN_TRIES in a row
  * it is given up. */
 static void poll_screen(void) {
-    if (!have_screen) {
+    if (!have_screen || board_now() < screen_retry) {
         return;
+    }
+    if (pairing_passkey != PAIRING_NONE) {
+        screen_woken = board_now(); /* the passkey stays up for as long as the pairing takes */
+    }
+    /* Turned on or off here only, so a write the screen did not take is tried again. */
+    bool on = settings.screen_sleep == 0 ||
+              board_now() - screen_woken < (tern_time)settings.screen_sleep * 1000000000LL;
+    if (on == screen_asleep) {
+        if (!board_screen_power(on)) {
+            screen_failed();
+            return;
+        }
+        screen_asleep = !on;
+        screen_failures = 0;
+        screen_due = 0;
+    }
+    if (screen_asleep) {
+        return; /* the picture is brought up to date when it wakes */
     }
     if (board_now() >= screen_due) {
         static struct node_status st;
@@ -1579,9 +1651,6 @@ static void poll_screen(void) {
         }
         screen_due = board_now() + (tern_time)SCREEN_MS * 1000000;
     }
-    if (board_now() < screen_retry) {
-        return;
-    }
     int page = display_take(&screen);
     if (page < 0) {
         return;
@@ -1591,11 +1660,7 @@ static void poll_screen(void) {
         return;
     }
     screen.dirty |= (uint8_t)(1u << page);
-    screen_retry = board_now() + 1000000000LL;
-    if (++screen_failures >= SCREEN_TRIES) {
-        have_screen = false;
-        printf("the screen stopped answering; carrying on without it. PRG now sends a ping.\n");
-    }
+    screen_failed();
 }
 
 static void ping(void) {
@@ -1611,13 +1676,17 @@ static void ping(void) {
 /* A press shows the next page; holding PRG for HOLD_MS sends a ping, once, while it is still
  * held. With no screen, a press sends a ping, as it did before there was one. */
 static void poll_button(void) {
-    static bool was, held;
+    static bool was, held, waking;
     static tern_time down, last;
     tern_time now = board_now();
     bool pressed = board_button();
     if (pressed && !was) {
         down = now;
         held = false;
+        waking = have_screen && screen_asleep; /* a press that wakes the screen does only that */
+        screen_wake();
+    } else if (waking) {
+        /* nothing until it is let go */
     } else if (have_screen && pressed && !held && now - down >= (tern_time)HOLD_MS * 1000000) {
         held = true;
         ping();
@@ -1629,6 +1698,9 @@ static void poll_button(void) {
         } else {
             ping();
         }
+    }
+    if (!pressed && was) {
+        waking = false;
     }
     was = pressed;
 }
@@ -1660,7 +1732,10 @@ void app_main(void) {
     /* What a client set, over what the build chose. Each was checked against the region and the
      * antenna when it was set; if the pair no longer fits, the build's settings are used. */
     struct settings saved;
-    if (nvs_load(NULL, "settings", &saved, sizeof saved) && saved.magic == SETTINGS_MAGIC) {
+    saved.screen_sleep = CONFIG_TERN_SCREEN_SLEEP_S;
+    if ((nvs_load(NULL, "settings", &saved, sizeof saved) ||
+         nvs_load(NULL, "settings", &saved, offsetof(struct settings, screen_sleep))) &&
+        saved.magic == SETTINGS_MAGIC) {
         settings = saved;
     }
     const struct tern_region *chosen =

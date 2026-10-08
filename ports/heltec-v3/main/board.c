@@ -180,3 +180,11 @@ bool board_screen_page(int page, const uint8_t data[128]) {
     memcpy(&buf[1], data, 128);
     return oled_send(where, sizeof where) && oled_send(buf, sizeof buf);
 }
+
+bool board_screen_power(bool on) {
+    /* The charge pump goes on before the panel and off after it (the datasheet's application
+     * note on the charge pump). */
+    static const uint8_t off_seq[] = {OLED_COMMANDS, 0xAE, 0x8D, 0x10};
+    static const uint8_t on_seq[] = {OLED_COMMANDS, 0x8D, 0x14, 0xAF};
+    return on ? oled_send(on_seq, sizeof on_seq) : oled_send(off_seq, sizeof off_seq);
+}
