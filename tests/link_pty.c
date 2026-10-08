@@ -5,7 +5,9 @@
  * line of console text now and then, as a board does, to show the script reads past it. A client
  * that asks nothing for LINK_LAPSE is taken for gone, as on a board; the first argument, in
  * milliseconds, shortens that, so a test can watch it happen. A message
- * a client sends goes "on the air" a moment later. */
+ * a client sends goes "on the air" a moment later. On stdin, an "m" is a message from Bob
+ * received, and an "r" restarts the node, as a SET restarts a board: the messages are lost, their
+ * ids start again, and another from Bob arrives. */
 
 #if defined(__APPLE__)
 #define _DARWIN_C_SOURCE
@@ -132,6 +134,10 @@ int main(int argc, char **argv) {
     printf("%s\n", ptsname(master));
     fflush(stdout);
 
+    static const uint8_t bob[TERN_ADDRESS_LEN] = {0x3d, 0x40, 0x17, 0xc3, 0xe8, 0x43, 0x89, 0x5a,
+                                                  0x92, 0xb7, 0x0a, 0xa7, 0x4d, 0x1b, 0x7e, 0xbc,
+                                                  0x9c, 0x98, 0x2c, 0xcf, 0x2e, 0xc4, 0x96, 0x8c,
+                                                  0xc0, 0xcd, 0x55, 0xf1, 0x2a, 0xf4, 0x66, 0x0c};
     struct link_host host = {.ctx = NULL,
                              .firmware = "tern host test",
                              .lapse = argc > 1 ? TERN_MS(atoi(argv[1])) : LINK_LAPSE,
@@ -158,6 +164,16 @@ int main(int argc, char **argv) {
             char c;
             if (read(STDIN_FILENO, &c, 1) <= 0) {
                 return 0;
+            }
+            static const char morning[] = "Morning", back[] = "Back after a restart";
+            if (c == 'm') {
+                link_add(&node, bob, clock_s, TERN_C_RECEIVED, 0, (const uint8_t *)morning,
+                         sizeof morning - 1);
+            }
+            if (c == 'r') {
+                link_init(&node, &host);
+                link_add(&node, bob, clock_s, TERN_C_RECEIVED, 0, (const uint8_t *)back,
+                         sizeof back - 1);
             }
         }
         if (fds[0].revents & POLLIN) {
