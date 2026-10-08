@@ -29,6 +29,7 @@ enum ble_event_kind {
 
 struct ble_event {
     enum ble_event_kind kind;
+    uint32_t gen; /* which connection, counted from 1: ble_poll() drops a past one's */
     uint16_t mtu;
     uint32_t passkey;
     size_t len;
@@ -43,10 +44,12 @@ bool ble_start(uint32_t passkey, bool screen);
 /* The passkey for pairings from now: 0 to 999999, or BLE_PASSKEY_RANDOM. */
 void ble_passkey(uint32_t passkey);
 
-/* The next thing NimBLE reported, if there is one. */
+/* The next thing NimBLE reported about the present connection, if there is one. It also sends
+ * what ble_send() queued, as far as NimBLE has room, so call it often. */
 bool ble_poll(struct ble_event *e);
 
-/* One frame to the client, as one notification. */
+/* One frame to the client, as one notification: queued, in order, until NimBLE has a buffer for
+ * it, since a sync sends far more frames at once than NimBLE has buffers. */
 void ble_send(const uint8_t *frame, size_t len);
 
 /* Forgets every bonded client, and drops the one connected. */

@@ -27,10 +27,14 @@ static const ble_uuid128_t from_node_uuid = TERN_UUID(0x03);
 /* What the advertisement names the node: nothing of its address or its user's name for it. */
 #define NAME "Tern"
 #define EVENTS 8
+/* Frames waiting for a NimBLE buffer: more than the largest sync, which is SELF, every contact,
+ * message and neighbour, AIRTIME, POWER and SYNCED (link.h). */
+#define WAITING 128
 
 static QueueHandle_t events;
 static uint16_t from_node_handle;
 static volatile uint16_t conn = BLE_HS_CONN_HANDLE_NONE;
+static volatile uint32_t gen;    /* counts connections; the present one's, set in NimBLE's task */
 static volatile bool paired;     /* the client on `conn` paired with a passkey */
 static volatile bool subscribed; /* and asked for notifications */
 static volatile uint32_t passkey_setting;
@@ -44,9 +48,17 @@ static void post(const struct ble_event *e) {
 }
 
 static void post_kind(enum ble_event_kind kind, uint16_t mtu, uint32_t passkey) {
-    struct ble_event e = {.kind = kind, .mtu = mtu, .passkey = passkey};
+    struct ble_event e = {.kind = kind, .gen = gen, .mtu = mtu, .passkey = passkey};
     post(&e);
 }
+
+/* The main loop's side: the connection the link has open, and the frames waiting to go to it. */
+static uint32_t open_gen; /* 0: none */
+static struct {
+    uint8_t len;
+    uint8_t frame[TERN_COMPANION_MAX_FRAME];
+} waiting[WAITING];
+static size_t first, n_waiting;
 
 /* A client's write to the node: one frame. Refused until it has paired (the characteristic asks
  * for an encrypted, authenticated link, which NimBLE enforces), and refused whole if it is longer
@@ -61,7 +73,7 @@ static int on_access(uint16_t conn_handle, uint16_t attr_handle, struct ble_gatt
     if (conn_handle != conn || !paired) {
         return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
     }
-    struct ble_event e = {.kind = BLE_FRAME};
+    struct ble_event e = {.kind = BLE_FRAME, .gen = gen};
     uint16_t len = OS_MBUF_PKTLEN(ctxt->om);
     if (len > sizeof e.frame) {
         return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
@@ -123,6 +135,7 @@ static int on_gap(struct ble_gap_event *event, void *arg) {
         }
         conn = event->connect.conn_handle;
         paired = subscribed = false;
+        gen++;
         /* Ask for the pairing at once; a client that has a bond restores it instead. */
         ble_gap_security_initiate(conn);
         return 0;
@@ -281,17 +294,68 @@ bool ble_start(uint32_t passkey, bool screen) {
 
 void ble_passkey(uint32_t passkey) { passkey_setting = passkey; }
 
-bool ble_poll(struct ble_event *e) { return events != NULL && xQueueReceive(events, e, 0); }
-
-void ble_send(const uint8_t *frame, size_t len) {
-    uint16_t c = conn;
-    if (c == BLE_HS_CONN_HANDLE_NONE || !paired || !subscribed) {
+/* Sends what is waiting, oldest first, until NimBLE is out of buffers; the rest goes on a later
+ * call. What was queued for a connection that has since gone is dropped. */
+static void pump(void) {
+    if (open_gen == 0 || open_gen != gen) {
+        n_waiting = 0;
         return;
     }
-    struct os_mbuf *om = ble_hs_mbuf_from_flat(frame, (uint16_t)len);
-    if (om == NULL || ble_gatts_notify_custom(c, from_node_handle, om) != 0) {
-        printf("bluetooth: a frame to the client was lost\n");
+    while (n_waiting > 0 && paired && subscribed) {
+        struct os_mbuf *om = ble_hs_mbuf_from_flat(waiting[first].frame, waiting[first].len);
+        if (om == NULL) {
+            return;
+        }
+        int rc = ble_gatts_notify_custom(conn, from_node_handle, om); /* om is taken either way */
+        if (rc == BLE_HS_ENOMEM || rc == BLE_HS_EBUSY) {
+            return;
+        }
+        if (rc != 0) {
+            printf("bluetooth: a frame to the client was lost (%d)\n", rc);
+        }
+        first = (first + 1) % WAITING;
+        n_waiting--;
     }
+}
+
+bool ble_poll(struct ble_event *e) {
+    pump();
+    while (events != NULL && xQueueReceive(events, e, 0)) {
+        if (e->kind == BLE_OPEN) {
+            open_gen = e->gen;
+            n_waiting = 0;
+            return true;
+        }
+        if (e->gen != open_gen) {
+            /* From a connection the link no longer has: a frame written just before it went, or
+             * a passkey for one that is pairing, which is the present connection's. */
+            if (e->kind != BLE_PASSKEY && e->kind != BLE_PAIRED) {
+                continue;
+            }
+            return true;
+        }
+        if (e->kind == BLE_CLOSE) {
+            open_gen = 0;
+            n_waiting = 0;
+        }
+        return true;
+    }
+    return false;
+}
+
+void ble_send(const uint8_t *frame, size_t len) {
+    if (open_gen == 0 || len > TERN_COMPANION_MAX_FRAME) {
+        return;
+    }
+    if (n_waiting == WAITING) {
+        printf("bluetooth: too many frames waiting; one to the client was lost\n");
+        return;
+    }
+    size_t i = (first + n_waiting) % WAITING;
+    memcpy(waiting[i].frame, frame, len);
+    waiting[i].len = (uint8_t)len;
+    n_waiting++;
+    pump();
 }
 
 void ble_forget(void) {
