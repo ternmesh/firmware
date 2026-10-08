@@ -130,7 +130,8 @@ start**, what went wrong, what to do about it, and the version. The reasons are 
 firmware cannot read (erase the flash and flash it again; the board gets a new address), an
 identity that could not be saved, a power more than the region allows into the antenna, no
 random numbers, and a radio that did not answer, with the driver's error number. The screen then
-sleeps as it otherwise would, and PRG lights it again.
+sleeps as it otherwise would, and PRG lights it again; holding PRG turns the board off, and so
+does an empty battery, as when it runs.
 
 A message that arrives turns the screen on and shows it. It counts as read, here and on every
 connected [client](#the-companion-link), once PRG is pressed while it is shown, or when a

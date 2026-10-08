@@ -2426,8 +2426,28 @@ __attribute__((noreturn)) static void turn_off(enum ui_off why) {
         screen_flush();
         vTaskDelay(pdMS_TO_TICKS(2000));
     }
-    tern_sx126x_sleep(&sx);
+    /* The radio, asleep: started now if the board stopped before starting it (halt()), since
+     * from power on it would sit in standby. A radio that does not answer is left as it is. */
+    if (sx.bus.transfer == NULL) {
+        (void)board_init(&sx);
+    }
+    if (sx.bus.transfer != NULL) {
+        (void)tern_sx126x_sleep(&sx);
+    }
     board_off(why == UI_OFF_EMPTY ? EMPTY_CHECK_S : 0);
+}
+
+/* The seconds left shown while PRG is held to turn the board off, from how long it has been held:
+ * 0 before the warning, and turn_off() at the end. */
+static unsigned off_seconds(tern_time held) {
+    if (held < (tern_time)OFF_WARN_MS * 1000000) {
+        return 0;
+    }
+    tern_time left = (tern_time)OFF_MS * 1000000 - held;
+    if (left <= 0) {
+        turn_off(UI_OFF_PRESSED);
+    }
+    return (unsigned)((left + 999999999) / 1000000000);
 }
 
 /* Reads the battery every BATTERY_S: a couple of milliseconds, so not often, and never while the
@@ -2489,12 +2509,8 @@ static void poll_button(void) {
             screen_seen(); /* someone is looking at what is shown */
         }
         screen_wake();
-    } else if (pressed && now - down >= (tern_time)OFF_WARN_MS * 1000000) {
-        tern_time left = (tern_time)OFF_MS * 1000000 - (now - down);
-        if (left <= 0) {
-            turn_off(UI_OFF_PRESSED);
-        }
-        unsigned s = (unsigned)((left + 999999999) / 1000000000);
+    } else if (pressed && off_seconds(now - down) != 0) {
+        unsigned s = off_seconds(now - down);
         if (s != off_shown) {
             off_shown = s;
             screen_due = 0;
@@ -2537,25 +2553,48 @@ static void show_start(void) {
 
 /* The board cannot start: why, on the screen, for someone with no console to read it. The screen
  * sleeps as it would have, so a board left like this does not run its battery down lighting it,
- * and PRG lights it again. Never returns. */
+ * and PRG lights it again. PRG held turns it off, and an empty battery does, as when it runs.
+ * Never returns. */
 __attribute__((noreturn)) static void halt(enum ui_fault why, int code) {
     if (have_screen) {
         ui_fault(why, &start_info, code, &screen);
         screen_flush();
     }
-    tern_time woken = board_now();
-    bool on = true;
+    tern_time woken = board_now(), down = 0, battery_due = 0;
+    bool was = false;
     for (;;) {
-        if (board_button()) {
-            woken = board_now();
+        tern_time now = board_now();
+        bool pressed = board_button();
+        if (pressed) {
+            woken = now;
+            down = was ? down : now;
+            unsigned s = off_seconds(now - down);
+            if (s != off_shown && have_screen) {
+                ui_turning_off(s, &screen);
+            }
+            off_shown = s;
+        } else if (off_shown != 0) {
+            off_shown = 0; /* let go in time */
+            if (have_screen) {
+                ui_fault(why, &start_info, code, &screen);
+            }
+        }
+        was = pressed;
+        if (now >= battery_due) {
+            battery_due = now + (tern_time)BATTERY_S * 1000000000LL;
+            battery_mv = board_battery_mv();
+            power_watch(&watch, battery_mv);
+            if (power_empty(&watch)) {
+                turn_off(UI_OFF_EMPTY);
+            }
         }
         bool want = settings.screen_sleep == 0 ||
-                    board_now() - woken < (tern_time)settings.screen_sleep * 1000000000LL;
-        if (have_screen && want != on && board_screen_power(want)) {
-            on = want;
+                    now - woken < (tern_time)settings.screen_sleep * 1000000000LL;
+        if (have_screen && want == screen_asleep && board_screen_power(want)) {
+            screen_asleep = !want;
         }
-        if (on) {
-            screen_flush(); /* a page the screen did not take the first time */
+        if (!screen_asleep) {
+            screen_flush(); /* what changed, and a page the screen did not take before */
         }
         vTaskDelay(pdMS_TO_TICKS(50));
     }
@@ -2583,16 +2622,7 @@ void app_main(void) {
     /* Too little left to run on: say so, and off, before anything draws more. */
     battery_mv = have_battery ? board_battery_mv() : 0;
     if (battery_mv >= POWER_NONE_MV && battery_mv < POWER_EMPTY_MV) {
-        printf("the battery is empty (%u mV): not starting. Charge it.\n", (unsigned)battery_mv);
-        if (have_screen) {
-            ui_off(UI_OFF_EMPTY, &screen);
-            screen_flush();
-            vTaskDelay(pdMS_TO_TICKS(3000));
-        }
-        if (board_init(&sx) == TERN_OK) {
-            tern_sx126x_sleep(&sx); /* at power on, it would sit in standby */
-        }
-        board_off(EMPTY_CHECK_S);
+        turn_off(UI_OFF_EMPTY);
     }
     power_watch(&watch, battery_mv);
 
