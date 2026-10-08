@@ -1,4 +1,7 @@
-/* The Heltec V3 demo: two boards make first contact and send each other secured unicast frames.
+/* The Heltec V3 demo: two boards make first contact and send each other secured unicast frames,
+ * which follow routes: each is handed to the forwarder (tern/forward.h), sent to the next hop its
+ * route gives, sent again if nothing is heard of it, and acknowledged by the board it is for. A
+ * board built as a relay passes other boards' frames on.
  *
  * Over the USB serial port (idf.py monitor, 115200 baud) it takes these commands:
  *
@@ -22,7 +25,7 @@
  * The same port speaks the companion protocol (draft/companion.md in ternmesh/spec), for a phone or
  * a computer to drive the board: its frames are told from typed text byte by byte, and are
  * answered by link.c. A message a client sends, and one sent with 'send', waits in the link's
- * list until this loop puts it on the air.
+ * list until this loop seals it and hands it to the forwarder.
  *
  * Pressing PRG shows the bench screen's next page; holding it for a second sends a ping, and a
  * board that receives a ping answers with a pong saying how well it heard it. (With no screen,
@@ -50,6 +53,7 @@
 #include "tern/companion.h"
 #include "tern/duty.h"
 #include "tern/err.h"
+#include "tern/forward.h"
 #include "tern/lora.h"
 #include "tern/radio.h"
 #include "tern/region.h"
@@ -62,6 +66,8 @@
 #define ACCEPT_S 120
 #define NEIGHBOURS 64 /* 2.5 kB; in a crowd, 32 held a tenth fewer routes in the simulator */
 #define DESTINATIONS 128
+#define FORWARD_SLOTS 8 /* frames in hand at once, this board's and those it passes on: 2.4 kB */
+#define PENDING 4       /* of them, this board's own messages not yet acknowledged */
 #define TX_MIN_DBM (-9) /* the SX1262's least */
 #define POWER_UNSET INT8_MIN
 #define SCREEN_MS 500  /* how often the bench screen is drawn again */
@@ -89,6 +95,20 @@ static uint8_t route_frame[TERN_ROUTE_FRAME_MAX]; /* the router's, until it has 
 static size_t route_len;
 static int8_t route_dbm;
 static tern_time route_retry; /* when to try it again, if the radio refused it */
+static struct tern_forward forward;
+static struct tern_forward_slot forward_slots[FORWARD_SLOTS];
+static bool forward_out;       /* the frame on the air is the forwarder's */
+static uint8_t forward_handle; /* and this is the forwarder's name for it */
+static tern_time forward_retry;
+static tern_time forward_quiet; /* how long to listen once the frame on the air has gone */
+/* This board's messages that the forwarder has and that are not yet acknowledged or given up. */
+static struct pending {
+    uint32_t id; /* the link's, or 0 for a free place */
+    uint32_t counter;
+    uint8_t tag[TERN_FORWARD_TAG];
+    uint8_t goes; /* times it has gone on the air */
+    tern_time at; /* when it was handed over */
+} pending[PENDING];
 /* A handshake frame that had to wait for the one on the air. */
 static uint8_t waiting[TERN_CONTACT_MAX_FRAME];
 static size_t waiting_len;
@@ -112,9 +132,9 @@ static struct tern_companion_parser parser;
 static uint32_t clock_base; /* seconds since 1970 as a client last set them, or 0 */
 static tern_time clock_at;
 static bool restart_due; /* a setting saved that takes a restart, once its answer has gone */
-/* A message sealed and not yet on the air: sealing takes a counter and saves the session, so a
- * frame the radio or the flash refused is kept and tried again, a second apart, not sealed again
- * on every turn of the loop. Kept for one session only. */
+/* A message sealed and not yet with the forwarder: sealing takes a counter and saves the session,
+ * so a frame the forwarder had no room for, or the flash refused, is kept and tried again, a
+ * second apart, not sealed again on every turn of the loop. Kept for one session only. */
 static uint32_t sealed_id;
 static uint8_t sealed[TERN_UNICAST_MAX_FRAME];
 static size_t sealed_len;
@@ -207,7 +227,7 @@ static const char *result_text(enum demo_result r) {
     case DEMO_SPENT:
         return "this session has used every counter; make contact again";
     case DEMO_TOO_LONG:
-        return "too long: at most 239 bytes";
+        return "too long: at most 232 bytes";
     }
     return "?";
 }
@@ -286,9 +306,28 @@ static void send(const char *text) {
     }
 }
 
-/* Seals a message, once, and puts it on the air. False if it could not go now, with *gone set if
- * it never will. */
-static bool transmit_message(const struct link_message *x, bool *gone) {
+static struct pending *pending_free(void) {
+    for (int i = 0; i < PENDING; i++) {
+        if (pending[i].id == 0) {
+            return &pending[i];
+        }
+    }
+    return NULL;
+}
+
+static struct pending *pending_tagged(const uint8_t *tag) {
+    for (int i = 0; i < PENDING; i++) {
+        if (pending[i].id != 0 && memcmp(pending[i].tag, tag, TERN_FORWARD_TAG) == 0) {
+            return &pending[i];
+        }
+    }
+    return NULL;
+}
+
+/* Seals a message, once, and hands it to the forwarder, which sends it, and sends it again, until
+ * the peer acknowledges it or it is given up. False if it could not be handed over now, with
+ * *gone set if it never will be. */
+static bool hand_over(const struct link_message *x, struct pending *p, bool *gone) {
     *gone = false;
     if (sealed_id != x->id) {
         sealed_counter = demo.s.session.tx.next;
@@ -301,15 +340,27 @@ static bool transmit_message(const struct link_message *x, bool *gone) {
         sealed_id = x->id;
         sealed_len = x->text_len + TERN_UNICAST_OVERHEAD;
     }
-    tern_time air = transmit(sealed, sealed_len);
-    if (air == 0) {
-        return false;
+    if (!tern_forward_send(&forward, board_now(), tern_route_id(demo.s.peer), sealed, sealed_len,
+                           true, INT8_MIN)) {
+        return false; /* no room: every slot holds a frame */
     }
+    *p = (struct pending){.id = x->id, .counter = sealed_counter, .at = board_now()};
+    memcpy(p->tag, &sealed[TERN_FORWARD_HEAD], TERN_FORWARD_TAG);
     sealed_id = 0;
-    printf("sent #%lu \"%.*s\": %u bytes, %lld.%03lld ms on the air\n",
-           (unsigned long)sealed_counter, (int)x->text_len, (const char *)x->text,
-           (unsigned)sealed_len, (long long)(air / 1000000), (long long)(air / 1000 % 1000));
     return true;
+}
+
+/* The peer changed, or the session did: what was sent in the old one can no longer be
+ * acknowledged, so the forwarder lets go of it, and the client is told. */
+static void pending_drop(void) {
+    for (int i = 0; i < PENDING; i++) {
+        if (pending[i].id != 0) {
+            /* The forwarder's only way to let a message go: as if it had been acknowledged. */
+            (void)tern_forward_acked(&forward, pending[i].tag);
+            link_state(&companion, pending[i].id, TERN_C_NOT_DELIVERED, 0, 0);
+            pending[i].id = 0;
+        }
+    }
 }
 
 /* Sends a handshake frame, or keeps it until the frame on the air has gone. */
@@ -343,9 +394,30 @@ static void note_snr(const uint8_t *frame, int8_t snr) {
     heard_snr_next = (heard_snr_next + 1) % NEIGHBOURS;
 }
 
+/* An acknowledgement that came to this board: taken only if it is the peer's, of a message this
+ * board is still waiting on. */
+static void heard_ack(const struct tern_radio_event *ev) {
+    struct pending *p =
+        ev->len == TERN_ACK_LEN ? pending_tagged(&ev->data[TERN_FORWARD_HEAD]) : NULL;
+    if (p == NULL || !demo_acked(&demo, p->counter, ev->data, ev->len)) {
+        printf("(an acknowledgement of nothing this board is waiting on, at %d dBm)\n",
+               ev->rssi_dbm);
+        return;
+    }
+    flash_led();
+    (void)tern_forward_acked(&forward, p->tag);
+    printf("delivered #%lu: acknowledged %lld ms after it was handed over, having gone %u "
+           "time%s\n",
+           (unsigned long)p->counter, (long long)((board_now() - p->at) / 1000000), p->goes,
+           p->goes == 1 ? "" : "s");
+    link_state(&companion, p->id, TERN_C_DELIVERED, 0, 0);
+    p->id = 0;
+}
+
 static void heard(const struct tern_radio_event *ev) {
     uint8_t msg[TERN_UNICAST_MAX_PLAINTEXT + 1];
     struct demo_received got;
+    struct tern_forward_heard routed = {TERN_FORWARD_NOTHING, INT8_MIN};
     /* SNR comes in centibels: -725 is -7.25 dB. */
     const char *snr_sign = ev->snr_cdb < 0 ? "-" : "";
     int snr_abs = ev->snr_cdb < 0 ? -ev->snr_cdb : ev->snr_cdb;
@@ -361,6 +433,18 @@ static void heard(const struct tern_radio_event *ev) {
             route_seq_saved = route.seq;
         }
         return;
+    }
+    if (tern_forward_frame(ev->data, ev->len)) {
+        /* The forwarder says whose it is: one for another board is passed on, if this board is a
+         * relay and on its way, and otherwise let go by. */
+        tern_forward_heard(&forward, board_now(), ev->data, ev->len, (int16_t)(ev->snr_cdb / 25),
+                           &routed);
+        if (routed.got == TERN_FORWARD_ACK) {
+            heard_ack(ev);
+        }
+        if (routed.got != TERN_FORWARD_MESSAGE) {
+            return;
+        }
     }
     /* A handshake that completes replaces the session: the old peer is told of too. */
     bool had_peer = demo.s.role != 0;
@@ -386,6 +470,10 @@ static void heard(const struct tern_radio_event *ev) {
             send(reply);
         }
         break;
+    case DEMO_HEARD_COPY:
+        printf("heard #%lu again: its acknowledgement did not get back, and is sent again\n",
+               (unsigned long)got.counter);
+        break;
     case DEMO_HEARD_CONTACT:
         flash_led();
         printf("first contact: heard message_%d at %d dBm, SNR %s%d.%02d dB\n", ev->data[0] - 0x50,
@@ -399,6 +487,7 @@ static void heard(const struct tern_radio_event *ev) {
         print_address(got.peer);
         printf("\n");
         sealed_id = 0; /* a frame sealed in the old session is no use in the new */
+        pending_drop();
         if (contacting && memcmp(contacting_peer, got.peer, TERN_ADDRESS_LEN) == 0) {
             contacting = false;
         }
@@ -437,6 +526,14 @@ static void heard(const struct tern_radio_event *ev) {
     if (got.reply_len != 0) {
         send_contact(got.reply, got.reply_len);
     }
+    /* The acknowledgement goes back by a route, no quieter than the node the message came from
+     * needs to hear it. With no route to the peer it is not sent: the peer sends again. */
+    for (size_t i = 0; i < got.acks; i++) {
+        if (!tern_forward_send(&forward, board_now(), tern_route_id(got.peer), got.ack[i],
+                               sizeof got.ack[i], false, routed.back)) {
+            printf("(not acknowledged: no route back to the peer yet, or no room)\n");
+        }
+    }
 }
 
 static void poll_radio(void) {
@@ -455,6 +552,14 @@ static void poll_radio(void) {
         if (route_out) {
             tern_route_sent(&route, board_now());
             route_out = false;
+        }
+        if (forward_out) {
+            tern_forward_sent(&forward, board_now(), forward_handle);
+            forward_out = false;
+            /* The answer is listened for before the forwarder's next frame goes: the radio
+             * cannot hear while it sends, and a board with several messages waiting would
+             * otherwise send the second over the acknowledgement of the first. */
+            forward_retry = board_now() + forward_quiet;
         }
         tern_radio_receive(&radio);
         if (waiting_len != 0) {
@@ -519,8 +624,8 @@ static void poll_contact(void) {
     }
 }
 
-/* Puts the oldest message waiting on the air, or says why it waits. One session at a time: a
- * message to another node starts first contact with it, which replaces the session the demo
+/* Hands the oldest message waiting to the forwarder, or says why it waits. One session at a time:
+ * a message to another node starts first contact with it, which replaces the session the demo
  * has, once no handshake is under way. */
 static void poll_outgoing(void) {
     struct link_message *x = link_outgoing(&companion);
@@ -547,25 +652,104 @@ static void poll_outgoing(void) {
         send_contact(frame, len);
         return;
     }
-    tern_time air = tern_lora_airtime(&cfg.mod, (uint32_t)(x->text_len + TERN_UNICAST_OVERHEAD));
-    if (transmitting || waiting_len != 0) {
+    struct pending *p = pending_free();
+    if (p == NULL) {
+        /* As many of this board's messages are on their way as it keeps track of. */
         link_state(&companion, x->id, TERN_C_WAITING, TERN_C_WAIT_RADIO, 0);
-        return;
-    }
-    if (!tern_duty_allows(&duty, board_now(), air)) {
-        link_state(&companion, x->id, TERN_C_WAITING, TERN_C_WAIT_REGION, 0);
         return;
     }
     if (board_now() < outgoing_retry) {
         return;
     }
     bool gone;
-    if (transmit_message(x, &gone)) {
-        link_aired(&companion, x->id);
+    if (hand_over(x, p, &gone)) {
+        link_taken(&companion, x->id);
     } else if (gone) {
         link_state(&companion, x->id, TERN_C_NOT_DELIVERED, 0, 0);
     } else {
-        outgoing_retry = board_now() + 1000000000LL; /* the radio, or the flash */
+        outgoing_retry = board_now() + 1000000000LL; /* the forwarder's room, or the flash */
+    }
+}
+
+/* Why a message the forwarder has is not yet delivered, as far as the board can name it. */
+static uint8_t pending_reason(tern_time now) {
+    uint32_t next;
+    uint16_t metric;
+    if (!tern_route_next(&route, tern_route_id(demo.s.peer), &next, &metric)) {
+        return TERN_C_WAIT_ROUTE;
+    }
+    if (!tern_duty_allows(&duty, now, tern_lora_airtime(&cfg.mod, TERN_FORWARD_FRAME_MAX))) {
+        return TERN_C_WAIT_REGION;
+    }
+    return TERN_C_WAIT_UNNAMED;
+}
+
+/* Sends what the forwarder has to send: this board's messages and acknowledgements, and frames it
+ * passes on. A frame it hands over is the forwarder's still: once it has gone, or if it cannot go
+ * now, the forwarder is told, and keeps count of the tries itself. */
+static void poll_forward(void) {
+    static uint8_t frame[TERN_FORWARD_FRAME_MAX];
+    tern_time now = board_now();
+    uint8_t tag[TERN_FORWARD_TAG];
+    while (tern_forward_failed(&forward, tag)) {
+        struct pending *p = pending_tagged(tag);
+        if (p != NULL) {
+            printf("not delivered #%lu: no acknowledgement, having gone %u time%s. Is the other "
+                   "board on and in range? 'routes' shows whether there is a route to it.\n",
+                   (unsigned long)p->counter, p->goes, p->goes == 1 ? "" : "s");
+            link_state(&companion, p->id, TERN_C_NOT_DELIVERED, 0, 0);
+            p->id = 0;
+        }
+    }
+    for (int i = 0; i < PENDING; i++) {
+        if (pending[i].id != 0) {
+            link_state(&companion, pending[i].id, TERN_C_WAITING, pending_reason(now), 0);
+        }
+    }
+    if (transmitting || waiting_len != 0 || now < forward_retry ||
+        now < tern_forward_due(&forward)) {
+        return;
+    }
+    int8_t dbm;
+    enum tern_forward_kind kind;
+    size_t len = tern_forward_poll(&forward, now, frame, &dbm, &kind, &forward_handle);
+    if (len == 0) {
+        return;
+    }
+    /* Not offered to the radio if the region's limit would refuse it: it goes back to the
+     * forwarder, and is asked for again a second on. */
+    tern_time air = 0;
+    if (tern_forward_wanted(&forward, forward_handle) &&
+        tern_duty_allows(&duty, now, tern_lora_airtime(&cfg.mod, (uint32_t)len))) {
+        air = transmit_at(frame, len, dbm);
+    }
+    if (air == 0) {
+        tern_forward_withdrawn(&forward, now, forward_handle);
+        forward_retry = now + 1000000000LL;
+        return;
+    }
+    forward_out = true;
+    /* The answer waits up to JITTER airtimes of itself and then takes its own: the same frame
+     * passed on, or an acknowledgement, which is shorter. */
+    forward_quiet = (forward.config.jitter + 1) * air;
+    struct pending *p = kind == TERN_FORWARD_OWN ? pending_tagged(&frame[TERN_FORWARD_HEAD]) : NULL;
+    if (p != NULL) {
+        const struct link_message *x = NULL;
+        for (size_t i = 0; i < LINK_MESSAGES; i++) {
+            x = companion.messages[i].used && companion.messages[i].id == p->id
+                    ? &companion.messages[i]
+                    : x;
+        }
+        p->goes += p->goes < UINT8_MAX;
+        printf("sent #%lu%s \"%.*s\": %u bytes at %d dBm by %02x%02x%02x%02x, %lld.%03lld ms on "
+               "the air\n",
+               (unsigned long)p->counter, p->goes > 1 ? " again" : "", x ? (int)x->text_len : 0,
+               x ? (const char *)x->text : "", (unsigned)len, dbm, frame[3], frame[4], frame[5],
+               frame[6], (long long)(air / 1000000), (long long)(air / 1000 % 1000));
+    } else if (kind == TERN_FORWARD_RELAY) {
+        printf("passed on a %u-byte frame for %02x%02x%02x%02x by %02x%02x%02x%02x, at %d dBm\n",
+               (unsigned)len, frame[7], frame[8], frame[9], frame[10], frame[3], frame[4], frame[5],
+               frame[6], dbm);
     }
 }
 
@@ -926,7 +1110,7 @@ static bool link_session(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]) {
 }
 
 static uint8_t link_why(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]) {
-    return link_session(ctx, address) ? TERN_C_WAIT_UNNAMED : TERN_C_WAIT_SESSION;
+    return link_session(ctx, address) ? pending_reason(board_now()) : TERN_C_WAIT_SESSION;
 }
 
 static bool link_load(void *ctx, void *buf, size_t len) {
@@ -982,6 +1166,11 @@ static void status(void) {
     printf("routing: id %08lx, a %s, hears %u, %u of them both ways, routes to %u. 'routes' lists "
            "them.\n",
            (unsigned long)route.id, route.config.relay ? "relay" : "leaf", heard_n, up_n, routed);
+    const struct tern_forward_counts *fc = &forward.counts;
+    printf("forwarding: passed on %lu, sent %lu hops again and gave %lu up; dropped %lu with no "
+           "route, %lu with no room\n",
+           (unsigned long)fc->passed_on, (unsigned long)fc->sent_again, (unsigned long)fc->given_up,
+           (unsigned long)fc->no_route, (unsigned long)fc->no_room);
     if (demo.h.phase == DEMO_INITIATING || demo.h.phase == DEMO_RESPONDING) {
         printf("first contact: under way, as the %s\n",
                demo.h.phase == DEMO_INITIATING ? "initiator" : "responder");
@@ -1105,12 +1294,13 @@ static void selftest(void) {
         len = got.reply_len;
     }
     for (int i = 0; ok && i < 2; i++) {
-        /* A message each way, in the session the handshake made. */
+        /* A message each way, in the session the handshake made, and its acknowledgement. */
         uint8_t sealed[5 + TERN_UNICAST_OVERHEAD];
         ok =
             demo_seal(&node[i], (const uint8_t *)"hello", 5, sealed) == DEMO_OK &&
             demo_receive(&node[1 - i], 0, sealed, sizeof sealed, msg, &got) == DEMO_HEARD_MESSAGE &&
-            got.msg_len == 5 && memcmp(msg, "hello", 5) == 0;
+            got.msg_len == 5 && memcmp(msg, "hello", 5) == 0 && got.acks == 1 &&
+            demo_acked(&node[i], 0, got.ack[0], sizeof got.ack[0]);
     }
     printf("selftest: %s, in %lld ms; %u bytes of this task's stack never used\n",
            ok ? "passed" : "FAILED", (long long)((board_now() - t0) / 1000000),
@@ -1452,6 +1642,8 @@ void app_main(void) {
     tern_route_init(&route, &rc, tern_route_id(demo.id.address), neighbours, NEIGHBOURS,
                     destinations, DESTINATIONS, route_seq_saved, seed, board_now());
     power_now = cfg.tx_power_dbm;
+    struct tern_forward_config fc = tern_forward_defaults();
+    tern_forward_init(&forward, &fc, &route, forward_slots, FORWARD_SLOTS, seed ^ 0x666f7277u);
 
     int err = board_init(&sx);
     radio = tern_sx126x_radio(&sx);
@@ -1499,6 +1691,7 @@ void app_main(void) {
         } else {
             poll_contact();
             poll_outgoing();
+            poll_forward();
             poll_route();
         }
         poll_console();
@@ -1508,6 +1701,11 @@ void app_main(void) {
             /* TX_DONE never came. Listen again rather than stay busy for ever. */
             printf("the radio never said the frame had gone; listening again\n");
             transmitting = false;
+            if (forward_out) {
+                /* Counted as gone: the forwarder listens for it, and sends it again unheard. */
+                tern_forward_sent(&forward, board_now(), forward_handle);
+                forward_out = false;
+            }
             tern_radio_receive(&radio);
         }
         if (led_until != 0 && board_now() > led_until && !transmitting) {

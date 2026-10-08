@@ -18,8 +18,9 @@
  * hands over as a link_view whenever the link asks, the way it fills the bench screen's
  * node_status, and the link tells a client what changed since it last said.
  *
- * Messages go on the air from main.c, which asks for the next one waiting (link_outgoing()) and
- * says what became of it (link_state()). A client never reaches past this into the protocol.
+ * Messages go to the forwarder from main.c, which asks for the next one waiting
+ * (link_outgoing()) and says what became of it (link_taken(), link_state()). A client never reaches
+ * past this into the protocol.
  *
  * Nothing here touches the hardware, so tests/link.c runs it on a host. */
 
@@ -85,7 +86,7 @@ struct link_contact {
 
 struct link_message {
     bool used;
-    bool aired; /* sent: on the air at least once */
+    bool taken; /* with the forwarder, which sends it: not to be handed over again */
     uint32_t id;
     uint8_t address[TERN_ADDRESS_LEN];
     uint32_t time;
@@ -143,18 +144,20 @@ void link_receive(struct link *l, tern_time now, const uint8_t *frame, size_t le
  * more until it says HELLO again. */
 void link_tick(struct link *l, tern_time now);
 
-/* The oldest message waiting that has not been on the air, or NULL. */
+/* The oldest message waiting that the forwarder has not been given, or NULL. */
 struct link_message *link_outgoing(struct link *l);
 
 /* What became of a message: its state, why it waits and for how long. A change to the state or
  * the reason is news. */
 void link_state(struct link *l, uint32_t id, uint8_t state, uint8_t reason, uint16_t wait);
 
-/* A message has gone on the air, and is not to be sent again. Its state stays waiting: the demo
- * neither forwards nor acknowledges, so the node never learns whether a neighbour passed it on or
- * its destination got it, and the draft forbids claiming more than the node knows (README.md,
- * "The companion link"). */
-void link_aired(struct link *l, uint32_t id);
+/* A message has been handed to the forwarder, and is not to be handed over again. Its state
+ * stays waiting until main.c learns more: delivered when its destination's acknowledgement comes
+ * back, not delivered when it is given up. Going on the air does not make it sent: the draft
+ * forbids claiming more than the node knows, and a message is sent only once a neighbour has been
+ * heard passing it on, which the board does not yet report (README.md, "The companion
+ * link"). */
+void link_taken(struct link *l, uint32_t id);
 
 /* A message that did not come from a client: one received, or one sent from the console. Text
  * that is not UTF-8, or is longer than a MESSAGE carries, is cut to what is. Returns its id, or

@@ -1,5 +1,5 @@
 {
-  "description": "Secured unicast frames, draft 0 (draft/unicast-security.md). For each accepted case, an implementation given session_secret, direction, counter, hop, label and plaintext MUST produce frame, and given session_secret, direction and frame MUST recover counter and plaintext. Each rejected case MUST be rejected by a receiver holding session_secret and expecting counter in direction. For each sequence, a receiver of a new session given the deliveries in order MUST accept exactly those marked accept, with that counter and plaintext. For each collision case, a receiver holding every listed session, all new, given the deliveries in order MUST accept each, attributed to that session (an index into sessions) and counter, with that plaintext. Values are hex; label is an integer sent big-endian. For each senders case, an implementation acting as both ends of a new session, given each send's direction and plaintext in order (hop and label 0) and choosing the counter itself, MUST produce that send's frame; counter is given only to help debugging.",
+  "description": "Secured unicast frames, draft 0 (draft/unicast-security.md), and their acknowledgements (draft/forwarding.md). For each accepted case, an implementation given session_secret, direction, counter, hops, power, next, destination and plaintext MUST produce frame, and given session_secret, direction and frame MUST recover counter and plaintext. Each rejected case MUST be rejected by a receiver holding session_secret and expecting counter in direction. For each sequence, a receiver of a new session given the deliveries in order MUST accept exactly those marked accept, with that counter and plaintext, and MUST acknowledge exactly those marked acknowledge, with the frame's tag and that proof. For each collision case, a receiver holding every listed session, all new, given the deliveries in order MUST accept exactly those marked accept, attributed to that session (an index into sessions) and counter, with that plaintext, and for each delivery MUST send exactly the acknowledgements listed, each with the frame's tag and that proof, to the other end of that session. For each senders case, an implementation acting as both ends of a new session, given each send's direction and plaintext in order and choosing the counter itself, MUST produce that send's frame; counter is given only to help debugging. For each acknowledgements case, the node that sent message counter in direction, holding session_secret, MUST take frame as showing that the message arrived if valid is true, and MUST NOT if it is false. Values are hex; hops, power, next and destination are integers, power signed, laid out as draft/forwarding.md gives, and where a case does not give them they are 32, 14, 0x0A0B0C0D and 0x01020304.",
   "generator": "vectors/tools/unicast.py",
   "accepted": [
     {
@@ -8,8 +8,10 @@
       "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "direction": 1,
       "counter": 0,
-      "hop": 0,
-      "label": 0,
+      "hops": 32,
+      "power": 14,
+      "next": 168496141,
+      "destination": 16909060,
       "plaintext": "68656c6c6f",
       "intermediate": {
         "epoch": 0,
@@ -18,9 +20,10 @@
         "tag_key": "ddeb265222561c8c0a622cb8852f161d",
         "iv": "5a456f34a4fc63183b4a0bf34a",
         "nonce": "5a456f34a4fc63183b4a0bf34a",
-        "dtag": "65000b48"
+        "dtag": "65000b48",
+        "proof": "4f9ebb5a"
       },
-      "frame": "4800000065000b485ea6c368bdcc3ddb99ccfc176d"
+      "frame": "48200e0a0b0c0d0102030465000b485ea6c368bdcc3ddb99ccfc176d"
     },
     {
       "name": "reply",
@@ -28,8 +31,10 @@
       "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "direction": 2,
       "counter": 0,
-      "hop": 0,
-      "label": 0,
+      "hops": 32,
+      "power": 14,
+      "next": 168496141,
+      "destination": 16909060,
       "plaintext": "68656c6c6f",
       "intermediate": {
         "epoch": 0,
@@ -38,9 +43,10 @@
         "tag_key": "0a30712ad3adfcfbdfe86d9d64e02316",
         "iv": "16f1151cba29bee234525758a1",
         "nonce": "16f1151cba29bee234525758a1",
-        "dtag": "9bdbbb75"
+        "dtag": "9bdbbb75",
+        "proof": "1c390a8f"
       },
-      "frame": "480000009bdbbb754d37fe96e8bc8c25cafcb7f789"
+      "frame": "48200e0a0b0c0d010203049bdbbb754d37fe96e8bc8c25cafcb7f789"
     },
     {
       "name": "last-of-epoch-0",
@@ -48,8 +54,10 @@
       "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "direction": 1,
       "counter": 31,
-      "hop": 0,
-      "label": 0,
+      "hops": 32,
+      "power": 14,
+      "next": 168496141,
+      "destination": 16909060,
       "plaintext": "68656c6c6f",
       "intermediate": {
         "epoch": 0,
@@ -58,9 +66,10 @@
         "tag_key": "ddeb265222561c8c0a622cb8852f161d",
         "iv": "5a456f34a4fc63183b4a0bf34a",
         "nonce": "5a456f34a4fc63183b4a0bf355",
-        "dtag": "9a1546bd"
+        "dtag": "9a1546bd",
+        "proof": "d59bb956"
       },
-      "frame": "480000009a1546bd9b8e5fc5ab8ef1307ad9d3288a"
+      "frame": "48200e0a0b0c0d010203049a1546bd9b8e5fc5ab8ef1307ad9d3288a"
     },
     {
       "name": "first-of-epoch-1",
@@ -68,8 +77,10 @@
       "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "direction": 1,
       "counter": 32,
-      "hop": 0,
-      "label": 0,
+      "hops": 32,
+      "power": 14,
+      "next": 168496141,
+      "destination": 16909060,
       "plaintext": "68656c6c6f",
       "intermediate": {
         "epoch": 1,
@@ -78,9 +89,10 @@
         "tag_key": "ddeb265222561c8c0a622cb8852f161d",
         "iv": "5a456f34a4fc63183b4a0bf34a",
         "nonce": "5a456f34a4fc63183b4a0bf36a",
-        "dtag": "6a8ae005"
+        "dtag": "6a8ae005",
+        "proof": "12a041dc"
       },
-      "frame": "480000006a8ae005c56150cee0b0b4ef6d4d20e69e"
+      "frame": "48200e0a0b0c0d010203046a8ae005c56150cee0b0b4ef6d4d20e69e"
     },
     {
       "name": "far",
@@ -88,8 +100,10 @@
       "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "direction": 1,
       "counter": 1000,
-      "hop": 0,
-      "label": 0,
+      "hops": 32,
+      "power": 14,
+      "next": 168496141,
+      "destination": 16909060,
       "plaintext": "68656c6c6f",
       "intermediate": {
         "epoch": 31,
@@ -98,18 +112,21 @@
         "tag_key": "ddeb265222561c8c0a622cb8852f161d",
         "iv": "5a456f34a4fc63183b4a0bf34a",
         "nonce": "5a456f34a4fc63183b4a0bf0a2",
-        "dtag": "7db2f03e"
+        "dtag": "7db2f03e",
+        "proof": "ab7608d8"
       },
-      "frame": "480000007db2f03edda058b0cd9afb080b66137786"
+      "frame": "48200e0a0b0c0d010203047db2f03edda058b0cd9afb080b66137786"
     },
     {
       "name": "relayed",
-      "note": "hop and label set by relays; not authenticated",
+      "note": "hops, power and next as a relay three hops on left them; not authenticated",
       "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "direction": 1,
       "counter": 0,
-      "hop": 3,
-      "label": 48879,
+      "hops": 29,
+      "power": -4,
+      "next": 3203334145,
+      "destination": 16909060,
       "plaintext": "68656c6c6f",
       "intermediate": {
         "epoch": 0,
@@ -118,18 +135,21 @@
         "tag_key": "ddeb265222561c8c0a622cb8852f161d",
         "iv": "5a456f34a4fc63183b4a0bf34a",
         "nonce": "5a456f34a4fc63183b4a0bf34a",
-        "dtag": "65000b48"
+        "dtag": "65000b48",
+        "proof": "4f9ebb5a"
       },
-      "frame": "4803beef65000b485ea6c368bdcc3ddb99ccfc176d"
+      "frame": "481dfcbeef00010102030465000b485ea6c368bdcc3ddb99ccfc176d"
     },
     {
       "name": "empty",
-      "note": "no plaintext: the 16-byte minimum frame",
+      "note": "no plaintext: the 23-byte minimum frame",
       "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "direction": 1,
       "counter": 7,
-      "hop": 0,
-      "label": 0,
+      "hops": 32,
+      "power": 14,
+      "next": 168496141,
+      "destination": 16909060,
       "plaintext": "",
       "intermediate": {
         "epoch": 0,
@@ -138,9 +158,10 @@
         "tag_key": "ddeb265222561c8c0a622cb8852f161d",
         "iv": "5a456f34a4fc63183b4a0bf34a",
         "nonce": "5a456f34a4fc63183b4a0bf34d",
-        "dtag": "186955b3"
+        "dtag": "186955b3",
+        "proof": "ffc4f727"
       },
-      "frame": "48000000186955b34f611dfa41ab8738"
+      "frame": "48200e0a0b0c0d01020304186955b34f611dfa41ab8738"
     },
     {
       "name": "non-latin",
@@ -148,8 +169,10 @@
       "session_secret": "a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3",
       "direction": 1,
       "counter": 5,
-      "hop": 0,
-      "label": 0,
+      "hops": 32,
+      "power": 14,
+      "next": 168496141,
+      "destination": 16909060,
       "plaintext": "ce9aceb1cebbceb7cebcceadcf81ceb1",
       "intermediate": {
         "epoch": 0,
@@ -158,19 +181,22 @@
         "tag_key": "b68f2d45a709e71680e45bc15057e1ac",
         "iv": "67c3db50fd2636de5432f72b13",
         "nonce": "67c3db50fd2636de5432f72b16",
-        "dtag": "deaf64ab"
+        "dtag": "deaf64ab",
+        "proof": "3de1c4d7"
       },
-      "frame": "48000000deaf64ab465e3274bb1b7e9682883756d2046e38f3f59cba7b02fe65"
+      "frame": "48200e0a0b0c0d01020304deaf64ab465e3274bb1b7e9682883756d2046e38f3f59cba7b02fe65"
     },
     {
       "name": "largest",
-      "note": "239 bytes of plaintext: a 255-byte frame",
+      "note": "232 bytes of plaintext: a 255-byte frame",
       "session_secret": "a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3",
       "direction": 2,
       "counter": 2,
-      "hop": 0,
-      "label": 0,
-      "plaintext": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedee",
+      "hops": 32,
+      "power": 14,
+      "next": 168496141,
+      "destination": 16909060,
+      "plaintext": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7",
       "intermediate": {
         "epoch": 0,
         "epoch_key": "a07b2698cccd83abb97173e441b3071454af62d8279b7aa70414937099f2d32e",
@@ -178,9 +204,10 @@
         "tag_key": "cda69726f4338adb07fe1f7e49dcb6a6",
         "iv": "3a0e42b4b53e963add66e32ad7",
         "nonce": "3a0e42b4b53e963add66e32ad5",
-        "dtag": "31d53f18"
+        "dtag": "31d53f18",
+        "proof": "bf363a9d"
       },
-      "frame": "4800000031d53f1810216d2fab91343b51ca651715176f3ced35303148ea904987c2b6c98c32e3aa2b59f736d57db778b8a948ac22061063d404954ec50df358c3cb07112508bb80c27f59307b4450a0a7259ada5fbdc04a7c708386c6fddf2c9d367b2ce6c1b2600d765a3332f95dab1500e6b77f5e1eb6d4027898f9a07a74b14e378bd904de6abf0b0e90dc775a146b39a5109c09d59ffb9e0eeacbd7ca99ab9ac990101b5a88df9220503d72429e9cc284d86c969d3cf2bc710a2d4cedd6fe14bc4a1cd5557f254f2a621141fe42bb2510b0c170cfc5e77fd8c6710f99f8323e8301005ef2f2b334f54c4df9a1814c71f387294323e057a2d555fd8e5b"
+      "frame": "48200e0a0b0c0d0102030431d53f1810216d2fab91343b51ca651715176f3ced35303148ea904987c2b6c98c32e3aa2b59f736d57db778b8a948ac22061063d404954ec50df358c3cb07112508bb80c27f59307b4450a0a7259ada5fbdc04a7c708386c6fddf2c9d367b2ce6c1b2600d765a3332f95dab1500e6b77f5e1eb6d4027898f9a07a74b14e378bd904de6abf0b0e90dc775a146b39a5109c09d59ffb9e0eeacbd7ca99ab9ac990101b5a88df9220503d72429e9cc284d86c969d3cf2bc710a2d4cedd6fe14bc4a1cd5557f254f2a621141fe42bb2510b0c170cfc5e77fd8c6710f99f8323e8301005ef2f2b334f54c4df9a18125a34f1dedd91ee1"
     }
   ],
   "rejected": [
@@ -190,7 +217,7 @@
       "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "direction": 1,
       "counter": 0,
-      "frame": "4800000065000b485ea6c368bdcc3ddb99ccfc176c"
+      "frame": "48200e0a0b0c0d0102030465000b485ea6c368bdcc3ddb99ccfc176c"
     },
     {
       "name": "ciphertext-flipped",
@@ -198,7 +225,7 @@
       "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "direction": 1,
       "counter": 0,
-      "frame": "4800000065000b48dea6c368bdcc3ddb99ccfc176d"
+      "frame": "48200e0a0b0c0d0102030465000b48dea6c368bdcc3ddb99ccfc176d"
     },
     {
       "name": "header-changed",
@@ -206,15 +233,23 @@
       "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "direction": 1,
       "counter": 0,
-      "frame": "4900000065000b485ea6c368bdcc3ddb99ccfc176d"
+      "frame": "49200e0a0b0c0d0102030465000b485ea6c368bdcc3ddb99ccfc176d"
     },
     {
       "name": "truncated",
-      "note": "15 bytes: shorter than any frame",
+      "note": "22 bytes: shorter than any frame",
       "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "direction": 1,
       "counter": 0,
-      "frame": "4800000065000b485ea6c368bdcc3d"
+      "frame": "48200e0a0b0c0d0102030465000b485ea6c368bdcc3d"
+    },
+    {
+      "name": "first-draft-layout",
+      "note": "the tag at offset 4, as this section first had it: 16 bytes",
+      "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "direction": 1,
+      "counter": 0,
+      "frame": "48200e0a65000b485ea6c368bdcc3ddb99ccfc176d"
     },
     {
       "name": "wrong-direction",
@@ -222,7 +257,7 @@
       "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "direction": 1,
       "counter": 0,
-      "frame": "480000009bdbbb754d37fe96e8bc8c25cafcb7f789"
+      "frame": "48200e0a0b0c0d010203049bdbbb754d37fe96e8bc8c25cafcb7f789"
     }
   ],
   "sequences": [
@@ -233,16 +268,20 @@
       "direction": 1,
       "deliveries": [
         {
-          "frame": "4800000065000b485ba6dc77b3e1eb60329b13cec66147ea1c",
+          "frame": "48200e0a0b0c0d0102030465000b485ba6dc77b3e1eb60329b13cec66147ea1c",
           "accept": true,
           "counter": 0,
-          "plaintext": "6d6573736167652030"
+          "plaintext": "6d6573736167652030",
+          "acknowledge": true,
+          "proof": "4f9ebb5a"
         },
         {
-          "frame": "4800000065000b485ba6dc77b3e1eb60329b13cec66147ea1c",
+          "frame": "48200e0a0b0c0d0102030465000b485ba6dc77b3e1eb60329b13cec66147ea1c",
           "accept": false,
           "counter": null,
-          "plaintext": null
+          "plaintext": null,
+          "acknowledge": true,
+          "proof": "4f9ebb5a"
         }
       ]
     },
@@ -253,28 +292,36 @@
       "direction": 1,
       "deliveries": [
         {
-          "frame": "4800000065000b485ba6dc77b3e1eb60329b13cec66147ea1c",
+          "frame": "48200e0a0b0c0d0102030465000b485ba6dc77b3e1eb60329b13cec66147ea1c",
           "accept": true,
           "counter": 0,
-          "plaintext": "6d6573736167652030"
+          "plaintext": "6d6573736167652030",
+          "acknowledge": true,
+          "proof": "4f9ebb5a"
         },
         {
-          "frame": "48000000e02952d9f38b31f4da406923ffb66ae64eade3cef7",
+          "frame": "48200e0a0b0c0d01020304e02952d9f38b31f4da406923ffb66ae64eade3cef7",
           "accept": true,
           "counter": 1,
-          "plaintext": "6d6573736167652031"
+          "plaintext": "6d6573736167652031",
+          "acknowledge": true,
+          "proof": "8e58bfad"
         },
         {
-          "frame": "48000000c3a724469be05541388153afa1f1fa8d67b1554e01",
+          "frame": "48200e0a0b0c0d01020304c3a724469be05541388153afa1f1fa8d67b1554e01",
           "accept": true,
           "counter": 2,
-          "plaintext": "6d6573736167652032"
+          "plaintext": "6d6573736167652032",
+          "acknowledge": true,
+          "proof": "6d6eef8d"
         },
         {
-          "frame": "48000000e02952d9f38b31f4da406923ffb66ae64eade3cef7",
+          "frame": "48200e0a0b0c0d01020304e02952d9f38b31f4da406923ffb66ae64eade3cef7",
           "accept": false,
           "counter": null,
-          "plaintext": null
+          "plaintext": null,
+          "acknowledge": true,
+          "proof": "8e58bfad"
         }
       ]
     },
@@ -285,22 +332,28 @@
       "direction": 1,
       "deliveries": [
         {
-          "frame": "48000000c3a724469be05541388153afa1f1fa8d67b1554e01",
+          "frame": "48200e0a0b0c0d01020304c3a724469be05541388153afa1f1fa8d67b1554e01",
           "accept": true,
           "counter": 2,
-          "plaintext": "6d6573736167652032"
+          "plaintext": "6d6573736167652032",
+          "acknowledge": true,
+          "proof": "6d6eef8d"
         },
         {
-          "frame": "4800000065000b485ba6dc77b3e1eb60329b13cec66147ea1c",
+          "frame": "48200e0a0b0c0d0102030465000b485ba6dc77b3e1eb60329b13cec66147ea1c",
           "accept": true,
           "counter": 0,
-          "plaintext": "6d6573736167652030"
+          "plaintext": "6d6573736167652030",
+          "acknowledge": true,
+          "proof": "4f9ebb5a"
         },
         {
-          "frame": "48000000e02952d9f38b31f4da406923ffb66ae64eade3cef7",
+          "frame": "48200e0a0b0c0d01020304e02952d9f38b31f4da406923ffb66ae64eade3cef7",
           "accept": true,
           "counter": 1,
-          "plaintext": "6d6573736167652031"
+          "plaintext": "6d6573736167652031",
+          "acknowledge": true,
+          "proof": "8e58bfad"
         }
       ]
     },
@@ -311,16 +364,20 @@
       "direction": 1,
       "deliveries": [
         {
-          "frame": "480000006a8ae005c0614fd1ee13d58be1b9c8a3fe2ee53a6077",
+          "frame": "48200e0a0b0c0d010203046a8ae005c0614fd1ee13d58be1b9c8a3fe2ee53a6077",
           "accept": false,
           "counter": null,
-          "plaintext": null
+          "plaintext": null,
+          "acknowledge": false,
+          "proof": null
         },
         {
-          "frame": "480000009a1546bd9e8e40daa53d8638af4a89d7d63462bfa2f5",
+          "frame": "48200e0a0b0c0d010203049a1546bd9e8e40daa53d8638af4a89d7d63462bfa2f5",
           "accept": true,
           "counter": 31,
-          "plaintext": "6d657373616765203331"
+          "plaintext": "6d657373616765203331",
+          "acknowledge": true,
+          "proof": "d59bb956"
         }
       ]
     },
@@ -331,16 +388,20 @@
       "direction": 1,
       "deliveries": [
         {
-          "frame": "4800000065000b485ba6dc77b3e1eb60329b13cec66147ea1c",
+          "frame": "48200e0a0b0c0d0102030465000b485ba6dc77b3e1eb60329b13cec66147ea1c",
           "accept": true,
           "counter": 0,
-          "plaintext": "6d6573736167652030"
+          "plaintext": "6d6573736167652030",
+          "acknowledge": true,
+          "proof": "4f9ebb5a"
         },
         {
-          "frame": "480000006a8ae005c0614fd1ee13d58be1b9c8a3fe2ee53a6077",
+          "frame": "48200e0a0b0c0d010203046a8ae005c0614fd1ee13d58be1b9c8a3fe2ee53a6077",
           "accept": true,
           "counter": 32,
-          "plaintext": "6d657373616765203332"
+          "plaintext": "6d657373616765203332",
+          "acknowledge": true,
+          "proof": "12a041dc"
         }
       ]
     },
@@ -351,16 +412,20 @@
       "direction": 1,
       "deliveries": [
         {
-          "frame": "4800000065000b485ba6dc77b3e1eb60329b13cec66147ea1c",
+          "frame": "48200e0a0b0c0d0102030465000b485ba6dc77b3e1eb60329b13cec66147ea1c",
           "accept": true,
           "counter": 0,
-          "plaintext": "6d6573736167652030"
+          "plaintext": "6d6573736167652030",
+          "acknowledge": true,
+          "proof": "4f9ebb5a"
         },
         {
-          "frame": "48000000193001964379625561717860b41ea4943f08b84e85eb",
+          "frame": "48200e0a0b0c0d01020304193001964379625561717860b41ea4943f08b84e85eb",
           "accept": false,
           "counter": null,
-          "plaintext": null
+          "plaintext": null,
+          "acknowledge": false,
+          "proof": null
         }
       ]
     },
@@ -371,34 +436,108 @@
       "direction": 1,
       "deliveries": [
         {
-          "frame": "4800000065000b485ba6dc77b3e1eb60329b13cec66147ea1c",
+          "frame": "48200e0a0b0c0d0102030465000b485ba6dc77b3e1eb60329b13cec66147ea1c",
           "accept": true,
           "counter": 0,
-          "plaintext": "6d6573736167652030"
+          "plaintext": "6d6573736167652030",
+          "acknowledge": true,
+          "proof": "4f9ebb5a"
         },
         {
-          "frame": "48000000dbe0e7178261575afcb2931008cb39eb8abe53933eec",
+          "frame": "48200e0a0b0c0d01020304dbe0e7178261575afcb2931008cb39eb8abe53933eec",
           "accept": true,
           "counter": 30,
-          "plaintext": "6d657373616765203330"
+          "plaintext": "6d657373616765203330",
+          "acknowledge": true,
+          "proof": "39077b2b"
         },
         {
-          "frame": "48000000ec80cca9a0d912cef0ba85a12df2bd25f712644afbaf",
+          "frame": "48200e0a0b0c0d01020304ec80cca9a0d912cef0ba85a12df2bd25f712644afbaf",
           "accept": true,
           "counter": 60,
-          "plaintext": "6d657373616765203630"
+          "plaintext": "6d657373616765203630",
+          "acknowledge": true,
+          "proof": "d9e4c7dc"
         },
         {
-          "frame": "48000000b59bee9366db18c5c52d433f8af40309cf8049d09ad5",
+          "frame": "48200e0a0b0c0d01020304b59bee9366db18c5c52d433f8af40309cf8049d09ad5",
           "accept": false,
           "counter": null,
-          "plaintext": null
+          "plaintext": null,
+          "acknowledge": false,
+          "proof": null
         },
         {
-          "frame": "48000000211801ec9f8b390c2e45da63406e9aafeb9a9afac80b",
+          "frame": "48200e0a0b0c0d01020304211801ec9f8b390c2e45da63406e9aafeb9a9afac80b",
           "accept": true,
           "counter": 29,
-          "plaintext": "6d657373616765203239"
+          "plaintext": "6d657373616765203239",
+          "acknowledge": true,
+          "proof": "bdbb030d"
+        }
+      ]
+    },
+    {
+      "name": "copy-kept",
+      "note": "a copy of counter 0 is acknowledged while H is 31 or less",
+      "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "direction": 1,
+      "deliveries": [
+        {
+          "frame": "48200e0a0b0c0d0102030465000b485ba6dc77b3e1eb60329b13cec66147ea1c",
+          "accept": true,
+          "counter": 0,
+          "plaintext": "6d6573736167652030",
+          "acknowledge": true,
+          "proof": "4f9ebb5a"
+        },
+        {
+          "frame": "48200e0a0b0c0d010203049a1546bd9e8e40daa53d8638af4a89d7d63462bfa2f5",
+          "accept": true,
+          "counter": 31,
+          "plaintext": "6d657373616765203331",
+          "acknowledge": true,
+          "proof": "d59bb956"
+        },
+        {
+          "frame": "48200e0a0b0c0d0102030465000b485ba6dc77b3e1eb60329b13cec66147ea1c",
+          "accept": false,
+          "counter": null,
+          "plaintext": null,
+          "acknowledge": true,
+          "proof": "4f9ebb5a"
+        }
+      ]
+    },
+    {
+      "name": "copy-forgotten",
+      "note": "and no longer once H is 32",
+      "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "direction": 1,
+      "deliveries": [
+        {
+          "frame": "48200e0a0b0c0d0102030465000b485ba6dc77b3e1eb60329b13cec66147ea1c",
+          "accept": true,
+          "counter": 0,
+          "plaintext": "6d6573736167652030",
+          "acknowledge": true,
+          "proof": "4f9ebb5a"
+        },
+        {
+          "frame": "48200e0a0b0c0d010203046a8ae005c0614fd1ee13d58be1b9c8a3fe2ee53a6077",
+          "accept": true,
+          "counter": 32,
+          "plaintext": "6d657373616765203332",
+          "acknowledge": true,
+          "proof": "12a041dc"
+        },
+        {
+          "frame": "48200e0a0b0c0d0102030465000b485ba6dc77b3e1eb60329b13cec66147ea1c",
+          "accept": false,
+          "counter": null,
+          "plaintext": null,
+          "acknowledge": false,
+          "proof": null
         }
       ]
     }
@@ -420,11 +559,18 @@
       "dtag": "785569e6",
       "deliveries": [
         {
-          "frame": "48000000785569e6f98552973434d951b243371a5497d7abda7148",
+          "frame": "48200e0a0b0c0d01020304785569e6f98552973434d951b243371a5497d7abda7148",
           "accept": true,
           "session": 0,
           "counter": 0,
-          "plaintext": "636f6c6c6973696f6e2030"
+          "plaintext": "636f6c6c6973696f6e2030",
+          "acknowledge": [
+            {
+              "session": 0,
+              "counter": 0,
+              "proof": "a7eb4af5"
+            }
+          ]
         }
       ]
     },
@@ -444,17 +590,24 @@
       "dtag": "785569e6",
       "deliveries": [
         {
-          "frame": "48000000785569e6aac3848a81b66ef4a2d3647faff76c29113e20",
+          "frame": "48200e0a0b0c0d01020304785569e6aac3848a81b66ef4a2d3647faff76c29113e20",
           "accept": true,
           "session": 1,
           "counter": 29,
-          "plaintext": "636f6c6c6973696f6e2031"
+          "plaintext": "636f6c6c6973696f6e2031",
+          "acknowledge": [
+            {
+              "session": 1,
+              "counter": 29,
+              "proof": "04a92a67"
+            }
+          ]
         }
       ]
     },
     {
       "name": "tag-collision-both",
-      "note": "both colliding frames to one receiver: the second session's entry must survive the first acceptance",
+      "note": "both colliding frames to one receiver: the second session's entry must survive the first acceptance. Then a copy, which is acknowledged for both",
       "sessions": [
         {
           "session_secret": "1f31c8d6fddc18e57117f91e5f1fb032f8ea58ec44bb3a0033b7c8f5f4df6252",
@@ -468,18 +621,51 @@
       "dtag": "785569e6",
       "deliveries": [
         {
-          "frame": "48000000785569e6f98552973434d951b243371a5497d7abda7148",
+          "frame": "48200e0a0b0c0d01020304785569e6f98552973434d951b243371a5497d7abda7148",
           "accept": true,
           "session": 0,
           "counter": 0,
-          "plaintext": "636f6c6c6973696f6e2030"
+          "plaintext": "636f6c6c6973696f6e2030",
+          "acknowledge": [
+            {
+              "session": 0,
+              "counter": 0,
+              "proof": "a7eb4af5"
+            }
+          ]
         },
         {
-          "frame": "48000000785569e6aac3848a81b66ef4a2d3647faff76c29113e20",
+          "frame": "48200e0a0b0c0d01020304785569e6aac3848a81b66ef4a2d3647faff76c29113e20",
           "accept": true,
           "session": 1,
           "counter": 29,
-          "plaintext": "636f6c6c6973696f6e2031"
+          "plaintext": "636f6c6c6973696f6e2031",
+          "acknowledge": [
+            {
+              "session": 1,
+              "counter": 29,
+              "proof": "04a92a67"
+            }
+          ]
+        },
+        {
+          "frame": "48200e0a0b0c0d01020304785569e6f98552973434d951b243371a5497d7abda7148",
+          "accept": false,
+          "session": null,
+          "counter": null,
+          "plaintext": null,
+          "acknowledge": [
+            {
+              "session": 0,
+              "counter": 0,
+              "proof": "a7eb4af5"
+            },
+            {
+              "session": 1,
+              "counter": 29,
+              "proof": "04a92a67"
+            }
+          ]
         }
       ]
     }
@@ -494,31 +680,31 @@
           "direction": 1,
           "plaintext": "73656e642030",
           "counter": 0,
-          "frame": "4800000065000b4845a6c160f2b607f8531840127a02"
+          "frame": "48200e0a0b0c0d0102030465000b4845a6c160f2b607f8531840127a02"
         },
         {
           "direction": 1,
           "plaintext": "73656e642031",
           "counter": 1,
-          "frame": "48000000e02952d9ed8b2ce39b16096e0156f8de4ed3"
+          "frame": "48200e0a0b0c0d01020304e02952d9ed8b2ce39b16096e0156f8de4ed3"
         },
         {
           "direction": 2,
           "plaintext": "73656e642032",
           "counter": 0,
-          "frame": "480000009bdbbb755637fc9ea7d3e9d649a3922e68bf"
+          "frame": "48200e0a0b0c0d010203049bdbbb755637fc9ea7d3e9d649a3922e68bf"
         },
         {
           "direction": 1,
           "plaintext": "73656e642033",
           "counter": 2,
-          "frame": "48000000c3a7244685e0485679d53a29b9ff1a3e709b"
+          "frame": "48200e0a0b0c0d01020304c3a7244685e0485679d53a29b9ff1a3e709b"
         },
         {
           "direction": 2,
           "plaintext": "73656e642034",
           "counter": 1,
-          "frame": "480000004405a31905fd4decc91dd2fa512045b41863"
+          "frame": "48200e0a0b0c0d010203044405a31905fd4decc91dd2fa512045b41863"
         }
       ]
     },
@@ -531,207 +717,341 @@
           "direction": 1,
           "plaintext": "73656e642030",
           "counter": 0,
-          "frame": "48000000e321660e5d8e113cfbd03f6b73d0f6722889"
+          "frame": "48200e0a0b0c0d01020304e321660e5d8e113cfbd03f6b73d0f6722889"
         },
         {
           "direction": 1,
           "plaintext": "73656e642031",
           "counter": 1,
-          "frame": "480000007b6393bdf3f2f4868ccf1e7bd6970e5657a0"
+          "frame": "48200e0a0b0c0d010203047b6393bdf3f2f4868ccf1e7bd6970e5657a0"
         },
         {
           "direction": 1,
           "plaintext": "73656e642032",
           "counter": 2,
-          "frame": "4800000058f95f0941e8e496d76da9047b8048c4fa1c"
+          "frame": "48200e0a0b0c0d0102030458f95f0941e8e496d76da9047b8048c4fa1c"
         },
         {
           "direction": 1,
           "plaintext": "73656e642033",
           "counter": 3,
-          "frame": "480000007dc4d1c61dc6cdd5e13f86620cf2f6f1f93e"
+          "frame": "48200e0a0b0c0d010203047dc4d1c61dc6cdd5e13f86620cf2f6f1f93e"
         },
         {
           "direction": 1,
           "plaintext": "73656e642034",
           "counter": 4,
-          "frame": "48000000bcda31b358de1e73af3d22952ff8c4821e30"
+          "frame": "48200e0a0b0c0d01020304bcda31b358de1e73af3d22952ff8c4821e30"
         },
         {
           "direction": 1,
           "plaintext": "73656e642035",
           "counter": 5,
-          "frame": "48000000deaf64abfba192a15595bc7b5d7169019ac7"
+          "frame": "48200e0a0b0c0d01020304deaf64abfba192a15595bc7b5d7169019ac7"
         },
         {
           "direction": 1,
           "plaintext": "73656e642036",
           "counter": 6,
-          "frame": "48000000574dfbf8881ea9baafb6bfb850d3aadd52e9"
+          "frame": "48200e0a0b0c0d01020304574dfbf8881ea9baafb6bfb850d3aadd52e9"
         },
         {
           "direction": 1,
           "plaintext": "73656e642037",
           "counter": 7,
-          "frame": "4800000017b746d571d56af10f91a6c78eaffe233724"
+          "frame": "48200e0a0b0c0d0102030417b746d571d56af10f91a6c78eaffe233724"
         },
         {
           "direction": 1,
           "plaintext": "73656e642038",
           "counter": 8,
-          "frame": "480000007b04a4910b813c70e80f874ff305cda304b1"
+          "frame": "48200e0a0b0c0d010203047b04a4910b813c70e80f874ff305cda304b1"
         },
         {
           "direction": 1,
           "plaintext": "73656e642039",
           "counter": 9,
-          "frame": "48000000457eec8e8ec0575dd75687edf048bf91ac62"
+          "frame": "48200e0a0b0c0d01020304457eec8e8ec0575dd75687edf048bf91ac62"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203130",
           "counter": 10,
-          "frame": "480000002ab0f3e7f2520a007f0db3ee37cbb4cf0de98c"
+          "frame": "48200e0a0b0c0d010203042ab0f3e7f2520a007f0db3ee37cbb4cf0de98c"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203131",
           "counter": 11,
-          "frame": "48000000e42ce64c31ea64815b983e9e74ab088a2a8765"
+          "frame": "48200e0a0b0c0d01020304e42ce64c31ea64815b983e9e74ab088a2a8765"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203132",
           "counter": 12,
-          "frame": "48000000477782acb1f0a41ceb957fdcefc808054b5f05"
+          "frame": "48200e0a0b0c0d01020304477782acb1f0a41ceb957fdcefc808054b5f05"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203133",
           "counter": 13,
-          "frame": "48000000f2c5dcb9885949f1df65c6159bbcc8e5fe9101"
+          "frame": "48200e0a0b0c0d01020304f2c5dcb9885949f1df65c6159bbcc8e5fe9101"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203134",
           "counter": 14,
-          "frame": "4800000043d93af11272038f0dcfd31eb4354a4a485a8e"
+          "frame": "48200e0a0b0c0d0102030443d93af11272038f0dcfd31eb4354a4a485a8e"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203135",
           "counter": 15,
-          "frame": "480000002fb62a769f97c126c92dcd917e7a87ae5deea8"
+          "frame": "48200e0a0b0c0d010203042fb62a769f97c126c92dcd917e7a87ae5deea8"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203136",
           "counter": 16,
-          "frame": "48000000d803f3dddb4ad12c87a5d6a491a5cbf7529cbe"
+          "frame": "48200e0a0b0c0d01020304d803f3dddb4ad12c87a5d6a491a5cbf7529cbe"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203137",
           "counter": 17,
-          "frame": "480000002e2c22ed95655c8bb002f9c36ef4310789b162"
+          "frame": "48200e0a0b0c0d010203042e2c22ed95655c8bb002f9c36ef4310789b162"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203138",
           "counter": 18,
-          "frame": "480000006b8df34d13fe3c2c4dbdcb9cb226b6ee545da2"
+          "frame": "48200e0a0b0c0d010203046b8df34d13fe3c2c4dbdcb9cb226b6ee545da2"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203139",
           "counter": 19,
-          "frame": "4800000013b586dd5f6406c854241ae0ebd1f1045b9fb3"
+          "frame": "48200e0a0b0c0d0102030413b586dd5f6406c854241ae0ebd1f1045b9fb3"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203230",
           "counter": 20,
-          "frame": "48000000b2d67d979b349af05a53bad18cca07ee418abc"
+          "frame": "48200e0a0b0c0d01020304b2d67d979b349af05a53bad18cca07ee418abc"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203231",
           "counter": 21,
-          "frame": "48000000fbcfe2003b54f0304688f7c4f783bda6d59b43"
+          "frame": "48200e0a0b0c0d01020304fbcfe2003b54f0304688f7c4f783bda6d59b43"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203232",
           "counter": 22,
-          "frame": "480000004ea5e482b97b258eae360d99d234f9dbf7fdd9"
+          "frame": "48200e0a0b0c0d010203044ea5e482b97b258eae360d99d234f9dbf7fdd9"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203233",
           "counter": 23,
-          "frame": "48000000ad12d40da2e864a75171d00f3bf6ce954b9cdf"
+          "frame": "48200e0a0b0c0d01020304ad12d40da2e864a75171d00f3bf6ce954b9cdf"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203234",
           "counter": 24,
-          "frame": "48000000605e3c0d6aab10dddc5f6ab4ee76b2a539b6f8"
+          "frame": "48200e0a0b0c0d01020304605e3c0d6aab10dddc5f6ab4ee76b2a539b6f8"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203235",
           "counter": 25,
-          "frame": "4800000086f3f047d89412d64f0fd8a3f3ad0fd7d53962"
+          "frame": "48200e0a0b0c0d0102030486f3f047d89412d64f0fd8a3f3ad0fd7d53962"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203236",
           "counter": 26,
-          "frame": "480000004866c6a6d07e9beffe1492728b1746db66ecde"
+          "frame": "48200e0a0b0c0d010203044866c6a6d07e9beffe1492728b1746db66ecde"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203237",
           "counter": 27,
-          "frame": "48000000c672c88a45b25c51ee14328d01694694ce7b36"
+          "frame": "48200e0a0b0c0d01020304c672c88a45b25c51ee14328d01694694ce7b36"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203238",
           "counter": 28,
-          "frame": "48000000d1553daf51ce342292773361677e386134170c"
+          "frame": "48200e0a0b0c0d01020304d1553daf51ce342292773361677e386134170c"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203239",
           "counter": 29,
-          "frame": "480000006f648ad740c5a86dffe0bebb4357167a9a5c92"
+          "frame": "48200e0a0b0c0d010203046f648ad740c5a86dffe0bebb4357167a9a5c92"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203330",
           "counter": 30,
-          "frame": "48000000446af1565f5be9242ace203e3db18945749368"
+          "frame": "48200e0a0b0c0d01020304446af1565f5be9242ace203e3db18945749368"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203331",
           "counter": 31,
-          "frame": "48000000f2e956e63ad3e2363144ff88e60106f056e21c"
+          "frame": "48200e0a0b0c0d01020304f2e956e63ad3e2363144ff88e60106f056e21c"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203332",
           "counter": 32,
-          "frame": "48000000fd49d529837aae1fb15d8a392bc7a15b67d3ee"
+          "frame": "48200e0a0b0c0d01020304fd49d529837aae1fb15d8a392bc7a15b67d3ee"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203333",
           "counter": 33,
-          "frame": "4800000008559222692ee096fc3c398244b9546b533683"
+          "frame": "48200e0a0b0c0d0102030408559222692ee096fc3c398244b9546b533683"
         }
       ]
+    }
+  ],
+  "acknowledgements": [
+    {
+      "name": "first",
+      "note": "the destination's answer to counter 0, initiator to responder",
+      "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "direction": 1,
+      "counter": 0,
+      "dtag": "65000b48",
+      "proof": "4f9ebb5a",
+      "frame": "5020020a0b0c0d0506070865000b484f9ebb5a",
+      "valid": true
+    },
+    {
+      "name": "relayed",
+      "note": "the same, some hops on: the head is not checked here",
+      "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "direction": 1,
+      "counter": 0,
+      "dtag": "65000b48",
+      "proof": "4f9ebb5a",
+      "frame": "501ef7beef00010506070865000b484f9ebb5a",
+      "valid": true
+    },
+    {
+      "name": "epoch-1",
+      "note": "counter 32: the proof needs no epoch key",
+      "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "direction": 1,
+      "counter": 32,
+      "dtag": "6a8ae005",
+      "proof": "12a041dc",
+      "frame": "5020020a0b0c0d050607086a8ae00512a041dc",
+      "valid": true
+    },
+    {
+      "name": "reply",
+      "note": "the responder's counter 0, answered by the initiator",
+      "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "direction": 2,
+      "counter": 0,
+      "dtag": "9bdbbb75",
+      "proof": "1c390a8f",
+      "frame": "5020020a0b0c0d050607089bdbbb751c390a8f",
+      "valid": true
+    },
+    {
+      "name": "proof-flipped",
+      "note": "last bit of the proof changed",
+      "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "direction": 1,
+      "counter": 0,
+      "dtag": "65000b48",
+      "proof": "4f9ebb5a",
+      "frame": "5020020a0b0c0d0506070865000b484f9ebb5b",
+      "valid": false
+    },
+    {
+      "name": "tag-for-proof",
+      "note": "the message's tag sent back as its proof: all a node on the way has",
+      "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "direction": 1,
+      "counter": 0,
+      "dtag": "65000b48",
+      "proof": "4f9ebb5a",
+      "frame": "5020020a0b0c0d0506070865000b4865000b48",
+      "valid": false
+    },
+    {
+      "name": "another-counter",
+      "note": "counter 0's tag with counter 1's proof",
+      "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "direction": 1,
+      "counter": 0,
+      "dtag": "65000b48",
+      "proof": "4f9ebb5a",
+      "frame": "5020020a0b0c0d0506070865000b488e58bfad",
+      "valid": false
+    },
+    {
+      "name": "another-direction",
+      "note": "counter 0's tag with the other direction's proof",
+      "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "direction": 1,
+      "counter": 0,
+      "dtag": "65000b48",
+      "proof": "4f9ebb5a",
+      "frame": "5020020a0b0c0d0506070865000b481c390a8f",
+      "valid": false
+    },
+    {
+      "name": "another-message",
+      "note": "the acknowledgement of counter 1, checked against counter 0",
+      "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "direction": 1,
+      "counter": 0,
+      "dtag": "65000b48",
+      "proof": "4f9ebb5a",
+      "frame": "5020020a0b0c0d05060708e02952d98e58bfad",
+      "valid": false
+    },
+    {
+      "name": "too-long",
+      "note": "a byte more than an acknowledgement has",
+      "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "direction": 1,
+      "counter": 0,
+      "dtag": "65000b48",
+      "proof": "4f9ebb5a",
+      "frame": "5020020a0b0c0d0506070865000b484f9ebb5a00",
+      "valid": false
+    },
+    {
+      "name": "too-short",
+      "note": "a byte fewer",
+      "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "direction": 1,
+      "counter": 0,
+      "dtag": "65000b48",
+      "proof": "4f9ebb5a",
+      "frame": "5020020a0b0c0d0506070865000b484f9ebb",
+      "valid": false
+    },
+    {
+      "name": "a-message",
+      "note": "a message's header on it",
+      "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "direction": 1,
+      "counter": 0,
+      "dtag": "65000b48",
+      "proof": "4f9ebb5a",
+      "frame": "4820020a0b0c0d0506070865000b484f9ebb5a",
+      "valid": false
     }
   ]
 }

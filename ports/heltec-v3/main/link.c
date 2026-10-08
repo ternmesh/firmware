@@ -128,7 +128,7 @@ static struct link_message *find_message(struct link *l, uint32_t id) {
 }
 
 static bool waiting(const struct link_message *x) {
-    return x->state == TERN_C_WAITING && !x->aired;
+    return x->state == TERN_C_WAITING && !x->taken;
 }
 
 /* A free place for a message: an empty one, or else the oldest that is not waiting to go. */
@@ -211,10 +211,10 @@ void link_state(struct link *l, uint32_t id, uint8_t state, uint8_t reason, uint
     }
 }
 
-void link_aired(struct link *l, uint32_t id) {
+void link_taken(struct link *l, uint32_t id) {
     struct link_message *x = find_message(l, id);
     if (x != NULL) {
-        x->aired = true;
+        x->taken = true;
         link_state(l, id, TERN_C_WAITING, TERN_C_WAIT_UNNAMED, 0);
     }
 }

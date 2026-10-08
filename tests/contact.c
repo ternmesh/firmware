@@ -141,9 +141,8 @@ static void handshakes_match(void) {
         CHECK_EQ_I64(tern_contact_finish(&cr, &sr, peer_of_r), TERN_OK);
         CHECK(memcmp(peer_of_i, res.address, 32) == 0);
         CHECK(memcmp(peer_of_r, ini.address, 32) == 0);
-        CHECK_EQ_I64(
-            tern_unicast_seal(&si.tx, 0, 0, (const uint8_t *)"hello", 5, frame, sizeof frame),
-            TERN_OK);
+        CHECK_EQ_I64(tern_unicast_seal(&si.tx, (const uint8_t *)"hello", 5, frame, sizeof frame),
+                     TERN_OK);
         CHECK_EQ_I64(
             tern_unicast_open(&rx, 1, frame, 5 + TERN_UNICAST_OVERHEAD, pt, sizeof pt, &got),
             TERN_OK);

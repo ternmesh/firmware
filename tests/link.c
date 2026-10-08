@@ -290,14 +290,14 @@ static void a_send_it_cannot_take_is_refused(void) {
     CHECK_EQ_I64(sent(0).code, TERN_C_ERR_FULL);
 }
 
-static void a_message_on_the_air_is_not_claimed_sent(void) {
+static void a_message_handed_over_is_not_claimed_sent(void) {
     start();
     hello();
     struct tern_companion_msg q = send_to(bob, 1, "hello");
     request(&q);
     uint32_t id = sent(0).id;
     board.n_out = 0;
-    link_aired(&companion, id);
+    link_taken(&companion, id);
     CHECK_EQ_I64(sent(0).type, TERN_C_STATE);
     CHECK_EQ_I64(sent(0).state, TERN_C_WAITING);
     CHECK_EQ_I64(sent(0).reason, TERN_C_WAIT_UNNAMED);
@@ -545,7 +545,7 @@ int main(void) {
     RUN(requests_it_cannot_read_are_answered);
     RUN(a_send_sent_again_is_one_message);
     RUN(a_send_it_cannot_take_is_refused);
-    RUN(a_message_on_the_air_is_not_claimed_sent);
+    RUN(a_message_handed_over_is_not_claimed_sent);
     RUN(first_contact_failing_gives_up_what_waited_for_it);
     RUN(reading_marks_received_messages_read);
     RUN(received_text_is_cut_to_what_a_message_carries);
