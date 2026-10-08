@@ -9,9 +9,9 @@ metered resource. The protocol is defined by the specification in
 **Status:** early. The core implements the four parts of the protocol the specification has
 drafted, radio settings, secured unicast frames, first contact and routes, and passes every one of
 their test vectors.
-One board runs them over the air: the [Heltec V3](ports/heltec-v3/), as a two-board bench demo.
-Nodes find routes to each other, but nothing is sent along them yet: the specification has not
-drafted the frames that follow routes.
+One board runs them over the air: the [Heltec V3](ports/heltec-v3/), as a bench demo. Nodes find
+routes to each other, and a message follows them: it is sent to the next hop, sent again if
+nothing is heard of it, and acknowledged by the node it is for.
 
 | Module | Header | What it is |
 |---|---|---|
@@ -23,7 +23,7 @@ drafted the frames that follow routes.
 | First contact | `tern/contact.h` | The EDHOC handshake that gives two nodes a unicast session, [specification draft 0](https://github.com/ternmesh/spec/blob/main/draft/first-contact.md): both roles, four frames, contact tags, and erasure as the specification requires. About 3.6 KB of stack at its deepest. |
 | Routes | `tern/route.h` | How a node learns which neighbour to hand a frame to, [specification draft 0](https://github.com/ternmesh/spec/blob/main/draft/routing.md): announces, links judged by signal strength each way, loop-free route selection (Babel's feasibility condition), requests, Trickle and a cap on routing's share of the air. The simulator's candidate 3, as far as choosing routes; every parameter provisional. A node that restarts says so and waits before it routes through others, which narrows but does not close the one way a loop can form. A full table of neighbours keeps every link that is up, and otherwise the nearest. Not yet: broadcast and authentication. |
 | Frames that follow routes | `tern/forward.h` | How a message is carried along those routes, [specification draft 0](https://github.com/ternmesh/spec/blob/main/draft/forwarding.md): each frame names its destination and the neighbour it is for now, a node hears its neighbour pass a frame on and sends it again if it does not, then tries another route, and a message's source sends it again until its destination's acknowledgement comes back. Measured in the simulator beside Meshtastic and MeshCore (that draft's rationale). Not yet: the secured unicast frame under this head, so the Heltec port does not use it. |
-| Unicast frames | `tern/unicast.h` | Secured unicast, [specification draft 0](https://github.com/ternmesh/spec/blob/main/draft/unicast-security.md): sealing a message into a frame, and recognising, authenticating and opening frames for any of a node's sessions. Keys are erased as the specification requires. About 790 bytes of RAM per session. |
+| Unicast frames | `tern/unicast.h` | Secured unicast, [specification draft 0](https://github.com/ternmesh/spec/blob/main/draft/unicast-security.md): sealing a message into a frame, and recognising, authenticating and opening frames for any of a node's sessions; and the acknowledgement its destination answers with, which only the two ends can make or check. Keys are erased as the specification requires. About 790 bytes of RAM per session. |
 | SX1262 driver | `tern/sx126x.h` | The radio seam for Semtech's SX1262, written from its datasheet, errata included. Portable, so every SX1262 board shares it. |
 | Crypto | `tern/crypto.h` | SHA-256, SHA-512, HMAC, HKDF-Expand, AES-128, AES-CCM and X25519, in portable constant-time C, each tested against its standard's published vectors. A reference to check hardware against, not a fast one. |
 
@@ -70,7 +70,7 @@ CI runs the same.
 
 | Board | Directory | |
 |---|---|---|
-| Heltec WiFi LoRa 32 V3 (ESP32-S3, SX1262) | [`ports/heltec-v3/`](ports/heltec-v3/) | A two-board bench demo: first contact, then unicast, with a debug screen. CI builds an image you can flash from a browser. |
+| Heltec WiFi LoRa 32 V3 (ESP32-S3, SX1262) | [`ports/heltec-v3/`](ports/heltec-v3/) | A bench demo: first contact, then messages that follow routes and are acknowledged, with a debug screen. CI builds an image you can flash from a browser. |
 
 ## Licence
 

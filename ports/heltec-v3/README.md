@@ -6,10 +6,13 @@ with the other's, and the two then send each other
 [secured unicast frames](https://github.com/ternmesh/spec/blob/main/draft/unicast-security.md)
 over the air.
 
-It is a bench demo, not a node. Boards announce themselves and learn routes to each other, but
-messages do not follow those routes yet, because the specification has not drafted the frames that
-do: a board talks to one other board at a time, and only if it hears it directly. There is no
-airtime budget yet either.
+It is a bench demo, not a node. Boards announce themselves and learn routes to each other, and a
+message [follows them](https://github.com/ternmesh/spec/blob/main/draft/forwarding.md): it goes
+to the next hop its route gives, at no more power than that hop needs, is sent again if nothing is
+heard of it, and is acknowledged by the board it is for. A board built as a relay passes other
+boards' frames on. But a board holds one session, with one other board, and first contact does
+not follow routes, so the two must hear each other to meet. There is no airtime budget yet
+either.
 
 ## Flashing
 
@@ -116,10 +119,15 @@ yet:
   was typed in the last two minutes. A board that is refused is told nothing.
 * **One peer, one handshake.** A new session replaces the old one, and while one handshake is
   under way another is not answered.
+* **Listening for the answer.** Once a frame that follows a route has gone, the board sends no
+  other for three times as long as it took: the radio cannot hear while it sends, and a board
+  with several messages waiting would otherwise send the second over the acknowledgement of the
+  first.
 
 The session is saved to flash after every message: before a frame goes out, and before a
-received message is shown. So a reset or a power cut carries on where it left off, never reuses
-a counter, and never shows the same message twice. A handshake is not saved; a reset in the
+received message is shown or acknowledged. So a reset or a power cut carries on where it left
+off, never reuses a counter, and never shows the same message twice. A message that comes again
+because its acknowledgement was lost is acknowledged again, and not shown again. A handshake is not saved; a reset in the
 middle of one abandons it, and `contact` starts another.
 
 The seed and the session keys sit in flash unencrypted. Anyone holding the board can read them.
@@ -236,10 +244,13 @@ What the board offers is what the demo is:
 * **One session at a time.** A message to a node the board has no session with starts first
   contact with it, which replaces the present session once it completes. Its state says it is
   waiting for a session meanwhile, and "not delivered" if the handshake gives up.
-* **A message on the air stays waiting.** The demo sends straight to its peer, with no
-  forwarding and no acknowledgement, so it never learns whether a message arrived. The draft
-  forbids claiming more than the node knows, so the state never reaches "sent" or "delivered".
-  That changes when the board sends along routes ([forwarding](https://github.com/ternmesh/spec/blob/main/draft/forwarding.md)).
+* **A message is waiting, then delivered or not delivered.** It is delivered when its
+  destination's acknowledgement comes back, and not delivered when the board gives it up, after
+  four tries of some five seconds each. While it waits, its reason says if there is no route to
+  its destination or the region's limit is holding it. It is never "sent": that means a
+  neighbour was heard passing it on, which the board does not report yet, and the draft forbids
+  claiming more than the node knows.
+* **Four of the board's own messages** are on their way at once; the rest wait their turn.
 * **Settings.** Region, role and power are saved to flash and applied by a restart, after the
   board has answered; a power or region the antenna setting does not allow is refused. A
   Bluetooth passkey is kept for when there is Bluetooth.

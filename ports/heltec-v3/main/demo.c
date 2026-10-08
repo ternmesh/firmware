@@ -115,14 +115,17 @@ enum demo_result demo_seal(struct demo *d, const uint8_t *msg, size_t len, uint8
     if (len > TERN_UNICAST_MAX_PLAINTEXT) {
         return DEMO_TOO_LONG;
     }
-    int err =
-        tern_unicast_seal(&d->s.session.tx, 0, 0, msg, len, frame, len + TERN_UNICAST_OVERHEAD);
+    int err = tern_unicast_seal(&d->s.session.tx, msg, len, frame, len + TERN_UNICAST_OVERHEAD);
     if (err == TERN_ESPENT) {
         return DEMO_SPENT;
     }
     d->s.sent++;
     /* Saved before it is sent: if the board stops between the two, the counter is still used. */
     return save_state(d) ? DEMO_OK : DEMO_STORE_FAILED;
+}
+
+bool demo_acked(const struct demo *d, uint32_t counter, const uint8_t *frame, size_t len) {
+    return d->s.role != 0 && tern_unicast_acked(&d->s.session.tx, counter, frame, len);
 }
 
 static enum demo_heard unicast_frame(struct demo *d, const uint8_t *frame, size_t len, uint8_t *msg,
@@ -132,29 +135,51 @@ static enum demo_heard unicast_frame(struct demo *d, const uint8_t *frame, size_
     }
     struct tern_unicast_rx *rx[] = {&d->s.session.rx};
     struct tern_unicast_received r;
+    /* The window as it was, to go back to if what the frame does to it cannot be saved. */
+    static struct tern_unicast_rx before;
+    before = d->s.session.rx;
     if (tern_unicast_open(rx, 1, frame, len, msg, TERN_UNICAST_MAX_PLAINTEXT, &r) != TERN_OK) {
+        tern_wipe(&before, sizeof before);
         return DEMO_HEARD_MALFORMED;
     }
+    copy(out->peer, d->s.peer, TERN_ADDRESS_LEN);
+    out->counter = r.counter;
     switch (r.verdict) {
     case TERN_UNICAST_ACCEPTED:
         break;
+    case TERN_UNICAST_COPY:
+        /* Its acknowledgement did not get back: owed again, as often as the copy comes. */
+        tern_wipe(&before, sizeof before);
+        do {
+            out->acks += tern_unicast_ack(rx[0], r.counter, out->ack[out->acks]);
+        } while (out->acks < DEMO_ACKS && tern_unicast_copy_next(rx, 1, frame, len, &r));
+        return DEMO_HEARD_COPY;
     case TERN_UNICAST_NOT_OURS:
+        tern_wipe(&before, sizeof before);
         return DEMO_HEARD_OTHER;
     case TERN_UNICAST_FORGED:
+        tern_wipe(&before, sizeof before);
         return DEMO_HEARD_FORGED;
     default:
+        tern_wipe(&before, sizeof before);
         return DEMO_HEARD_MALFORMED;
     }
 
     d->s.heard++;
     /* Shown only once saved: otherwise a restart would reload the old window, and the same frame
-     * would be accepted, and shown, a second time. */
+     * would be accepted, and shown, a second time. Unsaved, it is as if it had not come: the
+     * window goes back, so that the frame is taken when its sender tries again, and is not
+     * acknowledged as a copy of a message nobody was shown. */
     if (!save_state(d)) {
         tern_wipe(msg, r.len);
+        d->s.session.rx = before;
+        d->s.heard--;
+        tern_wipe(&before, sizeof before);
         return DEMO_HEARD_UNSAVED;
     }
+    tern_wipe(&before, sizeof before);
     out->msg_len = r.len;
-    out->counter = r.counter;
+    out->acks = tern_unicast_ack(rx[0], r.counter, out->ack[0]);
     return DEMO_HEARD_MESSAGE;
 }
 
@@ -284,6 +309,7 @@ enum demo_heard demo_receive(struct demo *d, tern_time now, const uint8_t *frame
     out->msg_len = 0;
     out->counter = 0;
     out->reply_len = 0;
+    out->acks = 0;
     if (len == 0) {
         return DEMO_HEARD_MALFORMED;
     }

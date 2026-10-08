@@ -44,8 +44,9 @@ def main():
         i = c["intermediate"]
         lines.append(
             f"    {{{c_str(c['name'])}, {c_array(c['session_secret'], 32)}, {c['direction']}, "
-            f"{c['counter']}u, {c['hop']}, {c['label']}, {c_bytes(c['plaintext'])}, "
-            f"{c_bytes(c['frame'])}, {c_array(i['epoch_key'], 32)}}},"
+            f"{c['counter']}u, {c['hops']}, {c['power']}, 0x{c['next']:08x}u, "
+            f"0x{c['destination']:08x}u, {c_bytes(c['plaintext'])}, "
+            f"{c_bytes(c['frame'])}, {c_array(i['epoch_key'], 32)}, {c_array(i['proof'], 4)}}},"
         )
     lines.append("};")
 
@@ -61,11 +62,13 @@ def main():
     for c in v["sequences"]:
         ds = []
         for d in c["deliveries"]:
+            ack = (f"true, {c_array(d['proof'], 4)}" if d["acknowledge"]
+                   else "false, {0}")
             if d["accept"]:
                 ds.append(f"{{{c_bytes(d['frame'])}, true, {d['counter']}u, "
-                          f"{c_bytes(d['plaintext'])}}}")
+                          f"{c_bytes(d['plaintext'])}, {ack}}}")
             else:
-                ds.append(f"{{{c_bytes(d['frame'])}, false, 0, NULL, 0}}")
+                ds.append(f"{{{c_bytes(d['frame'])}, false, 0, NULL, 0, {ack}}}")
         lines.append(
             f"    {{{c_str(c['name'])}, {c_array(c['session_secret'], 32)}, {c['direction']}, "
             f"(const struct delivery[]){{{', '.join(ds)}}}, {len(ds)}}},"
@@ -76,8 +79,15 @@ def main():
     for c in v["collisions"]:
         ss = ", ".join(f"{{{c_array(s['session_secret'], 32)}, {s['direction']}}}"
                        for s in c["sessions"])
+        def acks(d):
+            body = ", ".join(f"{{{a['session']}, {a['counter']}u, {c_array(a['proof'], 4)}}}"
+                             for a in d["acknowledge"])
+            return f"(const struct collision_ack[]){{{body}}}, {len(d['acknowledge'])}"
+
         ds = ", ".join(
-            f"{{{c_bytes(d['frame'])}, {d['session']}, {d['counter']}u, {c_bytes(d['plaintext'])}}}"
+            f"{{{c_bytes(d['frame'])}, true, {d['session']}, {d['counter']}u, "
+            f"{c_bytes(d['plaintext'])}, {acks(d)}}}" if d["accept"] else
+            f"{{{c_bytes(d['frame'])}, false, 0, 0, NULL, 0, {acks(d)}}}"
             for d in c["deliveries"]
         )
         lines.append(
@@ -97,6 +107,14 @@ def main():
         lines.append(
             f"    {{{c_str(c['name'])}, {c_array(c['session_secret'], 32)}, "
             f"(const struct send[]){{{ss}}}, {len(c['sends'])}}},"
+        )
+    lines.append("};")
+
+    lines.append("static const struct ack_case acknowledgements[] = {")
+    for c in v["acknowledgements"]:
+        lines.append(
+            f"    {{{c_str(c['name'])}, {c_array(c['session_secret'], 32)}, {c['direction']}, "
+            f"{c['counter']}u, {c_bytes(c['frame'])}, {'true' if c['valid'] else 'false'}}},"
         )
     lines.append("};")
 

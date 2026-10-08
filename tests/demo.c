@@ -79,7 +79,7 @@ static bool boot(struct board *b) {
 }
 
 static struct board *new_board(void) {
-    static struct board boards[48];
+    static struct board boards[56];
     static size_t used;
     if (used == sizeof boards / sizeof boards[0]) {
         fprintf(stderr, "out of boards\n");
@@ -132,7 +132,7 @@ static enum demo_heard say(struct board *from, struct board *to, const char *tex
     struct demo_received r;
     size_t len = strlen(text);
     CHECK(demo_seal(&from->ram, (const uint8_t *)text, len, frame) == DEMO_OK);
-    enum demo_heard h = demo_receive(&to->ram, 0, frame, len + 16, msg, &r);
+    enum demo_heard h = demo_receive(&to->ram, 0, frame, len + TERN_UNICAST_OVERHEAD, msg, &r);
     if (h == DEMO_HEARD_MESSAGE) {
         CHECK(r.msg_len == len && memcmp(msg, text, len) == 0);
         *counter = r.counter;
@@ -341,7 +341,7 @@ static void peer_may_make_contact_again(void) {
     CHECK(contact(a, b, 0) == DEMO_HEARD_PAIRED);
     CHECK(contact(b, a, 0) == DEMO_HEARD_PAIRED);
     CHECK(b->ram.s.role == TERN_INITIATOR && a->ram.s.role == TERN_RESPONDER);
-    CHECK(demo_receive(&b->ram, 0, old, 19, msg, &r) == DEMO_HEARD_OTHER);
+    CHECK(demo_receive(&b->ram, 0, old, 26, msg, &r) == DEMO_HEARD_OTHER);
     CHECK(say(a, b, "new", &n) == DEMO_HEARD_MESSAGE && n == 0);
 }
 
@@ -372,9 +372,9 @@ static void receiver_restart_still_refuses_replays(void) {
     struct demo_received r;
     CHECK(contact(a, b, 0) == DEMO_HEARD_PAIRED);
     CHECK(demo_seal(&a->ram, (const uint8_t *)"once", 4, frame) == DEMO_OK);
-    CHECK(demo_receive(&b->ram, 0, frame, 20, msg, &r) == DEMO_HEARD_MESSAGE);
+    CHECK(demo_receive(&b->ram, 0, frame, 27, msg, &r) == DEMO_HEARD_MESSAGE);
     CHECK(boot(b));
-    CHECK(demo_receive(&b->ram, 0, frame, 20, msg, &r) != DEMO_HEARD_MESSAGE);
+    CHECK(demo_receive(&b->ram, 0, frame, 27, msg, &r) != DEMO_HEARD_MESSAGE);
 }
 
 /* A message whose reception could not be saved is not shown, so it is shown once at most. */
@@ -386,12 +386,66 @@ static void unsaved_reception_is_not_shown(void) {
     CHECK(demo_seal(&a->ram, (const uint8_t *)"once", 4, frame) == DEMO_OK);
     b->flash.broken = true;
     memset(msg, 0x55, sizeof msg);
-    CHECK(demo_receive(&b->ram, 0, frame, 20, msg, &r) == DEMO_HEARD_UNSAVED);
+    CHECK(demo_receive(&b->ram, 0, frame, 27, msg, &r) == DEMO_HEARD_UNSAVED);
     CHECK(msg[0] == 0);
+    CHECK(r.acks == 0); /* nor acknowledged: nobody was shown it */
     b->flash.broken = false;
     CHECK(boot(b));
-    CHECK(demo_receive(&b->ram, 0, frame, 20, msg, &r) == DEMO_HEARD_MESSAGE);
-    CHECK(demo_receive(&b->ram, 0, frame, 20, msg, &r) != DEMO_HEARD_MESSAGE);
+    CHECK(demo_receive(&b->ram, 0, frame, 27, msg, &r) == DEMO_HEARD_MESSAGE);
+    CHECK(demo_receive(&b->ram, 0, frame, 27, msg, &r) != DEMO_HEARD_MESSAGE);
+}
+
+/* And with no restart between, the board is as it was before the frame came: its sender's next
+ * try is taken, not answered as a copy of a message that was never shown. */
+static void unsaved_reception_is_taken_when_it_comes_again(void) {
+    struct board *a = new_board(), *b = new_board();
+    uint8_t frame[TERN_UNICAST_MAX_FRAME], msg[TERN_UNICAST_MAX_PLAINTEXT];
+    struct demo_received r;
+    CHECK(contact(a, b, 0) == DEMO_HEARD_PAIRED);
+    CHECK(demo_seal(&a->ram, (const uint8_t *)"once", 4, frame) == DEMO_OK);
+    b->flash.broken = true;
+    CHECK(demo_receive(&b->ram, 0, frame, 27, msg, &r) == DEMO_HEARD_UNSAVED);
+    CHECK_EQ_U64(b->ram.s.heard, 0);
+    b->flash.broken = false;
+    CHECK(demo_receive(&b->ram, 0, frame, 27, msg, &r) == DEMO_HEARD_MESSAGE);
+    CHECK(r.msg_len == 4 && memcmp(msg, "once", 4) == 0 && r.acks == 1);
+    CHECK_EQ_U64(b->ram.s.heard, 1);
+}
+
+/* A message heard comes with its acknowledgement, which only the board that sent it takes, and
+ * only for that message. Heard again, it is not shown again, and is acknowledged again, after a
+ * restart too. */
+static void a_message_is_acknowledged_and_a_copy_again(void) {
+    struct board *a = new_board(), *b = new_board(), *c = new_board();
+    uint8_t frame[TERN_UNICAST_MAX_FRAME], msg[TERN_UNICAST_MAX_PLAINTEXT];
+    uint8_t ack[TERN_UNICAST_ACK_LEN];
+    struct demo_received r;
+    CHECK(contact(a, b, 0) == DEMO_HEARD_PAIRED);
+    CHECK(demo_seal(&a->ram, (const uint8_t *)"hi", 2, frame) == DEMO_OK);
+    CHECK(demo_receive(&b->ram, 0, frame, 25, msg, &r) == DEMO_HEARD_MESSAGE);
+    CHECK(r.acks == 1 && r.counter == 0);
+    CHECK(memcmp(r.peer, a->ram.id.address, TERN_ADDRESS_LEN) == 0);
+    memcpy(ack, r.ack[0], sizeof ack);
+    CHECK(ack[0] == TERN_UNICAST_ACK_HDR && memcmp(&ack[11], &frame[11], 4) == 0);
+
+    CHECK(demo_acked(&a->ram, 0, ack, sizeof ack));
+    CHECK(!demo_acked(&a->ram, 1, ack, sizeof ack)); /* a message a has not sent */
+    CHECK(!demo_acked(&b->ram, 0, ack, sizeof ack)); /* nor is it b's to take */
+    CHECK(!demo_acked(&c->ram, 0, ack, sizeof ack)); /* nor a board's with no session */
+    ack[18] ^= 0x01;
+    CHECK(!demo_acked(&a->ram, 0, ack, sizeof ack));
+    ack[18] ^= 0x01;
+
+    for (int i = 0; i < 2; i++) {
+        memset(msg, 0x55, sizeof msg);
+        CHECK(demo_receive(&b->ram, 0, frame, 25, msg, &r) == DEMO_HEARD_COPY);
+        CHECK(r.msg_len == 0 && msg[0] == 0x55 && r.counter == 0);
+        CHECK(r.acks == 1 && memcmp(r.ack[0], ack, sizeof ack) == 0);
+        CHECK_EQ_U64(b->ram.s.heard, 1);
+        CHECK(boot(b));
+    }
+    /* A board the message was not for acknowledges nothing. */
+    CHECK(demo_receive(&c->ram, 0, frame, 25, msg, &r) == DEMO_HEARD_OTHER && r.acks == 0);
 }
 
 static void failed_save_sends_nothing(void) {
@@ -480,6 +534,8 @@ int main(void) {
     RUN(restart_abandons_a_handshake);
     RUN(receiver_restart_still_refuses_replays);
     RUN(unsaved_reception_is_not_shown);
+    RUN(unsaved_reception_is_taken_when_it_comes_again);
+    RUN(a_message_is_acknowledged_and_a_copy_again);
     RUN(failed_save_sends_nothing);
     RUN(session_that_cannot_be_saved_is_not_started);
     RUN(record_from_another_build_is_not_used);

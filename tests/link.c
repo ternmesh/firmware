@@ -290,14 +290,40 @@ static void a_send_it_cannot_take_is_refused(void) {
     CHECK_EQ_I64(sent(0).code, TERN_C_ERR_FULL);
 }
 
-static void a_message_on_the_air_is_not_claimed_sent(void) {
+/* A message the forwarder has keeps its place, however many come after, until its end is known:
+ * otherwise its delivery could not be told. */
+static void a_message_on_its_way_is_not_overwritten(void) {
+    start();
+    hello();
+    struct tern_companion_msg q = send_to(bob, 1, "on its way");
+    request(&q);
+    uint32_t id = sent(0).id;
+    link_taken(&companion, id);
+    for (int i = 0; i < 2 * LINK_MESSAGES; i++) {
+        (void)link_add(&companion, bob, 0, TERN_C_RECEIVED, 0, (const uint8_t *)"in", 2);
+    }
+    board.n_out = 0;
+    link_state(&companion, id, TERN_C_DELIVERED, 0, 0);
+    CHECK_EQ_I64(sent(0).type, TERN_C_STATE);
+    CHECK_EQ_I64(sent(0).id, id);
+    CHECK_EQ_I64(sent(0).state, TERN_C_DELIVERED);
+    /* Its end known, it gives way like any other. */
+    for (int i = 0; i < LINK_MESSAGES; i++) {
+        (void)link_add(&companion, bob, 0, TERN_C_RECEIVED, 0, (const uint8_t *)"in", 2);
+    }
+    board.n_out = 0;
+    link_state(&companion, id, TERN_C_NOT_DELIVERED, 0, 0);
+    CHECK_EQ_U64(board.n_out, 0);
+}
+
+static void a_message_handed_over_is_not_claimed_sent(void) {
     start();
     hello();
     struct tern_companion_msg q = send_to(bob, 1, "hello");
     request(&q);
     uint32_t id = sent(0).id;
     board.n_out = 0;
-    link_aired(&companion, id);
+    link_taken(&companion, id);
     CHECK_EQ_I64(sent(0).type, TERN_C_STATE);
     CHECK_EQ_I64(sent(0).state, TERN_C_WAITING);
     CHECK_EQ_I64(sent(0).reason, TERN_C_WAIT_UNNAMED);
@@ -545,7 +571,8 @@ int main(void) {
     RUN(requests_it_cannot_read_are_answered);
     RUN(a_send_sent_again_is_one_message);
     RUN(a_send_it_cannot_take_is_refused);
-    RUN(a_message_on_the_air_is_not_claimed_sent);
+    RUN(a_message_on_its_way_is_not_overwritten);
+    RUN(a_message_handed_over_is_not_claimed_sent);
     RUN(first_contact_failing_gives_up_what_waited_for_it);
     RUN(reading_marks_received_messages_read);
     RUN(received_text_is_cut_to_what_a_message_carries);
