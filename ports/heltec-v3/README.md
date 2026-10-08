@@ -58,6 +58,7 @@ Type commands into the serial terminal:
 | `send <text>` | Send up to 128 bytes to the peer. |
 | `routes` | The boards this one hears, how well each hears the other, and the routes it has. |
 | `selftest` | Run a handshake between two nodes in the board's memory, and time it. |
+| `forget` | Forget every Bluetooth client that has paired ([the companion link](#over-bluetooth)). |
 
 Holding **PRG** for a second sends a ping. A board that hears a ping answers with a pong saying
 how strongly it heard it, so one ping checks both directions. A short press shows the
@@ -99,6 +100,15 @@ loop. If it reads upside down, `menuconfig`, **Turn the screen upside down**.
 A board makes its identity the first time it starts: 32 random bytes from the ESP32's hardware
 generator, saved to flash. Its address is the Ed25519 public key of that seed, and stays the same
 until the flash is erased.
+
+The generator gives true random numbers only while it has a source of entropy. Espressif's
+[documentation for it](https://docs.espressif.com/projects/esp-idf/en/v5.5/esp32s3/api-reference/system/random.html)
+names two: the chip's internal noise source, which `bootloader_random_enable()` turns on, and
+the radio, while Wi-Fi or Bluetooth is on. The noise source must be off before Bluetooth starts.
+So the board starts with the noise source on, makes its identity and the router's seed from it,
+and turns it off as Bluetooth starts; from then on, Bluetooth is the source, and every key made
+after it, a first contact's included, is made from it. If Bluetooth does not start, the noise
+source goes back on.
 
 First contact is the specification's: an EDHOC handshake of four frames, of 45, 53, 73 and 17
 bytes. Neither address goes over the air in clear, each board proves it holds the key behind its
@@ -241,11 +251,27 @@ What the board offers is what the demo is:
   forbids claiming more than the node knows, so the state never reaches "sent" or "delivered".
   That changes when the board sends along routes ([forwarding](https://github.com/ternmesh/spec/blob/main/draft/forwarding.md)).
 * **Settings.** Region, role and power are saved to flash and applied by a restart, after the
-  board has answered; a power or region the antenna setting does not allow is refused. A
-  Bluetooth passkey is kept for when there is Bluetooth.
+  board has answered; a power or region the antenna setting does not allow is refused. The
+  Bluetooth passkey applies from the next pairing.
 * **Battery** is not measured yet, and is reported as unknown.
 
 Messages sent with `send` and pings go the same way as a client's, so a client sees them too.
+
+### Over Bluetooth
+
+The board also offers the link over Bluetooth LE, as the draft's
+[Bluetooth profile](https://github.com/ternmesh/spec/blob/main/draft/companion.md#bluetooth-le)
+has it. It advertises the service as `Tern`, with nothing of its address, and takes one client
+at a time, beside one on USB. Both are clients at once: each says `HELLO` and syncs for itself,
+and both hear what changes.
+
+A client must pair before it can write or hear anything: LE Secure Connections only, with a
+passkey. By default the passkey is a new one for each pairing, shown on the screen; type it into
+the client. `SET` 4 sets a fixed one instead, from 0 to 999999. A board with no screen and no
+fixed passkey does not pair. A client that has paired keeps its bond, kept in flash, and may
+connect again without a passkey. `forget` on the console forgets every bonded client.
+
+Bluetooth is always on. What it costs a battery is not measured yet.
 
 ## How it is put together
 
@@ -255,7 +281,8 @@ Messages sent with `send` and pings go the same way as a client's, so a client s
 | `main/demo.c` | The board's identity, first contact with its retries, and the saved session. It has no hardware code, so `tests/demo.c` tests it on a host. |
 | `main/status.c` | The snapshot the screen is drawn from, and its pages as lines of text. |
 | `main/display.c` | The picture of the screen, its font, and which parts of it have changed. With `status.c`, tested on a host by `tests/status.c`. |
-| `main/link.c` | The companion link: contacts, messages and what became of them, and the answers and news a client gets. No hardware code; tested on a host by `tests/link.c`, and with `tools/companion.py` by `tests/link_script.py`. |
+| `main/link.c` | The companion link: contacts, messages and what became of them, and the answers and news each client gets, on USB and over Bluetooth. No hardware code; tested on a host by `tests/link.c`, and with `tools/companion.py` by `tests/link_script.py`. |
+| `main/ble.c` | The companion link's Bluetooth LE service, pairing and advertising, over NimBLE, which runs in its own task and reports to the loop through a queue. |
 | `main/main.c` | One loop that polls the radio, the serial port, the button and the screen. |
 | `../../src/sx126x.c` | The SX1262 driver, part of the core and shared with future boards. |
 
