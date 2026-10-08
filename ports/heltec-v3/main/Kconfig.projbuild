@@ -38,6 +38,15 @@ menu "Tern demo"
             If the bench screen reads upside down on your board, or the board is mounted the other
             way up, this turns it round.
 
+    config TERN_SCREEN_SLEEP_S
+        int "Seconds before the screen sleeps (0: never)"
+        range 0 65535
+        default 60
+        help
+            How long the screen stays on after a press of PRG, a message heard or a pairing. A
+            press while it is off only wakes it. 'screen sleep <seconds>' on the console changes
+            it on a running board, and the board keeps the change.
+
     comment "For experiments. Changing these takes the board off its region's profile."
 
     config TERN_FREQ_HZ

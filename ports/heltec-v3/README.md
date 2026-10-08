@@ -62,6 +62,7 @@ Type commands into the serial terminal:
 | `routes` | The boards this one hears, how well each hears the other, and the routes it has. |
 | `selftest` | Run a handshake between two nodes in the board's memory, and time it. |
 | `forget` | Forget every Bluetooth client that has paired ([the companion link](#over-bluetooth)). |
+| `screen sleep <seconds>` | How long the [screen](#the-screen) stays on; `0` keeps it on. `screen` alone says. |
 
 Holding **PRG** for a second sends a ping. A board that hears a ping answers with a pong saying
 how strongly it heard it, so one ping checks both directions. A short press shows the
@@ -97,6 +98,12 @@ should show the person carrying it is a different question, and
 The screen is drawn from one snapshot of the board (`main/status.h`), not from the demo's own
 variables, and only the lines that change are sent to it, one at a time between turns of the
 loop. If it reads upside down, `menuconfig`, **Turn the screen upside down**.
+
+The screen turns off a minute after the last thing worth seeing: a press of PRG, a message heard,
+or a [pairing](#over-bluetooth), whose passkey stays up until the pairing ends. A press while it
+is off only turns it on again. `screen sleep <seconds>` changes the minute, and the board keeps
+the change; `menuconfig`, **Seconds before the screen sleeps**, sets what a new board starts with.
+Off, the panel keeps its picture and draws a few microamps instead of several milliamps.
 
 ## Identity and first contact
 

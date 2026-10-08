@@ -28,4 +28,8 @@ bool board_screen_init(void);
  * the top (display.h). About 3 ms at the bus's 400 kHz. */
 bool board_screen_page(int page, const uint8_t data[128]);
 
+/* Turns the panel and its charge pump off, or on again. Off, it draws a few microamps and keeps
+ * its picture, so it comes back showing what it showed. */
+bool board_screen_power(bool on);
+
 #endif
