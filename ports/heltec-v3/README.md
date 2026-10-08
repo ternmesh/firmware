@@ -21,16 +21,23 @@ Flashing replaces whatever is on the board, Meshtastic included, along with its 
 
 ### Without installing anything
 
-1. Open the latest CI run for this branch, and under **Artifacts** download `tern-heltec-v3`.
-   Unzip it.
+1. From the latest [release](https://github.com/ternmesh/firmware/releases), download the image
+   for where you are: `tern-heltec-v3-us915-<version>.bin` for the United States and Canada,
+   `tern-heltec-v3-eu868-<version>.bin` for Europe. A board sends on its region's frequency as
+   soon as it starts, so take the right one.
 2. In Chrome or Edge, open [esptool-js](https://espressif.github.io/esptool-js/), plug in the
    board over USB, and press **Connect**.
-3. Set the flash address to `0x0`, choose `tern-heltec-v3-full.bin`, and press **Program**.
+3. Set the flash address to `0x0`, choose the image, and press **Program**.
 4. Press the board's RST button, then open a serial terminal at 115200 baud: esptool-js has one
    under **Console**, or use the Arduino IDE's serial monitor, or `screen /dev/ttyUSB0 115200`.
 
 Flashing the full image this way also erases the board's identity and its session. It starts
 again with a new address, and the other board has to make contact with that one.
+
+To move a board that already runs Tern to a newer release and keep its address, sessions and
+contacts, write the release's `-app.bin` image at `0x10000` instead.
+
+Every CI run also keeps the same images of its commit, under **Artifacts** as `tern-heltec-v3`.
 
 ### With ESP-IDF
 
@@ -47,8 +54,12 @@ If flashing stops with "Invalid head of packet", the USB-to-serial chip is not k
 `-b 230400`.
 
 `idf.py menuconfig`, under **Tern demo**, chooses the region, the transmit power and the
-antenna's gain. The default region is US915. The image CI builds is for US915 too: for EU868,
-build it yourself.
+antenna's gain. The default region is US915.
+
+`./release.sh <version>` builds what a release carries, an image for each region, into
+`release/`. A tag `v<version>` makes the release from it
+([release.yml](../../.github/workflows/release.yml)), with the notes in
+`docs/releases/v<version>.md`.
 
 ## Using it
 
