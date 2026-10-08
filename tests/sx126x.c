@@ -383,6 +383,22 @@ static void receiving_follows_the_chips_flags(void) {
     CHECK(tern_radio_receiving(&r) == 0);
 }
 
+static void sleep_is_from_standby_and_cold(void) {
+    static struct bus b;
+    static struct tern_sx126x d;
+    start(&d, &b);
+    struct tern_radio r = tern_sx126x_radio(&d);
+    struct tern_radio_config cfg = us_config();
+    CHECK(tern_radio_configure(&r, &cfg) == TERN_OK);
+    CHECK(tern_radio_receive(&r) == TERN_OK);
+    b.count = 0;
+    CHECK(tern_sx126x_sleep(&d) == TERN_OK);
+    CHECK_EQ_I64(b.count, 2);
+    CHECK(SENT(b, 0, 0x80, 0x00)); /* SetStandby(STDBY_RC): SetSleep is taken only from there */
+    CHECK(SENT(b, 1, 0x84, 0x00)); /* SetSleep: cold start, no RTC wake */
+    CHECK(!d.configured);
+}
+
 int main(void) {
     RUN(init_sets_up_the_board);
     RUN(configure_sends_the_datasheet_commands);
@@ -391,5 +407,6 @@ int main(void) {
     RUN(poll_reports_what_happened);
     RUN(poll_counts_what_the_receiver_saw);
     RUN(receiving_follows_the_chips_flags);
+    RUN(sleep_is_from_standby_and_cold);
     return CHECK_DONE();
 }

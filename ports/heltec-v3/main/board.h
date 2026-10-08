@@ -40,4 +40,14 @@ bool board_battery_init(void);
  * it learns which way the board's switch turns, and 2 ms after. */
 uint16_t board_battery_mv(void);
 
+/* Turns the board off: the display unpowered, the chip in deep sleep, drawing tens of microamps,
+ * once PRG has been let go. A press of PRG turns it on again, and so does `wake_after_s` passing,
+ * if it is not 0. Either way it starts from the top, as at power on. The radio is put to sleep by
+ * the caller first (tern_sx126x_sleep()). Never returns. */
+__attribute__((noreturn)) void board_off(uint32_t wake_after_s);
+
+/* Whether this start is the timer board_off() was given running out, rather than a press or
+ * power coming on. */
+bool board_woke_by_timer(void);
+
 #endif

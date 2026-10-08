@@ -95,7 +95,7 @@ On the boards Tern starts with, a 128×64 monochrome display and one button. Its
 
 | Page | Shows | On the Heltec V3 |
 |---|---|---|
-| Home | whether the node is on the air, how many nodes it hears, unread messages, battery, airtime left | all of it; the battery as a charge estimated from its voltage |
+| Home | whether the node is on the air, how many nodes it hears, unread messages, battery, airtime left | all of it; the battery as a charge estimated from its voltage, said to be low at 10% or less, and charging as far as the voltage shows |
 | Messages | the latest few, newest first, with who they are from and their delivery state | one at a time; a long press shows the one before |
 | Contact card | this node's address as a QR code and a short code to read aloud, for someone adding it | **Share**, the QR code and the short code, and **This node**, the short code and the address in hex |
 | Air | the airtime account: used, allowed, and when more is free | the region's limit; the budget is not drafted |
@@ -104,8 +104,10 @@ On the boards Tern starts with, a 128×64 monochrome display and one button. Its
 Controls on one button: a short press moves to the next page, a long press acts on the page shown
 (show the message before, or on a bench page send a ping), and any press wakes the screen. A
 message shown is read once a press says someone saw it. The screen goes dark after a while on a
-battery, and lights when a message arrives, showing it. Boards with more buttons or a touch screen
-get more, but nothing should need them.
+battery, and lights when a message arrives, showing it. Holding the button for five seconds turns
+the node off, with a countdown from the second second so that letting go keeps it on, as Meshtastic
+does; a press turns it on again. A node turns itself off when its battery is empty, and says so.
+Boards with more buttons or a touch screen get more, but nothing should need them.
 
 Two screens come before the pages. At start, the node's name and firmware version, then its
 region and short code, for a few seconds or until a press: what Meshtastic and MeshCore show, and

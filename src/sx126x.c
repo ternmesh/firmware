@@ -4,6 +4,7 @@
 
 /* Opcodes and registers from the SX1261/2 datasheet, section 13 (commands) and 15 (errata). */
 enum {
+    CMD_SET_SLEEP = 0x84,
     CMD_SET_STANDBY = 0x80,
     CMD_SET_RX = 0x82,
     CMD_SET_TX = 0x83,
@@ -315,6 +316,17 @@ static int sx_standby(void *ctx) {
     struct tern_sx126x *d = ctx;
     tern_listen_over(&d->listen);
     return CMD(d, CMD_SET_STANDBY, 0x00);
+}
+
+/* SetSleep is taken only in standby (section 13.1.1). A cold start, with nothing kept and no
+ * timer to wake on: the least the chip draws, and NRESET and tern_sx126x_init() bring it back. */
+int tern_sx126x_sleep(struct tern_sx126x *d) {
+    int err = sx_standby(d);
+    if (err == TERN_OK) {
+        err = CMD(d, CMD_SET_SLEEP, 0x00);
+    }
+    d->configured = false;
+    return err;
 }
 
 /* Asks the chip what has happened, and notes what the receiver got as far as, counted whether or

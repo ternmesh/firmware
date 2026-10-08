@@ -33,4 +33,34 @@ uint16_t power_pick(struct power_sense *s, uint16_t at_low_mv, uint16_t at_high_
  * percent or so, that reads high while it charges. POWER_UNKNOWN below POWER_NONE_MV. */
 uint8_t power_percent(uint16_t mv);
 
+/* Whether the battery is charging, and whether it is empty, from its readings one after another.
+ *
+ * The board has no wire from its charger to the chip, so charging is inferred from the voltage:
+ * plugging a charger in raises the cell's voltage at once by the charging current through its
+ * internal resistance, typically 30 to 80 mV, and then it climbs; unplugging drops it by as much.
+ * So a step up of POWER_STEP_MV or more between two readings is taken for a charger, and a step
+ * down, or the voltage falling POWER_SAG_MV below the highest reading since, for its going. It is
+ * an estimate: a full battery plugged in takes no current and shows no step, and readings taken
+ * while the radio sends sag, so the caller does not read then.
+ *
+ * Empty is two readings in a row below POWER_EMPTY_MV while not charging: one low reading may be
+ * a sag under load. */
+#define POWER_STEP_MV 30
+#define POWER_SAG_MV 40
+#define POWER_EMPTY_MV 3300   /* below this the board turns itself off */
+#define POWER_RESTART_MV 3450 /* and above this, charged a little, it turns on again */
+#define POWER_LOW_PERCENT 10  /* at this or below, the screen says the battery is low */
+
+struct power_watch {
+    uint16_t last, peak; /* millivolts: the last reading, and the highest while charging */
+    bool charging;
+    uint8_t low; /* readings in a row below POWER_EMPTY_MV */
+};
+
+/* Takes a reading: millivolts, or 0 for no battery, which forgets everything. */
+void power_watch(struct power_watch *w, uint16_t mv);
+
+/* Whether the battery is too low to run on: the board should turn itself off. */
+bool power_empty(const struct power_watch *w);
+
 #endif

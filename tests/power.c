@@ -51,10 +51,78 @@ static void a_voltage_is_a_charge(void) {
     }
 }
 
+static void a_step_up_is_a_charger(void) {
+    struct power_watch w = {0};
+    power_watch(&w, 3700);
+    power_watch(&w, 3695); /* running down */
+    CHECK(!w.charging);
+    power_watch(&w, 3750); /* plugged in: 55 mV at once */
+    CHECK(w.charging);
+    power_watch(&w, 3752);
+    power_watch(&w, 3760); /* and climbing */
+    CHECK(w.charging);
+    power_watch(&w, 3740); /* noise is not enough to stop it */
+    CHECK(w.charging);
+    power_watch(&w, 3700); /* unplugged: a step down */
+    CHECK(!w.charging);
+}
+
+static void a_slow_fall_is_not_charging(void) {
+    struct power_watch w = {0};
+    power_watch(&w, 3700);
+    power_watch(&w, 3735); /* a reading after a sag, say */
+    CHECK(w.charging);
+    for (uint16_t mv = 3725; mv > 3680; mv -= 10) {
+        power_watch(&w, mv); /* ten at a time, no step, but well below the highest */
+    }
+    CHECK(!w.charging);
+}
+
+static void small_changes_are_not_a_charger(void) {
+    struct power_watch w = {0};
+    uint16_t mv[] = {3800, 3790, 3810, 3795, 3820, 3800};
+    for (unsigned i = 0; i < sizeof mv / sizeof mv[0]; i++) {
+        power_watch(&w, mv[i]);
+        CHECK(!w.charging);
+    }
+}
+
+static void empty_takes_two_low_readings(void) {
+    struct power_watch w = {0};
+    power_watch(&w, 3400);
+    power_watch(&w, 3290); /* one low reading: a sag, perhaps */
+    CHECK(!power_empty(&w));
+    power_watch(&w, 3310);
+    power_watch(&w, 3290);
+    CHECK(!power_empty(&w));
+    power_watch(&w, 3280);
+    CHECK(power_empty(&w));
+    power_watch(&w, 0); /* taken out */
+    CHECK(!power_empty(&w));
+    CHECK(!w.charging && w.last == 0);
+}
+
+static void a_charger_on_an_empty_battery_is_not_empty(void) {
+    struct power_watch w = {0};
+    power_watch(&w, 3250);
+    power_watch(&w, 3240);
+    CHECK(power_empty(&w));
+    power_watch(&w, 3290); /* plugged in, still under 3300 */
+    CHECK(w.charging);
+    CHECK(!power_empty(&w));
+    power_watch(&w, 3295);
+    CHECK(!power_empty(&w));
+}
+
 int main(void) {
     RUN(a_v3_2_is_found_by_its_reading);
     RUN(a_v3_1_is_found_even_when_off_is_not_quite_off);
     RUN(no_battery_teaches_nothing);
     RUN(a_voltage_is_a_charge);
+    RUN(a_step_up_is_a_charger);
+    RUN(a_slow_fall_is_not_charging);
+    RUN(small_changes_are_not_a_charger);
+    RUN(empty_takes_two_low_readings);
+    RUN(a_charger_on_an_empty_battery_is_not_empty);
     return CHECK_DONE();
 }

@@ -4,12 +4,16 @@
 
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
+#include "driver/rtc_io.h"
 #include "driver/spi_master.h"
 #include "esp_adc/adc_cali.h"
 #include "esp_adc/adc_cali_scheme.h"
 #include "esp_adc/adc_oneshot.h"
 #include "esp_rom_sys.h"
+#include "esp_sleep.h"
 #include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "power.h"
 #include "tern/err.h"
 
@@ -109,6 +113,9 @@ int board_init(struct tern_sx126x *radio) {
 bool board_button(void) {
     static bool ready;
     if (!ready) {
+        /* After board_off(), PRG woke the board as an RTC pin, and stays one until it is given
+         * back. */
+        rtc_gpio_deinit(PIN_BUTTON);
         gpio_config_t button = {.pin_bit_mask = 1ull << PIN_BUTTON,
                                 .mode = GPIO_MODE_INPUT,
                                 .pull_up_en = GPIO_PULLUP_ENABLE};
@@ -138,7 +145,10 @@ bool board_screen_init(void) {
     if (gpio_config(&out) != ESP_OK) {
         return false;
     }
-    /* Power, then hold RES# low for more than the 3 us the datasheet asks (section 8.9). */
+    /* Power, then hold RES# low for more than the 3 us the datasheet asks (section 8.9). Vext was
+     * held off through deep sleep if the board turned itself off (board_off()). */
+    gpio_hold_dis(PIN_VEXT);
+    gpio_deep_sleep_hold_dis();
     gpio_set_level(PIN_VEXT, 0);
     gpio_set_level(PIN_OLED_RESET, 0);
     esp_rom_delay_us(20000);
@@ -275,4 +285,30 @@ uint16_t board_battery_mv(void) {
      * known, low, which is off on the V3.2 and costs the others a few microamps. */
     gpio_set_level(PIN_ADC_CTRL, sense.known && !sense.high_enables ? 1 : 0);
     return mv;
+}
+
+/* --- Turning off ----------------------------------------------------------------------------- */
+
+bool board_woke_by_timer(void) { return esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER; }
+
+/* Deep sleep: only the RTC domain stays up, to watch PRG (an RTC pin, GPIO0) and the timer. The
+ * display's power is held off through it, since Vext (GPIO36) is not an RTC pin and would
+ * otherwise float. PRG must be let go first, or the press that turned the board off would wake it
+ * again. Waking is a restart: app_main() runs from the top. */
+void board_off(uint32_t wake_after_s) {
+    gpio_set_level(PIN_LED, 0);
+    gpio_set_level(PIN_VEXT, 1);
+    gpio_hold_en(PIN_VEXT);
+    gpio_deep_sleep_hold_en();
+    while (board_button()) {
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    vTaskDelay(pdMS_TO_TICKS(50)); /* the contacts settle */
+    rtc_gpio_pullup_en(PIN_BUTTON);
+    rtc_gpio_pulldown_dis(PIN_BUTTON);
+    esp_sleep_enable_ext0_wakeup(PIN_BUTTON, 0);
+    if (wake_after_s != 0) {
+        esp_sleep_enable_timer_wakeup((uint64_t)wake_after_s * 1000000u);
+    }
+    esp_deep_sleep_start();
 }

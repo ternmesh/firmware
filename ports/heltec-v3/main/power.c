@@ -39,3 +39,33 @@ uint8_t power_percent(uint16_t mv) {
     }
     return 0;
 }
+
+void power_watch(struct power_watch *w, uint16_t mv) {
+    if (mv < POWER_NONE_MV) {
+        *w = (struct power_watch){0};
+        return;
+    }
+    if (w->last != 0) {
+        if (mv >= w->last + POWER_STEP_MV) {
+            w->charging = true;
+            w->peak = mv;
+        } else if (mv + POWER_STEP_MV <= w->last) {
+            w->charging = false;
+        }
+    }
+    if (w->charging) {
+        if (mv > w->peak) {
+            w->peak = mv;
+        } else if (mv + POWER_SAG_MV <= w->peak) {
+            w->charging = false; /* a slow fall: running down, not charging */
+        }
+    }
+    w->last = mv;
+    if (mv < POWER_EMPTY_MV && !w->charging) {
+        w->low = w->low < UINT8_MAX ? (uint8_t)(w->low + 1) : w->low;
+    } else {
+        w->low = 0;
+    }
+}
+
+bool power_empty(const struct power_watch *w) { return w->low >= 2 && !w->charging; }
