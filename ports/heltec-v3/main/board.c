@@ -5,8 +5,12 @@
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
 #include "driver/spi_master.h"
+#include "esp_adc/adc_cali.h"
+#include "esp_adc/adc_cali_scheme.h"
+#include "esp_adc/adc_oneshot.h"
 #include "esp_rom_sys.h"
 #include "esp_timer.h"
+#include "power.h"
 #include "tern/err.h"
 
 /* Heltec's pin map for the V3. */
@@ -22,6 +26,14 @@
 #define PIN_OLED_SDA 17
 #define PIN_OLED_SCL 18
 #define PIN_OLED_RESET 21
+#define PIN_ADC_CTRL 37 /* switches the battery's divider onto PIN_BATTERY (power.h) */
+#define PIN_BATTERY 1   /* ADC1, channel 0 */
+
+/* The divider, from Heltec's schematics for the V3, V3.1 and V3.2: 390k over 100k. */
+#define DIVIDER_TOP_K 390
+#define DIVIDER_BOTTOM_K 100
+#define BATTERY_SETTLE_US 2000 /* after the switch, before reading: far longer than it needs */
+#define BATTERY_SAMPLES 16
 
 #define OLED_ADDRESS 0x3C
 #define OLED_TIMEOUT_MS 50
@@ -30,6 +42,11 @@
 
 static spi_device_handle_t spi;
 static i2c_master_dev_handle_t oled;
+static adc_oneshot_unit_handle_t adc;
+static adc_cali_handle_t adc_cali;
+static adc_channel_t battery_channel;
+static bool have_adc, have_cali;
+static struct power_sense sense;
 
 tern_time board_now(void) { return (tern_time)esp_timer_get_time() * 1000; }
 
@@ -187,4 +204,65 @@ bool board_screen_power(bool on) {
     static const uint8_t off_seq[] = {OLED_COMMANDS, 0xAE, 0x8D, 0x10};
     static const uint8_t on_seq[] = {OLED_COMMANDS, 0x8D, 0x14, 0xAF};
     return on ? oled_send(on_seq, sizeof on_seq) : oled_send(off_seq, sizeof off_seq);
+}
+
+bool board_battery_init(void) {
+    adc_unit_t unit;
+    gpio_config_t ctrl = {.pin_bit_mask = 1ull << PIN_ADC_CTRL, .mode = GPIO_MODE_OUTPUT};
+    if (gpio_config(&ctrl) != ESP_OK ||
+        adc_oneshot_io_to_channel(PIN_BATTERY, &unit, &battery_channel) != ESP_OK) {
+        return false;
+    }
+    adc_oneshot_unit_init_cfg_t init = {.unit_id = unit};
+    /* 2.5 dB reads to about 1.25 V: a full cell, 4.2 V, is 0.86 V after the divider. */
+    adc_oneshot_chan_cfg_t chan = {.atten = ADC_ATTEN_DB_2_5, .bitwidth = ADC_BITWIDTH_DEFAULT};
+    if (adc_oneshot_new_unit(&init, &adc) != ESP_OK ||
+        adc_oneshot_config_channel(adc, battery_channel, &chan) != ESP_OK) {
+        return false;
+    }
+    adc_cali_curve_fitting_config_t cal = {.unit_id = unit,
+                                           .chan = battery_channel,
+                                           .atten = ADC_ATTEN_DB_2_5,
+                                           .bitwidth = ADC_BITWIDTH_DEFAULT};
+    have_cali = adc_cali_create_scheme_curve_fitting(&cal, &adc_cali) == ESP_OK;
+    have_adc = true;
+    return true;
+}
+
+/* The battery's millivolts with GPIO37 at `level`, or 0 if the ADC would not say. */
+static uint16_t battery_at(int level) {
+    int sum = 0;
+    gpio_set_level(PIN_ADC_CTRL, level);
+    esp_rom_delay_us(BATTERY_SETTLE_US);
+    for (int i = 0; i < BATTERY_SAMPLES; i++) {
+        int raw = 0, mv = 0;
+        if (adc_oneshot_read(adc, battery_channel, &raw) != ESP_OK) {
+            return 0;
+        }
+        if (!have_cali || adc_cali_raw_to_voltage(adc_cali, raw, &mv) != ESP_OK) {
+            mv = raw * 1250 / 4095; /* uncalibrated: the range taken as even */
+        }
+        sum += mv;
+    }
+    long at_pin = sum / BATTERY_SAMPLES;
+    long mv = at_pin * (DIVIDER_TOP_K + DIVIDER_BOTTOM_K) / DIVIDER_BOTTOM_K;
+    return (uint16_t)(mv > UINT16_MAX ? UINT16_MAX : mv);
+}
+
+uint16_t board_battery_mv(void) {
+    if (!have_adc) {
+        return 0;
+    }
+    uint16_t low = 0, high = 0;
+    if (!sense.known || !sense.high_enables) {
+        low = battery_at(0);
+    }
+    if (!sense.known || sense.high_enables) {
+        high = battery_at(1);
+    }
+    uint16_t mv = power_pick(&sense, low, high);
+    /* Left off until the next reading: the other way from the one that turns it on. Until that is
+     * known, low, which is off on the V3.2 and costs the others a few microamps. */
+    gpio_set_level(PIN_ADC_CTRL, sense.known && !sense.high_enables ? 1 : 0);
+    return mv;
 }

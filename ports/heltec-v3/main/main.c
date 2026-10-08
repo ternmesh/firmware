@@ -57,6 +57,7 @@
 #include "link.h"
 #include "nvs.h"
 #include "nvs_flash.h"
+#include "power.h"
 #include "status.h"
 #include "tern/companion.h"
 #include "tern/duty.h"
@@ -80,6 +81,7 @@
 #define TX_MIN_DBM (-9) /* the SX1262's least */
 #define POWER_UNSET INT8_MIN
 #define SCREEN_MS 500  /* how often the bench screen is drawn again */
+#define BATTERY_S 30   /* how often the battery is read */
 #define HOLD_MS 1000   /* how long PRG is held to send a ping */
 #define SCREEN_TRIES 5 /* writes failed in a row before the screen is given up */
 #define FIRMWARE "tern " CONFIG_TERN_VERSION " heltec-v3"
@@ -159,6 +161,7 @@ static uint32_t clock_base; /* seconds since 1970 as a client last set them, or 
 static tern_time clock_at;
 static bool restart_due; /* a setting saved that takes a restart, once its answer has gone */
 static bool have_ble;
+static uint16_t battery_mv;      /* 0 for none, or not read */
 static uint32_t pairing_passkey; /* shown on the screen while pairing, or PAIRING_NONE */
 #define PAIRING_NONE 0xFFFFFFFFu
 /* A message sealed and not yet with the forwarder: sealing takes a counter and saves the session,
@@ -1155,9 +1158,8 @@ static void link_view(void *ctx, struct link_view *v) {
         v->used_ms = (uint32_t)(tern_duty_used(&duty, now) / 1000000);
         v->wait_ms = duty_wait_ms(now);
     }
-    /* The board's battery is not read yet. */
-    v->millivolts = 0;
-    v->percent = 255;
+    v->millivolts = battery_mv;
+    v->percent = power_percent(battery_mv); /* 255, unknown, when there is no battery */
 }
 
 static const struct tern_region *region_named(const uint8_t *name, size_t len) {
@@ -1657,6 +1659,7 @@ static void restart_if_due(void) {
  * does not start, the noise source is turned on again. Either way, every key made after this, a
  * first contact's included, draws on a true source. */
 _Static_assert(PASSKEY_RANDOM == BLE_PASSKEY_RANDOM, "one spelling of a random passkey");
+_Static_assert(UI_BATTERY_UNKNOWN == POWER_UNKNOWN, "one spelling of a battery not known");
 static void start_bluetooth(void) {
     bootloader_random_disable();
     have_ble = ble_start(settings.passkey, have_screen);
@@ -1849,6 +1852,7 @@ static void fill_ui(struct ui_node *u) {
     u->dbm = cfg.tx_power_dbm;
     memcpy(u->address, demo.id.address, TERN_ADDRESS_LEN);
     u->bench = bench;
+    u->battery = power_percent(battery_mv);
     for (int i = 0; i < NEIGHBOURS; i++) {
         if (neighbours[i].used) {
             u->nearby++;
@@ -1992,6 +1996,16 @@ static void poll_screen(void) {
     }
     screen.dirty |= (uint8_t)(1u << page);
     screen_failed();
+}
+
+/* Reads the battery every BATTERY_S: a couple of milliseconds, so not often. */
+static void poll_battery(void) {
+    static tern_time due;
+    if (board_now() < due) {
+        return;
+    }
+    due = board_now() + (tern_time)BATTERY_S * 1000000000LL;
+    battery_mv = board_battery_mv();
 }
 
 static void ping(void) {
@@ -2197,6 +2211,9 @@ void app_main(void) {
     link_open(&companion, LINK_SERIAL, LINK_LAPSE, 0);
     tern_companion_parser_init(&parser);
 
+    if (!board_battery_init()) {
+        printf("the battery's ADC did not start: the battery is reported as unknown\n");
+    }
     have_screen = board_screen_init();
     if (have_screen) {
         display_init(&screen);
@@ -2223,6 +2240,7 @@ void app_main(void) {
         poll_ble();
         poll_button();
         poll_screen();
+        poll_battery();
         if (transmitting && board_now() > tx_deadline) {
             /* TX_DONE never came. Listen again rather than stay busy for ever. */
             printf("the radio never said the frame had gone; listening again\n");

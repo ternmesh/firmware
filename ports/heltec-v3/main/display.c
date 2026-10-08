@@ -141,6 +141,43 @@ void display_text(struct display *d, int page, const char *text, bool inverse) {
     put(d, page, row);
 }
 
+void display_set(struct display *d, int x, int y, bool on) {
+    if (x < 0 || x >= DISPLAY_WIDTH || y < 0 || y >= DISPLAY_PAGES * 8) {
+        return;
+    }
+    uint8_t *b = &d->px[y / 8][x];
+    uint8_t was = *b;
+    if (on) {
+        *b |= (uint8_t)(1u << (y % 8));
+    } else {
+        *b &= (uint8_t) ~(1u << (y % 8));
+    }
+    if (*b != was) {
+        d->dirty |= (uint8_t)(1u << (y / 8));
+    }
+}
+
+void display_text_at(struct display *d, int page, int x, const char *text) {
+    uint8_t row[DISPLAY_WIDTH];
+    if (page < 0 || page >= DISPLAY_PAGES || x < 0) {
+        return;
+    }
+    memcpy(row, d->px[page], sizeof row);
+    for (size_t at = (size_t)x; *text != '\0' && at < DISPLAY_WIDTH; text++, at += CELL_W) {
+        const uint8_t *g = glyph(*text);
+        for (size_t i = 0; i < CELL_W && at + i < DISPLAY_WIDTH; i++) {
+            row[at + i] = i < GLYPH_W ? g[i] : 0;
+        }
+    }
+    put(d, page, row);
+}
+
+void display_copy(struct display *d, const struct display *from) {
+    for (int page = 0; page < DISPLAY_PAGES; page++) {
+        put(d, page, from->px[page]);
+    }
+}
+
 /* Four bits of a glyph's column, each made two pixels tall: a byte of the doubled column. */
 static uint8_t doubled(unsigned bits) {
     uint8_t out = 0;

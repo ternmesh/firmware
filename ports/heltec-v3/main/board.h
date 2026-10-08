@@ -32,4 +32,12 @@ bool board_screen_page(int page, const uint8_t data[128]);
  * its picture, so it comes back showing what it showed. */
 bool board_screen_power(bool on);
 
+/* The battery's measuring circuit (power.h): false if the ADC would not start, and the board
+ * then reports no battery. */
+bool board_battery_init(void);
+
+/* The battery's voltage in millivolts, or 0 for none fitted. Takes about 4 ms the first time, while
+ * it learns which way the board's switch turns, and 2 ms after. */
+uint16_t board_battery_mv(void);
+
 #endif

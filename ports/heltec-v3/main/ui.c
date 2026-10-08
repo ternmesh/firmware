@@ -1,5 +1,7 @@
 #include "ui.h"
 
+#include "qr.h"
+
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
@@ -128,8 +130,13 @@ static unsigned left_percent(const struct ui_node *n) {
 }
 
 static void home(const struct ui_node *n, struct frame *f) {
-    char wait[16];
-    ends(f->rows[0], "Tern", n->region);
+    char wait[16], right[24];
+    if (n->battery != UI_BATTERY_UNKNOWN) {
+        snprintf(right, sizeof right, "%u%% %s", (unsigned)n->battery, n->region);
+    } else {
+        snprintf(right, sizeof right, "%s", n->region);
+    }
+    ends(f->rows[0], "Tern", right);
     f->big = 2;
     if (n->bench) {
         snprintf(f->big_text, sizeof f->big_text, "Bench mode");
@@ -289,8 +296,56 @@ static void air(const struct ui_node *n, struct frame *f) {
     }
 }
 
+static const char hex[] = "0123456789ABCDEF";
+
+/* The address as the QR code holds it: sixty-four upper-case hex digits, which is what the This
+ * node page shows and what the console's 'contact' takes. */
+static void address_text(const struct ui_node *n, char out[2 * TERN_ADDRESS_LEN + 1]) {
+    for (int i = 0; i < TERN_ADDRESS_LEN; i++) {
+        out[2 * i] = hex[n->address[i] >> 4];
+        out[2 * i + 1] = hex[n->address[i] & 0x0F];
+    }
+    out[2 * TERN_ADDRESS_LEN] = '\0';
+}
+
+#define QR_SCALE 2   /* pixels to a module: 58 of the screen's 64 rows */
+#define QR_GROUND 70 /* the lit block the code sits in, from the left edge */
+#define QR_LEFT ((QR_GROUND - QR_SIZE * QR_SCALE) / 2)
+#define QR_TOP ((DISPLAY_PAGES * 8 - QR_SIZE * QR_SCALE) / 2)
+#define QR_WORDS (QR_GROUND + 4) /* where the words beside it start */
+
+/* The code dark on light, as every scanner reads it, which on this screen means a lit block with
+ * the dark modules left unlit; the light margin round it is as wide as the screen leaves. Drawn
+ * whole into a scratch picture, so only what changed is sent. */
+static void share(const struct ui_node *n, struct display *d) {
+    static struct display canvas;
+    static struct qr code;
+    char text[2 * TERN_ADDRESS_LEN + 1];
+    display_init(&canvas);
+    address_text(n, text);
+    if (!qr_encode(&code, text, QR_MASK_BEST)) {
+        display_text(&canvas, 3, "No code to show", false);
+        display_copy(d, &canvas);
+        return;
+    }
+    for (int y = 0; y < DISPLAY_PAGES * 8; y++) {
+        for (int x = 0; x < QR_GROUND; x++) {
+            int mx = (x - QR_LEFT) / QR_SCALE, my = (y - QR_TOP) / QR_SCALE;
+            bool inside = x >= QR_LEFT && y >= QR_TOP && mx < QR_SIZE && my < QR_SIZE;
+            display_set(&canvas, x, y, !(inside && qr_dark(&code, mx, my)));
+        }
+    }
+    /* What a phone's camera finds is the address as text, to copy wherever it is wanted. */
+    display_text_at(&canvas, 1, QR_WORDS, "Scan for");
+    display_text_at(&canvas, 2, QR_WORDS, "this");
+    display_text_at(&canvas, 3, QR_WORDS, "node's");
+    display_text_at(&canvas, 4, QR_WORDS, "address");
+    display_text_at(&canvas, 6, QR_WORDS, "Digits:");
+    display_text_at(&canvas, 7, QR_WORDS, "next page");
+    display_copy(d, &canvas);
+}
+
 static void node(const struct ui_node *n, struct frame *f) {
-    static const char hex[] = "0123456789ABCDEF";
     line(f->rows[0], "This node");
     line(f->rows[1], "Its address:");
     /* Sixty-four digits, sixteen a line in two groups of eight, as a person reads them out. */
@@ -342,6 +397,9 @@ void ui_draw(const struct ui_node *n, int page, struct display *d) {
     case UI_AIR:
         air(n, &f);
         break;
+    case UI_SHARE:
+        share(n, d);
+        return;
     case UI_NODE:
         node(n, &f);
         break;
