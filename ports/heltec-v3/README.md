@@ -192,6 +192,7 @@ until `bench off` or a restart.
 | `bench on`, `bench off` | |
 | `sync <hex>` | The sync word, in its one-byte form: `sync 2B` is Meshtastic's. |
 | `power <dBm>` | The power frames are sent at, -9 to 22. |
+| `freq <Hz>`, `sf <n>`, `bw <Hz>` | The channel and modulation, kept inside the region's band: another network's, to listen for it or be heard by it. |
 | `beacon <count> <ms>` | Send so many 24-byte test frames, so far apart. |
 | `counts`, `counts reset` | Frames sent, and what the receiver saw: preambles, headers that checked, headers and frames that did not, whole frames, and of those the test frames. |
 
