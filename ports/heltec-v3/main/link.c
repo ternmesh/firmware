@@ -277,13 +277,23 @@ void link_session_changed(struct link *l, const uint8_t address[TERN_ADDRESS_LEN
 
 void link_asked(struct link *l, tern_time now, const uint8_t address[TERN_ADDRESS_LEN],
                 uint8_t why) {
-    if (l->asked && memcmp(l->asked_address, address, TERN_ADDRESS_LEN) == 0 &&
-        now - l->asked_at < LINK_QUIET) {
-        return;
+    struct link_asked *a = NULL;
+    for (size_t i = 0; i < LINK_ASKED; i++) {
+        struct link_asked *x = &l->asked[i];
+        if (x->used && memcmp(x->address, address, TERN_ADDRESS_LEN) == 0) {
+            if (now - x->at < LINK_QUIET) {
+                return;
+            }
+            a = x;
+            break;
+        }
+        /* Else an empty place, or the one told of longest ago. */
+        if (a == NULL || (a->used && (!x->used || x->at < a->at))) {
+            a = x;
+        }
     }
-    l->asked = true;
-    memcpy(l->asked_address, address, TERN_ADDRESS_LEN);
-    l->asked_at = now;
+    *a = (struct link_asked){.used = true, .at = now};
+    memcpy(a->address, address, TERN_ADDRESS_LEN);
     struct tern_companion_msg m = {.type = TERN_C_ASKED, .why = why};
     memcpy(m.address, address, TERN_ADDRESS_LEN);
     news(l, NULL, &m);
@@ -442,10 +452,12 @@ static void end_session(struct link *l, const struct tern_companion_msg *q) {
         return;
     }
     answer(l, TERN_C_OK, q->seq);
-    /* What the forwarder holds, the board has given up; the rest wait here. */
+    /* Every message to it whose end is not known, with the forwarder or not: the board has let go
+     * of those, and said nothing, so that the answer comes before the news. */
     for (size_t i = 0; i < LINK_MESSAGES; i++) {
         struct link_message *x = &l->messages[i];
-        if (x->used && waiting(x) && memcmp(x->address, q->address, TERN_ADDRESS_LEN) == 0) {
+        if (x->used && (x->state == TERN_C_WAITING || x->state == TERN_C_SENT) &&
+            memcmp(x->address, q->address, TERN_ADDRESS_LEN) == 0) {
             link_state(l, x->id, TERN_C_NOT_DELIVERED, 0, 0);
         }
     }

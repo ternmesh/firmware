@@ -32,6 +32,7 @@
 #define LINK_MESSAGES 32
 #define LINK_REFS 16    /* SENDs remembered, so one sent again is not sent twice */
 #define LINK_ID_STEP 64 /* message ids set aside by one write to flash */
+#define LINK_ASKED 8    /* addresses lately refused, remembered so each is news once a LINK_QUIET */
 #define LINK_NEIGHBOURS 64
 #define LINK_QUIET TERN_S(10) /* the least time between two news frames about one thing */
 #define LINK_LOOK TERN_S(1)   /* how often the link looks for changes to tell */
@@ -76,8 +77,9 @@ struct link_host {
     bool (*session)(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]);
     /* Why a new message to an address would wait: a TERN_C_WAIT_ reason. */
     uint8_t (*why)(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]);
-    /* END_SESSION: ends the session with an address, if there is one. 0, or the ERROR code to
-     * answer with. */
+    /* END_SESSION: ends the session with an address, if there is one, and lets go of whatever the
+     * forwarder holds for it without a word: the link says what became of those messages, once
+     * it has answered. 0, or the ERROR code to answer with. */
     uint8_t (*end_session)(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]);
     /* The contacts, saved whole and loaded at start. */
     bool (*load)(void *ctx, void *buf, size_t len);
@@ -112,6 +114,12 @@ struct link_ref {
     uint32_t ref, id;
     uint8_t to[TERN_ADDRESS_LEN];
     uint8_t digest[8]; /* of the text: the first bytes of its SHA-256 */
+};
+
+struct link_asked {
+    bool used;
+    uint8_t address[TERN_ADDRESS_LEN];
+    tern_time at;
 };
 
 struct link_told {
@@ -153,11 +161,10 @@ struct link {
     uint32_t ids_saved; /* ids below this are set aside in flash: no restart gives them again */
     struct link_ref refs[LINK_REFS];
     size_t next_ref;
-    /* The last address ASKED told of, and when: one that keeps asking is told of every
-     * LINK_QUIET. */
-    bool asked;
-    uint8_t asked_address[TERN_ADDRESS_LEN];
-    tern_time asked_at;
+    /* The addresses ASKED last told of, and when: one that keeps asking is told of every
+     * LINK_QUIET. When more than LINK_ASKED ask at once the oldest is forgotten, and may be told
+     * of sooner. */
+    struct link_asked asked[LINK_ASKED];
 
     struct link_view view; /* scratch, filled by the host */
 };

@@ -415,7 +415,7 @@ static bool hand_over(const struct link_message *x, struct pending *p, bool *gon
 
 /* A session was replaced or dropped: what was sent in it can no longer be acknowledged, so the
  * forwarder lets go of it, and the client is told. Other sessions' messages go on. */
-static void pending_drop(int slot) {
+static void pending_drop(int slot, bool tell) {
     if (sealed_id != 0 && sealed_slot == slot) {
         sealed_id = 0; /* a frame sealed in the old session is no use in the new */
     }
@@ -423,7 +423,9 @@ static void pending_drop(int slot) {
         if (pending[i].id != 0 && pending[i].slot == slot) {
             /* The forwarder's only way to let a message go: as if it had been acknowledged. */
             (void)tern_forward_acked(&forward, pending[i].tag);
-            link_state(&companion, pending[i].id, TERN_C_NOT_DELIVERED, 0, 0);
+            if (tell) {
+                link_state(&companion, pending[i].id, TERN_C_NOT_DELIVERED, 0, 0);
+            }
             pending[i].id = 0;
         }
     }
@@ -553,7 +555,7 @@ static void heard(const struct tern_radio_event *ev) {
         printf(". It is peer %d of %u, and where 'send' now goes.\n", got.slot + 1,
                (unsigned)demo_peers(&demo));
         /* If it took the place of an older session with the same peer. */
-        pending_drop(got.slot);
+        pending_drop(got.slot, true);
         if (contacting && memcmp(contacting_peer, got.peer, TERN_ADDRESS_LEN) == 0) {
             contacting = false;
         }
@@ -1199,7 +1201,8 @@ static uint8_t link_end_session(void *ctx, const uint8_t address[TERN_ADDRESS_LE
     if (!demo_forget(&demo, slot)) {
         return TERN_C_ERR_NOT_NOW; /* the flash would not forget it, so it is kept */
     }
-    pending_drop(slot);
+    /* The link says what became of them, after it has answered. */
+    pending_drop(slot, false);
     return 0;
 }
 
@@ -1517,7 +1520,7 @@ static void command(char *line) {
                 printf("not dropped: the flash would not forget the session, so it is kept\n");
                 return;
             }
-            pending_drop(slot);
+            pending_drop(slot, true);
             link_session_changed(&companion, address);
             printf("dropped: this board no longer has a session with ");
             print_address(address);

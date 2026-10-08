@@ -454,6 +454,20 @@ static void ending_a_session_gives_up_what_waited(void) {
     CHECK(!board.session_with_bob);
     CHECK(link_outgoing(&companion) == NULL);
 
+    /* One the forwarder has is given up too, and the answer still comes before the news. */
+    board.session_with_bob = true;
+    q = send_to(bob, 7, "on its way");
+    request(&q);
+    id = sent(0).id;
+    link_taken(&companion, id);
+    about(TERN_C_END_SESSION, 6, bob);
+    CHECK_EQ_U64(board.n_out, 3);
+    CHECK_EQ_I64(sent(0).type, TERN_C_OK);
+    CHECK_EQ_I64(sent(1).type, TERN_C_STATE);
+    CHECK_EQ_I64(sent(1).id, id);
+    CHECK_EQ_I64(sent(1).state, TERN_C_NOT_DELIVERED);
+    CHECK_EQ_I64(sent(2).type, TERN_C_CONTACT);
+
     /* None to end is no error, and no news for one that is not a contact. */
     about(TERN_C_END_SESSION, 4, carol);
     CHECK_EQ_U64(board.n_out, 1);
@@ -486,8 +500,13 @@ static void who_asked_is_news_no_more_than_every_quiet(void) {
     link_asked(&companion, TERN_S(101), bob, TERN_C_ASKED_NO_ROOM);
     CHECK_EQ_U64(board.n_out, 2);
     CHECK_EQ_I64(sent(1).why, TERN_C_ASKED_NO_ROOM);
-    link_asked(&companion, TERN_S(101) + LINK_QUIET, bob, TERN_C_ASKED_NO_ROOM);
+    /* Each address has its own quiet: another asking between does not end the first's. */
+    link_asked(&companion, TERN_S(102), carol, TERN_C_ASKED_NOT_CONTACT);
+    CHECK_EQ_U64(board.n_out, 2);
+    link_asked(&companion, TERN_S(100) + LINK_QUIET, carol, TERN_C_ASKED_NOT_CONTACT);
     CHECK_EQ_U64(board.n_out, 3);
+    link_asked(&companion, TERN_S(101) + LINK_QUIET, bob, TERN_C_ASKED_NO_ROOM);
+    CHECK_EQ_U64(board.n_out, 4);
 
     about(TERN_C_SAVE_CONTACT, 2, carol);
     CHECK(link_contact(&companion, carol));

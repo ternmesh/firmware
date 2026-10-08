@@ -283,11 +283,11 @@ What the board offers is what the demo is:
   starts first contact with it. Its state says it is waiting for a session meanwhile, and "not
   delivered" if the handshake gives up, or if the board already holds eight sessions. Removing
   a contact does not end its session; `END_SESSION`, or `drop` on the console, does, and gives up
-  the messages still waiting for that node. The other board is not told, and keeps its half
+  the messages to that node not yet delivered, on the air or not. The other board is not told, and keeps its half
   until one of them makes first contact again.
 * **Letting a board in.** Saving an address as a contact lets that board make first contact
   whenever it tries. One that is refused, for not being a contact or for want of room, is news
-  to every client of version 1 (`ASKED`), at most once every ten seconds.
+  to every client of version 1 (`ASKED`), at most once every ten seconds for each address.
 * **A message is waiting, then delivered or not delivered.** It is delivered when its
   destination's acknowledgement comes back, and not delivered when the board gives it up, after
   four tries of some five seconds each. While it waits, its reason says if there is no route to
