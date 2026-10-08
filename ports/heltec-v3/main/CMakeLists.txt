@@ -10,6 +10,7 @@ idf_component_register(
         demo.c
         display.c
         status.c
+        ui.c
         ${root}/src/address.c
         ${root}/src/aes.c
         ${root}/src/ccm.c

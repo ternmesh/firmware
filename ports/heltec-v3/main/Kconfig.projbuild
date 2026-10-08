@@ -42,7 +42,7 @@ menu "Tern demo"
         bool "Turn the screen upside down"
         default n
         help
-            If the bench screen reads upside down on your board, or the board is mounted the other
+            If the screen reads upside down on your board, or the board is mounted the other
             way up, this turns it round.
 
     config TERN_SCREEN_SLEEP_S
@@ -53,6 +53,14 @@ menu "Tern demo"
             How long the screen stays on after a press of PRG, a message heard or a pairing. A
             press while it is off only wakes it. 'screen sleep <seconds>' on the console changes
             it on a running board, and the board keeps the change.
+
+    config TERN_SCREEN_BENCH
+        bool "Show the bench screen's pages"
+        default n
+        help
+            The developer's pages - routing ids, neighbours, routes, frame counts - after the
+            user's. 'screen bench on|off' on the console changes it on a running board, and the
+            board keeps the change.
 
     comment "For experiments. Changing these takes the board off its region's profile."
 

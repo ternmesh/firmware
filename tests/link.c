@@ -527,6 +527,27 @@ static void reading_marks_received_messages_read(void) {
     CHECK_EQ_I64(sent(1).id, b);
 }
 
+/* Read on the board's own screen: every client hears of it, as if one had said READ, and is
+ * answered nothing, having asked nothing. */
+static void read_on_the_board_is_news(void) {
+    start();
+    hello();
+    uint32_t a = link_add(&companion, bob, 1, TERN_C_RECEIVED, 0, (const uint8_t *)"one", 3);
+    uint32_t b = link_add(&companion, bob, 2, TERN_C_RECEIVED, 0, (const uint8_t *)"two", 3);
+    board.n_out = 0;
+    link_read(&companion, a);
+    CHECK_EQ_U64(board.n_out, 1);
+    CHECK_EQ_I64(sent(0).type, TERN_C_MESSAGE);
+    CHECK_EQ_I64(sent(0).id, a);
+    CHECK_EQ_I64(sent(0).flags, TERN_C_READ_FLAG);
+    board.n_out = 0;
+    link_read(&companion, a);
+    CHECK_EQ_U64(board.n_out, 0);
+    link_read(&companion, b);
+    CHECK_EQ_U64(board.n_out, 1);
+    CHECK_EQ_I64(sent(0).id, b);
+}
+
 static void received_text_is_cut_to_what_a_message_carries(void) {
     start();
     hello();
@@ -853,6 +874,7 @@ int main(void) {
     RUN(ending_a_session_gives_up_what_waited);
     RUN(who_asked_is_news_no_more_than_every_quiet);
     RUN(reading_marks_received_messages_read);
+    RUN(read_on_the_board_is_news);
     RUN(received_text_is_cut_to_what_a_message_carries);
     RUN(contacts_are_saved_renamed_and_removed);
     RUN(settings_are_the_boards_to_refuse);

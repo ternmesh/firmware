@@ -5,10 +5,11 @@ protocol: how a node looks to the person holding it is this repository's busines
 specification's. But most of what a user needs to see is something the specification has not
 drafted yet, so each part below says which draft it waits on.
 
-The Heltec V3 port has a [bench screen](../ports/heltec-v3/README.md#the-screen) today. It is a
-debug view for developers, the serial console drawn on the board's display, and it is meant to be
-thrown away. This document is about what replaces it: the interface someone uses when they carry
-a Tern node about, as they would a Meshtastic or MeshCore one.
+This document is about the interface someone uses when they carry a Tern node about, as they
+would a Meshtastic or MeshCore one. The Heltec V3 port draws [a first version](../ports/heltec-v3/README.md#the-screen)
+of [the node's own screen](#the-nodes-own-screen): Home, Messages, Air and This node. The bench
+screen it had before, the serial console drawn on the display for developers, is now a developer
+setting.
 
 ## What a user does
 
@@ -82,27 +83,29 @@ be tested on a host and two can live side by side in the simulator. Where it sho
 in the port while there is one board, and probably in the core once a second board needs the same
 thing.
 
-The bench screen already reads from a small first version of this (`node_status` in
-`ports/heltec-v3/main/status.h`), which is the part of it meant to last. The companion link reads
-the rest: `ports/heltec-v3/main/link.c` keeps the contacts and the messages with their delivery
-states, and is handed the identity, the neighbours and the airtime the way the screen is.
+The screen reads from a small first version of this (`ui_node` in `ports/heltec-v3/main/ui.h`),
+filled from the radio, the router and the companion link. The link keeps the contacts and the
+messages with their delivery states (`ports/heltec-v3/main/link.c`), and whether each received
+message has been read, so a message read on the screen is read on the phone too, and the other
+way round. The bench pages keep their own snapshot (`node_status` in `status.h`).
 
 ## The node's own screen
 
 On the boards Tern starts with, a 128×64 monochrome display and one button. Its job is a glance:
 
-| Page | Shows |
-|---|---|
-| Home | whether the node is on the air, how many nodes it hears, unread messages, battery, airtime left |
-| Messages | the latest few, newest first, with who they are from and their delivery state |
-| Contact card | this node's address as a QR code and a short code to read aloud, for someone adding it |
-| Air | the airtime account: used, allowed, and when more is free |
-| Mesh | neighbours and routes, for whoever is curious; the bench screen's pages, more or less |
+| Page | Shows | On the Heltec V3 |
+|---|---|---|
+| Home | whether the node is on the air, how many nodes it hears, unread messages, battery, airtime left | all but the battery |
+| Messages | the latest few, newest first, with who they are from and their delivery state | one at a time; a long press shows the one before |
+| Contact card | this node's address as a QR code and a short code to read aloud, for someone adding it | **This node**: the address in hex, without the QR code or the short code |
+| Air | the airtime account: used, allowed, and when more is free | the region's limit; the budget is not drafted |
+| Mesh | neighbours and routes, for whoever is curious; the bench screen's pages, more or less | the bench pages, behind `screen bench on` |
 
 Controls on one button: a short press moves to the next page, a long press acts on the page shown
-(mark read, show the next message), and any press wakes the screen. The screen goes dark after a
-while on a battery, and lights for a moment when a message arrives. Boards with more buttons or a
-touch screen get more, but nothing should need them.
+(show the message before, or on a bench page send a ping), and any press wakes the screen. A
+message shown is read once a press says someone saw it. The screen goes dark after a while on a
+battery, and lights when a message arrives, showing it. Boards with more buttons or a touch screen
+get more, but nothing should need them.
 
 A QR code fits: a 32-byte address is 64 characters of upper-case hex, which a version 3 code holds
 in its alphanumeric mode at its lowest error correction (77 characters). That is 29 modules square,
@@ -157,8 +160,8 @@ the link between the node and the phone: what the node offers, and in what form.
 | Where the node model lives once there are two boards | a second board |
 | What a leaf that sleeps on a schedule shows, and when | sleeping leaves, not drafted |
 
-## What happens to the bench screen
+## What happened to the bench screen
 
-It stays while the demo stays, as a debug view. Its pages are mostly the **Mesh** page above, and
-the `node_status` snapshot it draws from is the start of the node model. When the real screen is
-written, the bench pages become a developer setting, and the rest is replaced.
+It stays while the demo stays, as a debug view: its pages are the **Mesh** page above, and come
+after the others when `screen bench on` is typed on the console. The rest of it was replaced by
+the pages above.
