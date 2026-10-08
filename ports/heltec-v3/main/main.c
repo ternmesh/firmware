@@ -85,6 +85,11 @@
 #define LED_MS 150
 #define UNREAD_BLINK_MS 100  /* while a message is unread, the LED blinks this long */
 #define UNREAD_EVERY_MS 4000 /* this often */
+#if CONFIG_TERN_UNREAD_LED   /* a bool Kconfig leaves undefined when it is off */
+#define UNREAD_LED true
+#else
+#define UNREAD_LED false
+#endif
 #define ACCEPT_S 120
 #define NEIGHBOURS 64 /* 2.5 kB; in a crowd, 32 held a tenth fewer routes in the simulator */
 #define DESTINATIONS 128
@@ -2547,7 +2552,7 @@ static void poll_led(void) {
         }
         return;
     }
-    if (!CONFIG_TERN_UNREAD_LED || transmitting || !any_unread()) {
+    if (!UNREAD_LED || transmitting || !any_unread()) {
         blink_next = 0; /* the first blink comes at once, for a message that has just come */
         return;
     }
