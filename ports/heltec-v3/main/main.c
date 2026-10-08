@@ -340,6 +340,12 @@ static bool hand_over(const struct link_message *x, struct pending *p, bool *gon
         sealed_id = x->id;
         sealed_len = x->text_len + TERN_UNICAST_OVERHEAD;
     }
+    /* An acknowledgement names its message by its tag alone, and so does the forwarder. Four
+     * bytes can be the tag of two messages, so one that shares a tag with a message still on its
+     * way waits for that one to end: the tags of those on their way are then all different. */
+    if (pending_tagged(&sealed[TERN_FORWARD_HEAD]) != NULL) {
+        return false;
+    }
     if (!tern_forward_send(&forward, board_now(), tern_route_id(demo.s.peer), sealed, sealed_len,
                            true, INT8_MIN)) {
         return false; /* no room: every slot holds a frame */

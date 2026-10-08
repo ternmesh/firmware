@@ -131,7 +131,8 @@ static bool waiting(const struct link_message *x) {
     return x->state == TERN_C_WAITING && !x->taken;
 }
 
-/* A free place for a message: an empty one, or else the oldest that is not waiting to go. */
+/* A free place for a message: an empty one, or else the oldest whose end is known. One still
+ * waiting keeps its place, with the forwarder or not: what becomes of it is yet to be told. */
 static struct link_message *room(struct link *l) {
     struct link_message *oldest = NULL;
     for (size_t i = 0; i < LINK_MESSAGES; i++) {
@@ -139,7 +140,7 @@ static struct link_message *room(struct link *l) {
         if (!x->used) {
             return x;
         }
-        if (!waiting(x) && (oldest == NULL || x->id < oldest->id)) {
+        if (x->state != TERN_C_WAITING && (oldest == NULL || x->id < oldest->id)) {
             oldest = x;
         }
     }
