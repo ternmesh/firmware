@@ -101,9 +101,13 @@ On the boards Tern starts with, a 128×64 monochrome display and one button. Its
 | Nearby | the nodes heard directly, with how well and how long ago | most recently heard first, seven to a screen; a long press shows the next. A node by a contact's name, else its routing id |
 | Air | the airtime account: used, allowed, and when more is free | the region's limit; the budget is not drafted |
 | Mesh | routes and frame counts, for whoever is curious; the bench screen's pages, more or less | the bench pages, behind `screen bench on` |
+| Phones | the phones paired, and forgetting them | how many are bonded and whether one is connected; forgetting asks first |
+| Reset | erasing the node for a new owner | the whole of its storage, and a new address; asks first, and keeps the time on the air |
 
 Controls on one button: a short press moves to the next page, a long press acts on the page shown
-(show the message before, the next nodes nearby, or on a bench page send a ping), and any press wakes the screen. A
+(show the message before, the next nodes nearby, or on a bench page send a ping), and any press wakes the screen.
+On Phones and Reset a long press only asks to be sure, for ten seconds, and a second long press in
+that time forgets the phones or erases the node; a short press leaves the page and keeps it all. A
 message shown is read once a press says someone saw it. The screen goes dark after a while on a
 battery, and lights when a message arrives, showing it; while one is unread the LED blinks a
 moment every few seconds, for a node in sight with its screen dark. Holding the button for five seconds turns

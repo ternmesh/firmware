@@ -365,3 +365,11 @@ void ble_forget(void) {
     }
     ble_store_clear();
 }
+
+unsigned ble_paired(void) {
+    int n = 0;
+    if (ble_store_util_count(BLE_STORE_OBJ_TYPE_PEER_SEC, &n) != 0 || n < 0) {
+        return 0;
+    }
+    return (unsigned)n;
+}

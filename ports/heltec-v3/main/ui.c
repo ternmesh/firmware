@@ -393,6 +393,65 @@ static void node(const struct ui_node *n, struct frame *f) {
     line(f->rows[7], "Tern %s", n->version);
 }
 
+/* The heading of a page that is asking to be sure, with the seconds it will go on asking. */
+static void asking(char *out, const char *question, unsigned seconds) {
+    char left[8];
+    snprintf(left, sizeof left, "%us", seconds);
+    ends(out, question, left);
+}
+
+static void phones(const struct ui_node *n, struct frame *f) {
+    if (!n->bluetooth) {
+        line(f->rows[0], "Phones");
+        line(f->rows[2], "Bluetooth is off: it");
+        line(f->rows[3], "did not start.");
+        line(f->rows[5], "Restart the board to");
+        line(f->rows[6], "try again.");
+        return;
+    }
+    if (n->confirm_s > 0 && n->paired > 0) {
+        asking(f->rows[0], "Forget phones?", n->confirm_s);
+        line(f->rows[2], "Hold PRG again to");
+        line(f->rows[3], "forget %u phone%s.", (unsigned)n->paired, n->paired == 1 ? "" : "s");
+        line(f->rows[4], "Each must pair again.");
+        line(f->rows[7], "A press keeps them");
+        return;
+    }
+    ends(f->rows[0], "Phones", n->phone ? DISPLAY_BLUETOOTH_S : "");
+    if (n->paired == 0) {
+        line(f->rows[2], "None paired");
+        line(f->rows[4], "A phone pairs with");
+        line(f->rows[5], "the passkey shown");
+        line(f->rows[6], "here when it asks.");
+        return;
+    }
+    f->big = 2;
+    snprintf(f->big_text, sizeof f->big_text, "%u paired", (unsigned)n->paired);
+    line(f->rows[4], n->phone ? "One is connected" : "None connected");
+    line(f->rows[6], "Hold PRG to forget");
+    line(f->rows[7], "them all.");
+}
+
+/* Everything the node keeps goes, not only what a client set: a new owner gets a node that
+ * nothing can be read back from, with an address of its own. */
+static void reset(const struct ui_node *n, struct frame *f) {
+    if (n->confirm_s > 0) {
+        asking(f->rows[0], "Erase everything?", n->confirm_s);
+        line(f->rows[2], "Hold PRG again to");
+        line(f->rows[3], "erase it all. It");
+        line(f->rows[4], "starts again with a");
+        line(f->rows[5], "new address.");
+        line(f->rows[7], "A press keeps it all");
+        return;
+    }
+    line(f->rows[0], "Erase this node");
+    line(f->rows[2], "Erases its address,");
+    line(f->rows[3], "contacts, groups,");
+    line(f->rows[4], "messages, phones and");
+    line(f->rows[5], "settings: a new node.");
+    line(f->rows[7], "Hold PRG to erase");
+}
+
 static void draw(const struct frame *f, struct display *d) {
     for (int i = 0; i < DISPLAY_PAGES; i++) {
         if (i == f->big) {
@@ -431,10 +490,25 @@ void ui_draw(const struct ui_node *n, int page, struct display *d) {
     case UI_NODE:
         node(n, &f);
         break;
+    case UI_PHONES:
+        phones(n, &f);
+        break;
+    case UI_RESET:
+        reset(n, &f);
+        break;
     default:
         home(n, &f);
         break;
     }
+    draw(&f, d);
+}
+
+void ui_erasing(struct display *d) {
+    struct frame f;
+    blank(&f);
+    line(f.rows[0], "Erasing");
+    line(f.rows[3], "Starting again as a");
+    line(f.rows[4], "new node...");
     draw(&f, d);
 }
 

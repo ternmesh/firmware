@@ -55,4 +55,7 @@ void ble_send(const uint8_t *frame, size_t len);
 /* Forgets every bonded client, and drops the one connected. */
 void ble_forget(void);
 
+/* How many clients are bonded: each connects again with no passkey asked. */
+unsigned ble_paired(void);
+
 #endif
