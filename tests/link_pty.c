@@ -175,11 +175,11 @@ static size_t load_message(void *ctx, size_t place, uint8_t *buf, size_t cap) {
     return 0;
 }
 
-static bool save_message(void *ctx, size_t place, const uint8_t *buf, size_t len) {
+static enum link_saved save_message(void *ctx, size_t place, const uint8_t *buf, size_t len) {
     (void)ctx;
     (void)place;
     (void)buf;
-    return len == 0;
+    return len == 0 ? LINK_SAVED : LINK_NOT_SAVED;
 }
 
 static bool load_state(void *ctx, size_t place, uint64_t *state) {

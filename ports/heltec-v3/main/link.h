@@ -80,6 +80,10 @@ struct link_view {
     uint8_t percent, power_flags;
 };
 
+/* What became of saving a message: saved, refused for want of room, or not written for any other
+ * reason. */
+enum link_saved { LINK_SAVED, LINK_NO_ROOM, LINK_NOT_SAVED };
+
 struct link_host {
     void *ctx;
     const char *firmware;
@@ -112,10 +116,11 @@ struct link_host {
     /* The messages, each saved alone by its place among LINK_MESSAGES, in two parts: what is
      * written once, up to LINK_SAVED_MAX bytes, and a word for what changes after. Loading gives
      * the length, or 0 with nothing kept there; saving a length of 0 forgets what the place
-     * held. A host with no room to spare refuses: the link then takes its oldest out of flash
-     * and asks again, and a message still refused is held until a restart. */
+     * held. A host with no room to spare says so: the link then takes its oldest out of flash
+     * and asks again. A message not saved, for that or because the write failed, is held until
+     * a restart, and a write that failed takes no other message out of flash. */
     size_t (*load_message)(void *ctx, size_t place, uint8_t *buf, size_t cap);
-    bool (*save_message)(void *ctx, size_t place, const uint8_t *buf, size_t len);
+    enum link_saved (*save_message)(void *ctx, size_t place, const uint8_t *buf, size_t len);
     bool (*load_state)(void *ctx, size_t place, uint64_t *state);
     bool (*save_state)(void *ctx, size_t place, uint64_t state);
 };

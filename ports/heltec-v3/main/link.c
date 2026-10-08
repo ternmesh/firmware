@@ -302,8 +302,8 @@ static bool unsave_oldest(struct link *l, const struct link_message *but) {
             oldest = x;
         }
     }
-    if (oldest == NULL || !l->host.save_message(l->host.ctx, (size_t)(oldest - l->messages),
-                                                (const uint8_t *)"", 0)) {
+    if (oldest == NULL || l->host.save_message(l->host.ctx, (size_t)(oldest - l->messages),
+                                               (const uint8_t *)"", 0) != LINK_SAVED) {
         return false;
     }
     oldest->saved = false;
@@ -311,9 +311,9 @@ static bool unsave_oldest(struct link *l, const struct link_message *but) {
 }
 
 /* Saves a message newly kept. Where flash has no room, the newest are the ones to have there, so
- * the oldest make way: LINK_UNSAVE of them at most, which is room for any message if room is all
- * that is wrong. If it cannot be saved even so, what the place held before is forgotten, so that
- * a restart does not bring back a message the node has let go of. */
+ * the oldest make way: LINK_UNSAVE of them at most, which is room for any message. A write that
+ * failed for another reason takes nothing out. If it cannot be saved even so, what the place held
+ * before is forgotten, so that a restart does not bring back a message the node has let go of. */
 static void save_message(struct link *l, struct link_message *x) {
     uint8_t b[LINK_SAVED_MAX];
     size_t place = (size_t)(x - l->messages);
@@ -329,10 +329,12 @@ static void save_message(struct link *l, struct link_message *x) {
     memcpy(b + SAVED_SECRET, x->secret, TERN_GROUP_SECRET);
     b[SAVED_LEN] = x->text_len;
     memcpy(b + LINK_SAVED_HEAD, x->text, x->text_len);
-    x->saved = l->host.save_message(l->host.ctx, place, b, LINK_SAVED_HEAD + x->text_len);
-    for (unsigned i = 0; i < LINK_UNSAVE && !x->saved && unsave_oldest(l, x); i++) {
-        x->saved = l->host.save_message(l->host.ctx, place, b, LINK_SAVED_HEAD + x->text_len);
+    size_t len = LINK_SAVED_HEAD + x->text_len;
+    enum link_saved how = l->host.save_message(l->host.ctx, place, b, len);
+    for (unsigned i = 0; i < LINK_UNSAVE && how == LINK_NO_ROOM && unsave_oldest(l, x); i++) {
+        how = l->host.save_message(l->host.ctx, place, b, len);
     }
+    x->saved = how == LINK_SAVED;
     if (!x->saved) {
         (void)l->host.save_message(l->host.ctx, place, b, 0);
     }

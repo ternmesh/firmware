@@ -183,20 +183,22 @@ static size_t board_load_message(void *ctx, size_t place, uint8_t *buf, size_t c
     return b->message_len[place];
 }
 
-static bool board_save_message(void *ctx, size_t place, const uint8_t *buf, size_t len) {
+static enum link_saved board_save_message(void *ctx, size_t place, const uint8_t *buf, size_t len) {
     struct board *b = ctx;
     unsigned others = 0;
     for (size_t i = 0; i < LINK_MESSAGES; i++) {
         others += i != place && b->message_len[i] > 0;
     }
-    if (b->save_fails || (len > 0 && (b->no_room || (b->most != 0 && others >= b->most))) ||
-        len > LINK_SAVED_MAX) {
-        return false;
+    if (b->save_fails || len > LINK_SAVED_MAX) {
+        return LINK_NOT_SAVED;
+    }
+    if (len > 0 && (b->no_room || (b->most != 0 && others >= b->most))) {
+        return LINK_NO_ROOM;
     }
     memcpy(b->messages[place], buf, len);
     b->message_len[place] = len;
     b->message_saves++;
-    return true;
+    return LINK_SAVED;
 }
 
 static bool board_load_state(void *ctx, size_t place, uint64_t *state) {
@@ -1446,6 +1448,17 @@ static void the_newest_messages_are_the_ones_in_flash(void) {
     for (uint32_t id = first + 2; id < first + 6; id++) {
         CHECK(held(id) != NULL);
     }
+
+    /* A write that fails for want of anything but room takes no other message out of flash. */
+    start();
+    first = add();
+    (void)add();
+    board.save_fails = true;
+    uint32_t unwritten = add();
+    board.save_fails = false;
+    CHECK(!held(unwritten)->saved && held(first)->saved && held(first + 1)->saved);
+    restart();
+    CHECK(held(unwritten) == NULL && held(first) != NULL && held(first + 1) != NULL);
 
     /* One still waiting is not taken out for a newer: what becomes of it is yet to be written. */
     start();

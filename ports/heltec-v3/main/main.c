@@ -1578,29 +1578,32 @@ static size_t link_load_message(void *ctx, size_t place, uint8_t *buf, size_t ca
     return ok ? len : 0;
 }
 
-static bool link_save_message(void *ctx, size_t place, const uint8_t *buf, size_t len) {
+static enum link_saved link_save_message(void *ctx, size_t place, const uint8_t *buf, size_t len) {
     nvs_handle_t h;
     nvs_stats_t stats;
     char key[8];
     (void)ctx;
     snprintf(key, sizeof key, "m%02u", (unsigned)place);
     if (nvs_open("tern", NVS_READWRITE, &h) != ESP_OK) {
-        return false;
+        return LINK_NOT_SAVED;
     }
     unsigned others = 0;
     for (size_t i = 0; i < LINK_MESSAGES; i++) {
         others += i == place ? 0 : message_entries[i];
     }
     esp_err_t e;
+    bool full = false; /* by the board's own count, which taking older messages out mends */
     if (len == 0) {
         e = nvs_erase_key(h, key);
         if (e == ESP_ERR_NVS_NOT_FOUND) {
             e = ESP_OK;
         }
+    } else if (nvs_get_stats(NULL, &stats) != ESP_OK) {
+        e = ESP_FAIL;
     } else if (others + entries_for(len) > MESSAGE_ENTRIES ||
-               nvs_get_stats(NULL, &stats) != ESP_OK ||
                stats.available_entries < MESSAGE_SPARE + entries_for(len)) {
         e = ESP_ERR_NVS_NOT_ENOUGH_SPACE;
+        full = true;
     } else {
         e = nvs_set_blob(h, key, buf, len);
     }
@@ -1609,7 +1612,7 @@ static bool link_save_message(void *ctx, size_t place, const uint8_t *buf, size_
     if (ok) {
         message_entries[place] = entries_for(len);
     }
-    return ok;
+    return ok ? LINK_SAVED : full ? LINK_NO_ROOM : LINK_NOT_SAVED;
 }
 
 static bool link_load_state(void *ctx, size_t place, uint64_t *state) {
