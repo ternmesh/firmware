@@ -1,4 +1,4 @@
-/* The Heltec V3 demo: two boards make first contact and send each other secured unicast frames,
+/* The Heltec V3 demo: boards make first contact and send each other secured unicast frames,
  * which follow routes: each is handed to the forwarder (tern/forward.h), sent to the next hop its
  * route gives, sent again if nothing is heard of it, and acknowledged by the board it is for. A
  * board built as a relay passes other boards' frames on.
@@ -7,10 +7,13 @@
  *
  *   contact <address>        make first contact with the board whose address that is (its
  *                            'status' shows it)
- *   accept                   for two minutes, let a board other than the present peer make
- *                            contact
- *   send <text>              send a message
- *   status                   show this board's address, the session and the radio settings
+ *   accept                   for two minutes, let a board that is not yet a peer make contact
+ *   peers                    list the boards this one has a session with, by number
+ *   to <number>              choose the peer 'send' and the button send to
+ *   send <text>              send a message to that peer: the one last made contact with,
+ *                            written to or heard from, unless 'to' chose another
+ *   drop <number>            end the session with a peer, and forget it
+ *   status                   show this board's address, its sessions and the radio settings
  *   selftest                 run a handshake between two nodes in memory, and time it
  *
  * and, for measuring on a bench what one radio hears of another (see README.md):
@@ -108,6 +111,7 @@ static tern_time forward_quiet; /* how long to listen once the frame on the air 
 static struct pending {
     uint32_t id; /* the link's, or 0 for a free place */
     uint32_t counter;
+    int slot; /* the session it was sealed in (demo.s) */
     uint8_t tag[TERN_FORWARD_TAG];
     uint8_t goes; /* times it has gone on the air */
     tern_time at; /* when it was handed over */
@@ -145,8 +149,10 @@ static uint32_t pairing_passkey; /* shown on the screen while pairing, or PAIRIN
 #define PAIRING_NONE 0xFFFFFFFFu
 /* A message sealed and not yet with the forwarder: sealing takes a counter and saves the session,
  * so a frame the forwarder had no room for, or the flash refused, is kept and tried again, a
- * second apart, not sealed again on every turn of the loop. Kept for one session only. */
+ * second apart, not sealed again on every turn of the loop. Of no use once its session is
+ * replaced or dropped. */
 static uint32_t sealed_id;
+static int sealed_slot;
 static uint8_t sealed[TERN_UNICAST_MAX_FRAME];
 static size_t sealed_len;
 static uint32_t sealed_counter;
@@ -238,6 +244,9 @@ static const char *result_text(enum demo_result r) {
         return "the board has no random numbers to make a key from";
     case DEMO_STORE_FAILED:
         return "could not save the session to flash, so nothing was sent";
+    case DEMO_FULL:
+        return "this board holds as many sessions as it can; 'peers' lists them, and 'drop "
+               "<number>' ends one";
     case DEMO_SPENT:
         return "this session has used every counter; make contact again";
     case DEMO_TOO_LONG:
@@ -316,9 +325,10 @@ static uint32_t clock_now(void) {
     return clock_base + (uint32_t)((board_now() - clock_at) / 1000000000LL);
 }
 
-/* Queues a message to the peer, as a client's would be: poll_outgoing() sends it. */
+/* Queues a message to the peer last used or chosen, as a client's would be: poll_outgoing()
+ * sends it. */
 static void send(const char *text) {
-    if (demo.s.role == 0) {
+    if (demo.last < 0) {
         printf("not sent: %s\n", result_text(DEMO_UNPAIRED));
         return;
     }
@@ -326,8 +336,8 @@ static void send(const char *text) {
         printf("not sent: too long: at most %d bytes\n", TERN_COMPANION_TEXT_MAX);
         return;
     }
-    if (link_add(&companion, demo.s.peer, clock_now(), TERN_C_WAITING, TERN_C_WAIT_UNNAMED,
-                 (const uint8_t *)text, strlen(text)) == 0) {
+    if (link_add(&companion, demo.s[demo.last].peer, clock_now(), TERN_C_WAITING,
+                 TERN_C_WAIT_UNNAMED, (const uint8_t *)text, strlen(text)) == 0) {
         printf("not sent: no room for another message, or nothing to send\n");
     }
 }
@@ -355,15 +365,20 @@ static struct pending *pending_tagged(const uint8_t *tag) {
  * *gone set if it never will be. */
 static bool hand_over(const struct link_message *x, struct pending *p, bool *gone) {
     *gone = false;
+    int slot = demo_peer(&demo, x->address);
+    if (slot < 0) {
+        return false; /* dropped since it was asked for: poll_outgoing() makes contact again */
+    }
     if (sealed_id != x->id) {
-        sealed_counter = demo.s.session.tx.next;
-        enum demo_result r = demo_seal(&demo, x->text, x->text_len, sealed);
+        sealed_counter = demo.s[slot].session.tx.next;
+        enum demo_result r = demo_seal(&demo, slot, x->text, x->text_len, sealed);
         if (r != DEMO_OK) {
             printf("not sent: %s\n", result_text(r));
             *gone = r == DEMO_SPENT;
             return false;
         }
         sealed_id = x->id;
+        sealed_slot = slot;
         sealed_len = x->text_len + TERN_UNICAST_OVERHEAD;
     }
     /* An acknowledgement names its message by its tag alone, and so does the forwarder. Four
@@ -372,21 +387,24 @@ static bool hand_over(const struct link_message *x, struct pending *p, bool *gon
     if (pending_tagged(&sealed[TERN_FORWARD_HEAD]) != NULL) {
         return false;
     }
-    if (!tern_forward_send(&forward, board_now(), tern_route_id(demo.s.peer), sealed, sealed_len,
+    if (!tern_forward_send(&forward, board_now(), tern_route_id(x->address), sealed, sealed_len,
                            true, INT8_MIN)) {
         return false; /* no room: every slot holds a frame */
     }
-    *p = (struct pending){.id = x->id, .counter = sealed_counter, .at = board_now()};
+    *p = (struct pending){.id = x->id, .counter = sealed_counter, .slot = slot, .at = board_now()};
     memcpy(p->tag, &sealed[TERN_FORWARD_HEAD], TERN_FORWARD_TAG);
     sealed_id = 0;
     return true;
 }
 
-/* The peer changed, or the session did: what was sent in the old one can no longer be
- * acknowledged, so the forwarder lets go of it, and the client is told. */
-static void pending_drop(void) {
+/* A session was replaced or dropped: what was sent in it can no longer be acknowledged, so the
+ * forwarder lets go of it, and the client is told. Other sessions' messages go on. */
+static void pending_drop(int slot) {
+    if (sealed_id != 0 && sealed_slot == slot) {
+        sealed_id = 0; /* a frame sealed in the old session is no use in the new */
+    }
     for (int i = 0; i < PENDING; i++) {
-        if (pending[i].id != 0) {
+        if (pending[i].id != 0 && pending[i].slot == slot) {
             /* The forwarder's only way to let a message go: as if it had been acknowledged. */
             (void)tern_forward_acked(&forward, pending[i].tag);
             link_state(&companion, pending[i].id, TERN_C_NOT_DELIVERED, 0, 0);
@@ -429,12 +447,12 @@ static void note_snr(const uint8_t *frame, int8_t snr) {
     heard_snr_next = (heard_snr_next + 1) % NEIGHBOURS;
 }
 
-/* An acknowledgement that came to this board: taken only if it is the peer's, of a message this
- * board is still waiting on. */
+/* An acknowledgement that came to this board: taken only if it is of a message this board is
+ * still waiting on, by the peer that message went to. */
 static void heard_ack(const struct tern_radio_event *ev) {
     struct pending *p =
         ev->len == TERN_ACK_LEN ? pending_tagged(&ev->data[TERN_FORWARD_HEAD]) : NULL;
-    if (p == NULL || !demo_acked(&demo, p->counter, ev->data, ev->len)) {
+    if (p == NULL || !demo_acked(&demo, p->slot, p->counter, ev->data, ev->len)) {
         printf("(an acknowledgement of nothing this board is waiting on, at %d dBm)\n",
                ev->rssi_dbm);
         return;
@@ -481,10 +499,6 @@ static void heard(const struct tern_radio_event *ev) {
             return;
         }
     }
-    /* A handshake that completes replaces the session: the old peer is told of too. */
-    bool had_peer = demo.s.role != 0;
-    uint8_t old_peer[TERN_ADDRESS_LEN];
-    memcpy(old_peer, demo.s.peer, TERN_ADDRESS_LEN);
     enum demo_heard what = demo_receive(&demo, board_now(), ev->data, ev->len, msg, &got);
     switch (what) {
     case DEMO_HEARD_MESSAGE:
@@ -517,26 +531,29 @@ static void heard(const struct tern_radio_event *ev) {
         break;
     case DEMO_HEARD_PAIRED:
         flash_led();
-        last_at = 0; /* the last message was the old session's */
         printf("first contact: complete. Session started, as the %s, with ",
-               demo.s.role == TERN_INITIATOR ? "initiator" : "responder");
+               demo.s[got.slot].role == TERN_INITIATOR ? "initiator" : "responder");
         print_address(got.peer);
-        printf("\n");
-        sealed_id = 0; /* a frame sealed in the old session is no use in the new */
-        pending_drop();
+        printf(". It is peer %d of %u, and where 'send' now goes.\n", got.slot + 1,
+               (unsigned)demo_peers(&demo));
+        /* If it took the place of an older session with the same peer. */
+        pending_drop(got.slot);
         if (contacting && memcmp(contacting_peer, got.peer, TERN_ADDRESS_LEN) == 0) {
             contacting = false;
         }
         link_session_changed(&companion, got.peer);
-        if (had_peer && memcmp(old_peer, got.peer, TERN_ADDRESS_LEN) != 0) {
-            link_session_changed(&companion, old_peer);
-        }
+        break;
+    case DEMO_HEARD_FULL:
+        printf("first contact: ");
+        print_address(got.peer);
+        printf(" made contact, but this board holds as many sessions as it can. 'peers' lists "
+               "them, and 'drop <number>' ends one.\n");
         break;
     case DEMO_HEARD_REFUSED:
         printf("first contact: refused ");
         print_address(got.peer);
-        printf(", which is not this board's peer. Type 'accept' to let it in, and have it try "
-               "again.\n");
+        printf(", which is not one of this board's peers. Type 'accept' to let it in, and have "
+               "it try again.\n");
         break;
     case DEMO_HEARD_FAILED:
         printf("first contact: a frame of the handshake failed its checks; abandoned\n");
@@ -565,8 +582,8 @@ static void heard(const struct tern_radio_event *ev) {
     /* The acknowledgement goes back by a route, no quieter than the node the message came from
      * needs to hear it. With no route to the peer it is not sent: the peer sends again. */
     for (size_t i = 0; i < got.acks; i++) {
-        if (!tern_forward_send(&forward, board_now(), tern_route_id(got.peer), got.ack[i],
-                               sizeof got.ack[i], false, routed.back)) {
+        if (!tern_forward_send(&forward, board_now(), tern_route_id(demo.s[got.ack_slot[i]].peer),
+                               got.ack[i], sizeof got.ack[i], false, routed.back)) {
             printf("(not acknowledged: no route back to the peer yet, or no room)\n");
         }
     }
@@ -655,16 +672,14 @@ static void poll_contact(void) {
     }
 }
 
-/* Hands the oldest message waiting to the forwarder, or says why it waits. One session at a time:
- * a message to another node starts first contact with it, which replaces the session the demo
- * has, once no handshake is under way. */
+/* Hands the oldest message waiting to the forwarder, or says why it waits. A message to a node
+ * this board has no session with starts first contact with it, once no handshake is under way. */
 static void poll_outgoing(void) {
     struct link_message *x = link_outgoing(&companion);
     if (x == NULL) {
         return;
     }
-    bool session = demo.s.role != 0 && memcmp(demo.s.peer, x->address, TERN_ADDRESS_LEN) == 0;
-    if (!session) {
+    if (demo_peer(&demo, x->address) < 0) {
         link_state(&companion, x->id, TERN_C_WAITING, TERN_C_WAIT_SESSION, 0);
         bool idle = demo.h.phase == DEMO_IDLE || demo.h.phase == DEMO_ANSWERED;
         if (!idle || transmitting) {
@@ -702,11 +717,12 @@ static void poll_outgoing(void) {
     }
 }
 
-/* Why a message the forwarder has is not yet delivered, as far as the board can name it. */
-static uint8_t pending_reason(tern_time now) {
+/* Why a message the forwarder has for that address is not yet delivered, as far as the board can
+ * name it. */
+static uint8_t pending_reason(tern_time now, const uint8_t address[TERN_ADDRESS_LEN]) {
     uint32_t next;
     uint16_t metric;
-    if (!tern_route_next(&route, tern_route_id(demo.s.peer), &next, &metric)) {
+    if (!tern_route_next(&route, tern_route_id(address), &next, &metric)) {
         return TERN_C_WAIT_ROUTE;
     }
     if (!tern_duty_allows(&duty, now, tern_lora_airtime(&cfg.mod, TERN_FORWARD_FRAME_MAX))) {
@@ -734,7 +750,8 @@ static void poll_forward(void) {
     }
     for (int i = 0; i < PENDING; i++) {
         if (pending[i].id != 0) {
-            link_state(&companion, pending[i].id, TERN_C_WAITING, pending_reason(now), 0);
+            link_state(&companion, pending[i].id, TERN_C_WAITING,
+                       pending_reason(now, demo.s[pending[i].slot].peer), 0);
         }
     }
     if (transmitting || waiting_len != 0 || now < forward_retry ||
@@ -1152,11 +1169,11 @@ static void link_set_time(void *ctx, uint32_t time) {
 
 static bool link_session(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]) {
     (void)ctx;
-    return demo.s.role != 0 && memcmp(demo.s.peer, address, TERN_ADDRESS_LEN) == 0;
+    return demo_peer(&demo, address) >= 0;
 }
 
 static uint8_t link_why(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]) {
-    return link_session(ctx, address) ? pending_reason(board_now()) : TERN_C_WAIT_SESSION;
+    return link_session(ctx, address) ? pending_reason(board_now(), address) : TERN_C_WAIT_SESSION;
 }
 
 static bool link_load(void *ctx, void *buf, size_t len) {
@@ -1187,8 +1204,28 @@ static bool parse_address(const char *text, uint8_t address[TERN_ADDRESS_LEN]) {
     return digits == 2 * TERN_ADDRESS_LEN;
 }
 
+/* The sessions this board holds, by the numbers 'to' and 'drop' take. */
+static void peers(void) {
+    if (demo_peers(&demo) == 0) {
+        printf("sessions: none. %s\n", result_text(DEMO_UNPAIRED));
+        return;
+    }
+    printf("sessions: %u of %d\n", (unsigned)demo_peers(&demo), DEMO_PEERS);
+    for (int i = 0; i < DEMO_PEERS; i++) {
+        const struct demo_state *s = &demo.s[i];
+        if (s->role == 0) {
+            continue;
+        }
+        printf("  %d%s as %s, %lu sent (next counter %lu), %lu heard, with ", i + 1,
+               i == demo.last ? " ('send' goes here)" : "",
+               s->role == TERN_INITIATOR ? "initiator" : "responder", (unsigned long)s->sent,
+               (unsigned long)s->session.tx.next, (unsigned long)s->heard);
+        print_address(s->peer);
+        printf("\n");
+    }
+}
+
 static void status(void) {
-    const struct demo_state *s = &demo.s;
     printf("this board's address: ");
     print_address(demo.id.address);
     printf("\n");
@@ -1221,15 +1258,7 @@ static void status(void) {
         printf("first contact: under way, as the %s\n",
                demo.h.phase == DEMO_INITIATING ? "initiator" : "responder");
     }
-    if (s->role == 0) {
-        printf("session: none. %s\n", result_text(DEMO_UNPAIRED));
-        return;
-    }
-    printf("session: as %s, %lu sent (next counter %lu), %lu heard, with ",
-           s->role == TERN_INITIATOR ? "initiator" : "responder", (unsigned long)s->sent,
-           (unsigned long)s->session.tx.next, (unsigned long)s->heard);
-    print_address(s->peer);
-    printf("\n");
+    peers();
     if (board_now() < demo.accept_until) {
         printf("accepting contact from a new peer for another %lld s\n",
                (long long)((demo.accept_until - board_now()) / 1000000000LL));
@@ -1274,12 +1303,15 @@ static void routes(void) {
 struct memory_store {
     bool have_identity, have_session;
     uint8_t identity[36];
-    struct demo_state session;
+    struct demo_state session; /* the first session's record: the self-test makes one */
 };
 
 static bool memory_slot(struct memory_store *m, const char *key, size_t len, void **slot,
                         bool **have) {
     bool identity = strcmp(key, "identity") == 0;
+    if (!identity && strcmp(key, "session") != 0) {
+        return false; /* another session's record: there is none, and none is made */
+    }
     *slot = identity ? (void *)m->identity : (void *)&m->session;
     *have = identity ? &m->have_identity : &m->have_session;
     return len == (identity ? sizeof m->identity : sizeof m->session);
@@ -1343,10 +1375,10 @@ static void selftest(void) {
         /* A message each way, in the session the handshake made, and its acknowledgement. */
         uint8_t sealed[5 + TERN_UNICAST_OVERHEAD];
         ok =
-            demo_seal(&node[i], (const uint8_t *)"hello", 5, sealed) == DEMO_OK &&
+            demo_seal(&node[i], 0, (const uint8_t *)"hello", 5, sealed) == DEMO_OK &&
             demo_receive(&node[1 - i], 0, sealed, sizeof sealed, msg, &got) == DEMO_HEARD_MESSAGE &&
             got.msg_len == 5 && memcmp(msg, "hello", 5) == 0 && got.acks == 1 &&
-            demo_acked(&node[i], 0, got.ack[0], sizeof got.ack[0]);
+            demo_acked(&node[i], 0, 0, got.ack[0], sizeof got.ack[0]);
     }
     printf("selftest: %s, in %lld ms; %u bytes of this task's stack never used\n",
            ok ? "passed" : "FAILED", (long long)((board_now() - t0) / 1000000),
@@ -1410,9 +1442,33 @@ static void command(char *line) {
         send_contact(frame, len);
     } else if (strcmp(line, "accept") == 0) {
         demo_accept(&demo, board_now() + ACCEPT_S * 1000000000LL);
-        printf("for %d s, a board that is not this one's peer may make contact, and will "
-               "replace it\n",
+        printf("for %d s, a board that is not yet one of this one's peers may make contact\n",
                ACCEPT_S);
+    } else if (strcmp(line, "peers") == 0) {
+        peers();
+    } else if (strncmp(line, "to ", 3) == 0 || strncmp(line, "drop ", 5) == 0) {
+        bool drop = line[0] == 'd';
+        int slot = atoi(&line[drop ? 5 : 3]) - 1;
+        if (slot < 0 || slot >= DEMO_PEERS || demo.s[slot].role == 0) {
+            printf("no such peer: 'peers' lists them by number\n");
+        } else if (!drop) {
+            demo.last = slot;
+            printf("'send' now goes to peer %d, ", slot + 1);
+            print_address(demo.s[slot].peer);
+            printf("\n");
+        } else {
+            uint8_t address[TERN_ADDRESS_LEN];
+            memcpy(address, demo.s[slot].peer, TERN_ADDRESS_LEN);
+            if (!demo_forget(&demo, slot)) {
+                printf("not dropped: the flash would not forget the session, so it is kept\n");
+                return;
+            }
+            pending_drop(slot);
+            link_session_changed(&companion, address);
+            printf("dropped: this board no longer has a session with ");
+            print_address(address);
+            printf(". That board still thinks it has one, until it makes contact again.\n");
+        }
     } else if (strncmp(line, "send ", 5) == 0) {
         send(&line[5]);
     } else if (strcmp(line, "status") == 0) {
@@ -1431,7 +1487,8 @@ static void command(char *line) {
             printf("Bluetooth did not start\n");
         }
     } else if (line[0] != '\0') {
-        printf("commands: contact <address>, accept, send <text>, status, routes, selftest, forget "
+        printf("commands: contact <address>, accept, peers, to <number>, send <text>, drop "
+               "<number>, status, routes, selftest, forget "
                "(Bluetooth clients), screen sleep <seconds>. Holding "
                "PRG sends a ping. For the bench: bench on|off, sync <hex>, power <dBm>, freq <Hz>, "
                "sf <n>, bw <Hz>, beacon <count> <ms>, counts [reset].\n");
@@ -1603,12 +1660,15 @@ static void fill_status(struct node_status *st) {
         }
     }
 
-    st->session = demo.s.role != 0;
+    const struct demo_state *to = demo.last >= 0 ? &demo.s[demo.last] : NULL;
+    st->session = to != NULL;
+    st->peers = (uint8_t)demo_peers(&demo);
     st->contacting = demo.h.phase == DEMO_INITIATING || demo.h.phase == DEMO_RESPONDING;
-    st->peer = (uint32_t)demo.s.peer[0] << 24 | (uint32_t)demo.s.peer[1] << 16 |
-               (uint32_t)demo.s.peer[2] << 8 | demo.s.peer[3];
-    st->sent = demo.s.sent;
-    st->received = demo.s.heard;
+    st->peer = to == NULL ? 0
+                          : (uint32_t)to->peer[0] << 24 | (uint32_t)to->peer[1] << 16 |
+                                (uint32_t)to->peer[2] << 8 | to->peer[3];
+    st->sent = to == NULL ? 0 : to->sent;
+    st->received = to == NULL ? 0 : to->heard;
     st->have_last = last_at != 0;
     memcpy(st->last, last_text, sizeof st->last);
     st->last_s = (uint32_t)((now - last_at) / 1000000000LL);

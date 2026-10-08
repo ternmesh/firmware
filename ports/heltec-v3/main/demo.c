@@ -26,8 +26,80 @@ static bool same(const uint8_t *a, const uint8_t *b, size_t len) {
     return diff == 0;
 }
 
-static bool save_state(struct demo *d) {
-    return d->store.save(d->store.ctx, STATE_KEY, &d->s, sizeof d->s);
+/* A slot's record: the first has the name the one session of earlier builds had, so a board that
+ * is updated keeps its peer. */
+static void state_key(int slot, char key[sizeof STATE_KEY + 1]) {
+    copy((uint8_t *)key, (const uint8_t *)STATE_KEY, sizeof STATE_KEY);
+    if (slot != 0) {
+        key[sizeof STATE_KEY - 1] = (char)('0' + slot);
+        key[sizeof STATE_KEY] = '\0';
+    }
+}
+
+static bool save_state(struct demo *d, int slot) {
+    char key[sizeof STATE_KEY + 1];
+    state_key(slot, key);
+    return d->store.save(d->store.ctx, key, &d->s[slot], sizeof d->s[slot]);
+}
+
+int demo_peer(const struct demo *d, const uint8_t address[TERN_ADDRESS_LEN]) {
+    for (int i = 0; i < DEMO_PEERS; i++) {
+        if (d->s[i].role != 0 && same(d->s[i].peer, address, TERN_ADDRESS_LEN)) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+size_t demo_peers(const struct demo *d) {
+    size_t n = 0;
+    for (int i = 0; i < DEMO_PEERS; i++) {
+        n += d->s[i].role != 0;
+    }
+    return n;
+}
+
+static int free_slot(const struct demo *d) {
+    for (int i = 0; i < DEMO_PEERS; i++) {
+        if (d->s[i].role == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static bool held(const struct demo *d, int slot) {
+    return slot >= 0 && slot < DEMO_PEERS && d->s[slot].role != 0;
+}
+
+/* Some session, for a board that has lost the one it last used. */
+static int any_slot(const struct demo *d) {
+    for (int i = 0; i < DEMO_PEERS; i++) {
+        if (d->s[i].role != 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+bool demo_forget(struct demo *d, int slot) {
+    if (!held(d, slot)) {
+        return false;
+    }
+    static struct demo_state old;
+    old = d->s[slot];
+    tern_wipe(&d->s[slot], sizeof d->s[slot]);
+    /* The record is written over with nothing, which is not loaded as a session. */
+    if (!save_state(d, slot)) {
+        d->s[slot] = old;
+        tern_wipe(&old, sizeof old);
+        return false;
+    }
+    tern_wipe(&old, sizeof old);
+    if (d->last == slot) {
+        d->last = any_slot(d);
+    }
+    return true;
 }
 
 static void forget_handshake(struct demo *d) { tern_wipe(&d->h, sizeof d->h); }
@@ -53,10 +125,16 @@ bool demo_start(struct demo *d, const struct demo_store *store, tern_time retry)
     }
     tern_wipe(&rec, sizeof rec);
 
-    if (!store->load(store->ctx, STATE_KEY, &d->s, sizeof d->s) || d->s.magic != MAGIC ||
-        d->s.size != sizeof d->s) {
-        tern_wipe(&d->s, sizeof d->s);
+    for (int i = 0; i < DEMO_PEERS; i++) {
+        char key[sizeof STATE_KEY + 1];
+        state_key(i, key);
+        struct demo_state *s = &d->s[i];
+        if (!store->load(store->ctx, key, s, sizeof *s) || s->magic != MAGIC ||
+            s->size != sizeof *s || s->role == 0) {
+            tern_wipe(s, sizeof *s);
+        }
     }
+    d->last = any_slot(d);
     return ok;
 }
 
@@ -88,6 +166,9 @@ enum demo_result demo_contact(struct demo *d, const uint8_t peer[TERN_ADDRESS_LE
     if (!tern_address_valid(peer)) {
         return DEMO_BAD_ADDRESS;
     }
+    if (demo_peer(d, peer) < 0 && free_slot(d) < 0) {
+        return DEMO_FULL;
+    }
     if (!draw(d, ephemeral, &c_i)) {
         return DEMO_NO_RANDOM;
     }
@@ -108,79 +189,100 @@ enum demo_result demo_contact(struct demo *d, const uint8_t peer[TERN_ADDRESS_LE
 
 void demo_accept(struct demo *d, tern_time until) { d->accept_until = until; }
 
-enum demo_result demo_seal(struct demo *d, const uint8_t *msg, size_t len, uint8_t *frame) {
-    if (d->s.role == 0) {
+enum demo_result demo_seal(struct demo *d, int slot, const uint8_t *msg, size_t len,
+                           uint8_t *frame) {
+    if (!held(d, slot)) {
         return DEMO_UNPAIRED;
     }
     if (len > TERN_UNICAST_MAX_PLAINTEXT) {
         return DEMO_TOO_LONG;
     }
-    int err = tern_unicast_seal(&d->s.session.tx, msg, len, frame, len + TERN_UNICAST_OVERHEAD);
+    struct demo_state *s = &d->s[slot];
+    int err = tern_unicast_seal(&s->session.tx, msg, len, frame, len + TERN_UNICAST_OVERHEAD);
     if (err == TERN_ESPENT) {
         return DEMO_SPENT;
     }
-    d->s.sent++;
+    s->sent++;
+    d->last = slot;
     /* Saved before it is sent: if the board stops between the two, the counter is still used. */
-    return save_state(d) ? DEMO_OK : DEMO_STORE_FAILED;
+    return save_state(d, slot) ? DEMO_OK : DEMO_STORE_FAILED;
 }
 
-bool demo_acked(const struct demo *d, uint32_t counter, const uint8_t *frame, size_t len) {
-    return d->s.role != 0 && tern_unicast_acked(&d->s.session.tx, counter, frame, len);
+bool demo_acked(const struct demo *d, int slot, uint32_t counter, const uint8_t *frame,
+                size_t len) {
+    return held(d, slot) && tern_unicast_acked(&d->s[slot].session.tx, counter, frame, len);
 }
 
 static enum demo_heard unicast_frame(struct demo *d, const uint8_t *frame, size_t len, uint8_t *msg,
                                      struct demo_received *out) {
-    if (d->s.role == 0) {
+    /* Every session's receiver, and the slot each is in. */
+    struct tern_unicast_rx *rx[DEMO_PEERS];
+    int slot[DEMO_PEERS];
+    size_t n = 0;
+    /* The windows as they were, to go back to if what the frame does to one cannot be saved. */
+    static struct tern_unicast_rx before[DEMO_PEERS];
+    for (int i = 0; i < DEMO_PEERS; i++) {
+        if (d->s[i].role != 0) {
+            rx[n] = &d->s[i].session.rx;
+            before[n] = d->s[i].session.rx;
+            slot[n++] = i;
+        }
+    }
+    if (n == 0) {
         return len >= TERN_UNICAST_OVERHEAD ? DEMO_HEARD_OTHER : DEMO_HEARD_MALFORMED;
     }
-    struct tern_unicast_rx *rx[] = {&d->s.session.rx};
     struct tern_unicast_received r;
-    /* The window as it was, to go back to if what the frame does to it cannot be saved. */
-    static struct tern_unicast_rx before;
-    before = d->s.session.rx;
-    if (tern_unicast_open(rx, 1, frame, len, msg, TERN_UNICAST_MAX_PLAINTEXT, &r) != TERN_OK) {
-        tern_wipe(&before, sizeof before);
-        return DEMO_HEARD_MALFORMED;
+    enum demo_heard what = DEMO_HEARD_MALFORMED;
+    if (tern_unicast_open(rx, n, frame, len, msg, TERN_UNICAST_MAX_PLAINTEXT, &r) == TERN_OK) {
+        switch (r.verdict) {
+        case TERN_UNICAST_ACCEPTED: {
+            struct demo_state *s = &d->s[slot[r.session]];
+            s->heard++;
+            /* Shown only once saved: otherwise a restart would reload the old window, and the
+             * same frame would be accepted, and shown, a second time. Unsaved, it is as if it
+             * had not come: the window goes back, so that the frame is taken when its sender
+             * tries again, and is not acknowledged as a copy of a message nobody was shown. */
+            if (!save_state(d, slot[r.session])) {
+                tern_wipe(msg, r.len);
+                s->session.rx = before[r.session];
+                s->heard--;
+                what = DEMO_HEARD_UNSAVED;
+                break;
+            }
+            copy(out->peer, s->peer, TERN_ADDRESS_LEN);
+            out->slot = slot[r.session];
+            out->counter = r.counter;
+            out->msg_len = r.len;
+            out->ack_slot[0] = out->slot;
+            out->acks = tern_unicast_ack(rx[r.session], r.counter, out->ack[0]);
+            d->last = out->slot;
+            what = DEMO_HEARD_MESSAGE;
+            break;
+        }
+        case TERN_UNICAST_COPY:
+            /* Its acknowledgement did not get back: owed again, as often as the copy comes, and
+             * for every message it is a copy of, whichever session each is in. */
+            copy(out->peer, d->s[slot[r.session]].peer, TERN_ADDRESS_LEN);
+            out->slot = slot[r.session];
+            out->counter = r.counter;
+            do {
+                out->ack_slot[out->acks] = slot[r.session];
+                out->acks += tern_unicast_ack(rx[r.session], r.counter, out->ack[out->acks]);
+            } while (out->acks < DEMO_ACKS && tern_unicast_copy_next(rx, n, frame, len, &r));
+            what = DEMO_HEARD_COPY;
+            break;
+        case TERN_UNICAST_NOT_OURS:
+            what = DEMO_HEARD_OTHER;
+            break;
+        case TERN_UNICAST_FORGED:
+            what = DEMO_HEARD_FORGED;
+            break;
+        default:
+            break;
+        }
     }
-    copy(out->peer, d->s.peer, TERN_ADDRESS_LEN);
-    out->counter = r.counter;
-    switch (r.verdict) {
-    case TERN_UNICAST_ACCEPTED:
-        break;
-    case TERN_UNICAST_COPY:
-        /* Its acknowledgement did not get back: owed again, as often as the copy comes. */
-        tern_wipe(&before, sizeof before);
-        do {
-            out->acks += tern_unicast_ack(rx[0], r.counter, out->ack[out->acks]);
-        } while (out->acks < DEMO_ACKS && tern_unicast_copy_next(rx, 1, frame, len, &r));
-        return DEMO_HEARD_COPY;
-    case TERN_UNICAST_NOT_OURS:
-        tern_wipe(&before, sizeof before);
-        return DEMO_HEARD_OTHER;
-    case TERN_UNICAST_FORGED:
-        tern_wipe(&before, sizeof before);
-        return DEMO_HEARD_FORGED;
-    default:
-        tern_wipe(&before, sizeof before);
-        return DEMO_HEARD_MALFORMED;
-    }
-
-    d->s.heard++;
-    /* Shown only once saved: otherwise a restart would reload the old window, and the same frame
-     * would be accepted, and shown, a second time. Unsaved, it is as if it had not come: the
-     * window goes back, so that the frame is taken when its sender tries again, and is not
-     * acknowledged as a copy of a message nobody was shown. */
-    if (!save_state(d)) {
-        tern_wipe(msg, r.len);
-        d->s.session.rx = before;
-        d->s.heard--;
-        tern_wipe(&before, sizeof before);
-        return DEMO_HEARD_UNSAVED;
-    }
-    tern_wipe(&before, sizeof before);
-    out->msg_len = r.len;
-    out->acks = tern_unicast_ack(rx[0], r.counter, out->ack[0]);
-    return DEMO_HEARD_MESSAGE;
+    tern_wipe(before, sizeof before);
+    return what;
 }
 
 /* Remembers the frame just processed and the answer to it. */
@@ -194,35 +296,42 @@ static void remember(struct demo_handshake *h, const uint8_t *frame, size_t len,
 
 /* Whether this board takes a session with the node that has just proved it is `peer`. */
 static bool accepts(const struct demo *d, const uint8_t peer[TERN_ADDRESS_LEN], tern_time now) {
-    return d->s.role == 0 || now < d->accept_until || same(peer, d->s.peer, TERN_ADDRESS_LEN);
+    return demo_peers(d) == 0 || now < d->accept_until || demo_peer(d, peer) >= 0;
 }
 
-/* Turns a complete handshake into the board's session, replacing the one it had. */
+/* Turns a complete handshake into a session: in place of the one the board had with that peer,
+ * or in a slot of its own. */
 static enum demo_heard start_session(struct demo *d, tern_time now, const uint8_t *frame,
                                      size_t len, struct demo_received *out) {
     struct demo_handshake *h = &d->h;
     bool responder = h->c.role == TERN_RESPONDER;
-    struct demo_state old = d->s;
+    int slot = demo_peer(d, h->c.peer);
+    if (slot < 0) {
+        slot = free_slot(d);
+    }
 
-    if (responder && !accepts(d, h->c.peer, now)) {
+    if ((responder && !accepts(d, h->c.peer, now)) || slot < 0) {
+        bool refused = responder && !accepts(d, h->c.peer, now);
         copy(out->peer, h->c.peer, TERN_ADDRESS_LEN);
         out->reply_len = 0;
         forget_handshake(d);
-        tern_wipe(&old, sizeof old);
-        return DEMO_HEARD_REFUSED;
+        return refused ? DEMO_HEARD_REFUSED : DEMO_HEARD_FULL;
     }
 
-    tern_wipe(&d->s, sizeof d->s);
-    d->s.magic = MAGIC;
-    d->s.size = sizeof d->s;
-    d->s.role = h->c.role;
-    (void)tern_contact_finish(&h->c, &d->s.session, d->s.peer); /* erases the handshake */
-    copy(out->peer, d->s.peer, TERN_ADDRESS_LEN);
+    static struct demo_state old;
+    struct demo_state *s = &d->s[slot];
+    old = *s;
+    tern_wipe(s, sizeof *s);
+    s->magic = MAGIC;
+    s->size = sizeof *s;
+    s->role = h->c.role;
+    (void)tern_contact_finish(&h->c, &s->session, s->peer); /* erases the handshake */
+    copy(out->peer, s->peer, TERN_ADDRESS_LEN);
 
-    if (!save_state(d)) {
+    if (!save_state(d, slot)) {
         /* message_4 is not sent, so the other board does not take up a session this one would
          * lose at its next restart. */
-        d->s = old;
+        *s = old;
         tern_wipe(&old, sizeof old);
         out->reply_len = 0;
         forget_handshake(d);
@@ -230,6 +339,8 @@ static enum demo_heard start_session(struct demo *d, tern_time now, const uint8_
     }
     tern_wipe(&old, sizeof old);
     d->accept_until = 0;
+    d->last = slot;
+    out->slot = slot;
 
     if (responder) {
         /* Kept for a while, in case message_4 is lost and message_3 comes again. */
@@ -310,6 +421,7 @@ enum demo_heard demo_receive(struct demo *d, tern_time now, const uint8_t *frame
     out->counter = 0;
     out->reply_len = 0;
     out->acks = 0;
+    out->slot = -1;
     if (len == 0) {
         return DEMO_HEARD_MALFORMED;
     }

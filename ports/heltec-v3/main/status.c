@@ -122,7 +122,11 @@ static void session(const struct node_status *s, char out[STATUS_ROWS][STATUS_CO
         row(out[3], "on the console");
         return;
     }
-    row(out[1], "with %08lx", (unsigned long)s->peer);
+    if (s->peers > 1) {
+        row(out[1], "to %08lx, of %u", (unsigned long)s->peer, s->peers);
+    } else {
+        row(out[1], "with %08lx", (unsigned long)s->peer);
+    }
     row(out[2], "sent %lu, heard %lu", (unsigned long)s->sent, (unsigned long)s->received);
     if (!s->have_last) {
         return;
