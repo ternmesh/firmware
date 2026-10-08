@@ -42,13 +42,15 @@ struct board {
     bool have_saved;
     uint8_t out[64][TERN_COMPANION_MAX_FRAME];
     size_t out_len[64];
+    unsigned out_conn[64];
     size_t n_out;
 };
 
-static void board_out(void *ctx, const uint8_t *frame, size_t len) {
+static void board_out(void *ctx, unsigned conn, const uint8_t *frame, size_t len) {
     struct board *b = ctx;
     if (b->n_out < COUNT(b->out)) {
         memcpy(b->out[b->n_out], frame, len);
+        b->out_conn[b->n_out] = conn;
         b->out_len[b->n_out++] = len;
     }
 }
@@ -132,13 +134,14 @@ static void start(void) {
         .save = board_save,
     };
     link_init(&companion, &host);
+    link_open(&companion, LINK_SERIAL, 0, 0);
 }
 
 static void request_at(tern_time now, const struct tern_companion_msg *q) {
     uint8_t frame[TERN_COMPANION_MAX_FRAME];
     size_t len = tern_companion_write(q, frame);
     board.n_out = 0;
-    link_receive(&companion, now, frame, len);
+    link_receive(&companion, LINK_SERIAL, now, frame, len);
 }
 
 static void request(const struct tern_companion_msg *q) { request_at(TERN_S(100), q); }
@@ -174,7 +177,7 @@ static void the_exchange_is_followed_frame_for_frame(void) {
             if (s->frame[0] == TERN_C_SEND) {
                 board.clock += 60;
             }
-            link_receive(&companion, TERN_S(100), s->frame, s->len);
+            link_receive(&companion, LINK_SERIAL, TERN_S(100), s->frame, s->len);
             continue;
         }
         if (s->frame[0] == TERN_C_STATE && expected == board.n_out) {
@@ -217,10 +220,10 @@ static void requests_it_cannot_read_are_answered(void) {
     static const uint8_t news_type[] = {TERN_C_SELF, 6};
     static const uint8_t short_frame[] = {TERN_C_PING};
     board.n_out = 0;
-    link_receive(&companion, 0, cut, sizeof cut);
-    link_receive(&companion, 0, unknown, sizeof unknown);
-    link_receive(&companion, 0, news_type, sizeof news_type);
-    link_receive(&companion, 0, short_frame, sizeof short_frame);
+    link_receive(&companion, LINK_SERIAL, 0, cut, sizeof cut);
+    link_receive(&companion, LINK_SERIAL, 0, unknown, sizeof unknown);
+    link_receive(&companion, LINK_SERIAL, 0, news_type, sizeof news_type);
+    link_receive(&companion, LINK_SERIAL, 0, short_frame, sizeof short_frame);
     CHECK_EQ_U64(board.n_out, 2);
     CHECK_EQ_I64(sent(0).code, TERN_C_ERR_MALFORMED);
     CHECK_EQ_I64(sent(0).seq, 4);
@@ -408,6 +411,7 @@ static void contacts_are_saved_renamed_and_removed(void) {
     /* After a restart, it is still there. */
     struct link_host host = companion.host;
     link_init(&companion, &host);
+    link_open(&companion, LINK_SERIAL, 0, 0);
     CHECK(companion.contacts[0].used && companion.contacts[0].name_len == 6);
 
     /* Saved nowhere, removed nowhere. */
@@ -509,7 +513,7 @@ static void the_air_is_news_no_more_than_every_quiet(void) {
  * quiet"). */
 static void a_silent_serial_client_is_taken_for_gone(void) {
     start();
-    companion.host.lapse = LINK_LAPSE;
+    link_open(&companion, LINK_SERIAL, LINK_LAPSE, 0);
     tern_time t = TERN_S(100);
     request_at(t, &(struct tern_companion_msg){.type = TERN_C_HELLO, .seq = 1});
     request_at(t += TERN_S(10), &(struct tern_companion_msg){.type = TERN_C_SYNC, .seq = 2});
@@ -519,11 +523,11 @@ static void a_silent_serial_client_is_taken_for_gone(void) {
                &(struct tern_companion_msg){.type = TERN_C_PING, .seq = 3});
     CHECK_EQ_I64(sent(0).type, TERN_C_OK);
     link_tick(&companion, t + LINK_LAPSE - TERN_S(1));
-    CHECK(companion.hello);
+    CHECK(companion.conns[LINK_SERIAL].hello);
 
     /* Silent for the lapse: no more news, and nothing answered but HELLO. */
     link_tick(&companion, t += LINK_LAPSE);
-    CHECK(!companion.hello);
+    CHECK(!companion.conns[LINK_SERIAL].hello);
     board.n_out = 0;
     link_add(&companion, bob, 1, TERN_C_RECEIVED, 0, (const uint8_t *)"hi", 2);
     CHECK_EQ_U64(board.n_out, 0);
@@ -545,6 +549,68 @@ static void a_silent_serial_client_is_taken_for_gone(void) {
     /* A request late enough is refused even before link_tick has looked. */
     request_at(t += LINK_LAPSE, &(struct tern_companion_msg){.type = TERN_C_PING, .seq = 7});
     CHECK_EQ_I64(sent(0).code, TERN_C_ERR_HELLO_FIRST);
+}
+
+static void request_on(unsigned conn, const struct tern_companion_msg *q) {
+    uint8_t frame[TERN_COMPANION_MAX_FRAME];
+    size_t len = tern_companion_write(q, frame);
+    board.n_out = 0;
+    link_receive(&companion, conn, TERN_S(100), frame, len);
+}
+
+/* Each frame sent since the last request went on `conn`. */
+static bool all_on(unsigned conn) {
+    for (size_t i = 0; i < board.n_out; i++) {
+        if (board.out_conn[i] != conn) {
+            return false;
+        }
+    }
+    return board.n_out > 0;
+}
+
+/* A client on USB and one over Bluetooth: each is answered alone and counts its own news, a sync
+ * is told to the one that asked, and news of a change goes to both. */
+static void two_clients_drive_one_node(void) {
+    start();
+    link_open(&companion, LINK_BLE, 0, 23);
+
+    /* Bluetooth's default MTU is too small for a frame: HELLO is refused until it grows. */
+    request_on(LINK_BLE, &(struct tern_companion_msg){.type = TERN_C_HELLO, .seq = 1});
+    CHECK(all_on(LINK_BLE));
+    CHECK_EQ_I64(sent(0).code, TERN_C_ERR_MTU);
+    link_mtu(&companion, LINK_BLE, 185);
+    request_on(LINK_BLE, &(struct tern_companion_msg){.type = TERN_C_HELLO, .seq = 2});
+    CHECK(all_on(LINK_BLE));
+    CHECK_EQ_I64(sent(0).type, TERN_C_INFO);
+
+    request_on(LINK_SERIAL, &(struct tern_companion_msg){.type = TERN_C_HELLO, .seq = 1});
+    request_on(LINK_SERIAL, &(struct tern_companion_msg){.type = TERN_C_SYNC, .seq = 2});
+    CHECK(all_on(LINK_SERIAL));
+    size_t told = board.n_out - 1; /* the news before SYNCED */
+
+    /* A message received is news to both, each numbered by its own count. */
+    board.n_out = 0;
+    link_add(&companion, bob, 1, TERN_C_RECEIVED, 0, (const uint8_t *)"hi", 2);
+    CHECK_EQ_U64(board.n_out, 2);
+    CHECK_EQ_U64(board.out_conn[0], LINK_SERIAL);
+    CHECK_EQ_I64(sent(0).seq, (int64_t)told);
+    CHECK_EQ_U64(board.out_conn[1], LINK_BLE);
+    CHECK_EQ_I64(sent(1).seq, 0);
+
+    /* Only a synced client hears what changed on the board. */
+    board.view.used_ms += 1000;
+    board.n_out = 0;
+    link_tick(&companion, TERN_S(100) + LINK_QUIET);
+    CHECK(all_on(LINK_SERIAL));
+
+    /* Gone: nothing more goes to it. */
+    link_close(&companion, LINK_BLE);
+    board.n_out = 0;
+    link_add(&companion, bob, 2, TERN_C_RECEIVED, 0, (const uint8_t *)"yo", 2);
+    CHECK(all_on(LINK_SERIAL));
+    CHECK_EQ_U64(board.n_out, 1);
+    request_on(LINK_BLE, &(struct tern_companion_msg){.type = TERN_C_PING, .seq = 3});
+    CHECK_EQ_U64(board.n_out, 0);
 }
 
 static void the_oldest_finished_message_makes_room(void) {
@@ -582,5 +648,6 @@ int main(void) {
     RUN(the_air_is_news_no_more_than_every_quiet);
     RUN(the_oldest_finished_message_makes_room);
     RUN(a_silent_serial_client_is_taken_for_gone);
+    RUN(two_clients_drive_one_node);
     return CHECK_DONE();
 }

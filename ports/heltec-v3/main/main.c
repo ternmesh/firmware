@@ -37,6 +37,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "ble.h"
 #include "board.h"
 #include "bootloader_random.h"
 #include "demo.h"
@@ -132,6 +133,9 @@ static struct tern_companion_parser parser;
 static uint32_t clock_base; /* seconds since 1970 as a client last set them, or 0 */
 static tern_time clock_at;
 static bool restart_due; /* a setting saved that takes a restart, once its answer has gone */
+static bool have_ble;
+static uint32_t pairing_passkey; /* shown on the screen while pairing, or PAIRING_NONE */
+#define PAIRING_NONE 0xFFFFFFFFu
 /* A message sealed and not yet with the forwarder: sealing takes a counter and saves the session,
  * so a frame the forwarder had no room for, or the flash refused, is kept and tried again, a
  * second apart, not sealed again on every turn of the loop. Kept for one session only. */
@@ -970,10 +974,15 @@ static bool bench_command(char *line) {
 
 /* --- The companion link --------------------------------------------------------------------- */
 
-/* One frame to the client, after whatever the console has printed. */
-static void link_out(void *ctx, const uint8_t *frame, size_t len) {
+/* One frame to a client: as a notification over Bluetooth, or on the USB port, wrapped, after
+ * whatever the console has printed. */
+static void link_out(void *ctx, unsigned conn, const uint8_t *frame, size_t len) {
     uint8_t wrapped[TERN_COMPANION_STREAM_MAX];
     (void)ctx;
+    if (conn == LINK_BLE) {
+        ble_send(frame, len);
+        return;
+    }
     size_t n = tern_companion_wrap(frame, len, wrapped);
     fflush(stdout);
     if (n != 0) {
@@ -1046,7 +1055,7 @@ static const struct tern_region *region_named(const uint8_t *name, size_t len) {
 }
 
 /* A setting from a client. Region, role and power take a restart, since the radio and the router
- * were set up with them; the passkey is kept for Bluetooth, which this build does not have. */
+ * were set up with them; the passkey is for the next Bluetooth pairing. */
 static uint8_t link_set(void *ctx, const struct tern_companion_msg *m) {
     struct settings next = settings;
     struct tern_radio_config check;
@@ -1101,6 +1110,7 @@ static uint8_t link_set(void *ctx, const struct tern_companion_msg *m) {
     }
     settings = next;
     restart_due = restart_due || restart;
+    ble_passkey(settings.passkey);
     return 0;
 }
 
@@ -1354,11 +1364,18 @@ static void command(char *line) {
         routes();
     } else if (strcmp(line, "selftest") == 0) {
         selftest();
+    } else if (strcmp(line, "forget") == 0) {
+        if (have_ble) {
+            ble_forget();
+            printf("every Bluetooth client is forgotten, and must pair again\n");
+        } else {
+            printf("Bluetooth did not start\n");
+        }
     } else if (line[0] != '\0') {
-        printf(
-            "commands: contact <address>, accept, send <text>, status, routes, selftest. Holding "
-            "PRG sends a ping. For the bench: bench on|off, sync <hex>, power <dBm>, freq <Hz>, "
-            "sf <n>, bw <Hz>, beacon <count> <ms>, counts [reset].\n");
+        printf("commands: contact <address>, accept, send <text>, status, routes, selftest, forget "
+               "(Bluetooth clients). Holding "
+               "PRG sends a ping. For the bench: bench on|off, sync <hex>, power <dBm>, freq <Hz>, "
+               "sf <n>, bw <Hz>, beacon <count> <ms>, counts [reset].\n");
     }
 }
 
@@ -1383,15 +1400,76 @@ static void console_text(void *ctx, uint8_t c) {
     }
 }
 
-/* A companion frame. A setting that takes a restart is applied once its answer has gone. */
-static void console_frame(void *ctx, const uint8_t *frame, size_t len) {
-    (void)ctx;
-    link_receive(&companion, board_now(), frame, len);
+/* A setting that takes a restart is applied once its answer has gone: out of the UART, and given
+ * a moment to leave as a notification. */
+static void restart_if_due(void) {
     if (restart_due) {
         printf("restarting to apply a setting\n");
         fflush(stdout);
         uart_wait_tx_done(CONSOLE, pdMS_TO_TICKS(500));
+        vTaskDelay(pdMS_TO_TICKS(200));
         esp_restart();
+    }
+}
+
+/* Bluetooth, and the randomness keys are made from. Espressif's documentation for the chip's
+ * generator (ESP-IDF, "Random Number Generation", ESP32-S3) says it gives true random numbers
+ * while Wi-Fi or Bluetooth is on, or while the noise source bootloader_random_enable() turns on is
+ * on, and that the noise source must be turned off before Bluetooth is used. So the one is turned
+ * off as the other starts, nothing is made from the generator between the two, and if Bluetooth
+ * does not start, the noise source is turned on again. Either way, every key made after this, a
+ * first contact's included, draws on a true source. */
+_Static_assert(PASSKEY_RANDOM == BLE_PASSKEY_RANDOM, "one spelling of a random passkey");
+static void start_bluetooth(void) {
+    bootloader_random_disable();
+    have_ble = ble_start(settings.passkey, have_screen);
+    if (!have_ble) {
+        bootloader_random_enable();
+        printf("Bluetooth did not start; the USB port is the only companion link\n");
+    }
+}
+
+/* A companion frame on the USB port. */
+static void console_frame(void *ctx, const uint8_t *frame, size_t len) {
+    (void)ctx;
+    link_receive(&companion, LINK_SERIAL, board_now(), frame, len);
+    restart_if_due();
+}
+
+/* What Bluetooth reported: a client paired, wrote a frame or went, or a passkey to show. */
+static void poll_ble(void) {
+    static struct ble_event e;
+    while (ble_poll(&e)) {
+        switch (e.kind) {
+        case BLE_OPEN:
+            pairing_passkey = PAIRING_NONE;
+            link_open(&companion, LINK_BLE, 0, e.mtu);
+            printf("bluetooth: a client connected\n");
+            break;
+        case BLE_MTU:
+            link_mtu(&companion, LINK_BLE, e.mtu);
+            break;
+        case BLE_FRAME:
+            link_receive(&companion, LINK_BLE, board_now(), e.frame, e.len);
+            restart_if_due();
+            break;
+        case BLE_CLOSE:
+            pairing_passkey = PAIRING_NONE;
+            link_close(&companion, LINK_BLE);
+            printf("bluetooth: the client went\n");
+            break;
+        case BLE_PASSKEY:
+            pairing_passkey = e.passkey;
+            screen_due = 0;
+            printf("bluetooth: pairing; the passkey is on the screen\n");
+            break;
+        case BLE_PAIRED:
+            if (pairing_passkey != PAIRING_NONE) {
+                pairing_passkey = PAIRING_NONE;
+                screen_due = 0;
+            }
+            break;
+        }
     }
 }
 
@@ -1488,6 +1566,14 @@ static void poll_screen(void) {
         char rows[STATUS_ROWS][STATUS_COLS + 1];
         fill_status(&st);
         status_page(&st, screen_page, rows);
+        if (pairing_passkey != PAIRING_NONE) {
+            /* A client is pairing: the passkey to type into it, over whatever page was shown. */
+            memset(rows, 0, sizeof rows);
+            snprintf(rows[0], sizeof rows[0], "Bluetooth pairing");
+            snprintf(rows[2], sizeof rows[2], "Type this passkey");
+            snprintf(rows[3], sizeof rows[3], "into the client:");
+            snprintf(rows[5], sizeof rows[5], "      %06lu", (unsigned long)pairing_passkey);
+        }
         for (int i = 0; i < STATUS_ROWS; i++) {
             display_text(&screen, i, rows[i], i == 0);
         }
@@ -1561,8 +1647,8 @@ void app_main(void) {
     ESP_ERROR_CHECK(uart_driver_install(CONSOLE, 512, 0, 0, NULL, 0));
 
     /* With Wi-Fi and Bluetooth off, the chip's generator has no entropy of its own until this
-     * turns on its noise source. It stays on: this demo uses nothing it conflicts with (the
-     * ADC, I2S, Wi-Fi and Bluetooth), and a port that does must turn it off around them. */
+     * turns on its noise source. It stays on until Bluetooth starts (start_bluetooth()), so the
+     * identity and the router's seed made below draw on it. */
     bootloader_random_enable();
 
 #if CONFIG_TERN_REGION_EU868
@@ -1667,7 +1753,6 @@ void app_main(void) {
     struct link_host host = {
         .ctx = NULL,
         .firmware = FIRMWARE,
-        .lapse = LINK_LAPSE,
         .out = link_out,
         .view = link_view,
         .set = link_set,
@@ -1678,6 +1763,7 @@ void app_main(void) {
         .save = link_save,
     };
     link_init(&companion, &host);
+    link_open(&companion, LINK_SERIAL, LINK_LAPSE, 0);
     tern_companion_parser_init(&parser);
 
     have_screen = board_screen_init();
@@ -1689,6 +1775,8 @@ void app_main(void) {
         printf("\nTern demo on the Heltec V3, with no screen found. Type 'status', or press PRG "
                "to ping.\n");
     }
+    pairing_passkey = PAIRING_NONE;
+    start_bluetooth();
     status();
     for (;;) {
         poll_radio();
@@ -1701,6 +1789,7 @@ void app_main(void) {
             poll_route();
         }
         poll_console();
+        poll_ble();
         poll_button();
         poll_screen();
         if (transmitting && board_now() > tx_deadline) {
