@@ -62,6 +62,10 @@ struct tern_sx126x {
 int tern_sx126x_init(struct tern_sx126x *d, const struct tern_sx126x_bus *bus,
                      const struct tern_sx126x_board *board);
 
+/* Puts the chip to sleep, drawing well under a microamp, for a board that is turning itself off.
+ * It answers nothing until the board resets it and calls tern_sx126x_init() again. */
+int tern_sx126x_sleep(struct tern_sx126x *d);
+
 /* The radio, for the core. */
 struct tern_radio tern_sx126x_radio(struct tern_sx126x *d);
 

@@ -28,6 +28,7 @@ enum ui_page {
 };
 
 #define UI_BATTERY_UNKNOWN 255
+#define UI_BATTERY_LOW 10 /* percent, at or below which Home says the battery is low */
 
 #define UI_NAME 20 /* bytes of a name kept to show, which is as many as a line has room for */
 
@@ -50,6 +51,7 @@ struct ui_node {
     int8_t dbm;
     uint8_t address[TERN_ADDRESS_LEN];
     uint8_t battery; /* percent, or UI_BATTERY_UNKNOWN */
+    bool charging;   /* as far as the board can tell (power.h): it has no wire from its charger */
     bool bench;      /* the console's bench mode: the board sends only the test frames asked for */
 
     uint16_t nearby;    /* nodes heard directly */
@@ -95,6 +97,18 @@ enum ui_fault {
     UI_FAULT_RANDOM,   /* no random numbers to seed the router */
     UI_FAULT_RADIO,    /* the radio did not answer, or would not take its settings */
 };
+
+/* Why the board is turning itself off. */
+enum ui_off {
+    UI_OFF_PRESSED, /* PRG was held down */
+    UI_OFF_EMPTY,   /* the battery is too low to run on */
+};
+
+/* Draws the warning while PRG is held to turn the board off: `seconds` more and it goes. */
+void ui_turning_off(unsigned seconds, struct display *d);
+
+/* Draws what the board says as it turns off, and how to turn it on again. */
+void ui_off(enum ui_off why, struct display *d);
 
 /* Draws the screen shown while the board starts: its name, its firmware's version, and, once they
  * are known, its region and short code. */

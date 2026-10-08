@@ -89,11 +89,14 @@
 #define PENDING 4       /* of them, this board's own messages not yet acknowledged */
 #define TX_MIN_DBM (-9) /* the SX1262's least */
 #define POWER_UNSET INT8_MIN
-#define SCREEN_MS 500  /* how often the bench screen is drawn again */
-#define BOOT_MS 2500   /* how long the boot screen stays up once the board has started */
-#define BATTERY_S 30   /* how often the battery is read */
-#define HOLD_MS 1000   /* how long PRG is held to send a ping */
-#define SCREEN_TRIES 5 /* writes failed in a row before the screen is given up */
+#define SCREEN_MS 500      /* how often the bench screen is drawn again */
+#define BOOT_MS 2500       /* how long the boot screen stays up once the board has started */
+#define BATTERY_S 30       /* how often the battery is read */
+#define HOLD_MS 1000       /* how long PRG is held to send a ping */
+#define OFF_WARN_MS 2000   /* held this long, PRG warns that the board is turning off */
+#define OFF_MS 5000        /* and this long, it turns off */
+#define EMPTY_CHECK_S 1800 /* turned off for an empty battery, how often it wakes to look again */
+#define SCREEN_TRIES 5     /* writes failed in a row before the screen is given up */
 #define FIRMWARE "tern " CONFIG_TERN_VERSION " heltec-v3"
 _Static_assert(sizeof FIRMWARE - 1 <= TERN_COMPANION_FIRMWARE_MAX, "the version fits in INFO");
 #define SETTINGS_MAGIC 0x54530001u
@@ -191,6 +194,8 @@ static tern_time clock_at;
 static bool restart_due; /* a setting saved that takes a restart, once its answer has gone */
 static bool have_ble;
 static uint16_t battery_mv;      /* 0 for none, or not read */
+static struct power_watch watch; /* whether the battery charges, or is empty (power.h) */
+static unsigned off_shown;       /* while PRG is held to turn off, the seconds left shown, or 0 */
 static uint32_t pairing_passkey; /* shown on the screen while pairing, or PAIRING_NONE */
 #define PAIRING_NONE 0xFFFFFFFFu
 /* A message sealed and not yet with the forwarder: sealing takes a counter and saves the session,
@@ -2230,6 +2235,7 @@ static void fill_ui(struct ui_node *u) {
     memcpy(u->address, demo.id.address, TERN_ADDRESS_LEN);
     u->bench = bench;
     u->battery = power_percent(battery_mv);
+    u->charging = watch.charging;
     for (int i = 0; i < NEIGHBOURS; i++) {
         if (neighbours[i].used) {
             u->nearby++;
@@ -2345,7 +2351,12 @@ static void poll_screen(void) {
     if (screen_asleep) {
         return; /* the picture is brought up to date when it wakes */
     }
-    if (pairing_passkey == PAIRING_NONE && board_now() < boot_until) {
+    if (off_shown != 0) {
+        if (board_now() >= screen_due) {
+            ui_turning_off(off_shown, &screen); /* over everything: it is what PRG is doing */
+            screen_due = board_now() + (tern_time)SCREEN_MS * 1000000;
+        }
+    } else if (pairing_passkey == PAIRING_NONE && board_now() < boot_until) {
         /* the boot screen, drawn by app_main(), until it has been seen */
     } else if (board_now() >= screen_due) {
         if (screen_page >= screen_pages()) {
@@ -2384,14 +2395,55 @@ static void poll_screen(void) {
     screen_failed();
 }
 
-/* Reads the battery every BATTERY_S: a couple of milliseconds, so not often. */
+/* Sends the whole picture now, not a page a turn: for the screens drawn outside the loop. A
+ * page the screen did not take is left for poll_screen() to send again. */
+static void screen_flush(void) {
+    int page;
+    while (have_screen && (page = display_take(&screen)) >= 0) {
+        if (!board_screen_page(page, screen.px[page])) {
+            screen.dirty |= (uint8_t)(1u << page);
+            return;
+        }
+    }
+}
+
+/* Turns the board off, saying why on the screen for long enough to read. Nothing need be saved
+ * first: what must outlast a restart (the identity, sessions, the time on the air) is saved as it
+ * changes. The messages the link keeps in memory are lost, as at any restart. Never returns. */
+__attribute__((noreturn)) static void turn_off(enum ui_off why) {
+    if (why == UI_OFF_EMPTY) {
+        printf("the battery is empty (%u mV): turning off. It turns on again once it is "
+               "charged, or at a press of PRG.\n",
+               (unsigned)battery_mv);
+    } else {
+        printf("PRG held: turning off. A press of PRG turns it on again.\n");
+    }
+    if (have_screen) {
+        if (screen_asleep) {
+            board_screen_power(true);
+        }
+        ui_off(why, &screen);
+        screen_flush();
+        vTaskDelay(pdMS_TO_TICKS(2000));
+    }
+    tern_sx126x_sleep(&sx);
+    board_off(why == UI_OFF_EMPTY ? EMPTY_CHECK_S : 0);
+}
+
+/* Reads the battery every BATTERY_S: a couple of milliseconds, so not often, and never while the
+ * radio sends, which pulls the voltage down and would read as the charger going. Two readings in
+ * a row too low to run on turn the board off. */
 static void poll_battery(void) {
     static tern_time due;
-    if (board_now() < due) {
+    if (board_now() < due || transmitting) {
         return;
     }
     due = board_now() + (tern_time)BATTERY_S * 1000000000LL;
     battery_mv = board_battery_mv();
+    power_watch(&watch, battery_mv);
+    if (power_empty(&watch)) {
+        turn_off(UI_OFF_EMPTY);
+    }
 }
 
 static void ping(void) {
@@ -2418,7 +2470,8 @@ static void screen_hold(void) {
 
 /* A press shows the next page; holding PRG for HOLD_MS acts on the page, once, while it is still
  * held. A press that wakes the screen shows the Home page, and does nothing else. With no screen,
- * a press sends a ping, as it did before there was one. */
+ * a press sends a ping, as it did before there was one. Held on past OFF_WARN_MS, whatever it
+ * began as, it counts down to turning the board off at OFF_MS; let go before, and it does not. */
 static void poll_button(void) {
     static bool was, held, waking;
     static tern_time down, last;
@@ -2435,6 +2488,18 @@ static void poll_button(void) {
         } else {
             screen_seen(); /* someone is looking at what is shown */
         }
+        screen_wake();
+    } else if (pressed && now - down >= (tern_time)OFF_WARN_MS * 1000000) {
+        tern_time left = (tern_time)OFF_MS * 1000000 - (now - down);
+        if (left <= 0) {
+            turn_off(UI_OFF_PRESSED);
+        }
+        unsigned s = (unsigned)((left + 999999999) / 1000000000);
+        if (s != off_shown) {
+            off_shown = s;
+            screen_due = 0;
+        }
+        held = true; /* letting go is not a press */
         screen_wake();
     } else if (waking) {
         /* nothing until it is let go */
@@ -2454,20 +2519,12 @@ static void poll_button(void) {
     }
     if (!pressed && was) {
         waking = false;
-    }
-    was = pressed;
-}
-
-/* Sends the whole picture now, not a page a turn: for the screens drawn before the loop runs. A
- * page the screen did not take is left for poll_screen() to send again. */
-static void screen_flush(void) {
-    int page;
-    while (have_screen && (page = display_take(&screen)) >= 0) {
-        if (!board_screen_page(page, screen.px[page])) {
-            screen.dirty |= (uint8_t)(1u << page);
-            return;
+        if (off_shown != 0) {
+            off_shown = 0; /* let go in time: the page it was on */
+            screen_due = 0;
         }
     }
+    was = pressed;
 }
 
 /* The boot screen, as far as the board knows itself yet. */
@@ -2505,6 +2562,16 @@ __attribute__((noreturn)) static void halt(enum ui_fault why, int code) {
 }
 
 void app_main(void) {
+    /* Turned off for an empty battery, and woken to look at it again: off again at once, with
+     * nothing lit, unless it has been charged a little. The radio is still asleep. */
+    bool have_battery = board_battery_init();
+    if (board_woke_by_timer()) {
+        uint16_t mv = have_battery ? board_battery_mv() : 0;
+        if (mv >= POWER_NONE_MV && mv < POWER_RESTART_MV) {
+            board_off(EMPTY_CHECK_S);
+        }
+    }
+
     /* The screen first, so that if the board cannot start it can say why. */
     start_info.version = CONFIG_TERN_VERSION;
     have_screen = board_screen_init();
@@ -2512,6 +2579,22 @@ void app_main(void) {
         display_init(&screen);
     }
     show_start();
+
+    /* Too little left to run on: say so, and off, before anything draws more. */
+    battery_mv = have_battery ? board_battery_mv() : 0;
+    if (battery_mv >= POWER_NONE_MV && battery_mv < POWER_EMPTY_MV) {
+        printf("the battery is empty (%u mV): not starting. Charge it.\n", (unsigned)battery_mv);
+        if (have_screen) {
+            ui_off(UI_OFF_EMPTY, &screen);
+            screen_flush();
+            vTaskDelay(pdMS_TO_TICKS(3000));
+        }
+        if (board_init(&sx) == TERN_OK) {
+            tern_sx126x_sleep(&sx); /* at power on, it would sit in standby */
+        }
+        board_off(EMPTY_CHECK_S);
+    }
+    power_watch(&watch, battery_mv);
 
     esp_err_t e = nvs_flash_init();
     if (e == ESP_ERR_NVS_NO_FREE_PAGES || e == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -2666,7 +2749,7 @@ void app_main(void) {
     ask(&(struct tern_companion_msg){.type = TERN_C_HELLO, .version = TERN_COMPANION_VERSION});
     tern_companion_parser_init(&parser);
 
-    if (!board_battery_init()) {
+    if (!have_battery) {
         printf("the battery's ADC did not start: the battery is reported as unknown\n");
     }
     if (have_screen) {

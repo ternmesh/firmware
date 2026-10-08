@@ -366,6 +366,41 @@ static void the_battery_shows_once_it_is_known(void) {
     n.battery = 100;
     draw(&n, UI_HOME, "x");
     CHECK_ROW(0, "Tern       100% US915");
+    n.battery = 8;
+    draw(&n, UI_HOME, "home-battery-low");
+    CHECK_ROW(0, "Tern     Low 8% US915");
+    n.charging = true; /* charging says so, not that it is low */
+    draw(&n, UI_HOME, "home-charging");
+    CHECK_ROW(0, "Tern     Chg 8% US915");
+    n.battery = 100;
+    draw(&n, UI_HOME, "x");
+    CHECK_ROW(0, "Tern   Chg 100% US915");
+}
+
+static void holding_prg_counts_down_to_off(void) {
+    display_init(&d);
+    ui_turning_off(3, &d);
+    picture("turning-off");
+    CHECK_ROW(0, "Turning off");
+    CHECK(big(2, "3"));
+    CHECK_ROW(5, "Keep holding to turn");
+    CHECK_ROW(6, "off. Let go: stays on");
+    CHECK_ROW(7, "Its messages are lost");
+}
+
+static void off_says_how_to_turn_it_on(void) {
+    display_init(&d);
+    ui_off(UI_OFF_PRESSED, &d);
+    picture("off");
+    CHECK_ROW(0, "Turned off");
+    CHECK_ROW(3, "Press PRG to turn");
+    display_init(&d);
+    ui_off(UI_OFF_EMPTY, &d);
+    picture("off-empty");
+    CHECK_ROW(0, "Battery empty");
+    CHECK_ROW(5, "Charge it: it turns");
+    CHECK_ROW(6, "on again by itself,");
+    CHECK_ROW(7, "or press PRG.");
 }
 
 static void pairing_shows_the_passkey(void) {
@@ -505,6 +540,8 @@ int main(int argc, char **argv) {
     RUN(the_node_page_gives_its_short_code);
     RUN(the_battery_shows_once_it_is_known);
     RUN(pairing_shows_the_passkey);
+    RUN(holding_prg_counts_down_to_off);
+    RUN(off_says_how_to_turn_it_on);
     RUN(the_boot_screen_fills_in_as_the_board_starts);
     RUN(a_fault_says_why_and_what_to_do);
     RUN(large_text_is_centred_and_cut);

@@ -133,7 +133,8 @@ static unsigned left_percent(const struct ui_node *n) {
 static void home(const struct ui_node *n, struct frame *f) {
     char wait[16], right[24];
     if (n->battery != UI_BATTERY_UNKNOWN) {
-        snprintf(right, sizeof right, "%u%% %s", (unsigned)n->battery, n->region);
+        const char *how = n->charging ? "Chg " : n->battery <= UI_BATTERY_LOW ? "Low " : "";
+        snprintf(right, sizeof right, "%s%u%% %s", how, (unsigned)n->battery, n->region);
     } else {
         snprintf(right, sizeof right, "%s", n->region);
     }
@@ -465,5 +466,37 @@ void ui_fault(enum ui_fault why, const struct ui_start *s, int code, struct disp
         line(f.rows[4], "Error %d", code);
     }
     line(f.rows[7], "Tern %s", s->version);
+    draw(&f, d);
+}
+
+void ui_turning_off(unsigned seconds, struct display *d) {
+    struct frame f;
+    blank(&f);
+    line(f.rows[0], "Turning off");
+    f.big = 2;
+    snprintf(f.big_text, sizeof f.big_text, "%u", seconds);
+    line(f.rows[5], "Keep holding to turn");
+    line(f.rows[6], "off. Let go: stays on");
+    /* The link keeps messages in memory only (link.h), so they do not outlast the board's being
+     * off: said while it can still be stopped. */
+    line(f.rows[7], "Its messages are lost");
+    draw(&f, d);
+}
+
+void ui_off(enum ui_off why, struct display *d) {
+    struct frame f;
+    blank(&f);
+    if (why == UI_OFF_EMPTY) {
+        line(f.rows[0], "Battery empty");
+        line(f.rows[2], "Turned off to save");
+        line(f.rows[3], "the battery.");
+        line(f.rows[5], "Charge it: it turns");
+        line(f.rows[6], "on again by itself,");
+        line(f.rows[7], "or press PRG.");
+    } else {
+        line(f.rows[0], "Turned off");
+        line(f.rows[3], "Press PRG to turn");
+        line(f.rows[4], "it on again.");
+    }
     draw(&f, d);
 }

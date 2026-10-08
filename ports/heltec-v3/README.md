@@ -93,6 +93,12 @@ that hears a ping answers with a pong saying how strongly it heard it, so one pi
 directions. (On a board whose screen does not answer, a short press sends the ping.) The white
 LED blinks for each frame sent or received.
 
+Holding PRG for five seconds turns the board off. From the second second the screen counts
+down, and letting go before the end leaves it on. Off, the board is in deep sleep with its
+display and radio unpowered, drawing tens of microamps, and a press of PRG starts it again, as
+at power on. The messages it holds are kept in memory only, so they are lost, as at any
+restart; its identity, sessions, contacts and settings are not.
+
 To start:
 
 1. Type `status` on the second board and copy its address, sixty-four hex digits.
@@ -157,6 +163,16 @@ battery fitted, the board shows none. GPIO37 turns the divider on, low on a V3 o
 on a V3.2, and the board does not need telling which it is: it reads both ways the first time, and
 the way that is off reads nothing. Checked against Heltec's schematics, not yet against a meter on
 each revision.
+
+At 10% or less, Home says **Low** before the charge. Below 3.3 V on two readings in a row the
+board turns itself off, saying **Battery empty**, rather than run the cell down until it browns
+out; it wakes every half hour to look again and starts once the battery is back above 3.45 V, or
+at a press of PRG. It will not start below 3.3 V.
+
+The board has no wire from its charger to the chip, so Home's **Chg** is inferred from the
+voltage: plugging a charger in lifts it at once by 30 mV or more, and unplugging drops it as
+much (`main/power.h`). It is a guess. A full battery plugged in takes no current and shows no
+change, and it can take two readings, a minute, to notice.
 
 The link and the short code are the specification's
 ([draft/sharing.md](https://github.com/ternmesh/spec/blob/main/draft/sharing.md)), so a phone app
