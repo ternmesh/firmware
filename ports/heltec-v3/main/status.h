@@ -61,8 +61,9 @@ struct node_status {
     struct status_neighbour neighbours[STATUS_LISTED];
     struct status_route routes[STATUS_LISTED];
 
-    /* The demo's one session. */
+    /* The demo's sessions: how many, and the one 'send' goes to. */
     bool session, contacting;
+    uint8_t peers;
     uint32_t peer; /* the first four bytes of its address */
     uint32_t sent, received;
     bool have_last; /* the last message heard is in `last` */

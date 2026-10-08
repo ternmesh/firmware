@@ -13,16 +13,18 @@
 
 /* A board's flash: a few named records, and a switch to make saving fail. And its random
  * number generator, which here is only different for each board and never repeats. */
+enum { RECORDS = 1 + DEMO_PEERS }; /* an identity, and a record for each session */
+
 struct store {
-    char keys[4][16];
-    uint8_t data[4][sizeof(struct demo_state)];
-    size_t lens[4];
+    char keys[RECORDS][16];
+    uint8_t data[RECORDS][sizeof(struct demo_state)];
+    size_t lens[RECORDS];
     bool broken;
     uint64_t rng;
 };
 
 static int find(struct store *s, const char *key) {
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < RECORDS; i++) {
         if (strcmp(s->keys[i], key) == 0) {
             return i;
         }
@@ -79,7 +81,7 @@ static bool boot(struct board *b) {
 }
 
 static struct board *new_board(void) {
-    static struct board boards[56];
+    static struct board boards[80];
     static size_t used;
     if (used == sizeof boards / sizeof boards[0]) {
         fprintf(stderr, "out of boards\n");
@@ -131,7 +133,11 @@ static enum demo_heard say(struct board *from, struct board *to, const char *tex
     uint8_t frame[TERN_UNICAST_MAX_FRAME], msg[TERN_UNICAST_MAX_PLAINTEXT];
     struct demo_received r;
     size_t len = strlen(text);
-    CHECK(demo_seal(&from->ram, (const uint8_t *)text, len, frame) == DEMO_OK);
+    /* To the board it is said to, or, with no session with that one, to whoever it last spoke
+     * with: the other board then overhears. */
+    int slot = demo_peer(&from->ram, to->ram.id.address);
+    CHECK(demo_seal(&from->ram, slot >= 0 ? slot : from->ram.last, (const uint8_t *)text, len,
+                    frame) == DEMO_OK);
     enum demo_heard h = demo_receive(&to->ram, 0, frame, len + TERN_UNICAST_OVERHEAD, msg, &r);
     if (h == DEMO_HEARD_MESSAGE) {
         CHECK(r.msg_len == len && memcmp(msg, text, len) == 0);
@@ -162,14 +168,14 @@ static void board_that_cannot_save_its_identity_does_not_start(void) {
 static void board_with_no_session_sends_nothing(void) {
     struct board *a = new_board();
     uint8_t frame[32];
-    CHECK(demo_seal(&a->ram, (const uint8_t *)"x", 1, frame) == DEMO_UNPAIRED);
+    CHECK(demo_seal(&a->ram, 0, (const uint8_t *)"x", 1, frame) == DEMO_UNPAIRED);
 }
 
 static void first_contact_gives_both_a_session(void) {
     struct board *a = new_board(), *b = new_board();
     uint32_t n;
     CHECK(contact(a, b, 0) == DEMO_HEARD_PAIRED);
-    CHECK(a->ram.s.role == TERN_INITIATOR && b->ram.s.role == TERN_RESPONDER);
+    CHECK(a->ram.s[0].role == TERN_INITIATOR && b->ram.s[0].role == TERN_RESPONDER);
     CHECK(say(a, b, "one", &n) == DEMO_HEARD_MESSAGE && n == 0);
     CHECK(say(a, b, "two", &n) == DEMO_HEARD_MESSAGE && n == 1);
     CHECK(say(b, a, "back", &n) == DEMO_HEARD_MESSAGE && n == 0);
@@ -210,7 +216,7 @@ static void contact_losing(struct board *a, struct board *b, int lost) {
     int sent = 0;
     bool dropped = false;
     CHECK(demo_contact(&a->ram, b->ram.id.address, now, f.data, &f.len) == DEMO_OK);
-    for (int steps = 0; steps < 40 && a->ram.s.role == 0; steps++) {
+    for (int steps = 0; steps < 40 && a->ram.s[0].role == 0; steps++) {
         if (f.len == 0) {
             /* Nothing on the air: time passes until the initiator sends again. */
             now += RETRY;
@@ -237,7 +243,7 @@ static void a_lost_frame_is_sent_again(void) {
         struct board *a = new_board(), *b = new_board();
         uint32_t n;
         contact_losing(a, b, lost);
-        CHECK(a->ram.s.role == TERN_INITIATOR && b->ram.s.role == TERN_RESPONDER);
+        CHECK(a->ram.s[0].role == TERN_INITIATOR && b->ram.s[0].role == TERN_RESPONDER);
         CHECK(say(a, b, "made it", &n) == DEMO_HEARD_MESSAGE && n == 0);
         CHECK(say(b, a, "so did i", &n) == DEMO_HEARD_MESSAGE && n == 0);
     }
@@ -264,7 +270,8 @@ static void a_repeat_gets_the_same_answer(void) {
     f = m3;
     CHECK(deliver(b, 3, &f, &r) == DEMO_HEARD_CONTACT);
     CHECK(f.len == m4.len && memcmp(f.data, m4.data, f.len) == 0);
-    CHECK(b->ram.s.heard == 0 && b->ram.s.session.tx.next == 0); /* the session is untouched */
+    CHECK(b->ram.s[0].heard == 0 &&
+          b->ram.s[0].session.tx.next == 0); /* the session is untouched */
     /* Once the responder has forgotten the handshake, the repeat is nothing to it. */
     CHECK(demo_tick(&b->ram, 2 + DEMO_HOLD(RETRY), f.data, &f.len) == DEMO_TICK_NONE);
     f = m3;
@@ -306,7 +313,7 @@ static void responder_forgets_a_handshake_never_finished(void) {
 
 /* A board with a session is not taken over by whoever asks. */
 static void stranger_is_refused_until_accepted(void) {
-    struct board *a = new_board(), *b = new_board(), *c = new_board();
+    struct board *a = new_board(), *b = new_board(), *c = new_board(), *d = new_board();
     struct frame f;
     struct demo_received r;
     uint32_t n;
@@ -324,9 +331,9 @@ static void stranger_is_refused_until_accepted(void) {
     demo_accept(&b->ram, 200);
     CHECK(contact(c, b, 199) == DEMO_HEARD_PAIRED);
     CHECK(say(c, b, "hello", &n) == DEMO_HEARD_MESSAGE && n == 0);
-    CHECK(say(a, b, "gone", &n) == DEMO_HEARD_OTHER);
+    CHECK(say(a, b, "and still ours", &n) == DEMO_HEARD_MESSAGE && n == 1);
     /* Accepting one is not accepting the next. */
-    CHECK(contact(a, b, 199) == DEMO_HEARD_REFUSED);
+    CHECK(contact(d, b, 199) == DEMO_HEARD_REFUSED);
 }
 
 /* Its own peer may always come again: that is how two boards recover when only one of them took
@@ -337,10 +344,10 @@ static void peer_may_make_contact_again(void) {
     struct demo_received r;
     uint32_t n;
     CHECK(contact(a, b, 0) == DEMO_HEARD_PAIRED);
-    CHECK(demo_seal(&a->ram, (const uint8_t *)"old", 3, old) == DEMO_OK);
+    CHECK(demo_seal(&a->ram, 0, (const uint8_t *)"old", 3, old) == DEMO_OK);
     CHECK(contact(a, b, 0) == DEMO_HEARD_PAIRED);
     CHECK(contact(b, a, 0) == DEMO_HEARD_PAIRED);
-    CHECK(b->ram.s.role == TERN_INITIATOR && a->ram.s.role == TERN_RESPONDER);
+    CHECK(b->ram.s[0].role == TERN_INITIATOR && a->ram.s[0].role == TERN_RESPONDER);
     CHECK(demo_receive(&b->ram, 0, old, 26, msg, &r) == DEMO_HEARD_OTHER);
     CHECK(say(a, b, "new", &n) == DEMO_HEARD_MESSAGE && n == 0);
 }
@@ -371,7 +378,7 @@ static void receiver_restart_still_refuses_replays(void) {
     uint8_t frame[TERN_UNICAST_MAX_FRAME], msg[TERN_UNICAST_MAX_PLAINTEXT];
     struct demo_received r;
     CHECK(contact(a, b, 0) == DEMO_HEARD_PAIRED);
-    CHECK(demo_seal(&a->ram, (const uint8_t *)"once", 4, frame) == DEMO_OK);
+    CHECK(demo_seal(&a->ram, 0, (const uint8_t *)"once", 4, frame) == DEMO_OK);
     CHECK(demo_receive(&b->ram, 0, frame, 27, msg, &r) == DEMO_HEARD_MESSAGE);
     CHECK(boot(b));
     CHECK(demo_receive(&b->ram, 0, frame, 27, msg, &r) != DEMO_HEARD_MESSAGE);
@@ -383,7 +390,7 @@ static void unsaved_reception_is_not_shown(void) {
     uint8_t frame[TERN_UNICAST_MAX_FRAME], msg[TERN_UNICAST_MAX_PLAINTEXT];
     struct demo_received r;
     CHECK(contact(a, b, 0) == DEMO_HEARD_PAIRED);
-    CHECK(demo_seal(&a->ram, (const uint8_t *)"once", 4, frame) == DEMO_OK);
+    CHECK(demo_seal(&a->ram, 0, (const uint8_t *)"once", 4, frame) == DEMO_OK);
     b->flash.broken = true;
     memset(msg, 0x55, sizeof msg);
     CHECK(demo_receive(&b->ram, 0, frame, 27, msg, &r) == DEMO_HEARD_UNSAVED);
@@ -402,14 +409,14 @@ static void unsaved_reception_is_taken_when_it_comes_again(void) {
     uint8_t frame[TERN_UNICAST_MAX_FRAME], msg[TERN_UNICAST_MAX_PLAINTEXT];
     struct demo_received r;
     CHECK(contact(a, b, 0) == DEMO_HEARD_PAIRED);
-    CHECK(demo_seal(&a->ram, (const uint8_t *)"once", 4, frame) == DEMO_OK);
+    CHECK(demo_seal(&a->ram, 0, (const uint8_t *)"once", 4, frame) == DEMO_OK);
     b->flash.broken = true;
     CHECK(demo_receive(&b->ram, 0, frame, 27, msg, &r) == DEMO_HEARD_UNSAVED);
-    CHECK_EQ_U64(b->ram.s.heard, 0);
+    CHECK_EQ_U64(b->ram.s[0].heard, 0);
     b->flash.broken = false;
     CHECK(demo_receive(&b->ram, 0, frame, 27, msg, &r) == DEMO_HEARD_MESSAGE);
     CHECK(r.msg_len == 4 && memcmp(msg, "once", 4) == 0 && r.acks == 1);
-    CHECK_EQ_U64(b->ram.s.heard, 1);
+    CHECK_EQ_U64(b->ram.s[0].heard, 1);
 }
 
 /* A message heard comes with its acknowledgement, which only the board that sent it takes, and
@@ -421,19 +428,22 @@ static void a_message_is_acknowledged_and_a_copy_again(void) {
     uint8_t ack[TERN_UNICAST_ACK_LEN];
     struct demo_received r;
     CHECK(contact(a, b, 0) == DEMO_HEARD_PAIRED);
-    CHECK(demo_seal(&a->ram, (const uint8_t *)"hi", 2, frame) == DEMO_OK);
+    CHECK(demo_seal(&a->ram, 0, (const uint8_t *)"hi", 2, frame) == DEMO_OK);
     CHECK(demo_receive(&b->ram, 0, frame, 25, msg, &r) == DEMO_HEARD_MESSAGE);
     CHECK(r.acks == 1 && r.counter == 0);
     CHECK(memcmp(r.peer, a->ram.id.address, TERN_ADDRESS_LEN) == 0);
     memcpy(ack, r.ack[0], sizeof ack);
     CHECK(ack[0] == TERN_UNICAST_ACK_HDR && memcmp(&ack[11], &frame[11], 4) == 0);
 
-    CHECK(demo_acked(&a->ram, 0, ack, sizeof ack));
-    CHECK(!demo_acked(&a->ram, 1, ack, sizeof ack)); /* a message a has not sent */
-    CHECK(!demo_acked(&b->ram, 0, ack, sizeof ack)); /* nor is it b's to take */
-    CHECK(!demo_acked(&c->ram, 0, ack, sizeof ack)); /* nor a board's with no session */
+    CHECK(demo_acked(&a->ram, 0, 0, ack, sizeof ack));
+    CHECK(!demo_acked(&a->ram, 0, 1, ack, sizeof ack)); /* a message a has not sent */
+    CHECK(!demo_acked(&a->ram, 1, 0, ack, sizeof ack)); /* a session a does not have */
+    CHECK(!demo_acked(&a->ram, -1, 0, ack, sizeof ack) &&
+          !demo_acked(&a->ram, DEMO_PEERS, 0, ack, sizeof ack));
+    CHECK(!demo_acked(&b->ram, 0, 0, ack, sizeof ack)); /* nor is it b's to take */
+    CHECK(!demo_acked(&c->ram, 0, 0, ack, sizeof ack)); /* nor a board's with no session */
     ack[18] ^= 0x01;
-    CHECK(!demo_acked(&a->ram, 0, ack, sizeof ack));
+    CHECK(!demo_acked(&a->ram, 0, 0, ack, sizeof ack));
     ack[18] ^= 0x01;
 
     for (int i = 0; i < 2; i++) {
@@ -441,7 +451,7 @@ static void a_message_is_acknowledged_and_a_copy_again(void) {
         CHECK(demo_receive(&b->ram, 0, frame, 25, msg, &r) == DEMO_HEARD_COPY);
         CHECK(r.msg_len == 0 && msg[0] == 0x55 && r.counter == 0);
         CHECK(r.acks == 1 && memcmp(r.ack[0], ack, sizeof ack) == 0);
-        CHECK_EQ_U64(b->ram.s.heard, 1);
+        CHECK_EQ_U64(b->ram.s[0].heard, 1);
         CHECK(boot(b));
     }
     /* A board the message was not for acknowledges nothing. */
@@ -454,7 +464,7 @@ static void failed_save_sends_nothing(void) {
     uint32_t n;
     CHECK(contact(a, b, 0) == DEMO_HEARD_PAIRED);
     a->flash.broken = true;
-    CHECK(demo_seal(&a->ram, (const uint8_t *)"lost", 4, frame) == DEMO_STORE_FAILED);
+    CHECK(demo_seal(&a->ram, 0, (const uint8_t *)"lost", 4, frame) == DEMO_STORE_FAILED);
     /* The frame was never sent, so after a restart its counter may be used, once. */
     a->flash.broken = false;
     CHECK(boot(a));
@@ -501,9 +511,134 @@ static void record_from_another_build_is_not_used(void) {
     int i = find(&a->flash, "session");
     a->flash.data[i][4] ^= 1; /* the recorded size no longer matches */
     CHECK(boot(a));
-    CHECK(a->ram.s.role == 0);
+    CHECK(a->ram.s[0].role == 0);
     CHECK(memcmp(address, a->ram.id.address, sizeof address) == 0);
     CHECK(contact(a, b, 0) == DEMO_HEARD_PAIRED);
+}
+
+/* First contact that the board accepts, whoever it is with. */
+static enum demo_heard let_in(struct board *from, struct board *to) {
+    demo_accept(&to->ram, 1);
+    return contact(from, to, 0);
+}
+
+static void a_board_holds_a_session_with_each_peer(void) {
+    struct board *hub = new_board(), *a = new_board(), *b = new_board(), *c = new_board();
+    uint8_t frame[TERN_UNICAST_MAX_FRAME], msg[TERN_UNICAST_MAX_PLAINTEXT];
+    struct demo_received r;
+    uint32_t n;
+    CHECK(contact(a, hub, 0) == DEMO_HEARD_PAIRED);
+    CHECK(let_in(b, hub) == DEMO_HEARD_PAIRED);
+    CHECK(let_in(hub, c) == DEMO_HEARD_PAIRED); /* and one the hub began itself */
+    CHECK_EQ_U64(demo_peers(&hub->ram), 3);
+    struct board *peers[] = {a, b, c};
+    for (int round = 0; round < 2; round++) {
+        for (int i = 0; i < 3; i++) {
+            int slot = demo_peer(&hub->ram, peers[i]->ram.id.address);
+            CHECK(slot == i);
+            /* From each, to the hub: taken in that peer's session, and said to be from it. */
+            CHECK(demo_seal(&peers[i]->ram, 0, (const uint8_t *)"up", 2, frame) == DEMO_OK);
+            CHECK(demo_receive(&hub->ram, 0, frame, 25, msg, &r) == DEMO_HEARD_MESSAGE);
+            CHECK(r.slot == slot && r.counter == (uint32_t)round && r.acks == 1 &&
+                  r.ack_slot[0] == slot);
+            CHECK(memcmp(r.peer, peers[i]->ram.id.address, 32) == 0);
+            CHECK(hub->ram.last == slot);
+            /* Its acknowledgement is that peer's to take, and no other's. */
+            CHECK(demo_acked(&peers[i]->ram, 0, (uint32_t)round, r.ack[0], sizeof r.ack[0]));
+            CHECK(!demo_acked(&peers[(i + 1) % 3]->ram, 0, (uint32_t)round, r.ack[0],
+                              sizeof r.ack[0]));
+            /* And from the hub to each: only that one opens it. */
+            CHECK(say(hub, peers[i], "down", &n) == DEMO_HEARD_MESSAGE &&
+                  n == 2u * (uint32_t)round);
+            CHECK(demo_seal(&hub->ram, slot, (const uint8_t *)"down", 4, frame) == DEMO_OK);
+            CHECK(demo_receive(&peers[(i + 1) % 3]->ram, 0, frame, 27, msg, &r) ==
+                  DEMO_HEARD_OTHER);
+            CHECK(demo_receive(&peers[i]->ram, 0, frame, 27, msg, &r) == DEMO_HEARD_MESSAGE);
+        }
+        CHECK(boot(hub)); /* and all of it again after a restart, counting on */
+        CHECK_EQ_U64(demo_peers(&hub->ram), 3);
+        for (int i = 0; i < 3; i++) {
+            CHECK(hub->ram.s[i].heard == (uint32_t)round + 1 &&
+                  hub->ram.s[i].sent == 2u * ((uint32_t)round + 1));
+        }
+    }
+}
+
+/* Contact again with one peer is a new session with that one, and leaves the others'. */
+static void contact_again_replaces_only_that_peers_session(void) {
+    struct board *hub = new_board(), *a = new_board(), *b = new_board();
+    uint8_t old[TERN_UNICAST_MAX_FRAME], msg[TERN_UNICAST_MAX_PLAINTEXT];
+    struct demo_received r;
+    uint32_t n;
+    CHECK(contact(a, hub, 0) == DEMO_HEARD_PAIRED);
+    CHECK(let_in(b, hub) == DEMO_HEARD_PAIRED);
+    CHECK(say(b, hub, "one", &n) == DEMO_HEARD_MESSAGE && n == 0);
+    CHECK(demo_seal(&a->ram, 0, (const uint8_t *)"old", 3, old) == DEMO_OK);
+    CHECK(contact(a, hub, 0) == DEMO_HEARD_PAIRED); /* a peer it has: not refused */
+    CHECK_EQ_U64(demo_peers(&hub->ram), 2);
+    CHECK(demo_peer(&hub->ram, a->ram.id.address) == 0 &&
+          demo_peer(&hub->ram, b->ram.id.address) == 1);
+    CHECK(demo_receive(&hub->ram, 0, old, 26, msg, &r) == DEMO_HEARD_OTHER);
+    CHECK(say(a, hub, "new", &n) == DEMO_HEARD_MESSAGE && n == 0);
+    CHECK(say(b, hub, "two", &n) == DEMO_HEARD_MESSAGE && n == 1);
+}
+
+static void a_full_board_takes_no_new_peer_until_one_is_forgotten(void) {
+    struct board *hub = new_board(), *peers[DEMO_PEERS], *late = new_board();
+    struct frame f;
+    uint32_t n;
+    for (int i = 0; i < DEMO_PEERS; i++) {
+        peers[i] = new_board();
+        CHECK(let_in(peers[i], hub) == DEMO_HEARD_PAIRED);
+    }
+    CHECK_EQ_U64(demo_peers(&hub->ram), DEMO_PEERS);
+    /* Asked, and willing: but there is nowhere to keep it, and nobody is dropped for it. */
+    CHECK(let_in(late, hub) == DEMO_HEARD_FULL);
+    CHECK(demo_contact(&hub->ram, late->ram.id.address, 0, f.data, &f.len) == DEMO_FULL);
+    for (int i = 0; i < DEMO_PEERS; i++) {
+        CHECK(say(peers[i], hub, "still here", &n) == DEMO_HEARD_MESSAGE && n == 0);
+    }
+    CHECK(hub->ram.h.phase == DEMO_IDLE); /* and the refused handshake is not kept */
+    /* A peer it has may still come again. */
+    CHECK(contact(peers[3], hub, 0) == DEMO_HEARD_PAIRED);
+    CHECK(contact(hub, peers[5], 0) == DEMO_HEARD_PAIRED);
+
+    CHECK(!demo_forget(&hub->ram, -1) && !demo_forget(&hub->ram, DEMO_PEERS));
+    CHECK(demo_forget(&hub->ram, 2));
+    CHECK(!demo_forget(&hub->ram, 2));
+    CHECK_EQ_U64(demo_peers(&hub->ram), DEMO_PEERS - 1);
+    CHECK(say(peers[2], hub, "forgotten", &n) == DEMO_HEARD_OTHER);
+    CHECK(let_in(late, hub) == DEMO_HEARD_PAIRED);
+    CHECK(demo_peer(&hub->ram, late->ram.id.address) == 2);
+    CHECK(say(late, hub, "in", &n) == DEMO_HEARD_MESSAGE && n == 0);
+    CHECK(boot(hub));
+    CHECK_EQ_U64(demo_peers(&hub->ram), DEMO_PEERS);
+    CHECK(say(peers[2], hub, "forgotten", &n) == DEMO_HEARD_OTHER);
+    CHECK(say(late, hub, "in", &n) == DEMO_HEARD_MESSAGE && n == 1);
+}
+
+/* Forgotten in RAM and not in flash, a session would come back at the next restart. */
+static void a_session_is_forgotten_only_if_the_store_forgets_it(void) {
+    struct board *a = new_board(), *b = new_board();
+    uint32_t n;
+    CHECK(contact(a, b, 0) == DEMO_HEARD_PAIRED);
+    b->flash.broken = true;
+    CHECK(!demo_forget(&b->ram, 0));
+    b->flash.broken = false;
+    CHECK_EQ_U64(demo_peers(&b->ram), 1);
+    CHECK(say(a, b, "kept", &n) == DEMO_HEARD_MESSAGE && n == 0);
+    CHECK(demo_forget(&b->ram, 0));
+    CHECK(b->ram.last == -1);
+    CHECK(boot(b));
+    CHECK_EQ_U64(demo_peers(&b->ram), 0);
+    CHECK(say(a, b, "gone", &n) == DEMO_HEARD_OTHER);
+}
+
+/* A board updated from a build that held one session finds it, in the first slot. */
+static void the_one_session_of_an_earlier_build_is_kept(void) {
+    struct board *a = new_board(), *b = new_board();
+    CHECK(contact(a, b, 0) == DEMO_HEARD_PAIRED);
+    CHECK(find(&a->flash, "session") >= 0 && find(&a->flash, "session1") < 0);
 }
 
 static void frames_that_are_not_terns_are_malformed(void) {
@@ -539,6 +674,11 @@ int main(void) {
     RUN(failed_save_sends_nothing);
     RUN(session_that_cannot_be_saved_is_not_started);
     RUN(record_from_another_build_is_not_used);
+    RUN(a_board_holds_a_session_with_each_peer);
+    RUN(contact_again_replaces_only_that_peers_session);
+    RUN(a_full_board_takes_no_new_peer_until_one_is_forgotten);
+    RUN(a_session_is_forgotten_only_if_the_store_forgets_it);
+    RUN(the_one_session_of_an_earlier_build_is_kept);
     RUN(frames_that_are_not_terns_are_malformed);
     return CHECK_DONE();
 }

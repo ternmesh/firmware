@@ -11,9 +11,9 @@ message [follows them](https://github.com/ternmesh/spec/blob/main/draft/forwardi
 to the next hop its route gives, at no more power than that hop needs, is sent again if nothing is
 heard of it, and is acknowledged by the board it is for. A board built as a relay passes other
 boards' frames on. A board listens first: it asks its radio before every frame, and sends none
-while one is being received (`status` counts the times a frame waited). But a board holds one session, with one other board, and first contact does
-not follow routes, so the two must hear each other to meet. There is no airtime budget yet
-either.
+while one is being received (`status` counts the times a frame waited). A board holds a session
+with each of up to eight others. But first contact does not follow routes, so two boards must
+hear each other to meet. There is no airtime budget yet either.
 
 ## Flashing
 
@@ -56,10 +56,13 @@ Type commands into the serial terminal:
 
 | Command | |
 |---|---|
-| `status` | This board's address, the radio settings and the session. |
+| `status` | This board's address, the radio settings and its sessions. |
 | `contact <address>` | Make first contact with the board whose address that is. |
-| `accept` | For two minutes, let a board other than the present peer make contact. |
-| `send <text>` | Send up to 128 bytes to the peer. |
+| `accept` | For two minutes, let a board that is not yet a peer make contact. |
+| `peers` | The boards this one has a session with, by number. |
+| `to <number>` | Choose the peer `send` and the button send to. |
+| `send <text>` | Send up to 128 bytes to that peer: the one last made contact with, written to or heard from, unless `to` chose another. |
+| `drop <number>` | End the session with a peer and forget it. The other board is not told. |
 | `routes` | The boards this one hears, how well each hears the other, and the routes it has. |
 | `selftest` | Run a handshake between two nodes in the board's memory, and time it. |
 | `forget` | Forget every Bluetooth client that has paired ([the companion link](#over-bluetooth)). |
@@ -133,10 +136,12 @@ yet:
   over two seconds apart at the default settings, and then gives up. The other board never sends
   unasked: a frame it has already answered gets the same answer again.
 * **Whom a board accepts.** A board with no session accepts whoever makes contact, and says who
-  it was. One with a session accepts its own peer again, and refuses anyone else unless `accept`
+  it was. One with a session accepts a peer it has again, and refuses anyone else unless `accept`
   was typed in the last two minutes. A board that is refused is told nothing.
-* **One peer, one handshake.** A new session replaces the old one, and while one handshake is
-  under way another is not answered.
+* **Eight peers, one handshake.** First contact with a peer the board has replaces the session
+  with that peer, and leaves the others. A board with eight sessions takes no new peer until one
+  is dropped: it does not choose whom to forget. While one handshake is under way another is not
+  answered.
 * **Listening for the answer.** Once a frame that follows a route has gone, the board sends no
   other for three times as long as it took: the radio cannot hear while it sends, and a board
   with several messages waiting would otherwise send the second over the acknowledgement of the
@@ -259,9 +264,10 @@ What the board offers is what the demo is:
 
 * **Messages** are the ones sent and received since it started, up to 32; they are not saved.
   Contacts, up to 16, are saved to flash.
-* **One session at a time.** A message to a node the board has no session with starts first
-  contact with it, which replaces the present session once it completes. Its state says it is
-  waiting for a session meanwhile, and "not delivered" if the handshake gives up.
+* **A session with each of eight nodes.** A message to a node the board has no session with
+  starts first contact with it. Its state says it is waiting for a session meanwhile, and "not
+  delivered" if the handshake gives up, or if the board already holds eight sessions. Removing
+  a contact does not end its session; `drop` on the console does.
 * **A message is waiting, then delivered or not delivered.** It is delivered when its
   destination's acknowledgement comes back, and not delivered when the board gives it up, after
   four tries of some five seconds each. While it waits, its reason says if there is no route to
