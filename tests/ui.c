@@ -254,6 +254,41 @@ static void a_group_message_names_the_group_and_its_writer(void) {
     CHECK_ROW(7, "Sent");
 }
 
+static void nearby_lists_who_was_heard(void) {
+    struct ui_node n = busy();
+    n.nearby_n = 2;
+    n.neighbour[0] = (struct ui_neighbour){.snr_db = 7, .ago_s = 40};
+    snprintf(n.neighbour[0].name, sizeof n.neighbour[0].name, "Bob");
+    n.neighbour[1] = (struct ui_neighbour){.snr_db = -12, .ago_s = 750};
+    snprintf(n.neighbour[1].name, sizeof n.neighbour[1].name, "1A2B3C4D");
+    draw(&n, UI_NEARBY, "nearby");
+    CHECK_ROW(0, "Nearby              2");
+    CHECK_ROW(1, "Bob          +7dB 40s");
+    CHECK_ROW(2, "1A2B3C4D    -12dB 12m");
+    CHECK_ROW(3, "");
+
+    /* More than fit: the heading says which these are, and a long name gives way to the signal. */
+    n.nearby = 12;
+    n.nearby_first = 7;
+    n.nearby_n = 5;
+    for (int i = 2; i < 5; i++) {
+        n.neighbour[i] = (struct ui_neighbour){.snr_db = (int8_t)-i, .ago_s = 3600u * (unsigned)i};
+        snprintf(n.neighbour[i].name, sizeof n.neighbour[i].name, "Camp %d", i - 1);
+    }
+    snprintf(n.neighbour[0].name, sizeof n.neighbour[0].name, "Bob on the ridge top");
+    draw(&n, UI_NEARBY, "nearby-more");
+    CHECK_ROW(0, "Nearby        8-12/12");
+    CHECK_ROW(1, "Bob on the r +7dB 40s");
+}
+
+static void nearby_with_no_one_says_so(void) {
+    struct ui_node n = alone();
+    draw(&n, UI_NEARBY, "nearby-none");
+    CHECK_ROW(0, "Nearby");
+    CHECK_ROW(3, "No nodes heard yet");
+    CHECK_ROW(5, "A node shows here");
+}
+
 static void a_message_is_shown_whole(void) {
     struct ui_node n = busy();
     draw(&n, UI_MESSAGES, "message-received");
@@ -528,6 +563,12 @@ static void huge_numbers_stay_on_the_screen(void) {
     n.message.ago_s = UINT32_MAX;
     n.message.wait_s = UINT16_MAX;
     n.message.text_len = UINT8_MAX; /* more than a message holds */
+    n.nearby_first = UINT16_MAX;
+    n.nearby_n = UINT8_MAX; /* more than the page has room for */
+    for (int i = 0; i < UI_NEARBY_ROWS; i++) {
+        n.neighbour[i] = (struct ui_neighbour){.snr_db = INT8_MIN, .ago_s = UINT32_MAX};
+        memset(n.neighbour[i].name, 'W', UI_NAME); /* and no NUL */
+    }
     for (int page = 0; page < UI_PAGES; page++) {
         draw(&n, page, "x");
         /* Every cell of every line is a character, so nothing ran off the edge or over another;
@@ -572,6 +613,8 @@ int main(int argc, char **argv) {
     RUN(the_air_says_when_it_is_full);
     RUN(the_bar_shows_what_is_used);
     RUN(a_message_is_shown_whole);
+    RUN(nearby_lists_who_was_heard);
+    RUN(nearby_with_no_one_says_so);
     RUN(home_shows_a_phone_connected);
     RUN(a_group_message_names_the_group_and_its_writer);
     RUN(text_too_long_is_cut_where_it_says_so);

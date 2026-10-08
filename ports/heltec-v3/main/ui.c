@@ -271,6 +271,34 @@ static void messages(const struct ui_node *n, struct frame *f) {
     }
 }
 
+static void nearby(const struct ui_node *n, struct frame *f) {
+    char where[24];
+    if (n->nearby == 0) {
+        line(f->rows[0], "Nearby");
+        line(f->rows[3], "No nodes heard yet");
+        line(f->rows[5], "A node shows here");
+        line(f->rows[6], "once it is heard.");
+        return;
+    }
+    if (n->nearby <= UI_NEARBY_ROWS) {
+        snprintf(where, sizeof where, "%u", (unsigned)n->nearby);
+    } else {
+        /* More than fit: which of them these are, as Messages says which message it shows. */
+        snprintf(where, sizeof where, "%u-%u/%u", (unsigned)n->nearby_first + 1,
+                 (unsigned)n->nearby_first + n->nearby_n, (unsigned)n->nearby);
+    }
+    ends(f->rows[0], "Nearby", where);
+    for (int i = 0; i < n->nearby_n && i < UI_NEARBY_ROWS; i++) {
+        const struct ui_neighbour *g = &n->neighbour[i];
+        char name[UI_NAME + 1], ago[8], right[24];
+        ascii(name, sizeof name, (const uint8_t *)g->name, name_len(g->name));
+        span(ago, sizeof ago, g->ago_s);
+        /* Its signal and when it was heard at the end; the name gives way if both do not fit. */
+        snprintf(right, sizeof right, " %+ddB %s", (int)g->snr_db, ago);
+        ends(f->rows[1 + i], name, right);
+    }
+}
+
 static void air(const struct ui_node *n, struct frame *f) {
     char used[24], wait[16];
     ends(f->rows[0], "Air", n->region);
@@ -390,6 +418,9 @@ void ui_draw(const struct ui_node *n, int page, struct display *d) {
     switch (page) {
     case UI_MESSAGES:
         messages(n, &f);
+        break;
+    case UI_NEARBY:
+        nearby(n, &f);
         break;
     case UI_AIR:
         air(n, &f);
