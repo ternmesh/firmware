@@ -223,6 +223,12 @@ python3 tools/companion.py --port /dev/ttyUSB0 watch
 contacts, the messages it has kept, the boards it hears, and its time on the air. Close the
 serial monitor first: only one program can have the port.
 
+The board cannot tell when a program closes the port: the USB bridge keeps it open on the
+board's side. So a client that sends no request for a minute is taken for gone, and the board
+stops sending it news until something says `HELLO` again. Without this, the next program to open
+the port, a terminal included, would get the last one's frames. `watch` sends a `PING` every 20
+seconds to stay connected, and if it is cut off anyway, it says `HELLO` again and catches up.
+
 What the board offers is what the demo is:
 
 * **Messages** are the ones sent and received since it started, up to 32; they are not saved.

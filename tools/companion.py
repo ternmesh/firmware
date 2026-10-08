@@ -10,6 +10,8 @@
 
 `state` says hello, sets the node's clock from this computer's, and prints everything the node
 holds. `send` sends a message and prints what becomes of it. `watch` prints news as it comes.
+While it waits for news it sends PING every IDLE seconds, as the specification asks, and if the
+node took it for gone anyway, it says HELLO again and syncs what it missed.
 The node's console text, which shares the port, is printed on stderr with --console.
 
 On Windows the port is COM3 or similar. Real ports need pyserial (pip install pyserial); on Linux
@@ -31,6 +33,7 @@ import time
 MAX_FRAME, MAGIC = 180, b"\xf5\x54"
 VERSION = 0
 ANSWER_WAIT = 5.0
+IDLE = 20.0  # the most a client lets pass after an answer before it asks again
 
 # type: (name, fields). A field is (name, kind) with kind one of B b H I addr str.
 FRAMES = {
@@ -196,12 +199,31 @@ class Port:
         return os.read(self.fd, 512) if ready else b""
 
 
+class Lapsed(Exception):
+    """ERROR 6 after HELLO: the node took this client for gone."""
+
+
 class Node:
     """One connection: requests one at a time, news as it comes."""
 
-    def __init__(self, port, console=False):
-        self.port, self.parser, self.console = port, Parser(), console
+    def __init__(self, port, console=False, idle=IDLE):
+        self.port, self.parser, self.console, self.idle = port, Parser(), console, idle
         self.seq, self.pending, self.inbox = 0, [], []
+        self.greeted, self.answered = False, time.monotonic()
+        self.messages = {}  # message id: the MESSAGE last heard, with any STATE since
+        self.lost = set()  # ids that, since a restart, name another message or none
+
+    def _read(self):
+        frames, text = self.parser.push(self.port.read())
+        if text and self.console:
+            sys.stderr.write(text.decode("utf-8", "replace"))
+        for m in filter(None, map(decode, frames)):
+            if m["type"] == "MESSAGE":
+                self.messages[m["id"]] = dict(m, seq=0)
+            elif m["type"] == "STATE" and m["id"] in self.messages:
+                self.messages[m["id"]].update(state=m["state"], reason=m["reason"],
+                                              wait=m["wait"])
+            self.inbox.append(m)
 
     def _frames(self, wait):
         """Frames that arrive within `wait` seconds of the last. Several can come in one read;
@@ -213,10 +235,7 @@ class Node:
                 yield self.inbox.pop(0)
             if time.monotonic() >= end:
                 return
-            frames, text = self.parser.push(self.port.read())
-            if text and self.console:
-                sys.stderr.write(text.decode("utf-8", "replace"))
-            self.inbox += [m for m in map(decode, frames) if m is not None]
+            self._read()
 
     def request(self, kind, /, **values):
         """Sends a request and returns its answer, keeping any news that came first."""
@@ -226,19 +245,53 @@ class Node:
             if TYPE[m["type"]] >= 0x80:
                 self.pending.append(m)
             elif m["seq"] == self.seq:
+                self.answered = time.monotonic()
+                if m["type"] == "ERROR" and m["code"] == 6 and self.greeted:
+                    raise Lapsed()
                 if m["type"] == "ERROR":
                     raise SystemExit(f"{kind}: {ERRORS.get(m['code'], m['code'])}")
                 return m
         raise SystemExit(f"{kind}: no answer. Is the node on this port, and running Tern?")
 
     def news(self, wait):
-        """News kept, then what arrives within `wait` seconds of the last."""
-        while self.pending:
-            yield self.pending.pop(0)
-        yield from (m for m in self._frames(wait) if TYPE[m["type"]] >= 0x80)
+        """News kept, then news for `wait` seconds. A PING goes whenever `idle` has passed since
+        the last answer, and a node that took this client for gone is greeted again."""
+        end = time.monotonic() + wait
+        while True:
+            self.pending += [m for m in self.inbox if TYPE[m["type"]] >= 0x80]
+            self.inbox.clear()
+            while self.pending:
+                yield self.pending.pop(0)
+            now = time.monotonic()
+            if now >= end:
+                return
+            if now - self.answered < self.idle:
+                self._read()
+                continue
+            try:
+                self.request("PING")
+            except Lapsed:
+                print("the node took this client for gone: saying HELLO again", flush=True)
+                self.catch_up()
+
+    def catch_up(self):
+        """Greets the node again and syncs from the first message, keeping as news only the
+        messages that differ from those already heard. Not from the last id heard: the same
+        ERROR 6 comes from a node that restarted, and its ids start again at 1."""
+        heard = self.messages
+        self.messages = {}
+        self.hello()
+        self.request("SYNC", after=0)
+        self.pending = [m for m in self.pending
+                        if m["type"] != "MESSAGE" or heard.get(m["id"]) != dict(m, seq=0)]
+        same = ("contact", "time", "text")
+        self.lost |= {i for i, m in heard.items()
+                      if [m[k] for k in same] != [self.messages.get(i, {}).get(k) for k in same]}
 
     def hello(self):
+        self.greeted = False
         info = self.request("HELLO", version=VERSION)
+        self.greeted = True
         self.pending.clear()
         return info
 
@@ -295,7 +348,7 @@ def address(text):
 
 
 def run(args):
-    node = Node(Port(args.port), args.console)
+    node = Node(Port(args.port), args.console, args.idle)
     info = node.hello()
     print(f"{info['firmware']}, companion protocol version {info['version']}")
     names = {}
@@ -306,13 +359,23 @@ def run(args):
             print(describe(m, names))
     elif args.command == "send":
         ref = random.getrandbits(32)
-        q = node.request("SEND", ref=ref, to=address(args.address), text=args.text)
+        to = address(args.address)
+        q = node.request("SEND", ref=ref, to=to, text=args.text)
         print(f"queued as message #{q['id']}")
         for m in node.news(args.wait):
-            if m.get("id") == q["id"]:
-                print(describe(m, names))
-                if m["state"] in (2, 3):
-                    break
+            if m.get("id") != q["id"]:
+                continue
+            # A node that restarted numbers its messages from 1 again, so this id may now be
+            # another message's: one that is not the text sent, or one a catch-up found changed.
+            if m["type"] == "MESSAGE" and (m["contact"], m["text"]) != (to, args.text):
+                node.lost.add(q["id"])
+            if q["id"] in node.lost:
+                break
+            print(describe(m, names))
+            if m["state"] in (2, 3):
+                break
+        if q["id"] in node.lost:
+            print(f"message #{q['id']}: the node restarted, and no longer holds it")
     elif args.command == "contact":
         node.request("SAVE_CONTACT", address=address(args.address), name=args.name)
         print("saved")
@@ -322,8 +385,12 @@ def run(args):
         node.request("SET", setting=n, value=value)
         print("set")
     elif args.command == "watch":
-        node.request("SYNC", after=0xFFFFFFFF)
-        while True:
+        # From the first message, so a sync after a lapse can tell what changed; the old ones
+        # are not news, and are not printed.
+        node.request("SYNC", after=0)
+        node.pending = [m for m in node.pending if m["type"] != "MESSAGE"]
+        end = time.monotonic() + args.seconds if args.seconds else None
+        while end is None or time.monotonic() < end:
             for m in node.news(1.0):
                 print(describe(m, names), flush=True)
 
@@ -354,6 +421,8 @@ def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--port", help="the node's serial port")
     p.add_argument("--console", action="store_true", help="print the node's console on stderr")
+    p.add_argument("--idle", type=float, default=IDLE,
+                   help=f"seconds between requests while waiting for news (default {IDLE:g})")
     sub = p.add_subparsers(dest="command", required=True)
     sub.add_parser("state")
     s = sub.add_parser("send")
@@ -366,7 +435,8 @@ def main():
     t = sub.add_parser("set")
     t.add_argument("setting", choices=list(SETTING))
     t.add_argument("value")
-    sub.add_parser("watch")
+    w = sub.add_parser("watch")
+    w.add_argument("--seconds", type=float, help="stop after this long (default: never)")
     x = sub.add_parser("selftest")
     x.add_argument("vectors")
     args = p.parse_args()

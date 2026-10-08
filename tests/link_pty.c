@@ -2,8 +2,12 @@
  * tests/link_script.py to drive tools/companion.py against as it would a board's USB port.
  *
  * It prints the terminal's path, serves it until stdin closes or a minute passes, and writes a
- * line of console text now and then, as a board does, to show the script reads past it. A message
- * a client sends goes "on the air" a moment later. */
+ * line of console text now and then, as a board does, to show the script reads past it. A client
+ * that asks nothing for LINK_LAPSE is taken for gone, as on a board; the first argument, in
+ * milliseconds, shortens that, so a test can watch it happen. A message
+ * a client sends goes "on the air" a moment later. On stdin, an "m" is a message from Bob
+ * received, and an "r" restarts the node, as a SET restarts a board: the messages are lost, their
+ * ids start again, and another from Bob arrives. */
 
 #if defined(__APPLE__)
 #define _DARWIN_C_SOURCE
@@ -36,13 +40,19 @@ static tern_time now_ns(void) {
     return (tern_time)t.tv_sec * 1000000000LL + t.tv_nsec;
 }
 
+/* Bytes to the port. With no program holding it open, macOS fails the write (EIO) where Linux
+ * buffers it; either way they are lost, as a board's UART loses them, and the node carries on. */
+static void to_port(const void *bytes, size_t n) {
+    if (write(master, bytes, n) < 0) {
+        return;
+    }
+}
+
 static void out(void *ctx, const uint8_t *frame, size_t len) {
     uint8_t wrapped[TERN_COMPANION_STREAM_MAX];
     size_t n = tern_companion_wrap(frame, len, wrapped);
     (void)ctx;
-    if (write(master, wrapped, n) != (ssize_t)n) {
-        exit(2);
-    }
+    to_port(wrapped, n);
 }
 
 static void view(void *ctx, struct link_view *v) {
@@ -115,7 +125,7 @@ static void text_in(void *ctx, uint8_t byte) {
     (void)byte;
 }
 
-int main(void) {
+int main(int argc, char **argv) {
     master = posix_openpt(O_RDWR | O_NOCTTY);
     if (master < 0 || grantpt(master) != 0 || unlockpt(master) != 0) {
         perror("pty");
@@ -130,8 +140,13 @@ int main(void) {
     printf("%s\n", ptsname(master));
     fflush(stdout);
 
+    static const uint8_t bob[TERN_ADDRESS_LEN] = {0x3d, 0x40, 0x17, 0xc3, 0xe8, 0x43, 0x89, 0x5a,
+                                                  0x92, 0xb7, 0x0a, 0xa7, 0x4d, 0x1b, 0x7e, 0xbc,
+                                                  0x9c, 0x98, 0x2c, 0xcf, 0x2e, 0xc4, 0x96, 0x8c,
+                                                  0xc0, 0xcd, 0x55, 0xf1, 0x2a, 0xf4, 0x66, 0x0c};
     struct link_host host = {.ctx = NULL,
                              .firmware = "tern host test",
+                             .lapse = argc > 1 ? TERN_MS(atoi(argv[1])) : LINK_LAPSE,
                              .out = out,
                              .view = view,
                              .set = set,
@@ -156,6 +171,16 @@ int main(void) {
             if (read(STDIN_FILENO, &c, 1) <= 0) {
                 return 0;
             }
+            static const char morning[] = "Morning", back[] = "Back after a restart";
+            if (c == 'm') {
+                link_add(&node, bob, clock_s, TERN_C_RECEIVED, 0, (const uint8_t *)morning,
+                         sizeof morning - 1);
+            }
+            if (c == 'r') {
+                link_init(&node, &host);
+                link_add(&node, bob, clock_s, TERN_C_RECEIVED, 0, (const uint8_t *)back,
+                         sizeof back - 1);
+            }
         }
         if (fds[0].revents & POLLIN) {
             uint8_t buf[256];
@@ -178,9 +203,7 @@ int main(void) {
         if (now - chatter > TERN_MS(300)) {
             static const char line[] = "(a 23-byte frame for someone else, at -97 dBm)\r\n";
             chatter = now;
-            if (write(master, line, sizeof line - 1) < 0) {
-                return 1;
-            }
+            to_port(line, sizeof line - 1);
         }
     }
     return 0;
