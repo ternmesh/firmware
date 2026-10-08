@@ -146,9 +146,11 @@ yet:
 * **Lost frames.** The board that began sends each of its two frames up to four times, a little
   over two seconds apart at the default settings, and then gives up. The other board never sends
   unasked: a frame it has already answered gets the same answer again.
-* **Whom a board accepts.** A board with no session accepts whoever makes contact, and says who
-  it was. One with a session accepts a peer it has again, and refuses anyone else unless `accept`
-  was typed in the last two minutes. A board that is refused is told nothing.
+* **Whom a board accepts.** A board accepts an address saved as a contact, as the companion draft
+  says. Beyond that, a board with no session accepts whoever makes contact, and says who it was;
+  one with a session accepts a peer it has again, and refuses anyone else unless `accept` was
+  typed in the last two minutes. A board that is refused is told nothing; the refusing board
+  tells its clients who asked (`ASKED`), so they can offer to save it.
 * **Eight peers, one handshake.** First contact with a peer the board has replaces the session
   with that peer, and leaves the others. A board with eight sessions takes no new peer until one
   is dropped: it does not choose whom to forget. While one handshake is under way another is not
@@ -280,7 +282,12 @@ What the board offers is what the demo is:
 * **A session with each of eight nodes.** A message to a node the board has no session with
   starts first contact with it. Its state says it is waiting for a session meanwhile, and "not
   delivered" if the handshake gives up, or if the board already holds eight sessions. Removing
-  a contact does not end its session; `drop` on the console does.
+  a contact does not end its session; `END_SESSION`, or `drop` on the console, does, and gives up
+  the messages still waiting for that node. The other board is not told, and keeps its half
+  until one of them makes first contact again.
+* **Letting a board in.** Saving an address as a contact lets that board make first contact
+  whenever it tries. One that is refused, for not being a contact or for want of room, is news
+  to every client of version 1 (`ASKED`), at most once every ten seconds.
 * **A message is waiting, then delivered or not delivered.** It is delivered when its
   destination's acknowledgement comes back, and not delivered when the board gives it up, after
   four tries of some five seconds each. While it waits, its reason says if there is no route to

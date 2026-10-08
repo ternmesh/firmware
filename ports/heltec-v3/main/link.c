@@ -25,9 +25,10 @@ static void error(struct link *l, uint8_t seq, uint8_t code) {
     send_msg(l, l->asker, &m);
 }
 
-/* News goes only to a client that has said HELLO, numbered by its count. */
+/* News goes only to a client that has said HELLO, numbered by its count, and only news its
+ * version defines. */
 static void tell(struct link *l, struct link_conn *c, struct tern_companion_msg *m) {
-    if (!c->hello) {
+    if (!c->hello || (m->type == TERN_C_ASKED && c->version < 1)) {
         return;
     }
     m->seq = c->news++;
@@ -127,6 +128,15 @@ static struct link_contact *find_contact(struct link *l, const uint8_t address[T
         }
     }
     return NULL;
+}
+
+bool link_contact(const struct link *l, const uint8_t address[TERN_ADDRESS_LEN]) {
+    for (size_t i = 0; i < LINK_CONTACTS; i++) {
+        if (l->contacts[i].used && memcmp(l->contacts[i].address, address, TERN_ADDRESS_LEN) == 0) {
+            return true;
+        }
+    }
+    return false;
 }
 
 static struct link_message *find_message(struct link *l, uint32_t id) {
@@ -263,6 +273,20 @@ void link_session_changed(struct link *l, const uint8_t address[TERN_ADDRESS_LEN
     if (c != NULL) {
         news_contact(l, NULL, c);
     }
+}
+
+void link_asked(struct link *l, tern_time now, const uint8_t address[TERN_ADDRESS_LEN],
+                uint8_t why) {
+    if (l->asked && memcmp(l->asked_address, address, TERN_ADDRESS_LEN) == 0 &&
+        now - l->asked_at < LINK_QUIET) {
+        return;
+    }
+    l->asked = true;
+    memcpy(l->asked_address, address, TERN_ADDRESS_LEN);
+    l->asked_at = now;
+    struct tern_companion_msg m = {.type = TERN_C_ASKED, .why = why};
+    memcpy(m.address, address, TERN_ADDRESS_LEN);
+    news(l, NULL, &m);
 }
 
 /* --- Requests -------------------------------------------------------------------------------- */
@@ -411,6 +435,23 @@ static void remove_contact(struct link *l, const struct tern_companion_msg *q) {
     }
 }
 
+static void end_session(struct link *l, const struct tern_companion_msg *q) {
+    uint8_t code = l->host.end_session(l->host.ctx, q->address);
+    if (code != 0) {
+        error(l, q->seq, code);
+        return;
+    }
+    answer(l, TERN_C_OK, q->seq);
+    /* What the forwarder holds, the board has given up; the rest wait here. */
+    for (size_t i = 0; i < LINK_MESSAGES; i++) {
+        struct link_message *x = &l->messages[i];
+        if (x->used && waiting(x) && memcmp(x->address, q->address, TERN_ADDRESS_LEN) == 0) {
+            link_state(l, x->id, TERN_C_NOT_DELIVERED, 0, 0);
+        }
+    }
+    link_session_changed(l, q->address);
+}
+
 /* A serial client that has asked nothing for the lapse is taken for gone. */
 static void lapse(struct link_conn *c, tern_time now) {
     if (c->hello && c->lapse != 0 && now - c->answered_at >= c->lapse) {
@@ -467,6 +508,7 @@ void link_receive(struct link *l, unsigned conn, tern_time now, const uint8_t *f
                  cstr_len(l->host.firmware, TERN_COMPANION_FIRMWARE_MAX));
         send_msg(l, c, &a);
         c->hello = true;
+        c->version = q.version;
         c->synced = false;
         c->news = 0;
         break;
@@ -501,6 +543,9 @@ void link_receive(struct link *l, unsigned conn, tern_time now, const uint8_t *f
         break;
     case TERN_C_REMOVE_CONTACT:
         remove_contact(l, &q);
+        break;
+    case TERN_C_END_SESSION:
+        end_session(l, &q);
         break;
     default:
         error(l, q.seq, TERN_C_ERR_UNKNOWN);

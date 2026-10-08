@@ -1,11 +1,20 @@
 {
-  "description": "The companion protocol, draft 0 (draft/companion.md). Frames, streams and addresses are hex; numbers are numbers; strings are text. In frames, frame is the frame alone, as one BLE write or notification carries it, and stream is the same frame as it goes on a byte stream. In extended, frame carries bytes past the fields this version defines, and fields is what a receiver reads from it. In rejected, a receiver discards frame; answer is the ERROR code a node answers it with, null for none. In streams, items are what a receiver finds in stream, in order: a frame, or a run of bytes that is not one, and pending is what it holds at the end waiting for more. Exchange is one connection, in order. The two addresses are the public keys of RFC 8032's first two Ed25519 test vectors.",
+  "description": "The companion protocol, version 1 (draft/companion.md). Frames, streams and addresses are hex; numbers are numbers; strings are text. In frames, frame is the frame alone, as one BLE write or notification carries it, and stream is the same frame as it goes on a byte stream. In extended, frame carries bytes past the fields this version defines, and fields is what a receiver reads from it. In rejected, a receiver discards frame; answer is the ERROR code a node answers it with, null for none. In streams, items are what a receiver finds in stream, in order: a frame, or a run of bytes that is not one, and pending is what it holds at the end waiting for more. Exchange is one connection, in order; the node refuses first contact from the third address just before the ASKED in it. Older is a connection to the same node by a client of version 0; the node refuses that first contact after the sync, before the client's SAVE_CONTACT. The three addresses are the public keys of RFC 8032's first three Ed25519 test vectors.",
   "generator": "vectors/tools/companion.py",
   "crc_check": {
     "input": "313233343536373839",
     "crc": 10673
   },
   "frames": [
+    {
+      "type": "HELLO",
+      "seq": 1,
+      "fields": {
+        "version": 1
+      },
+      "frame": "010101",
+      "stream": "f55400030101019ef0"
+    },
     {
       "type": "HELLO",
       "seq": 1,
@@ -150,6 +159,15 @@
       "stream": "f5540022190f3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660cab52"
     },
     {
+      "type": "END_SESSION",
+      "seq": 16,
+      "fields": {
+        "address": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c"
+      },
+      "frame": "1a103d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+      "stream": "f55400221a103d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660cfcc7"
+    },
+    {
       "type": "OK",
       "seq": 4,
       "fields": {},
@@ -169,11 +187,11 @@
       "type": "INFO",
       "seq": 1,
       "fields": {
-        "version": 0,
+        "version": 1,
         "firmware": "tern 0.1.0 heltec-v3"
       },
-      "frame": "420100147465726e20302e312e302068656c7465632d7633",
-      "stream": "f5540018420100147465726e20302e312e302068656c7465632d76339985"
+      "frame": "420101147465726e20302e312e302068656c7465632d7633",
+      "stream": "f5540018420101147465726e20302e312e302068656c7465632d7633f45d"
     },
     {
       "type": "SYNCED",
@@ -359,6 +377,26 @@
       },
       "frame": "880d0000ff02",
       "stream": "f5540006880d0000ff024bbe"
+    },
+    {
+      "type": "ASKED",
+      "seq": 14,
+      "fields": {
+        "address": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "why": 1
+      },
+      "frame": "890efc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb91154890802501",
+      "stream": "f5540023890efc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025019ed7"
+    },
+    {
+      "type": "ASKED",
+      "seq": 15,
+      "fields": {
+        "address": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "why": 2
+      },
+      "frame": "890ffc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb91154890802502",
+      "stream": "f5540023890ffc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025023291"
     }
   ],
   "extended": [
@@ -455,6 +493,16 @@
     {
       "why": "a field cut short",
       "frame": "8305000000013d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c000000000000000000",
+      "answer": null
+    },
+    {
+      "why": "a field cut short",
+      "frame": "1a103d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af466",
+      "answer": 2
+    },
+    {
+      "why": "a field cut short",
+      "frame": "890efc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
       "answer": null
     }
   ],
@@ -599,13 +647,13 @@
       "from": "client",
       "type": "HELLO",
       "seq": 1,
-      "frame": "010100"
+      "frame": "010101"
     },
     {
       "from": "node",
       "type": "INFO",
       "seq": 1,
-      "frame": "420100147465726e20302e312e302068656c7465632d7633"
+      "frame": "420101147465726e20302e312e302068656c7465632d7633"
     },
     {
       "from": "client",
@@ -714,6 +762,122 @@
       "type": "STATE",
       "seq": 9,
       "frame": "84090000001202000000"
+    },
+    {
+      "from": "node",
+      "type": "ASKED",
+      "seq": 10,
+      "frame": "890afc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb91154890802501"
+    },
+    {
+      "from": "client",
+      "type": "SAVE_CONTACT",
+      "seq": 6,
+      "frame": "1806fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025054361726f6c"
+    },
+    {
+      "from": "node",
+      "type": "OK",
+      "seq": 6,
+      "frame": "4006"
+    },
+    {
+      "from": "node",
+      "type": "CONTACT",
+      "seq": 11,
+      "frame": "810bfc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb91154890802500054361726f6c"
+    },
+    {
+      "from": "client",
+      "type": "END_SESSION",
+      "seq": 7,
+      "frame": "1a073d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c"
+    },
+    {
+      "from": "node",
+      "type": "OK",
+      "seq": 7,
+      "frame": "4007"
+    },
+    {
+      "from": "node",
+      "type": "CONTACT",
+      "seq": 12,
+      "frame": "810c3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c0003426f62"
+    }
+  ],
+  "older": [
+    {
+      "from": "client",
+      "type": "HELLO",
+      "seq": 1,
+      "frame": "010100"
+    },
+    {
+      "from": "node",
+      "type": "INFO",
+      "seq": 1,
+      "frame": "420101147465726e20302e312e302068656c7465632d7633"
+    },
+    {
+      "from": "client",
+      "type": "SYNC",
+      "seq": 2,
+      "frame": "020200000011"
+    },
+    {
+      "from": "node",
+      "type": "SELF",
+      "seq": 0,
+      "frame": "8000d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b80"
+    },
+    {
+      "from": "node",
+      "type": "CONTACT",
+      "seq": 1,
+      "frame": "81013d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c0103426f62"
+    },
+    {
+      "from": "node",
+      "type": "NEIGHBOUR",
+      "seq": 2,
+      "frame": "85021d2e3f4001da002a"
+    },
+    {
+      "from": "node",
+      "type": "AIRTIME",
+      "seq": 3,
+      "frame": "870300000e1000057e400000303900000000"
+    },
+    {
+      "from": "node",
+      "type": "POWER",
+      "seq": 4,
+      "frame": "88040f935101"
+    },
+    {
+      "from": "node",
+      "type": "SYNCED",
+      "seq": 2,
+      "frame": "4302"
+    },
+    {
+      "from": "client",
+      "type": "SAVE_CONTACT",
+      "seq": 3,
+      "frame": "1803fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025054361726f6c"
+    },
+    {
+      "from": "node",
+      "type": "OK",
+      "seq": 3,
+      "frame": "4003"
+    },
+    {
+      "from": "node",
+      "type": "CONTACT",
+      "seq": 5,
+      "frame": "8105fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb91154890802500054361726f6c"
     }
   ]
 }

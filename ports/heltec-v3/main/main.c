@@ -564,12 +564,14 @@ static void heard(const struct tern_radio_event *ev) {
         print_address(got.peer);
         printf(" made contact, but this board holds as many sessions as it can. 'peers' lists "
                "them, and 'drop <number>' ends one.\n");
+        link_asked(&companion, board_now(), got.peer, TERN_C_ASKED_NO_ROOM);
         break;
     case DEMO_HEARD_REFUSED:
         printf("first contact: refused ");
         print_address(got.peer);
-        printf(", which is not one of this board's peers. Type 'accept' to let it in, and have "
-               "it try again.\n");
+        printf(", which is not one of this board's peers or contacts. Save it as a contact, or "
+               "type 'accept', to let it in, and have it try again.\n");
+        link_asked(&companion, board_now(), got.peer, TERN_C_ASKED_NOT_CONTACT);
         break;
     case DEMO_HEARD_FAILED:
         printf("first contact: a frame of the handshake failed its checks; abandoned\n");
@@ -1186,6 +1188,24 @@ static void link_set_time(void *ctx, uint32_t time) {
 static bool link_session(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]) {
     (void)ctx;
     return demo_peer(&demo, address) >= 0;
+}
+
+static uint8_t link_end_session(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]) {
+    (void)ctx;
+    int slot = demo_peer(&demo, address);
+    if (slot < 0) {
+        return 0;
+    }
+    if (!demo_forget(&demo, slot)) {
+        return TERN_C_ERR_NOT_NOW; /* the flash would not forget it, so it is kept */
+    }
+    pending_drop(slot);
+    return 0;
+}
+
+static bool link_trusted(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]) {
+    (void)ctx;
+    return link_contact(&companion, address);
 }
 
 static uint8_t link_why(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]) {
@@ -1950,12 +1970,14 @@ void app_main(void) {
         .set_time = link_set_time,
         .session = link_session,
         .why = link_why,
+        .end_session = link_end_session,
         .load = link_load,
         .save = link_save,
         .load_ids = link_load_ids,
         .save_ids = link_save_ids,
     };
     link_init(&companion, &host);
+    demo_trust(&demo, link_trusted, NULL);
     link_open(&companion, LINK_SERIAL, LINK_LAPSE, 0);
     tern_companion_parser_init(&parser);
 

@@ -23,8 +23,11 @@
  * - Lost frames. The initiator sends message_1, and later message_3, up to DEMO_TRIES times,
  *   `retry` apart, and then gives up. The responder never sends unasked: a frame it has already
  *   answered gets the same answer again, byte for byte, never computed twice.
- * - Whom to accept. A board with no session accepts whoever contacts it. One with a session
- *   accepts a peer it has again, and anyone else only while demo_accept() has it open. It learns
+ * - Whom to accept. A board accepts an address its user has saved as a contact, which the
+ *   specification does say (draft/companion.md, "Who may make first contact"): demo_trust() gives
+ *   it the way to ask. The rest is the demo's: a board with no session accepts whoever contacts
+ *   it; one with a session accepts a peer it has again, and anyone else only while
+ *   demo_accept() has it open. It learns
  *   who is asking only from message_3, so it answers every message_1 meant for it, and stays
  *   silent after message_3 if it refuses.
  * - How many. A board that holds DEMO_PEERS sessions takes no new peer until one is forgotten
@@ -89,6 +92,9 @@ struct demo {
                  only a button sends */
     struct demo_handshake h;
     tern_time accept_until; /* contact from a new peer is accepted before this */
+    /* Whether an address is one the user trusts to make contact, or NULL (demo_trust()). */
+    bool (*trusted)(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]);
+    void *trusted_ctx;
 };
 
 enum demo_result {
@@ -117,6 +123,11 @@ enum demo_result demo_contact(struct demo *d, const uint8_t peer[TERN_ADDRESS_LE
 
 /* Lets a board that has a session accept contact from a new peer until the time given. */
 void demo_accept(struct demo *d, tern_time until);
+
+/* Gives the board a way to ask whether an address may make contact with it whenever it tries:
+ * on the board, whether it is a saved contact. Call it after demo_start(), which forgets it. */
+void demo_trust(struct demo *d, bool (*trusted)(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]),
+                void *ctx);
 
 /* The slot of the session with that address, or -1 if there is none; and how many sessions the
  * board holds. */

@@ -15,10 +15,11 @@ import sys
 
 TYPES = {
     "HELLO": 0x01, "SYNC": 0x02, "PING": 0x03, "SET_TIME": 0x04, "SET": 0x05, "SEND": 0x10,
-    "READ": 0x11, "SAVE_CONTACT": 0x18, "REMOVE_CONTACT": 0x19, "OK": 0x40, "ERROR": 0x41,
+    "READ": 0x11, "SAVE_CONTACT": 0x18, "REMOVE_CONTACT": 0x19, "END_SESSION": 0x1A, "OK": 0x40,
+    "ERROR": 0x41,
     "INFO": 0x42, "SYNCED": 0x43, "QUEUED": 0x44, "SELF": 0x80, "CONTACT": 0x81,
     "CONTACT_GONE": 0x82, "MESSAGE": 0x83, "STATE": 0x84, "NEIGHBOUR": 0x85,
-    "NEIGHBOUR_GONE": 0x86, "AIRTIME": 0x87, "POWER": 0x88,
+    "NEIGHBOUR_GONE": 0x86, "AIRTIME": 0x87, "POWER": 0x88, "ASKED": 0x89,
 }
 STRINGS = ("text", "name", "firmware", "region")
 ADDRESSES = ("to", "address", "contact")
@@ -106,12 +107,13 @@ def cases(L, v):
 
 
 def exchange(L, v):
-    L.append("static const struct step exchange[] = {")
-    L += [
-        f"    {{{'true' if e['from'] == 'client' else 'false'}, {blob(e['frame'])}}},"
-        for e in v["exchange"]
-    ]
-    L.append("};")
+    for name in ("exchange", "older"):
+        L.append(f"static const struct step {name}[] = {{")
+        L += [
+            f"    {{{'true' if e['from'] == 'client' else 'false'}, {blob(e['frame'])}}},"
+            for e in v[name]
+        ]
+        L.append("};")
 
 
 if __name__ == "__main__":

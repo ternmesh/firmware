@@ -22,13 +22,16 @@ struct step {
 
 #define COUNT(a) (sizeof(a) / sizeof(a)[0])
 
-/* The public keys of RFC 8032's first two Ed25519 test vectors, as the vectors use them. */
+/* The public keys of RFC 8032's first three Ed25519 test vectors, as the vectors use them. */
 static const uint8_t alice[TERN_ADDRESS_LEN] = {
     0xd7, 0x5a, 0x98, 0x01, 0x82, 0xb1, 0x0a, 0xb7, 0xd5, 0x4b, 0xfe, 0xd3, 0xc9, 0x64, 0x07, 0x3a,
     0x0e, 0xe1, 0x72, 0xf3, 0xda, 0xa6, 0x23, 0x25, 0xaf, 0x02, 0x1a, 0x68, 0xf7, 0x07, 0x51, 0x1a};
 static const uint8_t bob[TERN_ADDRESS_LEN] = {
     0x3d, 0x40, 0x17, 0xc3, 0xe8, 0x43, 0x89, 0x5a, 0x92, 0xb7, 0x0a, 0xa7, 0x4d, 0x1b, 0x7e, 0xbc,
     0x9c, 0x98, 0x2c, 0xcf, 0x2e, 0xc4, 0x96, 0x8c, 0xc0, 0xcd, 0x55, 0xf1, 0x2a, 0xf4, 0x66, 0x0c};
+static const uint8_t carol[TERN_ADDRESS_LEN] = {
+    0xfc, 0x51, 0xcd, 0x8e, 0x62, 0x18, 0xa1, 0xa3, 0x8d, 0xa4, 0x7e, 0xd0, 0x02, 0x30, 0xf0, 0x58,
+    0x08, 0x16, 0xed, 0x13, 0xba, 0x33, 0x03, 0xac, 0x5d, 0xeb, 0x91, 0x15, 0x48, 0x90, 0x80, 0x25};
 
 /* The fake board: what it shows the link, and every frame the link sent. */
 struct board {
@@ -37,6 +40,7 @@ struct board {
     bool session_with_bob;
     uint8_t why;
     uint8_t set_answer;
+    uint8_t end_answer;
     bool save_fails;
     uint8_t saved[sizeof(struct link_contact) * LINK_CONTACTS];
     bool have_saved;
@@ -80,6 +84,14 @@ static void board_set_time(void *ctx, uint32_t time) { ((struct board *)ctx)->cl
 static bool board_session(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]) {
     struct board *b = ctx;
     return b->session_with_bob && memcmp(address, bob, TERN_ADDRESS_LEN) == 0;
+}
+
+static uint8_t board_end_session(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]) {
+    struct board *b = ctx;
+    if (b->end_answer == 0 && memcmp(address, bob, TERN_ADDRESS_LEN) == 0) {
+        b->session_with_bob = false;
+    }
+    return b->end_answer;
 }
 
 static uint8_t board_why(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]) {
@@ -152,6 +164,7 @@ static void start(void) {
         .set_time = board_set_time,
         .session = board_session,
         .why = board_why,
+        .end_session = board_end_session,
         .load = board_load,
         .save = board_save,
         .load_ids = board_load_ids,
@@ -190,9 +203,14 @@ static struct tern_companion_msg sent(size_t i) {
     return m;
 }
 
-static void hello(void) { request(&(struct tern_companion_msg){.type = TERN_C_HELLO, .seq = 1}); }
+static void hello(void) {
+    request(&(struct tern_companion_msg){
+        .type = TERN_C_HELLO, .seq = 1, .version = TERN_COMPANION_VERSION});
+}
 
-static void the_exchange_is_followed_frame_for_frame(void) {
+/* Plays one of the specification's exchanges. Carol is refused first contact where the exchange
+ * has ASKED, or, when the client is too old to be told, before the step `refused_before`. */
+static void follow(const char *name, const struct step *steps, size_t n, size_t refused_before) {
     start();
     companion.contacts[0] = (struct link_contact){.used = true, .name_len = 3, .name = "Bob"};
     memcpy(companion.contacts[0].address, bob, TERN_ADDRESS_LEN);
@@ -202,10 +220,14 @@ static void the_exchange_is_followed_frame_for_frame(void) {
                           sizeof where - 1),
                  17);
 
+    board.clock = 1790000000; /* the time it keeps, with or without a SET_TIME */
     size_t expected = 0;
     board.n_out = 0;
-    for (size_t i = 0; i < COUNT(exchange); i++) {
-        const struct step *s = &exchange[i];
+    for (size_t i = 0; i < n; i++) {
+        const struct step *s = &steps[i];
+        if (i == refused_before) {
+            link_asked(&companion, TERN_S(100), carol, TERN_C_ASKED_NOT_CONTACT);
+        }
         if (s->from_client) {
             /* Every node frame before this client's must already have been sent. */
             CHECK_EQ_U64(board.n_out, expected);
@@ -221,15 +243,34 @@ static void the_exchange_is_followed_frame_for_frame(void) {
             CHECK_EQ_I64(tern_companion_read(&m, s->frame, s->len), 0);
             link_state(&companion, m.id, m.state, m.reason, (uint16_t)m.wait);
         }
+        if (s->frame[0] == TERN_C_ASKED && expected == board.n_out) {
+            struct tern_companion_msg m = {0};
+            CHECK_EQ_I64(tern_companion_read(&m, s->frame, s->len), 0);
+            link_asked(&companion, TERN_S(100), m.address, m.why);
+        }
         bool ok = expected < board.n_out && board.out_len[expected] == s->len &&
                   memcmp(board.out[expected], s->frame, s->len) == 0;
         if (!ok) {
-            fprintf(stderr, "exchange: step %zu differs\n", i);
+            fprintf(stderr, "%s: step %zu differs\n", name, i);
         }
         CHECK(ok);
         expected++;
     }
     CHECK_EQ_U64(board.n_out, expected);
+}
+
+static void the_exchange_is_followed_frame_for_frame(void) {
+    follow("exchange", exchange, COUNT(exchange), COUNT(exchange));
+}
+
+/* A client of version 0 is sent nothing version 1 added, and its news is counted without it. */
+static void an_older_client_is_not_told_who_asked(void) {
+    size_t save = 0;
+    while (save < COUNT(older) && older[save].frame[0] != TERN_C_SAVE_CONTACT) {
+        save++;
+    }
+    CHECK(save < COUNT(older));
+    follow("older", older, COUNT(older), save);
 }
 
 static void nothing_but_hello_before_hello(void) {
@@ -386,6 +427,70 @@ static void first_contact_failing_gives_up_what_waited_for_it(void) {
     CHECK_EQ_I64(sent(0).id, id);
     CHECK_EQ_I64(sent(0).state, TERN_C_NOT_DELIVERED);
     CHECK(link_outgoing(&companion) == NULL);
+}
+
+/* A request that carries an address and nothing else that matters here. */
+static void about(uint8_t type, uint8_t seq, const uint8_t address[TERN_ADDRESS_LEN]) {
+    struct tern_companion_msg q = {.type = type, .seq = seq};
+    memcpy(q.address, address, TERN_ADDRESS_LEN);
+    request(&q);
+}
+
+static void ending_a_session_gives_up_what_waited(void) {
+    start();
+    hello();
+    struct tern_companion_msg q = send_to(bob, 1, "hello");
+    request(&q);
+    uint32_t id = sent(0).id;
+    about(TERN_C_SAVE_CONTACT, 2, bob);
+    about(TERN_C_END_SESSION, 3, bob);
+    CHECK_EQ_U64(board.n_out, 3);
+    CHECK_EQ_I64(sent(0).type, TERN_C_OK);
+    CHECK_EQ_I64(sent(1).type, TERN_C_STATE);
+    CHECK_EQ_I64(sent(1).id, id);
+    CHECK_EQ_I64(sent(1).state, TERN_C_NOT_DELIVERED);
+    CHECK_EQ_I64(sent(2).type, TERN_C_CONTACT);
+    CHECK_EQ_I64(sent(2).session, 0);
+    CHECK(!board.session_with_bob);
+    CHECK(link_outgoing(&companion) == NULL);
+
+    /* None to end is no error, and no news for one that is not a contact. */
+    about(TERN_C_END_SESSION, 4, carol);
+    CHECK_EQ_U64(board.n_out, 1);
+    CHECK_EQ_I64(sent(0).type, TERN_C_OK);
+
+    /* A session the board cannot forget is kept, and so is what waits for it. */
+    board.session_with_bob = true;
+    q = send_to(bob, 2, "again");
+    request(&q);
+    board.end_answer = TERN_C_ERR_NOT_NOW;
+    about(TERN_C_END_SESSION, 5, bob);
+    CHECK_EQ_U64(board.n_out, 1);
+    CHECK_EQ_I64(sent(0).code, TERN_C_ERR_NOT_NOW);
+    CHECK(link_outgoing(&companion) != NULL);
+}
+
+static void who_asked_is_news_no_more_than_every_quiet(void) {
+    start();
+    hello();
+    board.n_out = 0;
+    CHECK(!link_contact(&companion, carol));
+    link_asked(&companion, TERN_S(100), carol, TERN_C_ASKED_NOT_CONTACT);
+    CHECK_EQ_U64(board.n_out, 1);
+    CHECK_EQ_I64(sent(0).type, TERN_C_ASKED);
+    CHECK_EQ_I64(sent(0).why, TERN_C_ASKED_NOT_CONTACT);
+    CHECK(memcmp(sent(0).address, carol, TERN_ADDRESS_LEN) == 0);
+    /* Its frames come again within seconds: one telling is enough. */
+    link_asked(&companion, TERN_S(100) + LINK_QUIET - 1, carol, TERN_C_ASKED_NOT_CONTACT);
+    CHECK_EQ_U64(board.n_out, 1);
+    link_asked(&companion, TERN_S(101), bob, TERN_C_ASKED_NO_ROOM);
+    CHECK_EQ_U64(board.n_out, 2);
+    CHECK_EQ_I64(sent(1).why, TERN_C_ASKED_NO_ROOM);
+    link_asked(&companion, TERN_S(101) + LINK_QUIET, bob, TERN_C_ASKED_NO_ROOM);
+    CHECK_EQ_U64(board.n_out, 3);
+
+    about(TERN_C_SAVE_CONTACT, 2, carol);
+    CHECK(link_contact(&companion, carol));
 }
 
 static void reading_marks_received_messages_read(void) {
@@ -718,6 +823,7 @@ static void a_restart_gives_no_id_again(void) {
 
 int main(void) {
     RUN(the_exchange_is_followed_frame_for_frame);
+    RUN(an_older_client_is_not_told_who_asked);
     RUN(nothing_but_hello_before_hello);
     RUN(requests_it_cannot_read_are_answered);
     RUN(a_send_sent_again_is_one_message);
@@ -725,6 +831,8 @@ int main(void) {
     RUN(a_message_on_its_way_is_not_overwritten);
     RUN(a_message_handed_over_is_not_claimed_sent);
     RUN(first_contact_failing_gives_up_what_waited_for_it);
+    RUN(ending_a_session_gives_up_what_waited);
+    RUN(who_asked_is_news_no_more_than_every_quiet);
     RUN(reading_marks_received_messages_read);
     RUN(received_text_is_cut_to_what_a_message_carries);
     RUN(contacts_are_saved_renamed_and_removed);

@@ -4,11 +4,13 @@
     python3 tools/companion.py --port /dev/ttyUSB0 state
     python3 tools/companion.py --port /dev/ttyUSB0 send <address> <text>
     python3 tools/companion.py --port /dev/ttyUSB0 contact <address> <name>
+    python3 tools/companion.py --port /dev/ttyUSB0 end <address>
     python3 tools/companion.py --port /dev/ttyUSB0 set power 10
     python3 tools/companion.py --port /dev/ttyUSB0 watch
     python3 tools/companion.py selftest tests/vectors/companion.json
 
-`state` says hello, sets the node's clock from this computer's, and prints everything the node
+`contact` saves an address under a name, which also lets that node make first contact; `end` ends
+the session with one. `state` says hello, sets the node's clock from this computer's, and prints everything the node
 holds. `send` sends a message and prints what becomes of it. `watch` prints news as it comes.
 While it waits for news it sends PING every IDLE seconds, as the specification asks, and if the
 node took it for gone anyway, it says HELLO again and syncs what it missed.
@@ -31,7 +33,7 @@ import sys
 import time
 
 MAX_FRAME, MAGIC = 180, b"\xf5\x54"
-VERSION = 0
+VERSION = 1
 ANSWER_WAIT = 5.0
 IDLE = 20.0  # the most a client lets pass after an answer before it asks again
 
@@ -46,6 +48,7 @@ FRAMES = {
     0x11: ("READ", [("through", "I")]),
     0x18: ("SAVE_CONTACT", [("address", "addr"), ("name", "str")]),
     0x19: ("REMOVE_CONTACT", [("address", "addr")]),
+    0x1A: ("END_SESSION", [("address", "addr")]),
     0x40: ("OK", []),
     0x41: ("ERROR", [("code", "B")]),
     0x42: ("INFO", [("version", "B"), ("firmware", "str")]),
@@ -63,6 +66,7 @@ FRAMES = {
     0x86: ("NEIGHBOUR_GONE", [("routing_id", "I")]),
     0x87: ("AIRTIME", [("period", "I"), ("allowed", "I"), ("used", "I"), ("wait", "I")]),
     0x88: ("POWER", [("millivolts", "H"), ("percent", "B"), ("flags", "B")]),
+    0x89: ("ASKED", [("address", "addr"), ("why", "B")]),
 }
 TYPE = {name: t for t, (name, _) in FRAMES.items()}
 SETTINGS = {1: ("region", "str"), 2: ("role", "B"), 3: ("power", "b"), 4: ("passkey", "I")}
@@ -328,6 +332,11 @@ def describe(m, names):
         if not m["millivolts"] and m["percent"] == 255:
             return "power: not measured"
         return f"power: {m['millivolts']} mV, {m['percent']}%"
+    if t == "ASKED":
+        why = {1: "it is not a contact: save it as one to let it in",
+               2: "there is no room for another session: end one to make room"}
+        return (f"refused first contact from {m['address'].hex()}: "
+                f"{why.get(m['why'], 'no reason this script knows')}")
     return str(m)
 
 
@@ -379,6 +388,11 @@ def run(args):
     elif args.command == "contact":
         node.request("SAVE_CONTACT", address=address(args.address), name=args.name)
         print("saved")
+    elif args.command == "end":
+        if info["version"] < 1:
+            raise SystemExit("this node's firmware is too old to end a session from here")
+        node.request("END_SESSION", address=address(args.address))
+        print("ended")
     elif args.command == "set":
         n, kind = SETTING[args.setting]
         value = args.value if kind == "str" else int(args.value, 0)
@@ -432,6 +446,8 @@ def main():
     c = sub.add_parser("contact")
     c.add_argument("address")
     c.add_argument("name")
+    e = sub.add_parser("end")
+    e.add_argument("address")
     t = sub.add_parser("set")
     t.add_argument("setting", choices=list(SETTING))
     t.add_argument("value")

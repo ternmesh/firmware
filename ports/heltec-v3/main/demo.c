@@ -109,6 +109,8 @@ bool demo_start(struct demo *d, const struct demo_store *store, tern_time retry)
     d->store = *store;
     d->retry = retry;
     d->accept_until = 0;
+    d->trusted = NULL;
+    d->trusted_ctx = NULL;
     forget_handshake(d);
 
     bool ok = store->load(store->ctx, IDENTITY_KEY, &rec, sizeof rec) && rec.magic == MAGIC;
@@ -188,6 +190,12 @@ enum demo_result demo_contact(struct demo *d, const uint8_t peer[TERN_ADDRESS_LE
 }
 
 void demo_accept(struct demo *d, tern_time until) { d->accept_until = until; }
+
+void demo_trust(struct demo *d, bool (*trusted)(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]),
+                void *ctx) {
+    d->trusted = trusted;
+    d->trusted_ctx = ctx;
+}
 
 enum demo_result demo_seal(struct demo *d, int slot, const uint8_t *msg, size_t len,
                            uint8_t *frame) {
@@ -296,7 +304,8 @@ static void remember(struct demo_handshake *h, const uint8_t *frame, size_t len,
 
 /* Whether this board takes a session with the node that has just proved it is `peer`. */
 static bool accepts(const struct demo *d, const uint8_t peer[TERN_ADDRESS_LEN], tern_time now) {
-    return demo_peers(d) == 0 || now < d->accept_until || demo_peer(d, peer) >= 0;
+    return demo_peers(d) == 0 || now < d->accept_until || demo_peer(d, peer) >= 0 ||
+           (d->trusted != NULL && d->trusted(d->trusted_ctx, peer));
 }
 
 /* Turns a complete handshake into a session: in place of the one the board had with that peer,

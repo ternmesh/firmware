@@ -35,9 +35,9 @@ into a header for `tests/forward.c`, and its listens alone into one for `tests/l
 
 `companion.json` is a copy of
 [`vectors/companion.json`](https://github.com/ternmesh/spec/blob/main/vectors/companion.json), as
-of the companion protocol's first draft, merged in
-[ternmesh/spec#10](https://github.com/ternmesh/spec/pull/10). `companion_to_c.py` turns it into a
-header for `tests/companion.c`, and its exchange alone into one for `tests/link.c`.
+of the companion protocol's version 1, in
+[ternmesh/spec#16](https://github.com/ternmesh/spec/pull/16). `companion_to_c.py` turns it into a
+header for `tests/companion.c`, and its two exchanges alone into one for `tests/link.c`.
 `tools/companion.py selftest` reads it directly.
 
 When the specification's vectors change, copy the new file here in the same pull request that

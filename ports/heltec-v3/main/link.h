@@ -76,6 +76,9 @@ struct link_host {
     bool (*session)(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]);
     /* Why a new message to an address would wait: a TERN_C_WAIT_ reason. */
     uint8_t (*why)(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]);
+    /* END_SESSION: ends the session with an address, if there is one. 0, or the ERROR code to
+     * answer with. */
+    uint8_t (*end_session)(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]);
     /* The contacts, saved whole and loaded at start. */
     bool (*load)(void *ctx, void *buf, size_t len);
     bool (*save)(void *ctx, const void *buf, size_t len);
@@ -125,6 +128,7 @@ struct link_conn {
     tern_time lapse;
     size_t mtu; /* the ATT MTU over Bluetooth; 0 on a byte stream, which carries any frame */
     bool hello;
+    uint8_t version;       /* the client's, from its HELLO: it is sent nothing a later one added */
     bool synced;           /* told everything since HELLO: link_tick tells what changed since */
     uint8_t news;          /* the count: the next news frame's seq */
     tern_time answered_at; /* when the last request was answered */
@@ -149,6 +153,11 @@ struct link {
     uint32_t ids_saved; /* ids below this are set aside in flash: no restart gives them again */
     struct link_ref refs[LINK_REFS];
     size_t next_ref;
+    /* The last address ASKED told of, and when: one that keeps asking is told of every
+     * LINK_QUIET. */
+    bool asked;
+    uint8_t asked_address[TERN_ADDRESS_LEN];
+    tern_time asked_at;
 
     struct link_view view; /* scratch, filled by the host */
 };
@@ -207,5 +216,14 @@ void link_unreachable(struct link *l, const uint8_t address[TERN_ADDRESS_LEN]);
 
 /* A session started or ended with an address: news, if it is a contact. */
 void link_session_changed(struct link *l, const uint8_t address[TERN_ADDRESS_LEN]);
+
+/* Whether the user has saved an address as a contact: one the board takes first contact from
+ * (draft/companion.md, "Who may make first contact"). */
+bool link_contact(const struct link *l, const uint8_t address[TERN_ADDRESS_LEN]);
+
+/* The board refused first contact from an address that proved itself, for a TERN_C_ASKED_
+ * reason: news, for a client to offer to let it in. */
+void link_asked(struct link *l, tern_time now, const uint8_t address[TERN_ADDRESS_LEN],
+                uint8_t why);
 
 #endif

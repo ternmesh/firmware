@@ -336,6 +336,28 @@ static void stranger_is_refused_until_accepted(void) {
     CHECK(contact(d, b, 199) == DEMO_HEARD_REFUSED);
 }
 
+static bool is_carol(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]) {
+    return memcmp(address, ((struct board *)ctx)->ram.id.address, TERN_ADDRESS_LEN) == 0;
+}
+
+/* One the user has saved as a contact is let in whenever it comes, and nobody else with it. */
+static void a_trusted_stranger_is_accepted(void) {
+    struct board *a = new_board(), *b = new_board(), *c = new_board(), *d = new_board();
+    uint32_t n;
+    CHECK(contact(a, b, 0) == DEMO_HEARD_PAIRED);
+    CHECK(contact(c, b, 10) == DEMO_HEARD_REFUSED);
+
+    demo_trust(&b->ram, is_carol, c);
+    CHECK(contact(d, b, 20) == DEMO_HEARD_REFUSED);
+    CHECK(contact(c, b, 30) == DEMO_HEARD_PAIRED);
+    CHECK(say(c, b, "hello", &n) == DEMO_HEARD_MESSAGE && n == 0);
+    CHECK(contact(d, b, 40) == DEMO_HEARD_REFUSED);
+
+    /* A restart forgets how to ask, until the board says again. */
+    CHECK(boot(b));
+    CHECK(b->ram.trusted == NULL);
+}
+
 /* Its own peer may always come again: that is how two boards recover when only one of them took
  * up the session. And a new handshake is a new session, with new keys. */
 static void peer_may_make_contact_again(void) {
@@ -664,6 +686,7 @@ int main(void) {
     RUN(initiator_gives_up_and_keeps_what_it_had);
     RUN(responder_forgets_a_handshake_never_finished);
     RUN(stranger_is_refused_until_accepted);
+    RUN(a_trusted_stranger_is_accepted);
     RUN(peer_may_make_contact_again);
     RUN(restart_carries_on_counting);
     RUN(restart_abandons_a_handshake);
