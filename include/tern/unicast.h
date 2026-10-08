@@ -25,6 +25,7 @@
  * message key straight after its one use. */
 
 #define TERN_UNICAST_HDR 0x48      /* format 01 (draft 0), type 001 (secured unicast), no flags */
+#define TERN_UNICAST_HDR_NODE 0x49 /* the node flag: a plaintext for the node, not its user */
 #define TERN_UNICAST_HEAD 11       /* hdr, and the forwarder's ten bytes */
 #define TERN_UNICAST_OVERHEAD 23   /* the head, dtag and the 8-byte AEAD tag */
 #define TERN_UNICAST_MAX_FRAME 255 /* the largest LoRa frame */
@@ -87,6 +88,17 @@ void tern_session_wipe(struct tern_session *s);
  * or frame_cap too small, or TERN_ESPENT if every counter has been used. */
 int tern_unicast_seal(struct tern_unicast_tx *tx, const uint8_t *plaintext, size_t len,
                       uint8_t *frame, size_t frame_cap);
+
+/* The same, with the node flag set: a plaintext for the other node itself, such as a group's
+ * invite (tern/group.h), whose first byte says what it is. It takes the session's next counter
+ * like any other message. */
+int tern_unicast_seal_node(struct tern_unicast_tx *tx, const uint8_t *plaintext, size_t len,
+                           uint8_t *frame, size_t frame_cap);
+
+/* Whether a frame tern_unicast_open() accepted is for the node, not its user. */
+static inline bool tern_unicast_for_node(const uint8_t *frame) {
+    return frame[0] == TERN_UNICAST_HDR_NODE;
+}
 
 /* What became of a received frame. */
 enum tern_unicast_verdict {

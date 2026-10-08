@@ -36,7 +36,9 @@ add_library(tern
     src/contact.c
     src/duty.c
     src/fe25519.c
+    src/flood.c
     src/forward.c
+    src/group.c
     src/hkdf.c
     src/listen.c
     src/lora.c
@@ -54,7 +56,7 @@ target_compile_options(tern PRIVATE ${TERN_WARNINGS})
 
 include(CTest)
 if(BUILD_TESTING)
-    foreach(t address companion contact crypto duty forward listen lora mesh radio region route sx126x unicast)
+    foreach(t address companion contact crypto duty flood forward group listen lora mesh radio region route sx126x unicast)
         add_executable(test_${t} tests/${t}.c)
         target_link_libraries(test_${t} PRIVATE tern)
         # The test files define their cases as static functions, so the prototype warning is
@@ -119,6 +121,28 @@ if(BUILD_TESTING)
         VERBATIM)
     target_sources(test_forward PRIVATE ${forwarding_h})
     target_include_directories(test_forward PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/vectors)
+
+    set(flooding_h ${CMAKE_CURRENT_BINARY_DIR}/vectors/flooding.h)
+    add_custom_command(
+        OUTPUT ${flooding_h}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/vectors
+        COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tests/vectors/flooding_to_c.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/vectors/flooding.json ${flooding_h}
+        DEPENDS tests/vectors/flooding_to_c.py tests/vectors/flooding.json
+        VERBATIM)
+    target_sources(test_flood PRIVATE ${flooding_h})
+    target_include_directories(test_flood PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/vectors)
+
+    set(groups_h ${CMAKE_CURRENT_BINARY_DIR}/vectors/groups.h)
+    add_custom_command(
+        OUTPUT ${groups_h}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/vectors
+        COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tests/vectors/groups_to_c.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/vectors/groups.json ${groups_h}
+        DEPENDS tests/vectors/groups_to_c.py tests/vectors/groups.json
+        VERBATIM)
+    target_sources(test_group PRIVATE ${groups_h})
+    target_include_directories(test_group PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/vectors)
 
     set(listening_h ${CMAKE_CURRENT_BINARY_DIR}/vectors/listening.h)
     add_custom_command(

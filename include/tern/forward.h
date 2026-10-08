@@ -34,6 +34,7 @@
  */
 
 #define TERN_HDR_MESSAGE 0x48   /* a secured unicast frame */
+#define TERN_HDR_NODE 0x49      /* one whose plaintext is for the node, not its user */
 #define TERN_HDR_ACK 0x50       /* its destination's acknowledgement */
 #define TERN_HDR_CONTACT_1 0x51 /* first contact's four frames, from message_1's */
 #define TERN_HDR_CONTACT_4 0x54
@@ -55,8 +56,13 @@ static inline bool tern_forward_contact(uint8_t hdr) {
     return hdr >= TERN_HDR_CONTACT_1 && hdr <= TERN_HDR_CONTACT_4;
 }
 
+/* A message, to this layer: for the user or for the node, it goes and is answered the same way. */
+static inline bool tern_forward_message(uint8_t hdr) {
+    return hdr == TERN_HDR_MESSAGE || hdr == TERN_HDR_NODE;
+}
+
 static inline bool tern_forward_frame(const uint8_t *frame, size_t len) {
-    return len > 0 && (frame[0] == TERN_HDR_MESSAGE || frame[0] == TERN_HDR_ACK ||
+    return len > 0 && (tern_forward_message(frame[0]) || frame[0] == TERN_HDR_ACK ||
                        tern_forward_contact(frame[0]));
 }
 
@@ -76,8 +82,9 @@ bool tern_forward_head_read(struct tern_forward_head *h, const uint8_t *frame, s
 
 /* --- Rules, each as the specification states it, checked against its vectors. --- */
 
-/* Whether two frames are the same one, whatever hop each is on: of one length, and equal in every
- * byte from the destination on. A tag alone does not tell: two messages share one now and then. */
+/* Whether two frames are the same one, whatever hop each is on: of one length, with one hdr, and
+ * equal in every byte from the destination on. A tag alone does not tell: two messages share one
+ * now and then. */
 bool tern_forward_same(const uint8_t *a, size_t a_len, const uint8_t *b, size_t b_len);
 
 /* Whether receiving the frame `heard` ends the hop of the frame `sent`, which this node sent: the

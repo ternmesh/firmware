@@ -709,6 +709,23 @@ static void frames_that_are_not_terns_are_malformed(void) {
     CHECK(r.reply_len == 0);
 }
 
+/* A message for the node itself, such as a group's invite, is not this board's to take yet. It
+ * is not opened, so nothing is shown as words, nothing answers it, and its counter is not spent:
+ * the board that sent it finds out, and a board that learns to take such messages still can. */
+static void a_message_for_the_node_is_not_taken(void) {
+    struct board *a = new_board(), *b = new_board();
+    uint8_t frame[TERN_UNICAST_MAX_FRAME], msg[TERN_UNICAST_MAX_PLAINTEXT];
+    struct demo_received r;
+    CHECK(contact(a, b, 0) == DEMO_HEARD_PAIRED);
+    CHECK(demo_seal(&a->ram, 0, (const uint8_t *)"hi", 2, frame) == DEMO_OK);
+    frame[0] = TERN_UNICAST_HDR_NODE;
+    CHECK(demo_receive(&b->ram, 0, frame, 25, msg, &r) == DEMO_HEARD_MALFORMED);
+    CHECK(r.acks == 0 && r.msg_len == 0);
+    frame[0] = TERN_UNICAST_HDR;
+    CHECK(demo_receive(&b->ram, 0, frame, 25, msg, &r) == DEMO_HEARD_MESSAGE);
+    CHECK(r.counter == 0);
+}
+
 int main(void) {
     RUN(each_board_has_its_own_identity_and_keeps_it);
     RUN(board_that_cannot_save_its_identity_does_not_start);
@@ -739,5 +756,6 @@ int main(void) {
     RUN(a_session_is_forgotten_only_if_the_store_forgets_it);
     RUN(the_one_session_of_an_earlier_build_is_kept);
     RUN(frames_that_are_not_terns_are_malformed);
+    RUN(a_message_for_the_node_is_not_taken);
     return CHECK_DONE();
 }

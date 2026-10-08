@@ -1,5 +1,5 @@
 {
-  "description": "Secured unicast frames, draft 0 (draft/unicast-security.md), and their acknowledgements (draft/forwarding.md). For each accepted case, an implementation given session_secret, direction, counter, hops, power, next, destination and plaintext MUST produce frame, and given session_secret, direction and frame MUST recover counter and plaintext. Each rejected case MUST be rejected by a receiver holding session_secret and expecting counter in direction. For each sequence, a receiver of a new session given the deliveries in order MUST accept exactly those marked accept, with that counter and plaintext, and MUST acknowledge exactly those marked acknowledge, with the frame's tag and that proof. For each collision case, a receiver holding every listed session, all new, given the deliveries in order MUST accept exactly those marked accept, attributed to that session (an index into sessions) and counter, with that plaintext, and for each delivery MUST send exactly the acknowledgements listed, each with the frame's tag and that proof, to the other end of that session. For each senders case, an implementation acting as both ends of a new session, given each send's direction and plaintext in order and choosing the counter itself, MUST produce that send's frame; counter is given only to help debugging. For each acknowledgements case, the node that sent message counter in direction, holding session_secret, MUST take frame as showing that the message arrived if valid is true, and MUST NOT if it is false. Values are hex; hops, power, next and destination are integers, power signed, laid out as draft/forwarding.md gives, and where a case does not give them they are 32, 14, 0x0A0B0C0D and 0x01020304.",
+  "description": "Secured unicast frames, draft 0 (draft/unicast-security.md), and their acknowledgements (draft/forwarding.md). For each accepted case, an implementation given session_secret, direction, counter, hops, power, next, destination and plaintext MUST produce frame, and given session_secret, direction and frame MUST recover counter and plaintext. Each rejected case MUST be rejected by a receiver holding session_secret and expecting counter in direction. For each sequence, a receiver of a new session given the deliveries in order MUST accept exactly those marked accept, with that counter and plaintext, and MUST acknowledge exactly those marked acknowledge, with the frame's tag and that proof. For each collision case, a receiver holding every listed session, all new, given the deliveries in order MUST accept exactly those marked accept, attributed to that session (an index into sessions) and counter, with that plaintext, and for each delivery MUST send exactly the acknowledgements listed, each with the frame's tag and that proof, to the other end of that session. For each senders case, an implementation acting as both ends of a new session, given each send's direction and plaintext in order and choosing the counter itself, MUST produce that send's frame; counter is given only to help debugging. For each acknowledgements case, the node that sent message counter in direction, holding session_secret, MUST take frame as showing that the message arrived if valid is true, and MUST NOT if it is false. Values are hex; hdr is 72 (0x48), or 73 with the node flag set. hops, power, next and destination are integers, power signed, laid out as draft/forwarding.md gives, and where a case does not give them they are 32, 14, 0x0A0B0C0D and 0x01020304.",
   "generator": "vectors/tools/unicast.py",
   "accepted": [
     {
@@ -8,6 +8,7 @@
       "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "direction": 1,
       "counter": 0,
+      "hdr": 72,
       "hops": 32,
       "power": 14,
       "next": 168496141,
@@ -31,6 +32,7 @@
       "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "direction": 2,
       "counter": 0,
+      "hdr": 72,
       "hops": 32,
       "power": 14,
       "next": 168496141,
@@ -54,6 +56,7 @@
       "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "direction": 1,
       "counter": 31,
+      "hdr": 72,
       "hops": 32,
       "power": 14,
       "next": 168496141,
@@ -77,6 +80,7 @@
       "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "direction": 1,
       "counter": 32,
+      "hdr": 72,
       "hops": 32,
       "power": 14,
       "next": 168496141,
@@ -100,6 +104,7 @@
       "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "direction": 1,
       "counter": 1000,
+      "hdr": 72,
       "hops": 32,
       "power": 14,
       "next": 168496141,
@@ -123,6 +128,7 @@
       "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "direction": 1,
       "counter": 0,
+      "hdr": 72,
       "hops": 29,
       "power": -4,
       "next": 3203334145,
@@ -146,6 +152,7 @@
       "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "direction": 1,
       "counter": 7,
+      "hdr": 72,
       "hops": 32,
       "power": 14,
       "next": 168496141,
@@ -169,6 +176,7 @@
       "session_secret": "a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3",
       "direction": 1,
       "counter": 5,
+      "hdr": 72,
       "hops": 32,
       "power": 14,
       "next": 168496141,
@@ -192,6 +200,7 @@
       "session_secret": "a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3",
       "direction": 2,
       "counter": 2,
+      "hdr": 72,
       "hops": 32,
       "power": 14,
       "next": 168496141,
@@ -208,6 +217,30 @@
         "proof": "bf363a9d"
       },
       "frame": "48200e0a0b0c0d0102030431d53f1810216d2fab91343b51ca651715176f3ced35303148ea904987c2b6c98c32e3aa2b59f736d57db778b8a948ac22061063d404954ec50df358c3cb07112508bb80c27f59307b4450a0a7259ada5fbdc04a7c708386c6fddf2c9d367b2ce6c1b2600d765a3332f95dab1500e6b77f5e1eb6d4027898f9a07a74b14e378bd904de6abf0b0e90dc775a146b39a5109c09d59ffb9e0eeacbd7ca99ab9ac990101b5a88df9220503d72429e9cc284d86c969d3cf2bc710a2d4cedd6fe14bc4a1cd5557f254f2a621141fe42bb2510b0c170cfc5e77fd8c6710f99f8323e8301005ef2f2b334f54c4df9a18125a34f1dedd91ee1"
+    },
+    {
+      "name": "for-the-node",
+      "note": "the node flag set: the plaintext is a group's invite (draft/groups.md), and the counter is the session's like any other",
+      "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "direction": 1,
+      "counter": 1,
+      "hdr": 73,
+      "hops": 32,
+      "power": 14,
+      "next": 168496141,
+      "destination": 16909060,
+      "plaintext": "01c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4687574",
+      "intermediate": {
+        "epoch": 0,
+        "epoch_key": "69e66434f9549f37bbed9008549211ec54869dc4c22172dac6b87388440e0434",
+        "message_key": "d789bcd9aef5945b3257728ee62a2dc8",
+        "tag_key": "ddeb265222561c8c0a622cb8852f161d",
+        "iv": "5a456f34a4fc63183b4a0bf34a",
+        "nonce": "5a456f34a4fc63183b4a0bf34b",
+        "dtag": "e02952d9",
+        "proof": "8e58bfad"
+      },
+      "frame": "49200e0a0b0c0d01020304e02952d99f2a86437fe3c8c70ab7682c3d877c677b5042eb623c080dc07b8ae2"
     }
   ],
   "rejected": [
@@ -229,11 +262,19 @@
     },
     {
       "name": "header-changed",
-      "note": "a reserved flag set: the header is authenticated",
+      "note": "the node flag set on a frame sealed without it: the header is authenticated",
       "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "direction": 1,
       "counter": 0,
       "frame": "49200e0a0b0c0d0102030465000b485ea6c368bdcc3ddb99ccfc176d"
+    },
+    {
+      "name": "reserved-flag",
+      "note": "a reserved flag set",
+      "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "direction": 1,
+      "counter": 0,
+      "frame": "4a200e0a0b0c0d0102030465000b485ea6c368bdcc3ddb99ccfc176d"
     },
     {
       "name": "truncated",
