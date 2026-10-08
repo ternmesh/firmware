@@ -210,15 +210,18 @@ class Node:
         self.port, self.parser, self.console, self.idle = port, Parser(), console, idle
         self.seq, self.pending, self.inbox = 0, [], []
         self.greeted, self.answered = False, time.monotonic()
-        self.states = {}  # message id: its state, as last heard
+        self.messages = {}  # message id: the MESSAGE last heard, with any STATE since
 
     def _read(self):
         frames, text = self.parser.push(self.port.read())
         if text and self.console:
             sys.stderr.write(text.decode("utf-8", "replace"))
         for m in filter(None, map(decode, frames)):
-            if m["type"] in ("MESSAGE", "STATE"):
-                self.states[m["id"]] = m["state"]
+            if m["type"] == "MESSAGE":
+                self.messages[m["id"]] = dict(m, seq=0)
+            elif m["type"] == "STATE" and m["id"] in self.messages:
+                self.messages[m["id"]].update(state=m["state"], reason=m["reason"],
+                                              wait=m["wait"])
             self.inbox.append(m)
 
     def _frames(self, wait):
@@ -268,16 +271,18 @@ class Node:
                 self.request("PING")
             except Lapsed:
                 print("the node took this client for gone: saying HELLO again", flush=True)
-                self.hello()
-                self.request("SYNC", after=self.cursor())
+                self.catch_up()
 
-    def cursor(self):
-        """The `after` for a sync that catches up on missed news: one less than the least
-        message whose state may still change, or the last heard of."""
-        open_ = [i for i, s in self.states.items() if s in (0, 1)]
-        if open_:
-            return min(open_) - 1
-        return max(self.states, default=0)
+    def catch_up(self):
+        """Greets the node again and syncs from the first message, keeping as news only the
+        messages that differ from those already heard. Not from the last id heard: the same
+        ERROR 6 comes from a node that restarted, and its ids start again at 1."""
+        heard = self.messages
+        self.messages = {}
+        self.hello()
+        self.request("SYNC", after=0)
+        self.pending = [m for m in self.pending
+                        if m["type"] != "MESSAGE" or heard.get(m["id"]) != dict(m, seq=0)]
 
     def hello(self):
         self.greeted = False
@@ -366,7 +371,7 @@ def run(args):
         node.request("SET", setting=n, value=value)
         print("set")
     elif args.command == "watch":
-        # From the first message, so a sync after a lapse knows where to start; the old ones
+        # From the first message, so a sync after a lapse can tell what changed; the old ones
         # are not news, and are not printed.
         node.request("SYNC", after=0)
         node.pending = [m for m in node.pending if m["type"] != "MESSAGE"]

@@ -9,6 +9,7 @@ so this checks the script, the framing and the link together, everything but the
 
 import subprocess
 import sys
+import time
 
 BOB = "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c"
 GONE = "the node took this client for gone"
@@ -18,11 +19,16 @@ def main():
     node_bin, script = sys.argv[1], sys.argv[2]
     failed = 0
 
-    def run(port, *args, expect, absent=()):
-        """Runs the script; what it prints must hold `expect` in order, and nothing in `absent`."""
+    def run(port, *args, expect, absent=(), meanwhile=None):
+        """Runs the script; what it prints must hold `expect` in order, and nothing in `absent`.
+        `meanwhile`, if given, is called while it runs."""
         nonlocal failed
-        r = subprocess.run([sys.executable, script, "--port", port, *args], capture_output=True,
-                           text=True, timeout=60)
+        p = subprocess.Popen([sys.executable, script, "--port", port, *args],
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if meanwhile:
+            meanwhile()
+        out, err = p.communicate(timeout=60)
+        r = subprocess.CompletedProcess(p.args, p.returncode, out, err)
         at, missing = 0, []
         for e in expect:
             found = r.stdout.find(e, at)
@@ -67,6 +73,25 @@ def main():
             expect=["this node:", "neighbour 1d2e3f40"], absent=[GONE])
         run(port, "--idle", "2", "watch", "--seconds", "6",
             expect=["this node:", GONE, "this node:", "neighbour 1d2e3f40"])
+    finally:
+        board.stdin.close()
+        board.wait(timeout=10)
+
+    # A node that restarts answers ERROR 6 too, with its ids begun again: the message it now
+    # calls #1 is not the one the client heard of as #1, received before the restart, and is
+    # news a sync after #1 would miss.
+    board, port = node()
+
+    def tell(what, after=0.0):
+        time.sleep(after)
+        board.stdin.write(what)
+        board.stdin.flush()
+
+    try:
+        tell("m")
+        run(port, "--idle", "1", "watch", "--seconds", "4", meanwhile=lambda: tell("r", 1.5),
+            expect=[GONE, "message #1 from 3d4017c3e843895a: 'Back after a restart' (received)"],
+            absent=["Morning"])
     finally:
         board.stdin.close()
         board.wait(timeout=10)
