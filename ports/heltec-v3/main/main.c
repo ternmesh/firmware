@@ -67,6 +67,7 @@
 #include "tern/radio.h"
 #include "tern/region.h"
 #include "tern/route.h"
+#include "tern/share.h"
 #include "tern/sx126x.h"
 #include "ui.h"
 
@@ -497,10 +498,11 @@ static void contact_gave_up(void) {
     }
 }
 
+/* An address in its text form (draft/sharing.md): sixty-four upper-case hex digits. */
 static void print_address(const uint8_t address[TERN_ADDRESS_LEN]) {
-    for (int i = 0; i < TERN_ADDRESS_LEN; i++) {
-        printf("%02x", address[i]);
-    }
+    char text[TERN_ADDRESS_TEXT_LEN + 1];
+    tern_address_text(address, text);
+    fputs(text, stdout);
 }
 
 /* An announce's sender, at offset 1 (draft/routing.md), and the SNR it was heard at. */
@@ -1294,24 +1296,6 @@ static bool link_save_ids(void *ctx, uint32_t next) {
 
 /* --- The console ---------------------------------------------------------------------------- */
 
-/* Sixty-four hex digits. */
-static bool parse_address(const char *text, uint8_t address[TERN_ADDRESS_LEN]) {
-    int digits = 0;
-    for (; *text != '\0'; text++) {
-        char c = *text;
-        int v = c >= '0' && c <= '9'   ? c - '0'
-                : c >= 'a' && c <= 'f' ? c - 'a' + 10
-                : c >= 'A' && c <= 'F' ? c - 'A' + 10
-                                       : -1;
-        if (v < 0 || digits == 2 * TERN_ADDRESS_LEN) {
-            return false;
-        }
-        address[digits / 2] = (uint8_t)(digits % 2 ? address[digits / 2] << 4 | v : v);
-        digits++;
-    }
-    return digits == 2 * TERN_ADDRESS_LEN;
-}
-
 /* The sessions this board holds, by the numbers 'to' and 'drop' take. */
 static void peers(void) {
     if (demo_peers(&demo) == 0) {
@@ -1334,9 +1318,12 @@ static void peers(void) {
 }
 
 static void status(void) {
+    char link[TERN_ADDRESS_LINK_LEN + 1], code[TERN_SHORT_CODE_LEN + 1];
+    tern_address_link(demo.id.address, link);
+    tern_short_code(demo.id.address, code);
     printf("this board's address: ");
     print_address(demo.id.address);
-    printf("\n");
+    printf("\nas a link: %s\nits short code: %s\n", link, code);
     printf("radio: %s%s, %lu Hz, SF%u, %lu Hz, CR 4/%u, %d dBm, sync word 0x%02X\n", region->name,
            off_profile ? " (not the region's settings)" : "", (unsigned long)cfg.freq_hz,
            cfg.mod.sf, (unsigned long)cfg.mod.bw_hz, 4 + cfg.mod.cr, cfg.tx_power_dbm,
@@ -1545,8 +1532,10 @@ static void command(char *line) {
     if (strncmp(line, "contact ", 8) == 0) {
         uint8_t peer[TERN_ADDRESS_LEN], frame[TERN_CONTACT_MAX_FRAME];
         size_t len;
-        if (!parse_address(&line[8], peer)) {
-            printf("'%s' is not an address: sixty-four hex digits, as 'status' shows\n", &line[8]);
+        if (!tern_address_read(&line[8], peer)) {
+            printf("'%s' is not an address: sixty-four hex digits, or a TERN: link, as 'status' "
+                   "shows\n",
+                   &line[8]);
             return;
         }
         enum demo_result r = demo_contact(&demo, peer, board_now(), frame, &len);

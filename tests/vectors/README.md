@@ -48,5 +48,11 @@ header for `tests/companion.c`, and its two exchanges alone into one for `tests/
 `tests/group.c`. The same pull request gives a unicast message the node flag, so
 `unicast-security.json` and `forwarding.json` are as of it too.
 
+`sharing.json` is a copy of
+[`vectors/sharing.json`](https://github.com/ternmesh/spec/blob/main/vectors/sharing.json), as of
+[ternmesh/spec#19](https://github.com/ternmesh/spec/pull/19) (sharing an address: the text form,
+the `TERN:` link and the short code). `sharing_to_c.py` turns it into a header for
+`tests/share.c`.
+
 When the specification's vectors change, copy the new file here in the same pull request that
 changes the code to match, and update the commit above.

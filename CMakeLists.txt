@@ -47,6 +47,7 @@ add_library(tern
     src/route.c
     src/sha256.c
     src/sha512.c
+    src/share.c
     src/sx126x.c
     src/unicast.c
     src/x25519.c
@@ -56,7 +57,7 @@ target_compile_options(tern PRIVATE ${TERN_WARNINGS})
 
 include(CTest)
 if(BUILD_TESTING)
-    foreach(t address companion contact crypto duty flood forward group listen lora mesh radio region route sx126x unicast)
+    foreach(t address companion contact crypto duty flood forward group listen lora mesh radio region route share sx126x unicast)
         add_executable(test_${t} tests/${t}.c)
         target_link_libraries(test_${t} PRIVATE tern)
         # The test files define their cases as static functions, so the prototype warning is
@@ -99,6 +100,17 @@ if(BUILD_TESTING)
         VERBATIM)
     target_sources(test_region PRIVATE ${phy_h})
     target_include_directories(test_region PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/vectors)
+
+    set(sharing_h ${CMAKE_CURRENT_BINARY_DIR}/vectors/sharing.h)
+    add_custom_command(
+        OUTPUT ${sharing_h}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/vectors
+        COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tests/vectors/sharing_to_c.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/vectors/sharing.json ${sharing_h}
+        DEPENDS tests/vectors/sharing_to_c.py tests/vectors/sharing.json
+        VERBATIM)
+    target_sources(test_share PRIVATE ${sharing_h})
+    target_include_directories(test_share PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/vectors)
 
     set(routing_h ${CMAKE_CURRENT_BINARY_DIR}/vectors/routing.h)
     add_custom_command(

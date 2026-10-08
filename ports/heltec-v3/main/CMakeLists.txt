@@ -29,6 +29,7 @@ idf_component_register(
         ${root}/src/route.c
         ${root}/src/sha256.c
         ${root}/src/sha512.c
+        ${root}/src/share.c
         ${root}/src/sx126x.c
         ${root}/src/unicast.c
         ${root}/src/x25519.c
