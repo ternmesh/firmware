@@ -80,12 +80,17 @@ static void news_contact(struct link *l, struct link_conn *to, const struct link
     news(l, to, &m);
 }
 
+/* The frame a message is told of in, by its kind. */
+static uint8_t type_of(const struct link_message *x) {
+    return x->kind == LINK_KIND_GROUP    ? TERN_C_GROUP_MESSAGE
+           : x->kind == LINK_KIND_INVITE ? TERN_C_INVITE
+                                         : TERN_C_MESSAGE;
+}
+
 /* A message as news, of whichever kind it is. */
 static void news_message(struct link *l, struct link_conn *to, const struct link_message *x) {
     struct tern_companion_msg m = {
-        .type = x->kind == LINK_KIND_GROUP    ? TERN_C_GROUP_MESSAGE
-                : x->kind == LINK_KIND_INVITE ? TERN_C_INVITE
-                                              : TERN_C_MESSAGE,
+        .type = type_of(x),
         .id = x->id,
         .from = x->from,
         .time = x->time,
@@ -364,10 +369,22 @@ void link_state(struct link *l, uint32_t id, uint8_t state, uint8_t reason, uint
     x->reason = reason;
     x->wait = wait;
     if (changed) {
-        struct tern_companion_msg m = {
-            .type = TERN_C_STATE, .id = id, .state = state, .reason = reason, .wait = wait};
-        news(l, NULL, &m);
+        /* Only to a client that was told of the message: one from before groups was not sent a
+         * group message or an invite, and news of what became of one would be of nothing. */
+        uint8_t since = tern_companion_since(type_of(x));
+        for (size_t i = 0; i < LINK_CONNS; i++) {
+            struct tern_companion_msg m = {
+                .type = TERN_C_STATE, .id = id, .state = state, .reason = reason, .wait = wait};
+            if (l->conns[i].version >= since) {
+                tell(l, &l->conns[i], &m);
+            }
+        }
     }
+}
+
+bool link_wanted(struct link *l, uint32_t id) {
+    const struct link_message *x = find_message(l, id);
+    return x != NULL && (x->state == TERN_C_WAITING || x->state == TERN_C_SENT);
 }
 
 void link_taken(struct link *l, uint32_t id) {
@@ -699,10 +716,12 @@ static void leave_group(struct link *l, const struct tern_companion_msg *q) {
     struct tern_companion_msg m = {.type = TERN_C_GROUP_GONE};
     memcpy(m.group, q->group, sizeof m.group);
     news(l, NULL, &m);
-    /* What was still to go to the group, or to invite someone to it, never will. */
+    /* What was still to go to the group, or to invite someone to it, never will: with the board
+     * already or not, since it asks whether each is still wanted (link_wanted()) and lets go of
+     * the frame of one that is not. */
     for (size_t i = 0; i < LINK_MESSAGES; i++) {
         struct link_message *x = &l->messages[i];
-        if (x->used && x->kind != LINK_KIND_MESSAGE && x->state == TERN_C_WAITING && !x->taken &&
+        if (x->used && x->kind != LINK_KIND_MESSAGE && x->state == TERN_C_WAITING &&
             memcmp(x->group, q->group, sizeof x->group) == 0) {
             link_state(l, x->id, TERN_C_NOT_DELIVERED, 0, 0);
         }

@@ -583,6 +583,40 @@ static void leaving_a_group_gives_up_what_waited_for_it(void) {
     CHECK(!companion.groups[0].used);
 }
 
+/* What became of a group message is news only to a client that was told of the message, and one
+ * handed to the board before its group was left is no longer wanted there. */
+static void a_group_messages_state_follows_the_message(void) {
+    make_group();
+    struct tern_companion_msg q = for_group(TERN_C_SEND_GROUP, made_id());
+    q.text_len = 1;
+    q.text[0] = 'x';
+    request(&q);
+    uint32_t id = sent(0).id;
+    link_taken(&companion, id);
+    CHECK(link_wanted(&companion, id) && !link_wanted(&companion, id + 1));
+
+    /* A second client, from before groups, on the other connection. */
+    uint8_t frame[TERN_COMPANION_MAX_FRAME];
+    link_open(&companion, LINK_BLE, 0, 200);
+    size_t len = tern_companion_write(
+        &(struct tern_companion_msg){.type = TERN_C_HELLO, .seq = 1, .version = 1}, frame);
+    link_receive(&companion, LINK_BLE, TERN_S(100), frame, len);
+    board.n_out = 0;
+    link_state(&companion, id, TERN_C_WAITING, TERN_C_WAIT_BUDGET, 30);
+    CHECK_EQ_U64(board.n_out, 1);
+    CHECK(board.out_conn[0] == LINK_SERIAL && sent(0).type == TERN_C_STATE);
+    /* An ordinary message's is news to both. */
+    uint32_t plain = link_add(&companion, bob, 5, TERN_C_WAITING, 0, (const uint8_t *)"y", 1);
+    board.n_out = 0;
+    link_state(&companion, plain, TERN_C_DELIVERED, 0, 0);
+    CHECK_EQ_U64(board.n_out, 2);
+
+    q = for_group(TERN_C_LEAVE_GROUP, made_id());
+    request(&q);
+    CHECK(!link_wanted(&companion, id));
+    link_close(&companion, LINK_BLE);
+}
+
 /* A client from before groups has not shown its user what it was never sent: its READ leaves a
  * group message and an invite unread, for a client that can show them. */
 static void an_older_clients_read_leaves_what_it_was_not_sent(void) {
@@ -1203,6 +1237,7 @@ int main(void) {
     RUN(an_invite_carries_the_groups_secret_and_name);
     RUN(an_invite_is_held_until_joined);
     RUN(leaving_a_group_gives_up_what_waited_for_it);
+    RUN(a_group_messages_state_follows_the_message);
     RUN(an_older_clients_read_leaves_what_it_was_not_sent);
     RUN(nothing_but_hello_before_hello);
     RUN(requests_it_cannot_read_are_answered);

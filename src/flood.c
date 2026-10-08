@@ -194,6 +194,23 @@ bool tern_flood_send(struct tern_flood *f, tern_time now, const uint8_t *frame, 
     return true;
 }
 
+bool tern_flood_cancel(struct tern_flood *f, tern_time now, const uint8_t id[TERN_FLOOD_ID]) {
+    (void)now;
+    for (size_t i = 0; i < f->cap; i++) {
+        struct tern_flood_slot *s = &f->slot[i];
+        if (s->state == TERN_FLOOD_FREE || !s->own || memcmp(s->id, id, TERN_FLOOD_ID) != 0) {
+            continue;
+        }
+        if (s->state == TERN_FLOOD_OUT) {
+            s->dropped = true; /* freed, and its charge given back, when the caller lets go */
+        } else {
+            s->state = TERN_FLOOD_FREE;
+        }
+        return true;
+    }
+    return false;
+}
+
 bool tern_flood_heard(struct tern_flood *f, tern_time now, const uint8_t *frame, size_t len) {
     uint8_t id[TERN_FLOOD_ID];
     if (!tern_flood_frame(frame, len)) {

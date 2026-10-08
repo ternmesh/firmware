@@ -245,6 +245,10 @@ struct link_message *link_outgoing(struct link *l);
  * the reason is news. */
 void link_state(struct link *l, uint32_t id, uint8_t state, uint8_t reason, uint16_t wait);
 
+/* Whether a message handed over is still to go: false once it has come to rest some other way,
+ * as when its group is left or its session ended, and then the board lets go of its frame. */
+bool link_wanted(struct link *l, uint32_t id);
+
 /* A message has been handed to the forwarder, and is not to be handed over again. Its state
  * stays waiting until main.c learns more: delivered when its destination's acknowledgement comes
  * back, not delivered when it is given up. Going on the air does not make it sent: the draft

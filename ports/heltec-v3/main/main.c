@@ -133,7 +133,9 @@ static tern_time flood_retry;
 static struct {
     uint32_t id;
     uint8_t nonce[TERN_GROUP_NONCE];
+    uint8_t frame_id[TERN_FLOOD_ID]; /* the flooder's name for its frame */
 } flooding[FLOODING];
+static int flood_own = -1;     /* which of them the frame on the air is, or -1 */
 static bool forward_out;       /* the frame on the air is the forwarder's */
 static uint8_t forward_handle; /* and this is the forwarder's name for it */
 static tern_time forward_retry;
@@ -788,6 +790,12 @@ static void poll_radio(void) {
         if (flood_out) {
             tern_flood_sent(&flood, board_now(), flood_handle);
             flood_out = false;
+            if (flood_own >= 0) {
+                /* Gone, which is as much as a group message is ever known to be. */
+                link_state(&companion, flooding[flood_own].id, TERN_C_SENT, 0, 0);
+                flooding[flood_own].id = 0;
+                flood_own = -1;
+            }
         }
         if (forward_out) {
             tern_forward_sent(&forward, board_now(), forward_handle);
@@ -876,6 +884,7 @@ static void send_group(struct link_message *x) {
     }
     flooding[place].id = x->id;
     memcpy(flooding[place].nonce, nonce, sizeof nonce);
+    tern_flood_id(frame, len, flooding[place].frame_id);
     link_taken(&companion, x->id);
 }
 
@@ -960,6 +969,12 @@ static void poll_forward(void) {
         }
     }
     for (int i = 0; i < PENDING; i++) {
+        if (pending[i].id != 0 && !link_wanted(&companion, pending[i].id)) {
+            /* An invite whose group was left since it was handed over: the forwarder lets go of
+             * it as if it had been acknowledged, and it is not sent again. */
+            (void)tern_forward_acked(&forward, pending[i].tag);
+            pending[i].id = 0;
+        }
         if (pending[i].id != 0) {
             link_state(&companion, pending[i].id, TERN_C_WAITING,
                        pending_reason(now, demo.s[pending[i].slot].peer), 0);
@@ -1019,10 +1034,20 @@ static void poll_forward(void) {
  * so; one to pass on that the allowance cannot pay for is dropped by the flooder. */
 static void poll_flood(void) {
     static uint8_t frame[TERN_FLOOD_FRAME_MAX];
-    tern_time now = board_now(), due = tern_flood_due(&flood);
+    tern_time now = board_now();
+    /* A group message whose group was left since it was handed over is not to go. */
+    for (int i = 0; i < FLOODING; i++) {
+        if (flooding[i].id != 0 && !link_wanted(&companion, flooding[i].id)) {
+            (void)tern_flood_cancel(&flood, now, flooding[i].frame_id);
+            if (flood_own != i) {
+                flooding[i].id = 0; /* one on the air is let go of when it has gone */
+            }
+        }
+    }
+    tern_time due = tern_flood_due(&flood);
     if (due != INT64_MAX && due > now + 1000000000LL) {
         for (int i = 0; i < FLOODING; i++) {
-            if (flooding[i].id != 0) {
+            if (flooding[i].id != 0 && link_wanted(&companion, flooding[i].id)) {
                 tern_time wait = (due - now) / 1000000000LL + 1;
                 link_state(&companion, flooding[i].id, TERN_C_WAITING, TERN_C_WAIT_BUDGET,
                            (uint16_t)(wait > UINT16_MAX ? UINT16_MAX : wait));
@@ -1059,9 +1084,7 @@ static void poll_flood(void) {
             memcmp(flooding[i].nonce, frame + TERN_FLOOD_HEAD, TERN_GROUP_NONCE) == 0) {
             printf("sent to a group: %u bytes at %d dBm, %lld.%03lld ms on the air\n",
                    (unsigned)len, dbm, (long long)(air / 1000000), (long long)(air / 1000 % 1000));
-            /* On the air is as much as a group message is ever known to be. */
-            link_state(&companion, flooding[i].id, TERN_C_SENT, 0, 0);
-            flooding[i].id = 0;
+            flood_own = i; /* said to be sent once the radio says it has gone */
         }
     }
 }
@@ -2617,6 +2640,13 @@ void app_main(void) {
                 /* Counted as gone: the forwarder listens for it, and sends it again unheard. */
                 tern_forward_sent(&forward, board_now(), forward_handle);
                 forward_out = false;
+            }
+            if (flood_out) {
+                /* Not known to have gone: a frame of this board's goes back to wait its turn,
+                 * and its message stays waiting; one being passed on is let go. */
+                tern_flood_withdrawn(&flood, board_now(), flood_handle);
+                flood_out = false;
+                flood_own = -1;
             }
             tern_radio_receive(&radio);
         }
