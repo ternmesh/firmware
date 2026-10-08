@@ -1,6 +1,7 @@
 #include "tern/contact.h"
 
 #include "tern/err.h"
+#include "tern/route.h"
 
 /* First contact, as draft/first-contact.md specifies it, with EDHOC (RFC 9528) fixed to the
  * profile there: method 3, cipher suite 0, credentials holding Ed25519 addresses, the responder
@@ -9,7 +10,10 @@
  * through a general CBOR codec. Section and step references are to RFC 9528. */
 
 #define HDR(n) (0x50 | (n)) /* format 01, type 010, flags = message number */
-#define PREFIX 8
+#define HEAD 11             /* hdr, and the ten bytes of the routing layer's */
+#define AT_DEST 7           /* where the head keeps the destination */
+#define PREFIX 15           /* the head and the contact tag: where message_2 to message_4 start */
+#define PREFIX_1 19         /* and message_1, after the routing id it came from */
 #define M1_LEN 37
 #define M2_LEN 45
 #define M3_LEN 65
@@ -122,14 +126,46 @@ static void contact_tags(struct tern_contact *c, const uint8_t g_x[32], const ui
     tern_wipe(prk, sizeof prk);
 }
 
-static void put_frame(uint8_t *out, uint8_t n, const uint8_t ctag[4]) {
+static uint32_t get32(const uint8_t *b) {
+    return (uint32_t)b[0] << 24 | (uint32_t)b[1] << 16 | (uint32_t)b[2] << 8 | b[3];
+}
+
+static void put32(uint8_t *b, uint32_t v) {
+    b[0] = (uint8_t)(v >> 24);
+    b[1] = (uint8_t)(v >> 16);
+    b[2] = (uint8_t)(v >> 8);
+    b[3] = (uint8_t)v;
+}
+
+static bool an_id(uint32_t id) { return id != 0 && id != TERN_ROUTE_EVERYONE; }
+
+/* The head and the tag of frame n, for the node with that routing id. hops, power and the next
+ * hop are left 0: they are the forwarder's. */
+static void put_frame(uint8_t *out, uint8_t n, const uint8_t ctag[4], uint32_t destination) {
     out[0] = HDR(n);
-    out[1] = 0;
-    out[2] = 0;
-    out[3] = 0;
-    for (int i = 0; i < 4; i++) {
-        out[4 + i] = ctag[i];
+    for (int i = 1; i < AT_DEST; i++) {
+        out[i] = 0;
     }
+    put32(out + AT_DEST, destination);
+    for (int i = 0; i < 4; i++) {
+        out[HEAD + i] = ctag[i];
+    }
+}
+
+uint32_t tern_contact_destination(const uint8_t *frame) { return get32(frame + AT_DEST); }
+
+bool tern_contact_same(const uint8_t *a, size_t a_len, const uint8_t *b, size_t b_len) {
+    size_t from = HEAD;
+    if (a_len != b_len || a_len < PREFIX || a[0] != b[0]) {
+        return false;
+    }
+    if (a[0] == HDR(1)) {
+        if (a_len < PREFIX_1 || !tern_equal_ct(a + HEAD, b + HEAD, PREFIX - HEAD)) {
+            return false;
+        }
+        from = PREFIX_1; /* where it came from is not part of the message */
+    }
+    return tern_equal_ct(a + from, b + from, a_len - from);
 }
 
 /* S = EDHOC_Exporter(32768, h'', 32), from PRK_4e3m and TH_4 (section 4.2.1). */
@@ -192,11 +228,13 @@ static void next_prk(uint8_t out[32], const uint8_t prk[32], uint32_t salt_label
 
 static void abort_contact(struct tern_contact *c) { tern_contact_wipe(c); }
 
-int tern_contact_start(struct tern_contact *c, const uint8_t target[TERN_ADDRESS_LEN],
+int tern_contact_start(struct tern_contact *c, uint32_t source,
+                       const uint8_t target[TERN_ADDRESS_LEN],
                        const uint8_t ephemeral[TERN_CONTACT_EPHEMERAL], uint8_t c_i, uint8_t *frame,
                        size_t frame_cap, size_t *len) {
     uint8_t u_r[32], g_x[32];
-    if (frame_cap < PREFIX + M1_LEN || !one_byte_id(c_i) || !tern_address_x25519(u_r, target)) {
+    if (frame_cap < PREFIX_1 + M1_LEN || !one_byte_id(c_i) || !an_id(source) ||
+        !tern_address_x25519(u_r, target)) {
         return TERN_EINVAL;
     }
     tern_contact_wipe(c);
@@ -211,8 +249,9 @@ int tern_contact_start(struct tern_contact *c, const uint8_t target[TERN_ADDRESS
     }
     contact_tags(c, g_x, c->g_rx);
 
-    uint8_t *m1 = frame + PREFIX;
-    put_frame(frame, 1, c->ctag[0]);
+    uint8_t *m1 = frame + PREFIX_1;
+    put_frame(frame, 1, c->ctag[0], tern_route_id(target));
+    put32(frame + PREFIX, source);
     m1[0] = 0x03; /* METHOD 3 */
     m1[1] = 0x00; /* SUITES_I 0 */
     m1[2] = 0x58;
@@ -225,7 +264,7 @@ int tern_contact_start(struct tern_contact *c, const uint8_t target[TERN_ADDRESS
 
     c->role = TERN_INITIATOR;
     c->expect = 2;
-    *len = PREFIX + M1_LEN;
+    *len = PREFIX_1 + M1_LEN;
     return TERN_OK;
 }
 
@@ -240,10 +279,15 @@ int tern_contact_respond(struct tern_contact *c, const struct tern_identity *me,
     tern_contact_wipe(c);
 
     /* message_1 must be exactly the profile's: 03 00 58 20 G_X C_I, nothing after. */
-    if (len != PREFIX + M1_LEN || frame[0] != HDR(1)) {
+    if (len != PREFIX_1 + M1_LEN || frame[0] != HDR(1)) {
         return TERN_CONTACT_NOT_OURS;
     }
-    const uint8_t *m1 = frame + PREFIX;
+    /* message_2 goes where message_1 says it came from, which must be somewhere. */
+    uint32_t source = get32(frame + PREFIX);
+    if (!an_id(source) || source == tern_route_id(me->address)) {
+        return TERN_CONTACT_NOT_OURS;
+    }
+    const uint8_t *m1 = frame + PREFIX_1;
     if (m1[0] != 0x03 || m1[1] != 0x00 || m1[2] != 0x58 || m1[3] != 0x20 || !one_byte_id(m1[36])) {
         return TERN_CONTACT_NOT_OURS;
     }
@@ -258,7 +302,7 @@ int tern_contact_respond(struct tern_contact *c, const struct tern_identity *me,
         return TERN_CONTACT_NOT_OURS;
     }
     contact_tags(c, g_x, g_rx);
-    if (!tern_equal_ct(c->ctag[0], frame + 4, 4)) {
+    if (!tern_equal_ct(c->ctag[0], frame + HEAD, 4)) {
         tern_wipe(g_rx, sizeof g_rx);
         tern_contact_wipe(c);
         return TERN_CONTACT_NOT_OURS; /* someone else's first contact */
@@ -285,7 +329,7 @@ int tern_contact_respond(struct tern_contact *c, const struct tern_identity *me,
     kdf(ks, PT2_LEN, prk_2e, 0, th_2, 32); /* KEYSTREAM_2 */
 
     uint8_t *m2 = out + PREFIX;
-    put_frame(out, 2, c->ctag[1]);
+    put_frame(out, 2, c->ctag[1], source);
     m2[0] = 0x58;
     m2[1] = 0x2b;
     for (int i = 0; i < 32; i++) {
@@ -372,7 +416,7 @@ static int initiator_message_2(struct tern_contact *c, const struct tern_identit
     kdf(iv_3, 13, prk_3e2m, 4, th_3, 32);
     enc0_aad(aad, th_3);
     uint8_t *m3 = out + PREFIX;
-    put_frame(out, 3, c->ctag[2]);
+    put_frame(out, 3, c->ctag[2], tern_route_id(c->peer));
     m3[0] = 0x58;
     m3[1] = 0x3f;
     (void)tern_ccm_seal(k_3, iv_3, aad, sizeof aad, pt_3, PT3_LEN, m3 + 2, m3 + 2 + PT3_LEN);
@@ -447,7 +491,7 @@ static int responder_message_3(struct tern_contact *c, const uint8_t *m3, uint8_
     kdf(iv_4, 13, prk_4e3m, 9, th_4, 32);
     enc0_aad(aad, th_4);
     uint8_t *m4 = out + PREFIX;
-    put_frame(out, 4, c->ctag[3]);
+    put_frame(out, 4, c->ctag[3], tern_route_id(a_i));
     m4[0] = 0x48;
     (void)tern_ccm_seal(k_4, iv_4, aad, sizeof aad, NULL, 0, NULL, m4 + 1);
 
@@ -501,7 +545,7 @@ static int initiator_message_4(struct tern_contact *c, const uint8_t *m4) {
 int tern_contact_receive(struct tern_contact *c, const struct tern_identity *me,
                          const uint8_t *frame, size_t len, uint8_t *out, size_t out_cap,
                          size_t *out_len) {
-    static const size_t frame_len[5] = {0, PREFIX + M1_LEN, PREFIX + M2_LEN, PREFIX + M3_LEN,
+    static const size_t frame_len[5] = {0, PREFIX_1 + M1_LEN, PREFIX + M2_LEN, PREFIX + M3_LEN,
                                         PREFIX + M4_LEN};
     if (out_cap < TERN_CONTACT_MAX_FRAME) {
         return TERN_EINVAL;
@@ -512,7 +556,7 @@ int tern_contact_receive(struct tern_contact *c, const struct tern_identity *me,
      * else, a repeat of an earlier message included, is not processed. */
     uint8_t n = c->expect;
     bool mine = n >= 2 && n <= 4 && len >= PREFIX && frame[0] == HDR(n) &&
-                tern_equal_ct(c->ctag[n - 1], frame + 4, 4);
+                tern_equal_ct(c->ctag[n - 1], frame + HEAD, 4);
     if (!mine) {
         return TERN_CONTACT_NOT_OURS;
     }

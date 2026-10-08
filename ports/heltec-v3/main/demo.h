@@ -20,9 +20,13 @@
  *
  * What the specification leaves open, the demo decides for itself, and none of it is Tern yet:
  *
- * - Lost frames. The initiator sends message_1, and later message_3, up to DEMO_TRIES times,
- *   `retry` apart, and then gives up. The responder never sends unasked: a frame it has already
- *   answered gets the same answer again, byte for byte, never computed twice.
+ * Lost frames are the specification's. The board that begins a handshake sends message_1, and
+ * later message_3, by the forwarder (tern/forward.h), which keeps each and sends it again as it
+ * does a message, until its answer comes or it gives up, when the board calls demo_abandon().
+ * The board that answers never sends unasked: a frame it has already answered gets the same
+ * answer again, never computed twice, and it keeps a handshake until `hold` has passed with
+ * nothing of it heard.
+ *
  * - Whom to accept. A board accepts an address its user has saved as a contact, which the
  *   specification does say (draft/companion.md, "Who may make first contact"): demo_trust() gives
  *   it the way to ask. The rest is the demo's: a board with no session accepts whoever contacts
@@ -32,7 +36,9 @@
  *   silent after message_3 if it refuses.
  * - How many. A board that holds DEMO_PEERS sessions takes no new peer until one is forgotten
  *   (demo_forget()): it does not choose whom to drop.
- * - One handshake at a time. While one is under way, another message_1 is not answered.
+ * - One handshake at a time. While one is under way, another message_1 is not answered, unless
+ *   it says it came from the node that began the one this board is answering: that node has
+ *   started again.
  *
  * A session is saved after every message of its own: a frame is sent only once the counter it uses
  * is saved, and a received message is shown, and acknowledged, only once its counter is saved as
@@ -42,11 +48,9 @@
  *
  * Nothing here touches the hardware, so tests/demo.c runs it on a host with a fake store. */
 
-#define DEMO_TRIES 4 /* times the initiator sends each of its frames */
 #define DEMO_ACKS 2
-#define DEMO_PEERS 8 /* sessions a board holds */
-/* How long a responder keeps a handshake, or its last answer, with nothing new heard. */
-#define DEMO_HOLD(retry) (2 * DEMO_TRIES * (retry))
+#define DEMO_PEERS 8         /* sessions a board holds */
+#define DEMO_HOLD TERN_S(60) /* the specification's CONTACT_HOLD */
 
 /* What the board provides: whole records saved and loaded by name (on the board, NVS), and
  * random bytes fit for keys. */
@@ -67,7 +71,7 @@ struct demo_state {
 
 enum demo_phase {
     DEMO_IDLE = 0,
-    DEMO_INITIATING, /* message_1 or message_3 sent, waiting for the answer */
+    DEMO_INITIATING, /* message_1 or message_3 with the forwarder, waiting for the answer */
     DEMO_RESPONDING, /* message_2 sent, waiting for message_3 */
     DEMO_ANSWERED,   /* message_4 sent and the session started; kept to answer a repeat */
 };
@@ -78,14 +82,12 @@ struct demo_handshake {
     /* The last frame processed and the frame sent in answer, to answer a repeat with. */
     uint8_t in[TERN_CONTACT_MAX_FRAME], out[TERN_CONTACT_MAX_FRAME];
     size_t in_len, out_len;
-    uint8_t tries;   /* the initiator's: times `out` has been sent */
-    tern_time next;  /* the initiator's: when to send `out` again, or give up */
     tern_time until; /* the responder's: when to forget the handshake */
 };
 
 struct demo {
     struct demo_store store;
-    tern_time retry;
+    tern_time hold; /* how long a responder keeps a handshake with nothing of it heard */
     struct tern_identity id;
     struct demo_state s[DEMO_PEERS]; /* a slot with role 0 holds none */
     int last; /* the slot of the session last made or used, or -1 with none: where a board with
@@ -109,14 +111,15 @@ enum demo_result {
     DEMO_FULL,         /* DEMO_PEERS sessions already, none of them with this address */
 };
 
-/* Loads the identity and the sessions, making and saving an identity if there is none. retry is
- * how long the initiator waits for an answer before sending again: the board knows how long its
- * frames take. False if there is no identity and one could not be made or saved; the board
- * should not run. */
-bool demo_start(struct demo *d, const struct demo_store *store, tern_time retry);
+/* Loads the identity and the sessions, making and saving an identity if there is none. hold is
+ * how long a handshake another board began is kept with nothing of it heard: DEMO_HOLD, but in
+ * tests. False if there is no identity and one could not be made or saved; the board should not
+ * run. */
+bool demo_start(struct demo *d, const struct demo_store *store, tern_time hold);
 
 /* Starts first contact with the board whose address is peer, abandoning any handshake under
- * way: writes message_1's frame (TERN_CONTACT_MAX_FRAME bytes are enough) to send. The session
+ * way: writes message_1's frame (TERN_CONTACT_MAX_FRAME bytes are enough), for the forwarder to
+ * send and keep. The session
  * this board has with that peer, if any, stays until the new one is made. */
 enum demo_result demo_contact(struct demo *d, const uint8_t peer[TERN_ADDRESS_LEN], tern_time now,
                               uint8_t *frame, size_t *len);
@@ -172,7 +175,9 @@ struct demo_received {
     uint32_t counter;
     uint8_t peer[TERN_ADDRESS_LEN];
     int slot; /* the session a message or copy came in, or a handshake made; -1 otherwise */
-    /* A frame to send in answer, if reply_len is not 0. Any verdict may come with one. */
+    /* A frame to send in answer, by the forwarder, if reply_len is not 0. Any verdict may come
+     * with one. message_3 is this board's to keep until message_4 answers it; message_2 and
+     * message_4 are sent once, and again when asked. */
     uint8_t reply[TERN_CONTACT_MAX_FRAME];
     size_t reply_len;
     /* The acknowledgements to send, by the forwarder, each to the peer in ack_slot: one with a
@@ -188,15 +193,16 @@ struct demo_received {
 enum demo_heard demo_receive(struct demo *d, tern_time now, const uint8_t *frame, size_t len,
                              uint8_t *msg, struct demo_received *out);
 
+/* The handshake this board began had no answer, or could not be sent: it is forgotten. False if
+ * the board had begun none. */
+bool demo_abandon(struct demo *d);
+
 enum demo_tick {
     DEMO_TICK_NONE,
-    DEMO_TICK_RESEND,  /* no answer yet: frame is to be sent again */
-    DEMO_TICK_GAVE_UP, /* no answer after DEMO_TRIES: the handshake this board began is over */
-    DEMO_TICK_LAPSED,  /* a handshake another board began never finished, and is forgotten */
+    DEMO_TICK_LAPSED, /* a handshake another board began never finished, and is forgotten */
 };
 
-/* Moves time on. Call it often, but not while a frame is on the air: a frame it returns is to be
- * sent now. frame must hold TERN_CONTACT_MAX_FRAME bytes. */
-enum demo_tick demo_tick(struct demo *d, tern_time now, uint8_t *frame, size_t *len);
+/* Moves time on. Call it often. */
+enum demo_tick demo_tick(struct demo *d, tern_time now);
 
 #endif

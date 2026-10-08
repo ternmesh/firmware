@@ -63,6 +63,13 @@ def main():
                      f"{c_bytes(c['frame'])}}},")
     lines.append("};")
 
+    lines.append("static const struct source_case sources[] = {")
+    for c in v["sources"]:
+        lines.append(f"    {{{json.dumps(c['name'])}, {c_array(c['responder_seed'], 32)}, "
+                     f"{c_array(c['responder_ephemeral'], 32)}, 0x{c['c_r']}, "
+                     f"{c_bytes(c['frame'])}, {c['source']}u, {{{c_bytes(c['reply'])}}}}},")
+    lines.append("};")
+
     lines.append("static const struct rejected_case rejected[] = {")
     for c in v["rejected"]:
         lines.append(f"    {{{json.dumps(c['name'])}, {names.index(c['handshake'])}, "

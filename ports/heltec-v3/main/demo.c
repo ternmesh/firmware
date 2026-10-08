@@ -2,10 +2,13 @@
 
 #include "tern/crypto.h"
 #include "tern/err.h"
+#include "tern/route.h"
 
 #define MAGIC 0x5445524Eu /* "TERN" */
 #define STATE_KEY "session"
 #define IDENTITY_KEY "identity"
+#define AT_DEST 7    /* where a frame that follows a route says which node it is for */
+#define AT_SOURCE 15 /* and where message_1's frame says which node it came from */
 
 struct identity_record {
     uint32_t magic;
@@ -104,10 +107,10 @@ bool demo_forget(struct demo *d, int slot) {
 
 static void forget_handshake(struct demo *d) { tern_wipe(&d->h, sizeof d->h); }
 
-bool demo_start(struct demo *d, const struct demo_store *store, tern_time retry) {
+bool demo_start(struct demo *d, const struct demo_store *store, tern_time hold) {
     struct identity_record rec;
     d->store = *store;
-    d->retry = retry;
+    d->hold = hold;
     d->accept_until = 0;
     d->trusted = NULL;
     d->trusted_ctx = NULL;
@@ -175,15 +178,15 @@ enum demo_result demo_contact(struct demo *d, const uint8_t peer[TERN_ADDRESS_LE
         return DEMO_NO_RANDOM;
     }
     forget_handshake(d);
-    int err = tern_contact_start(&h->c, peer, ephemeral, c_i, h->out, sizeof h->out, &h->out_len);
+    int err = tern_contact_start(&h->c, tern_route_id(d->id.address), peer, ephemeral, c_i, h->out,
+                                 sizeof h->out, &h->out_len);
     tern_wipe(ephemeral, sizeof ephemeral);
     if (err != TERN_OK) {
         forget_handshake(d);
         return DEMO_BAD_ADDRESS;
     }
+    (void)now;
     h->phase = DEMO_INITIATING;
-    h->tries = 1;
-    h->next = now + d->retry;
     copy(frame, h->out, h->out_len);
     *len = h->out_len;
     return DEMO_OK;
@@ -355,7 +358,7 @@ static enum demo_heard start_session(struct demo *d, tern_time now, const uint8_
         /* Kept for a while, in case message_4 is lost and message_3 comes again. */
         remember(h, frame, len, out);
         h->phase = DEMO_ANSWERED;
-        h->until = now + DEMO_HOLD(d->retry);
+        h->until = now + d->hold;
     } else {
         forget_handshake(d);
     }
@@ -366,17 +369,30 @@ static enum demo_heard contact_frame(struct demo *d, tern_time now, const uint8_
                                      size_t len, struct demo_received *out) {
     struct demo_handshake *h = &d->h;
 
-    /* A frame already answered gets the same answer, which is not computed again. */
-    if (h->in_len != 0 && len == h->in_len && same(frame, h->in, len)) {
+    /* A frame this board has answered as the responder gets the same answer, which is not
+     * computed again: message_2 to wherever this copy of message_1 says it came from. The board
+     * that began a handshake sends its own frames again, and answers nothing twice. */
+    if ((h->phase == DEMO_RESPONDING || h->phase == DEMO_ANSWERED) && h->in_len != 0 &&
+        tern_contact_same(frame, len, h->in, h->in_len)) {
         copy(out->reply, h->out, h->out_len);
         out->reply_len = h->out_len;
+        if (frame[0] == 0x51) {
+            copy(out->reply + AT_DEST, frame + AT_SOURCE, 4);
+        }
+        h->until = now + d->hold;
         return DEMO_HEARD_CONTACT;
     }
 
     if (frame[0] == 0x51) {
         uint8_t ephemeral[TERN_CONTACT_EPHEMERAL], c_r;
-        if (h->phase == DEMO_INITIATING || h->phase == DEMO_RESPONDING) {
-            return DEMO_HEARD_OTHER; /* one handshake at a time */
+        /* One handshake at a time; but a board that begins again, having given up or been told
+         * to, is not kept waiting for the handshake it left. Where a frame says it came from is
+         * only its word, which is enough to take the place of a handshake that has proved no
+         * more. */
+        bool again = h->phase == DEMO_RESPONDING && len > AT_SOURCE + 4 &&
+                     same(frame + AT_SOURCE, h->in + AT_SOURCE, 4);
+        if (h->phase == DEMO_INITIATING || (h->phase == DEMO_RESPONDING && !again)) {
+            return DEMO_HEARD_OTHER;
         }
         if (!draw(d, ephemeral, &c_r)) {
             return DEMO_HEARD_OTHER;
@@ -397,7 +413,7 @@ static enum demo_heard contact_frame(struct demo *d, tern_time now, const uint8_
         tern_contact_wipe(&c);
         remember(h, frame, len, out);
         h->phase = DEMO_RESPONDING;
-        h->until = now + DEMO_HOLD(d->retry);
+        h->until = now + d->hold;
         return DEMO_HEARD_CONTACT;
     }
 
@@ -417,10 +433,8 @@ static enum demo_heard contact_frame(struct demo *d, tern_time now, const uint8_
     if (tern_contact_complete(&h->c)) {
         return start_session(d, now, frame, len, out);
     }
-    /* The initiator, with message_3 to send, and to send again until message_4 comes. */
+    /* The initiator, with message_3 to send. */
     remember(h, frame, len, out);
-    h->tries = 1;
-    h->next = now + d->retry;
     return DEMO_HEARD_CONTACT;
 }
 
@@ -443,20 +457,16 @@ enum demo_heard demo_receive(struct demo *d, tern_time now, const uint8_t *frame
     return DEMO_HEARD_MALFORMED;
 }
 
-enum demo_tick demo_tick(struct demo *d, tern_time now, uint8_t *frame, size_t *len) {
-    struct demo_handshake *h = &d->h;
-    *len = 0;
-    if (h->phase == DEMO_INITIATING && now >= h->next) {
-        if (h->tries >= DEMO_TRIES) {
-            forget_handshake(d);
-            return DEMO_TICK_GAVE_UP;
-        }
-        h->tries++;
-        h->next = now + d->retry;
-        copy(frame, h->out, h->out_len);
-        *len = h->out_len;
-        return DEMO_TICK_RESEND;
+bool demo_abandon(struct demo *d) {
+    bool began = d->h.phase == DEMO_INITIATING;
+    if (began) {
+        forget_handshake(d);
     }
+    return began;
+}
+
+enum demo_tick demo_tick(struct demo *d, tern_time now) {
+    struct demo_handshake *h = &d->h;
     if ((h->phase == DEMO_RESPONDING || h->phase == DEMO_ANSWERED) && now >= h->until) {
         bool unfinished = h->phase == DEMO_RESPONDING;
         forget_handshake(d);

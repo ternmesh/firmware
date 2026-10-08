@@ -5,6 +5,7 @@
 
 #include "check.h"
 #include "tern/err.h"
+#include "tern/route.h"
 
 /* First contact against the specification's vectors (tests/vectors/first-contact.json). Each role
  * is driven by the vectors' frames, never by the other role's output, so a mistake both sides
@@ -34,6 +35,15 @@ struct not_for_me_case {
     const uint8_t *frame;
     size_t len;
 };
+struct source_case {
+    const char *name;
+    uint8_t responder_seed[32], y[32];
+    uint8_t c_r;
+    const uint8_t *frame;
+    size_t len;
+    uint32_t source;
+    struct frame reply;
+};
 struct rejected_case {
     const char *name;
     size_t handshake;
@@ -46,8 +56,13 @@ struct rejected_case {
 
 #define COUNT(a) (sizeof(a) / sizeof((a)[0]))
 
+/* A frame is the vectors' if it is equal from its destination on: the three fields before that
+ * are the forwarder's, and the core leaves them 0. */
+#define AT_DEST 7
+
 static bool same(const uint8_t *a, size_t a_len, const struct frame *f) {
-    return a_len == f->len && memcmp(a, f->bytes, a_len) == 0;
+    return a_len == f->len && a_len > AT_DEST && a[0] == f->bytes[0] && a[1] == 0 && a[2] == 0 &&
+           memcmp(a + AT_DEST, f->bytes + AT_DEST, a_len - AT_DEST) == 0;
 }
 
 static void addresses_match(void) {
@@ -78,7 +93,7 @@ static void rejected_addresses_are_refused(void) {
         }
         CHECK(!tern_address_x25519(u, c->address));
         CHECK_EQ_I64(
-            tern_contact_start(&ct, c->address, handshakes[0].x, 0, frame, sizeof frame, &len),
+            tern_contact_start(&ct, 7, c->address, handshakes[0].x, 0, frame, sizeof frame, &len),
             TERN_EINVAL);
     }
 }
@@ -89,8 +104,11 @@ static void run_initiator(const struct handshake_case *h, struct tern_identity *
                           const uint8_t target[32], struct tern_contact *c) {
     uint8_t out[TERN_CONTACT_MAX_FRAME];
     size_t len = 0;
-    CHECK_EQ_I64(tern_contact_start(c, target, h->x, h->c_i, out, sizeof out, &len), TERN_OK);
+    CHECK_EQ_I64(tern_contact_start(c, tern_route_id(me->address), target, h->x, h->c_i, out,
+                                    sizeof out, &len),
+                 TERN_OK);
     CHECK(same(out, len, &h->frames[0]));
+    CHECK(tern_contact_destination(out) == tern_route_id(target));
     CHECK_EQ_I64(
         tern_contact_receive(c, me, h->frames[1].bytes, h->frames[1].len, out, sizeof out, &len),
         TERN_CONTACT_PROCESSED);
@@ -113,10 +131,12 @@ static void run_responder(const struct handshake_case *h, struct tern_identity *
                                       out, sizeof out, &len),
                  TERN_CONTACT_PROCESSED);
     CHECK(same(out, len, &h->frames[1]));
+    CHECK(tern_contact_destination(out) == tern_route_id(initiator));
     CHECK_EQ_I64(
         tern_contact_receive(c, me, h->frames[2].bytes, h->frames[2].len, out, sizeof out, &len),
         TERN_CONTACT_PROCESSED);
     CHECK(same(out, len, &h->frames[3]));
+    CHECK(tern_contact_destination(out) == tern_route_id(initiator));
     CHECK(tern_contact_complete(c));
     CHECK(memcmp(c->secret, h->secret, 32) == 0);
     CHECK(memcmp(c->peer, initiator, 32) == 0);
@@ -177,6 +197,32 @@ static void not_for_me_gets_no_reply(void) {
     }
 }
 
+/* message_2 goes to the routing id its message_1 names, whoever that is; and a message_1 that
+ * names another is still the same message. */
+static void message_2_goes_where_message_1_says(void) {
+    for (size_t i = 0; i < COUNT(sources); i++) {
+        const struct source_case *c = &sources[i];
+        const struct handshake_case *h = &handshakes[0];
+        struct tern_identity me;
+        struct tern_contact ct;
+        uint8_t out[TERN_CONTACT_MAX_FRAME];
+        size_t len = 0;
+        tern_identity_init(&me, c->responder_seed);
+        CHECK_EQ_I64(
+            tern_contact_respond(&ct, &me, c->y, c->c_r, c->frame, c->len, out, sizeof out, &len),
+            TERN_CONTACT_PROCESSED);
+        CHECK(same(out, len, &c->reply));
+        CHECK(tern_contact_destination(out) == c->source);
+        CHECK(tern_contact_same(c->frame, c->len, h->frames[0].bytes, h->frames[0].len));
+        CHECK(!tern_contact_same(c->frame, c->len, handshakes[1].frames[0].bytes,
+                                 handshakes[1].frames[0].len));
+        CHECK(
+            tern_contact_same(c->reply.bytes, c->reply.len, h->frames[1].bytes, h->frames[1].len));
+        tern_contact_wipe(&ct);
+        tern_identity_wipe(&me);
+    }
+}
+
 /* Each rejected frame takes the place of one message, with its receiver in the state the
  * handshake leaves it in: the receiver sends nothing, completes nothing, and if the frame's tag
  * was this handshake's, it aborts. */
@@ -199,7 +245,8 @@ static void rejected_frames_are_refused(void) {
             break;
         case 2:
         case 4:
-            CHECK_EQ_I64(tern_contact_start(&c, res.address, h->x, h->c_i, out, sizeof out, &len),
+            CHECK_EQ_I64(tern_contact_start(&c, tern_route_id(ini.address), res.address, h->x,
+                                            h->c_i, out, sizeof out, &len),
                          TERN_OK);
             if (r->message == 4) {
                 CHECK_EQ_I64(tern_contact_receive(&c, &ini, h->frames[1].bytes, h->frames[1].len,
@@ -237,7 +284,9 @@ static void repeats_are_not_processed(void) {
     size_t len = 0;
     tern_identity_init(&ini, h->initiator_seed);
     tern_identity_init(&res, h->responder_seed);
-    CHECK_EQ_I64(tern_contact_start(&c, res.address, h->x, h->c_i, out, sizeof out, &len), TERN_OK);
+    CHECK_EQ_I64(tern_contact_start(&c, tern_route_id(ini.address), res.address, h->x, h->c_i, out,
+                                    sizeof out, &len),
+                 TERN_OK);
     CHECK_EQ_I64(
         tern_contact_receive(&c, &ini, h->frames[1].bytes, h->frames[1].len, out, sizeof out, &len),
         TERN_CONTACT_PROCESSED);
@@ -261,9 +310,14 @@ static void arguments_are_checked(void) {
     uint8_t out[TERN_CONTACT_MAX_FRAME];
     size_t len = 0;
     tern_identity_init(&res, h->responder_seed);
-    CHECK_EQ_I64(tern_contact_start(&c, res.address, h->x, 0x18, out, sizeof out, &len),
+    CHECK_EQ_I64(tern_contact_start(&c, 7, res.address, h->x, 0x18, out, sizeof out, &len),
                  TERN_EINVAL); /* 0x18 is not a one-byte CBOR integer */
-    CHECK_EQ_I64(tern_contact_start(&c, res.address, h->x, 0x00, out, 44, &len), TERN_EINVAL);
+    CHECK_EQ_I64(tern_contact_start(&c, 7, res.address, h->x, 0x00, out, 55, &len), TERN_EINVAL);
+    CHECK_EQ_I64(tern_contact_start(&c, 0, res.address, h->x, 0x00, out, sizeof out, &len),
+                 TERN_EINVAL); /* nowhere for the answer to go */
+    CHECK_EQ_I64(
+        tern_contact_start(&c, TERN_ROUTE_EVERYONE, res.address, h->x, 0x00, out, sizeof out, &len),
+        TERN_EINVAL);
     CHECK_EQ_I64(tern_contact_respond(&c, &res, h->y, 0x38, h->frames[0].bytes, h->frames[0].len,
                                       out, sizeof out, &len),
                  TERN_EINVAL);
@@ -295,7 +349,8 @@ static void every_length_is_handled(void) {
                 break;
             case 2:
             case 4:
-                (void)tern_contact_start(&c, res.address, h->x, h->c_i, out, sizeof out, &len);
+                (void)tern_contact_start(&c, tern_route_id(ini.address), res.address, h->x, h->c_i,
+                                         out, sizeof out, &len);
                 if (message == 4) {
                     (void)tern_contact_receive(&c, &ini, h->frames[1].bytes, h->frames[1].len, out,
                                                sizeof out, &len);
@@ -322,6 +377,7 @@ int main(void) {
     RUN(rejected_addresses_are_refused);
     RUN(handshakes_match);
     RUN(not_for_me_gets_no_reply);
+    RUN(message_2_goes_where_message_1_says);
     RUN(rejected_frames_are_refused);
     RUN(repeats_are_not_processed);
     RUN(arguments_are_checked);

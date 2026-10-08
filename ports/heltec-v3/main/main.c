@@ -118,9 +118,13 @@ static struct pending {
     uint8_t goes; /* times it has gone on the air */
     tern_time at; /* when it was handed over */
 } pending[PENDING];
-/* A handshake frame that had to wait for the one on the air. */
-static uint8_t waiting[TERN_CONTACT_MAX_FRAME];
-static size_t waiting_len;
+/* The handshake frame of this board's that the forwarder keeps, and sends again until its answer
+ * comes: message_1 or message_3 of a handshake this board began. */
+static struct {
+    bool kept;
+    uint8_t hdr;
+    uint8_t tag[TERN_FORWARD_TAG];
+} contact_kept;
 static uint32_t held_back; /* times a frame waited for one being received to end */
 static bool holding;
 static tern_time tx_deadline; /* when a frame on the air should certainly have finished */
@@ -431,16 +435,45 @@ static void pending_drop(int slot, bool tell) {
     }
 }
 
-/* Sends a handshake frame, or keeps it until the frame on the air, or the one being received,
- * has gone. */
-static void send_contact(const uint8_t *frame, size_t len) {
-    if (transmitting || held()) {
-        if (frame != waiting) {
-            memcpy(waiting, frame, len);
-        }
-        waiting_len = len;
-    } else if (transmit(frame, len) != 0) {
-        printf("first contact: sent message_%d, %u bytes\n", frame[0] - 0x50, (unsigned)len);
+/* The handshake frame the forwarder keeps has been answered, or its handshake is over. */
+static void contact_let_go(void) {
+    if (contact_kept.kept) {
+        (void)tern_forward_done(&forward, contact_kept.hdr, contact_kept.tag);
+        contact_kept.kept = false;
+    }
+}
+
+/* Hands a handshake frame to the forwarder, which sends it by a route as it does a message. The
+ * two a board sends when it begins a handshake are kept there until answered; the two it sends
+ * in answer go once, and again when the other board asks again. `back` is, for a frame that
+ * answers one received, what the forwarder said the node it came from needs, and INT8_MIN for
+ * message_1, which answers none. False if it could not be taken. */
+static bool send_contact(const uint8_t *frame, size_t len, int8_t back) {
+    bool keep = frame[0] == TERN_HDR_CONTACT_1 || frame[0] == TERN_HDR_CONTACT_1 + 2;
+    if (keep) {
+        contact_let_go();
+    }
+    if (!tern_forward_send(&forward, board_now(), tern_contact_destination(frame), frame, len, keep,
+                           back)) {
+        printf("first contact: message_%d not sent: %s\n", frame[0] - 0x50,
+               keep ? "no room for it" : "no route back yet, or no room; it goes when asked again");
+        return false;
+    }
+    if (keep) {
+        contact_kept.kept = true;
+        contact_kept.hdr = frame[0];
+        memcpy(contact_kept.tag, frame + TERN_FORWARD_HEAD, TERN_FORWARD_TAG);
+    }
+    return true;
+}
+
+/* The handshake this board began is over, with no session made. */
+static void contact_gave_up(void) {
+    contact_let_go();
+    (void)demo_abandon(&demo);
+    if (contacting) {
+        contacting = false;
+        link_unreachable(&companion, contacting_peer);
     }
 }
 
@@ -513,11 +546,14 @@ static void heard(const struct tern_radio_event *ev) {
         if (routed.got == TERN_FORWARD_ACK) {
             heard_ack(ev);
         }
-        if (routed.got != TERN_FORWARD_MESSAGE) {
+        if (routed.got != TERN_FORWARD_MESSAGE && routed.got != TERN_FORWARD_CONTACT) {
             return;
         }
     }
     enum demo_heard what = demo_receive(&demo, board_now(), ev->data, ev->len, msg, &got);
+    if (demo.h.phase != DEMO_INITIATING) {
+        contact_let_go(); /* the handshake this board began is made, or failed */
+    }
     switch (what) {
     case DEMO_HEARD_MESSAGE:
         flash_led();
@@ -596,8 +632,9 @@ static void heard(const struct tern_radio_event *ev) {
         printf("(a %u-byte frame that is not Tern's, at %d dBm)\n", ev->len, ev->rssi_dbm);
         break;
     }
-    if (got.reply_len != 0) {
-        send_contact(got.reply, got.reply_len);
+    if (got.reply_len != 0 && !send_contact(got.reply, got.reply_len, routed.back) &&
+        got.reply[0] == TERN_HDR_CONTACT_1 + 2) {
+        contact_gave_up();
     }
     /* The acknowledgement goes back by a route, no quieter than the node the message came from
      * needs to hear it. With no route to the peer it is not sent: the peer sends again. */
@@ -663,32 +700,24 @@ static void poll_radio(void) {
     }
 }
 
-/* Sends a handshake frame again if its answer is overdue, and forgets handshakes gone stale. */
+/* Gives up the handshake this board began, once the forwarder has sent its frame as often as it
+ * may with no answer, and forgets a handshake another board began and left. */
 static void poll_contact(void) {
-    uint8_t frame[TERN_CONTACT_MAX_FRAME];
-    size_t len;
-    if (transmitting) {
-        return;
-    }
-    switch (demo_tick(&demo, board_now(), frame, &len)) {
-    case DEMO_TICK_RESEND:
-        printf("first contact: no answer yet\n");
-        send_contact(frame, len);
-        break;
-    case DEMO_TICK_GAVE_UP:
-        printf("first contact: no answer after %d tries; given up. Is the other board on, in "
-               "range, and on the same radio settings?\n",
-               DEMO_TRIES);
-        if (contacting) {
-            contacting = false;
-            link_unreachable(&companion, contacting_peer);
+    uint8_t hdr, tag[TERN_FORWARD_TAG];
+    while (tern_forward_contact_failed(&forward, &hdr, tag)) {
+        if (!contact_kept.kept || hdr != contact_kept.hdr ||
+            memcmp(tag, contact_kept.tag, sizeof tag) != 0) {
+            continue;
         }
-        break;
-    case DEMO_TICK_LAPSED:
+        contact_kept.kept = false;
+        printf("first contact: no answer to message_%d after %d tries; given up. Is the other "
+               "board on, on the same radio settings, and in range or reached by a relay? "
+               "'routes' shows whether there is a route to it.\n",
+               hdr - 0x50, forward.config.retries + 1);
+        contact_gave_up();
+    }
+    if (demo_tick(&demo, board_now()) == DEMO_TICK_LAPSED) {
         printf("first contact: the board that began it went quiet; forgotten\n");
-        break;
-    case DEMO_TICK_NONE:
-        break;
     }
 }
 
@@ -702,7 +731,7 @@ static void poll_outgoing(void) {
     if (demo_peer(&demo, x->address) < 0) {
         link_state(&companion, x->id, TERN_C_WAITING, TERN_C_WAIT_SESSION, 0);
         bool idle = demo.h.phase == DEMO_IDLE || demo.h.phase == DEMO_ANSWERED;
-        if (!idle || transmitting) {
+        if (!idle) {
             return;
         }
         uint8_t frame[TERN_CONTACT_MAX_FRAME];
@@ -715,7 +744,9 @@ static void poll_outgoing(void) {
         }
         contacting = true;
         memcpy(contacting_peer, x->address, TERN_ADDRESS_LEN);
-        send_contact(frame, len);
+        if (!send_contact(frame, len, INT8_MIN)) {
+            contact_gave_up();
+        }
         return;
     }
     struct pending *p = pending_free();
@@ -774,8 +805,7 @@ static void poll_forward(void) {
                        pending_reason(now, demo.s[pending[i].slot].peer), 0);
         }
     }
-    if (transmitting || waiting_len != 0 || now < forward_retry ||
-        now < tern_forward_due(&forward) || held()) {
+    if (transmitting || now < forward_retry || now < tern_forward_due(&forward) || held()) {
         return;
     }
     int8_t dbm;
@@ -814,19 +844,13 @@ static void poll_forward(void) {
                (unsigned long)p->counter, p->goes > 1 ? " again" : "", x ? (int)x->text_len : 0,
                x ? (const char *)x->text : "", (unsigned)len, dbm, frame[3], frame[4], frame[5],
                frame[6], (long long)(air / 1000000), (long long)(air / 1000 % 1000));
+    } else if (kind == TERN_FORWARD_OWN && tern_forward_contact(frame[0])) {
+        printf("first contact: sent message_%d, %u bytes at %d dBm by %02x%02x%02x%02x\n",
+               frame[0] - 0x50, (unsigned)len, dbm, frame[3], frame[4], frame[5], frame[6]);
     } else if (kind == TERN_FORWARD_RELAY) {
         printf("passed on a %u-byte frame for %02x%02x%02x%02x by %02x%02x%02x%02x, at %d dBm\n",
                (unsigned)len, frame[7], frame[8], frame[9], frame[10], frame[3], frame[4], frame[5],
                frame[6], dbm);
-    }
-}
-
-/* Sends the handshake frame that was kept, once nothing is on the air or being received. */
-static void poll_waiting(void) {
-    if (waiting_len != 0 && !transmitting) {
-        size_t len = waiting_len;
-        waiting_len = 0;
-        send_contact(waiting, len);
     }
 }
 
@@ -836,7 +860,7 @@ static void poll_waiting(void) {
  * another while the region's limit would refuse one. */
 static void poll_route(void) {
     tern_time now = board_now();
-    if (transmitting || waiting_len != 0) {
+    if (transmitting) {
         return;
     }
     if (route_len == 0) {
@@ -1487,16 +1511,19 @@ static void command(char *line) {
             printf("'%s' is not an address: sixty-four hex digits, as 'status' shows\n", &line[8]);
             return;
         }
-        if (transmitting) {
-            printf("busy: the last frame is still on the air\n");
-            return;
-        }
         enum demo_result r = demo_contact(&demo, peer, board_now(), frame, &len);
         if (r != DEMO_OK) {
             printf("no contact made: %s\n", result_text(r));
             return;
         }
-        send_contact(frame, len);
+        if (contacting) {
+            /* It takes the place of a handshake a message was waiting on, which is not coming. */
+            contacting = false;
+            link_unreachable(&companion, contacting_peer);
+        }
+        if (!send_contact(frame, len, INT8_MIN)) {
+            contact_gave_up();
+        }
     } else if (strcmp(line, "accept") == 0) {
         demo_accept(&demo, board_now() + ACCEPT_S * 1000000000LL);
         printf("for %d s, a board that is not yet one of this one's peers may make contact\n",
@@ -1916,13 +1943,10 @@ void app_main(void) {
         tern_duty_charge(&duty, board_now(), before);
     }
 
-    /* How long the initiator waits for an answer: the answer's time on the air and its own
-     * frame's, twice over, and two seconds for the other board to work it out. */
-    tern_time retry = 2000000000LL + 4 * tern_lora_airtime(&cfg.mod, TERN_CONTACT_MAX_FRAME);
     struct demo_store store = {
         .ctx = NULL, .load = nvs_load, .save = nvs_save, .random = board_random};
     had_identity = nvs_has("identity");
-    if (!demo_start(&demo, &store, retry)) {
+    if (!demo_start(&demo, &store, DEMO_HOLD)) {
         printf("could not make this board's identity and save it to flash. Not starting.\n");
         return;
     }
@@ -2001,7 +2025,6 @@ void app_main(void) {
         if (bench) {
             poll_beacon();
         } else {
-            poll_waiting();
             poll_contact();
             poll_outgoing();
             poll_forward();

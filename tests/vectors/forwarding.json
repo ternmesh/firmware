@@ -1,5 +1,5 @@
 {
-  "description": "Frames that follow routes, draft 0 (draft/forwarding.md). Routing ids are numbers; frames and tags are hex. In hops, sent is the frame the node sent and heard the one it then received. In backs, power is what a frame was sent at in dBm and snr_quarter_db what it was heard at, and needs is what an answer must go at for its sender to hear it, between the node's lowest and full power. In powers, neighbour is what Routes gives for the neighbour, its boost included, back is what the node the frame came from needs or null for a frame that answers none, and try counts from 0. In agains, a frame of length bytes is sent again at that spreading factor and bandwidth, with the profiles' preamble and coding rate (vectors/phy.json), by a hop that heard nothing of it (hop) or by its source with no acknowledgement (source): airtime_ns is its time on the air and longest_ns the longest it may wait first. In listens, a radio at that spreading factor and bandwidth finds a preamble or a header, says a frame has ended (end), or is given a frame to send (sent) at the times in events, and receiving is whether a node may not start to send at each time in asks, every event at or before that time having happened.",
+  "description": "Frames that follow routes, draft 0 (draft/forwarding.md). Routing ids are numbers; frames and tags are hex. In hops, sent is the frame the node sent and heard the one it then received. In waits, listens is whether a node that has sent the frame listens for its hop to succeed, and sends it again if it does not. In backs, power is what a frame was sent at in dBm and snr_quarter_db what it was heard at, and needs is what an answer must go at for its sender to hear it, between the node's lowest and full power. In powers, neighbour is what Routes gives for the neighbour, its boost included, back is what the node the frame came from needs or null for a frame that answers none, and try counts from 0. In agains, a frame of length bytes is sent again at that spreading factor and bandwidth, with the profiles' preamble and coding rate (vectors/phy.json), by a hop that heard nothing of it (hop) or by its source with no acknowledgement (source): airtime_ns is its time on the air and longest_ns the longest it may wait first. In listens, a radio at that spreading factor and bandwidth finds a preamble or a header, says a frame has ended (end), or is given a frame to send (sent) at the times in events, and receiving is whether a node may not start to send at each time in asks, every event at or before that time having happened.",
   "generator": "vectors/tools/forwarding.py",
   "heads": [
     {
@@ -28,6 +28,42 @@
       "destination": 489570112,
       "tag": "30313233",
       "frame": "501f000a0b0c0d1d2e3f4030313233c0ffee01"
+    },
+    {
+      "hdr": 81,
+      "hops": 32,
+      "power": 14,
+      "next": 489570112,
+      "destination": 168496141,
+      "tag": "30313233",
+      "frame": "51200e1d2e3f400a0b0c0d303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c"
+    },
+    {
+      "hdr": 82,
+      "hops": 30,
+      "power": 2,
+      "next": 168496141,
+      "destination": 808530483,
+      "tag": "40414243",
+      "frame": "521e020a0b0c0d30313233404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f70"
+    },
+    {
+      "hdr": 83,
+      "hops": 32,
+      "power": 22,
+      "next": 489570112,
+      "destination": 168496141,
+      "tag": "50515253",
+      "frame": "5320161d2e3f400a0b0c0d505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f9091929394"
+    },
+    {
+      "hdr": 84,
+      "hops": 2,
+      "power": -9,
+      "next": 808530483,
+      "destination": 808530483,
+      "tag": "60616263",
+      "frame": "5402f73031323330313233606162636465666768696a6b6c"
     }
   ],
   "rejected": [
@@ -70,6 +106,34 @@
     {
       "why": "for every destination",
       "frame": "48200e00000007ffffffff000000000000000000000000"
+    },
+    {
+      "why": "a first message_1 a byte long",
+      "frame": "51200e000000070000000900000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "why": "a first message_1 with no routing id it came from",
+      "frame": "51200e00000007000000090000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "why": "a first-contact message_2 a byte short",
+      "frame": "52200e0000000700000009000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "why": "a first-contact message_3 of message_2's length",
+      "frame": "53200e000000070000000900000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "why": "a first-contact message_4 a byte long",
+      "frame": "54200e00000007000000090000000000000000000000000000"
+    },
+    {
+      "why": "a first-contact message_4 for neighbour zero",
+      "frame": "54200e000000000000000900000000000000000000000000"
+    },
+    {
+      "why": "first contact has no message_5",
+      "frame": "55200e000000070000000900000000000000000000000000"
     }
   ],
   "hops": [
@@ -150,6 +214,84 @@
       "sent": "48000e000000070000000930313233606162636465666768696a6b6c",
       "heard": "48ff0e000000070000000930313233606162636465666768696a6b6c",
       "ends": false
+    },
+    {
+      "why": "first contact passed on",
+      "sent": "511406000000070000000930313233707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798",
+      "heard": "511306000000080000000930313233707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798",
+      "ends": true
+    },
+    {
+      "why": "first contact, another copy of what it sent",
+      "sent": "531406000000070000000930313233707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0",
+      "heard": "531406000000070000000930313233707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0",
+      "ends": false
+    },
+    {
+      "why": "first contact, another message with the same tag",
+      "sent": "521406000000070000000930313233707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c",
+      "heard": "5213060000000700000009303132337172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d",
+      "ends": false
+    },
+    {
+      "why": "first contact is not ended by an acknowledgement with its tag",
+      "sent": "511406000000070000000930313233707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798",
+      "heard": "502003000000070000004d3031323300000000",
+      "ends": false
+    },
+    {
+      "why": "first contact is not ended by its answer",
+      "sent": "511406000000070000000930313233707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798",
+      "heard": "522006000000070000004d30313233707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c",
+      "ends": false
+    },
+    {
+      "why": "a message is not ended by first contact with its tag",
+      "sent": "48140e000000070000000930313233606162636465666768696a6b6c",
+      "heard": "541306000000070000000930313233707172737475767778",
+      "ends": false
+    }
+  ],
+  "waits": [
+    {
+      "why": "a message",
+      "sent": "48140e000000070000000930313233606162636465666768696a6b6c",
+      "listens": true
+    },
+    {
+      "why": "a message to its destination: its acknowledgement is listened for",
+      "sent": "48140e000000090000000930313233606162636465666768696a6b6c",
+      "listens": true
+    },
+    {
+      "why": "an acknowledgement on its way",
+      "sent": "501403000000070000004d3031323300000000",
+      "listens": true
+    },
+    {
+      "why": "an acknowledgement to the node it is for",
+      "sent": "5014030000004d0000004d3031323300000000",
+      "listens": false
+    },
+    {
+      "why": "first contact on its way",
+      "sent": "512006000000070000000930313233707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798",
+      "listens": true
+    },
+    {
+      "why": "first contact to the node it is for",
+      "sent": "512006000000090000000930313233707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798",
+      "listens": false
+    },
+    {
+      "why": "the last frame of first contact to the node it is for",
+      "sent": "540306000000090000000930313233707172737475767778",
+      "listens": false
+    },
+    {
+      "why": "the last frame of first contact on its way",
+      "sent": "540306000000070000000930313233707172737475767778",
+      "listens": true
     }
   ],
   "backs": [

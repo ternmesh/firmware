@@ -20,6 +20,10 @@
  * This is the simulator's candidate 3 (ternmesh/sim, src/distvec.c) as far as carrying a message:
  * its rescue floods and broadcast are not here.
  *
+ * First contact's four frames (tern/contact.h) go the same way. The node that begins a handshake
+ * keeps each of its two as it keeps a message, until the handshake's next frame answers it
+ * (tern_forward_done()) or it has been tried often enough (tern_forward_contact_failed()).
+ *
  * Like the router it owns no clock, radio or memory, and what a frame holds past its head is the
  * caller's: for a message, the secured unicast frame's tag, ciphertext and check (tern/unicast.h).
  *
@@ -29,8 +33,10 @@
  *     sleep until tern_forward_due(&f), or a frame arrives
  */
 
-#define TERN_HDR_MESSAGE 0x48 /* a secured unicast frame */
-#define TERN_HDR_ACK 0x50     /* its destination's acknowledgement */
+#define TERN_HDR_MESSAGE 0x48   /* a secured unicast frame */
+#define TERN_HDR_ACK 0x50       /* its destination's acknowledgement */
+#define TERN_HDR_CONTACT_1 0x51 /* first contact's four frames, from message_1's */
+#define TERN_HDR_CONTACT_4 0x54
 
 #define TERN_FORWARD_HEAD 11 /* hdr, hops, power, next hop and destination */
 #define TERN_FORWARD_TAG 4   /* what tells one frame from another, after the head */
@@ -38,12 +44,20 @@
 #define TERN_FORWARD_FRAME_MAX 255
 #define TERN_ACK_LEN (TERN_FORWARD_MIN + 4)
 #define TERN_MESSAGE_MIN (TERN_FORWARD_MIN + 8) /* an empty message: its tag and its check */
+/* A first-contact frame: the handshake's message, and for the first the routing id it came from. */
+#define TERN_CONTACT_LEN(hdr)                                                                      \
+    ((hdr) == 0x51 ? 56u : (hdr) == 0x52 ? 60u : (hdr) == 0x53 ? 80u : 24u)
 #define TERN_FORWARD_SLOTS_MAX 255
 #define TERN_FORWARD_SALVAGE_MAX 4
 
 /* Whether a frame is one of this layer's, by its first byte. */
+static inline bool tern_forward_contact(uint8_t hdr) {
+    return hdr >= TERN_HDR_CONTACT_1 && hdr <= TERN_HDR_CONTACT_4;
+}
+
 static inline bool tern_forward_frame(const uint8_t *frame, size_t len) {
-    return len > 0 && (frame[0] == TERN_HDR_MESSAGE || frame[0] == TERN_HDR_ACK);
+    return len > 0 && (frame[0] == TERN_HDR_MESSAGE || frame[0] == TERN_HDR_ACK ||
+                       tern_forward_contact(frame[0]));
 }
 
 struct tern_forward_head {
@@ -71,6 +85,11 @@ bool tern_forward_same(const uint8_t *a, size_t a_len, const uint8_t *b, size_t 
  * tern_forward_head_read() takes. */
 bool tern_forward_ends(const uint8_t *sent, size_t sent_len, const uint8_t *heard,
                        size_t heard_len);
+
+/* Whether a node that has sent this frame listens for its hop to succeed, and sends it again if it
+ * does not. The last hop of an acknowledgement or of a first-contact frame has nothing to hear,
+ * and is sent once. A frame tern_forward_head_read() takes. */
+bool tern_forward_listens(const uint8_t *frame, size_t len);
 
 /* What a frame goes at, in dBm: `neighbour` is what the router gives for its next hop, `back` what
  * the node it came from needs or INT8_MIN for none, `tries` how often it has gone before, each
@@ -150,10 +169,13 @@ void tern_forward_init(struct tern_forward *f, const struct tern_forward_config 
                        uint64_t seed);
 
 /* Sends a frame of this node's to `destination`. `frame` is whole but for its head, of which only
- * hdr is read: the rest is filled in here. `tracked` is for a message: it is kept, and sent again
- * until tern_forward_acked() or it is given up on, which tern_forward_failed() tells. `back` is,
- * for a frame that answers one received, what tern_forward_heard() gave, so that the node it came
- * from hears the answer; INT8_MIN otherwise.
+ * hdr is read: the rest is filled in here. `tracked` is for a message, or a first-contact frame
+ * that is to be answered: it is kept, and sent again until tern_forward_acked() or
+ * tern_forward_done(), or it is given up on, which tern_forward_failed() or
+ * tern_forward_contact_failed() tells. `back` is,
+ * for a frame that answers one received - an acknowledgement, or any of a handshake's frames but
+ * the first - what tern_forward_heard() gave, so that the node it came from hears the answer;
+ * INT8_MIN otherwise.
  *
  * Returns false if there is no slot for it, or it is not tracked and there is no route. A tracked
  * frame with no route is kept while the router asks for one. */
@@ -164,6 +186,7 @@ enum tern_forward_got {
     TERN_FORWARD_NOTHING, /* not for this node, or passed on, or discarded */
     TERN_FORWARD_MESSAGE, /* a message for this node: to open, and to acknowledge */
     TERN_FORWARD_ACK,     /* an acknowledgement for this node: to check */
+    TERN_FORWARD_CONTACT, /* a first-contact frame for this node: for tern/contact.h */
 };
 
 struct tern_forward_heard {
@@ -182,11 +205,20 @@ bool tern_forward_acked(struct tern_forward *f, const uint8_t tag[TERN_FORWARD_T
 /* A message given up on, if there is one: its tag is written, and its slot freed. */
 bool tern_forward_failed(struct tern_forward *f, uint8_t tag[TERN_FORWARD_TAG]);
 
+/* A frame of this node's with this hdr and tag is no longer to be kept: a first-contact frame
+ * whose answer came, or whose handshake is over. False if no such frame is kept. */
+bool tern_forward_done(struct tern_forward *f, uint8_t hdr, const uint8_t tag[TERN_FORWARD_TAG]);
+
+/* A first-contact frame given up on, if there is one: its hdr and tag are written, and its slot
+ * freed. */
+bool tern_forward_contact_failed(struct tern_forward *f, uint8_t *hdr,
+                                 uint8_t tag[TERN_FORWARD_TAG]);
+
 /* When tern_forward_poll() next has something to do, or INT64_MAX. */
 tern_time tern_forward_due(const struct tern_forward *f);
 
 enum tern_forward_kind {
-    TERN_FORWARD_OWN,   /* this node's message */
+    TERN_FORWARD_OWN,   /* this node's message, or first-contact frame */
     TERN_FORWARD_RELAY, /* another's, passed on */
     TERN_FORWARD_REPLY, /* an acknowledgement, this node's or another's */
 };

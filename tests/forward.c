@@ -37,6 +37,12 @@ struct hop_case {
     size_t heard_len;
     bool ends;
 };
+struct wait_case {
+    const char *why;
+    uint8_t sent[TERN_FORWARD_FRAME_MAX];
+    size_t len;
+    bool listens;
+};
 struct back_case {
     int8_t power;
     int16_t snr_q;
@@ -73,6 +79,9 @@ struct node {
     int got;         /* messages for it received, copies and all */
     int acked;       /* acknowledgements for its messages */
     int failed;      /* messages of its own given up on */
+    int contacts;    /* first-contact frames for it received */
+    int answered;    /* and of them, answers to frames of its own */
+    int unanswered;  /* first-contact frames of its own given up on */
     int sent[3];     /* by kind */
     int8_t power[8]; /* what its last frames went at */
     int powers;
@@ -119,6 +128,16 @@ static void message(int from, int to, uint8_t tag) {
                             INT8_MIN));
 }
 
+/* A first-contact frame as a test has it: the right length, a tag, and who it is from where a
+ * test's message says so. Its answer is the handshake's next frame, with the same tag. */
+static void contact(int from, int to, uint8_t hdr, uint8_t tag, bool tracked, int8_t back) {
+    uint8_t frame[TERN_CONTACT_LEN(TERN_HDR_CONTACT_1 + 2)] = {hdr};
+    memset(frame + TERN_FORWARD_HEAD, tag, TERN_FORWARD_TAG);
+    frame[TERN_FORWARD_HEAD + TERN_FORWARD_TAG] = (uint8_t)from;
+    CHECK(tern_forward_send(&net.node[from].f, net.now, id_of(to), frame, TERN_CONTACT_LEN(hdr),
+                            tracked, back));
+}
+
 static void on_air(int from, const uint8_t *frame, size_t len, int8_t dbm) {
     for (int k = 0; k < net.n; k++) {
         struct node *y = &net.node[k];
@@ -141,6 +160,17 @@ static void on_air(int from, const uint8_t *frame, size_t len, int8_t dbm) {
                 }
             } else if (got.got == TERN_FORWARD_ACK) {
                 y->acked += tern_forward_acked(&y->f, frame + TERN_FORWARD_HEAD);
+            } else if (got.got == TERN_FORWARD_CONTACT) {
+                int who = frame[TERN_FORWARD_HEAD + TERN_FORWARD_TAG];
+                y->contacts++;
+                if (frame[0] > TERN_HDR_CONTACT_1) {
+                    y->answered += tern_forward_done(&y->f, (uint8_t)(frame[0] - 1),
+                                                     frame + TERN_FORWARD_HEAD);
+                }
+                if (frame[0] < TERN_HDR_CONTACT_4 && !y->silent) {
+                    contact(k, who, (uint8_t)(frame[0] + 1), frame[TERN_FORWARD_HEAD], false,
+                            got.back);
+                }
             }
         }
     }
@@ -179,6 +209,9 @@ static void run(tern_time until) {
             }
             while (tern_forward_failed(&x->f, tag)) {
                 x->failed++;
+            }
+            while (tern_forward_contact_failed(&x->f, &handle, tag)) {
+                x->unanswered++;
             }
         }
     }
@@ -236,6 +269,16 @@ static void a_hop_ends_when_the_specification_says(void) {
     for (size_t i = 0; i < COUNT(hop_cases); i++) {
         const struct hop_case *c = &hop_cases[i];
         if (tern_forward_ends(c->sent, c->sent_len, c->heard, c->heard_len) != c->ends) {
+            fprintf(stderr, "wrong for %s\n", c->why);
+            check_failures++;
+        }
+    }
+}
+
+static void a_node_listens_when_the_specification_says(void) {
+    for (size_t i = 0; i < COUNT(wait_cases); i++) {
+        const struct wait_case *c = &wait_cases[i];
+        if (tern_forward_listens(c->sent, c->len) != c->listens) {
             fprintf(stderr, "wrong for %s\n", c->why);
             check_failures++;
         }
@@ -324,6 +367,61 @@ static void a_message_goes_along_the_line_and_is_acknowledged(void) {
     for (int i = 0; i < 4; i++) {
         CHECK_EQ_I64(in_hand(i), 0);
     }
+}
+
+/* A handshake's four frames cross two relays, two each way, hop by hop as a message does. The
+ * last hop of each is sent once: nothing is heard after it. */
+static void first_contact_goes_along_the_line_and_back(void) {
+    line();
+    contact(0, 3, TERN_HDR_CONTACT_1, 0x51, true, INT8_MIN);
+    run(net.now + TERN_S(60));
+    CHECK_EQ_I64(net.node[3].contacts, 2);
+    CHECK_EQ_I64(net.node[0].contacts, 2);
+    CHECK_EQ_I64(net.node[0].answered, 1); /* its first frame, which it kept, by the second */
+    CHECK_EQ_I64(net.node[0].sent[TERN_FORWARD_OWN], 2);
+    CHECK_EQ_I64(net.node[3].sent[TERN_FORWARD_OWN], 2);
+    CHECK_EQ_I64(net.node[1].sent[TERN_FORWARD_RELAY], 4);
+    CHECK_EQ_I64(net.node[2].sent[TERN_FORWARD_RELAY], 4);
+    for (int i = 0; i < 4; i++) {
+        CHECK_EQ_I64(net.node[i].f.counts.sent_again, 0);
+        CHECK_EQ_I64(net.node[i].f.counts.given_up, 0);
+        CHECK_EQ_I64(in_hand(i), 0);
+    }
+}
+
+/* A node that does not answer is asked as often as a message is sent, and then no more. Its
+ * silence says nothing of the link to it: a node may choose not to answer. */
+static void first_contact_unanswered_is_tried_again_and_no_hop_is_given_up(void) {
+    net_init(2, NULL);
+    link(0, 1);
+    run(TERN_S(1200));
+    net.node[1].silent = true;
+    contact(0, 1, TERN_HDR_CONTACT_1 + 2, 0x53, true, INT8_MIN);
+    run(net.now + TERN_S(120));
+    CHECK_EQ_I64(net.node[0].sent[TERN_FORWARD_OWN], 4);
+    CHECK_EQ_I64(net.node[1].contacts, 4);
+    CHECK_EQ_I64(net.node[0].unanswered, 1);
+    CHECK_EQ_I64(net.node[0].failed, 0);
+    CHECK_EQ_I64(net.node[0].f.counts.sent_again, 0);
+    CHECK_EQ_I64(net.node[0].f.counts.given_up, 0);
+    CHECK_EQ_I64(in_hand(0), 0);
+}
+
+/* A relay that hears nothing of a first-contact frame it passed on sends it again, as it does a
+ * message; and the node that began it starts it again when no answer comes. */
+static void first_contact_lost_on_the_way_is_sent_again(void) {
+    line();
+    net.node[2].deaf = true;
+    contact(0, 3, TERN_HDR_CONTACT_1, 0x51, true, INT8_MIN);
+    run(net.now + TERN_S(20));
+    CHECK(net.node[1].f.counts.sent_again >= 1);
+    CHECK_EQ_I64(net.node[3].contacts, 0);
+    net.node[2].deaf = false;
+    run(net.now + TERN_S(120));
+    CHECK(net.node[3].contacts >= 1);
+    CHECK_EQ_I64(net.node[0].answered, 1);
+    CHECK_EQ_I64(net.node[0].unanswered, 0);
+    CHECK_EQ_I64(in_hand(0), 0);
 }
 
 static void a_leaf_passes_nothing_on(void) {
@@ -536,11 +634,15 @@ int main(void) {
     RUN(heads_are_written_and_read);
     RUN(frames_the_specification_rejects_change_nothing);
     RUN(a_hop_ends_when_the_specification_says);
+    RUN(a_node_listens_when_the_specification_says);
     RUN(messages_that_share_a_tag_are_told_apart);
     RUN(slots_need_not_be_cleared_and_are_no_more_than_a_handle_names);
     RUN(an_answer_goes_loud_enough_for_the_node_it_answers);
     RUN(a_frame_goes_louder_each_time);
     RUN(a_message_goes_along_the_line_and_is_acknowledged);
+    RUN(first_contact_goes_along_the_line_and_back);
+    RUN(first_contact_unanswered_is_tried_again_and_no_hop_is_given_up);
+    RUN(first_contact_lost_on_the_way_is_sent_again);
     RUN(a_leaf_passes_nothing_on);
     RUN(a_hop_unheard_is_sent_again_louder_and_then_given_up);
     RUN(a_frame_sent_again_waits_a_time_of_its_own);

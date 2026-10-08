@@ -157,6 +157,13 @@ if(BUILD_TESTING)
     target_link_libraries(test_demo PRIVATE tern)
     target_compile_options(test_demo PRIVATE ${TERN_WARNINGS} -Wno-missing-prototypes)
     add_test(NAME demo COMMAND test_demo)
+    # And with the router and the forwarder, as the port's main loop joins them: first contact
+    # between boards that do not hear each other.
+    add_executable(test_relay tests/relay.c ports/heltec-v3/main/demo.c)
+    target_include_directories(test_relay PRIVATE ports/heltec-v3/main)
+    target_link_libraries(test_relay PRIVATE tern)
+    target_compile_options(test_relay PRIVATE ${TERN_WARNINGS} -Wno-missing-prototypes)
+    add_test(NAME relay COMMAND test_relay)
     add_executable(test_link tests/link.c ports/heltec-v3/main/link.c ${exchange_h})
     target_include_directories(test_link PRIVATE ports/heltec-v3/main
         ${CMAKE_CURRENT_BINARY_DIR}/vectors)

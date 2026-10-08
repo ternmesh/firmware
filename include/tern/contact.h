@@ -24,8 +24,11 @@
  * key: 32 bytes it MUST draw fresh from a cryptographically secure generator, and never reuse.
  * The vectors set them, as a test hook.
  *
- * Frames are written with hop and label 0. They belong to the routing layer, are not protected,
- * and may be set in bytes 1 to 3 before sending.
+ * The frames follow routes (tern/forward.h): each starts with the head that layer's frames start
+ * with, and is written here with the routing id of the node it is for, tern_contact_destination(),
+ * and with hops, power and next hop 0, which are the forwarder's to fill in. message_1's frame
+ * also names the initiator's routing id, which is where message_2 goes: the responder does not
+ * know who is asking until message_3. None of that is protected.
  *
  * Stack: the deepest call, tern_contact_receive() checking the initiator's address in message_3,
  * uses about 3.6 KB on a Cortex-M4 (Clang, -Os), most of it elliptic-curve arithmetic. A task that
@@ -34,7 +37,7 @@
 
 #define TERN_CONTACT_EPHEMERAL 32
 #define TERN_CONTACT_SECRET 32
-#define TERN_CONTACT_MAX_FRAME 73 /* message_3's frame; the others are 45, 53 and 17 bytes */
+#define TERN_CONTACT_MAX_FRAME 80 /* message_3's frame; the others are 56, 60 and 24 bytes */
 
 struct tern_contact {
     uint8_t role;   /* TERN_INITIATOR or TERN_RESPONDER; 0 if unused or aborted */
@@ -63,16 +66,18 @@ enum tern_contact_verdict {
     TERN_CONTACT_FAILED,
 };
 
-/* Starts a handshake with the node whose address is target: writes message_1's frame (45 bytes)
- * to frame and its length to *len. c_i is the connection identifier, a byte from 0x00 to 0x17 or
- * 0x20 to 0x37. Returns TERN_OK, or TERN_EINVAL if target is not a valid address, c_i is out of
- * range or frame_cap is too small. */
-int tern_contact_start(struct tern_contact *c, const uint8_t target[TERN_ADDRESS_LEN],
+/* Starts a handshake with the node whose address is target: writes message_1's frame (56 bytes)
+ * to frame and its length to *len. source is this node's routing id. c_i is the connection
+ * identifier, a byte from 0x00 to 0x17 or 0x20 to 0x37. Returns TERN_OK, or TERN_EINVAL if target
+ * is not a valid address, source is not a routing id, c_i is out of range or frame_cap is too
+ * small. */
+int tern_contact_start(struct tern_contact *c, uint32_t source,
+                       const uint8_t target[TERN_ADDRESS_LEN],
                        const uint8_t ephemeral[TERN_CONTACT_EPHEMERAL], uint8_t c_i, uint8_t *frame,
                        size_t frame_cap, size_t *len);
 
 /* Answers a frame that may be a message_1 for this node. If it is, sets c up as the responder,
- * writes message_2's frame (53 bytes) to out and returns TERN_CONTACT_PROCESSED. If it is not,
+ * writes message_2's frame (60 bytes) to out and returns TERN_CONTACT_PROCESSED. If it is not,
  * returns TERN_CONTACT_NOT_OURS, sends nothing and leaves c unused. c_r is as c_i above. Returns
  * TERN_EINVAL if c_r is out of range or out_cap too small. */
 int tern_contact_respond(struct tern_contact *c, const struct tern_identity *me,
@@ -86,6 +91,14 @@ int tern_contact_respond(struct tern_contact *c, const struct tern_identity *me,
 int tern_contact_receive(struct tern_contact *c, const struct tern_identity *me,
                          const uint8_t *frame, size_t len, uint8_t *out, size_t out_cap,
                          size_t *out_len);
+
+/* The routing id of the node a frame written here is for. */
+uint32_t tern_contact_destination(const uint8_t *frame);
+
+/* Whether two frames carry the same message of the same handshake: a copy of message_1 is one
+ * whatever routing id it says it came from. A responder answers a copy with the answer it gave
+ * before, sent to where the copy says. */
+bool tern_contact_same(const uint8_t *a, size_t a_len, const uint8_t *b, size_t b_len);
 
 /* Whether the handshake has produced S. */
 bool tern_contact_complete(const struct tern_contact *c);

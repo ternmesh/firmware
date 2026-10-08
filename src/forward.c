@@ -32,7 +32,8 @@ static bool an_id(uint32_t id) { return id != 0 && id != TERN_ROUTE_EVERYONE; }
 bool tern_forward_head_read(struct tern_forward_head *h, const uint8_t *frame, size_t len) {
     if (len < TERN_FORWARD_MIN || len > TERN_FORWARD_FRAME_MAX || !tern_forward_frame(frame, len) ||
         (frame[0] == TERN_HDR_ACK && len != TERN_ACK_LEN) ||
-        (frame[0] == TERN_HDR_MESSAGE && len < TERN_MESSAGE_MIN)) {
+        (frame[0] == TERN_HDR_MESSAGE && len < TERN_MESSAGE_MIN) ||
+        (tern_forward_contact(frame[0]) && len != TERN_CONTACT_LEN(frame[0]))) {
         return false;
     }
     *h = (struct tern_forward_head){
@@ -58,6 +59,11 @@ bool tern_forward_ends(const uint8_t *sent, size_t sent_len, const uint8_t *hear
         sent[0] == TERN_HDR_MESSAGE && heard[0] == TERN_HDR_ACK &&
         memcmp(sent + TERN_FORWARD_HEAD, heard + TERN_FORWARD_HEAD, TERN_FORWARD_TAG) == 0;
     return passed || answered;
+}
+
+bool tern_forward_listens(const uint8_t *frame, size_t len) {
+    return len >= TERN_FORWARD_HEAD &&
+           (frame[0] == TERN_HDR_MESSAGE || get32(frame + AT_NEXT) != get32(frame + AT_DEST));
 }
 
 int8_t tern_forward_power(int8_t neighbour, int8_t back, uint8_t tries, uint8_t step, int8_t full) {
@@ -233,7 +239,7 @@ void tern_forward_heard(struct tern_forward *f, tern_time now, const uint8_t *fr
     }
     out->back = tern_route_power_back(f->route, h.power, snr_q);
     if (h.destination == f->route->id) {
-        out->got = TERN_FORWARD_MESSAGE;
+        out->got = h.hdr == TERN_HDR_MESSAGE ? TERN_FORWARD_MESSAGE : TERN_FORWARD_CONTACT;
         return;
     }
     if (!f->route->config.relay) {
@@ -274,10 +280,14 @@ void tern_forward_heard(struct tern_forward *f, tern_time now, const uint8_t *fr
 }
 
 bool tern_forward_acked(struct tern_forward *f, const uint8_t tag[TERN_FORWARD_TAG]) {
+    return tern_forward_done(f, TERN_HDR_MESSAGE, tag);
+}
+
+bool tern_forward_done(struct tern_forward *f, uint8_t hdr, const uint8_t tag[TERN_FORWARD_TAG]) {
     for (size_t i = 0; i < f->cap; i++) {
         struct tern_forward_slot *s = &f->slot[i];
         if (s->state == TERN_FORWARD_FREE || s->state == TERN_FORWARD_FAILED || !s->tracked ||
-            !same(s, TERN_HDR_MESSAGE, tag)) {
+            !same(s, hdr, tag)) {
             continue;
         }
         s->tracked = false;
@@ -294,7 +304,21 @@ bool tern_forward_acked(struct tern_forward *f, const uint8_t tag[TERN_FORWARD_T
 bool tern_forward_failed(struct tern_forward *f, uint8_t tag[TERN_FORWARD_TAG]) {
     for (size_t i = 0; i < f->cap; i++) {
         struct tern_forward_slot *s = &f->slot[i];
-        if (s->state == TERN_FORWARD_FAILED) {
+        if (s->state == TERN_FORWARD_FAILED && s->frame[0] == TERN_HDR_MESSAGE) {
+            memcpy(tag, s->frame + TERN_FORWARD_HEAD, TERN_FORWARD_TAG);
+            s->state = TERN_FORWARD_FREE;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool tern_forward_contact_failed(struct tern_forward *f, uint8_t *hdr,
+                                 uint8_t tag[TERN_FORWARD_TAG]) {
+    for (size_t i = 0; i < f->cap; i++) {
+        struct tern_forward_slot *s = &f->slot[i];
+        if (s->state == TERN_FORWARD_FAILED && tern_forward_contact(s->frame[0])) {
+            *hdr = s->frame[0];
             memcpy(tag, s->frame + TERN_FORWARD_HEAD, TERN_FORWARD_TAG);
             s->state = TERN_FORWARD_FREE;
             return true;
@@ -325,7 +349,7 @@ static void give_up(struct tern_forward *f, struct tern_forward_slot *s, tern_ti
     f->counts.given_up++;
     tern_route_lost(f->route, now, s->next);
     s->unheard = 0;
-    if (s->frame[0] == TERN_HDR_MESSAGE && s->salvages < f->config.salvage) {
+    if (s->frame[0] != TERN_HDR_ACK && s->salvages < f->config.salvage) {
         s->gone[s->salvages] = s->next;
         if (tern_route_other(f->route, dest_of(s), s->gone, s->salvages + 1, &other)) {
             s->salvages++;
@@ -471,12 +495,14 @@ void tern_forward_sent(struct tern_forward *f, tern_time now, uint8_t handle) {
     if (!s) {
         return;
     }
+    bool listens = tern_forward_listens(s->frame, s->len);
     start_waiting(f, s, now);
-    if (!s->done && s->unheard < UINT8_MAX) {
+    /* A frame not listened for says nothing of its next hop, however often it goes unanswered. */
+    if (!s->done && listens && s->unheard < UINT8_MAX) {
         s->unheard++;
     }
-    if (s->done || (s->frame[0] == TERN_HDR_ACK && s->next == dest_of(s))) {
-        rest(s, now); /* heard already; or an acknowledgement's last hop, with nothing to hear */
+    if (s->done || !listens) {
+        rest(s, now); /* heard already; or a last hop with nothing to hear */
         return;
     }
     s->state = TERN_FORWARD_LISTENING;
