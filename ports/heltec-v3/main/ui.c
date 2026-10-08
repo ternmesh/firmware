@@ -1,6 +1,7 @@
 #include "ui.h"
 
 #include "qr.h"
+#include "tern/share.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -296,18 +297,6 @@ static void air(const struct ui_node *n, struct frame *f) {
     }
 }
 
-static const char hex[] = "0123456789ABCDEF";
-
-/* The address as the QR code holds it: sixty-four upper-case hex digits, which is what the This
- * node page shows and what the console's 'contact' takes. */
-static void address_text(const struct ui_node *n, char out[2 * TERN_ADDRESS_LEN + 1]) {
-    for (int i = 0; i < TERN_ADDRESS_LEN; i++) {
-        out[2 * i] = hex[n->address[i] >> 4];
-        out[2 * i + 1] = hex[n->address[i] & 0x0F];
-    }
-    out[2 * TERN_ADDRESS_LEN] = '\0';
-}
-
 #define QR_SCALE 2   /* pixels to a module: 58 of the screen's 64 rows */
 #define QR_GROUND 70 /* the lit block the code sits in, from the left edge */
 #define QR_LEFT ((QR_GROUND - QR_SIZE * QR_SCALE) / 2)
@@ -320,10 +309,13 @@ static void address_text(const struct ui_node *n, char out[2 * TERN_ADDRESS_LEN 
 static void share(const struct ui_node *n, struct display *d) {
     static struct display canvas;
     static struct qr code;
-    char text[2 * TERN_ADDRESS_LEN + 1];
+    char link[TERN_ADDRESS_LINK_LEN + 1], sc[TERN_SHORT_CODE_LEN + 1];
     display_init(&canvas);
-    address_text(n, text);
-    if (!qr_encode(&code, text, QR_MASK_BEST)) {
+    /* The link (draft/sharing.md): "TERN:" and the digits, which a phone reads as a link and the
+     * console's 'contact' takes as it is. */
+    tern_address_link(n->address, link);
+    tern_short_code(n->address, sc);
+    if (!qr_encode(&code, link, QR_MASK_BEST)) {
         display_text(&canvas, 3, "No code to show", false);
         display_copy(d, &canvas);
         return;
@@ -335,34 +327,27 @@ static void share(const struct ui_node *n, struct display *d) {
             display_set(&canvas, x, y, !(inside && qr_dark(&code, mx, my)));
         }
     }
-    /* What a phone's camera finds is the address as text, to copy wherever it is wanted. */
-    display_text_at(&canvas, 1, QR_WORDS, "Scan for");
-    display_text_at(&canvas, 2, QR_WORDS, "this");
-    display_text_at(&canvas, 3, QR_WORDS, "node's");
-    display_text_at(&canvas, 4, QR_WORDS, "address");
-    display_text_at(&canvas, 6, QR_WORDS, "Digits:");
-    display_text_at(&canvas, 7, QR_WORDS, "next page");
+    /* Beside it, the short code, for whoever scanned it to check against their phone's. */
+    sc[9] = '\0'; /* "5358 3737" on one line, "3382" on the next */
+    display_text_at(&canvas, 0, QR_WORDS, "Scan for");
+    display_text_at(&canvas, 1, QR_WORDS, "this");
+    display_text_at(&canvas, 2, QR_WORDS, "node's");
+    display_text_at(&canvas, 3, QR_WORDS, "address");
+    display_text_at(&canvas, 5, QR_WORDS, "Its code:");
+    display_text_at(&canvas, 6, QR_WORDS, sc);
+    display_text_at(&canvas, 7, QR_WORDS, &sc[10]);
     display_copy(d, &canvas);
 }
 
 static void node(const struct ui_node *n, struct frame *f) {
+    char text[TERN_ADDRESS_TEXT_LEN + 1], sc[TERN_SHORT_CODE_LEN + 1];
+    tern_address_text(n->address, text);
+    tern_short_code(n->address, sc);
     line(f->rows[0], "This node");
-    line(f->rows[1], "Its address:");
-    /* Sixty-four digits, sixteen a line in two groups of eight, as a person reads them out. */
+    line(f->rows[1], "Code %s", sc);
+    /* Its sixty-four digits, sixteen a line in two groups of eight, as a person reads them out. */
     for (int r = 0; r < 4; r++) {
-        char *out = f->rows[2 + r];
-        size_t k = 0;
-        out[k++] = ' ';
-        out[k++] = ' ';
-        for (int i = 0; i < 8; i++) {
-            uint8_t b = n->address[r * 8 + i];
-            if (i == 4) {
-                out[k++] = ' ';
-            }
-            out[k++] = hex[b >> 4];
-            out[k++] = hex[b & 0x0F];
-        }
-        out[k] = '\0';
+        line(f->rows[2 + r], "  %.8s %.8s", &text[16 * r], &text[16 * r + 8]);
     }
     line(f->rows[6], "%s, %s, %+d dBm", n->relay ? "Relay" : "Leaf", n->region, n->dbm);
     line(f->rows[7], "Tern %s", n->version);

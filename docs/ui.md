@@ -97,7 +97,7 @@ On the boards Tern starts with, a 128×64 monochrome display and one button. Its
 |---|---|---|
 | Home | whether the node is on the air, how many nodes it hears, unread messages, battery, airtime left | all of it; the battery as a charge estimated from its voltage |
 | Messages | the latest few, newest first, with who they are from and their delivery state | one at a time; a long press shows the one before |
-| Contact card | this node's address as a QR code and a short code to read aloud, for someone adding it | **Share**, the QR code, and **This node**, the address in hex; not the short code |
+| Contact card | this node's address as a QR code and a short code to read aloud, for someone adding it | **Share**, the QR code and the short code, and **This node**, the short code and the address in hex |
 | Air | the airtime account: used, allowed, and when more is free | the region's limit; the budget is not drafted |
 | Mesh | neighbours and routes, for whoever is curious; the bench screen's pages, more or less | the bench pages, behind `screen bench on` |
 
@@ -109,9 +109,9 @@ get more, but nothing should need them.
 
 A QR code fits: a 32-byte address is 64 characters of upper-case hex, which a version 3 code holds
 in its alphanumeric mode at its lowest error correction (77 characters). That is 29 modules square,
-so 58 pixels at two pixels a module. The Heltec V3 draws it so, dark on light. What the code holds
-is only the hex for now; a form every implementation reads (a scheme in front of it, say) is a
-specification question, like the short code.
+so 58 pixels at two pixels a module. The Heltec V3 draws it so, dark on light. The code holds the
+address's link, `TERN:` and the hex, 69 characters, as
+[draft/sharing.md](https://github.com/ternmesh/spec/blob/main/draft/sharing.md) defines it.
 
 ## Addresses and contacts
 
@@ -125,9 +125,9 @@ So:
   the phone. Two people may call the same node different things.
 * **Addresses travel off the air,** or at least outside the mesh: a QR code shown on one screen
   and scanned by a phone, a link sent by other means, or the full hex pasted from a console.
-* **A short code to compare.** Something like the first few bytes of the address in words or
-  digits, so two people standing together can check they have the right node. A full fingerprint
-  scheme is a specification question, since every implementation should show the same code.
+* **A short code to compare,** so two people standing together can check they have the right
+  node: twelve digits from a hash of the address, the same in every implementation
+  ([draft/sharing.md](https://github.com/ternmesh/spec/blob/main/draft/sharing.md)).
 
 Whether a node may learn a new contact over the air at all (someone it hears asking to make
 contact) is a question for the first-contact draft, not the interface. The demo's `accept`
@@ -156,7 +156,7 @@ the link between the node and the phone: what the node offers, and in what form.
 |---|---|
 | How a node's airtime budget is shown, and what a user can do about it | the airtime budget, not drafted |
 | Group or broadcast messages, and whether the home screen is a channel or a list of conversations | broadcast, not drafted (forwarding.md lists it as not yet) |
-| The short code two people compare, the same in every implementation | first contact, addresses |
+| The short code two people compare, the same in every implementation | settled: [draft/sharing.md](https://github.com/ternmesh/spec/blob/main/draft/sharing.md), shown by the Heltec V3 port |
 | Whether a node accepts first contact from a node it has no contact for | first contact |
 | The companion protocol, and where it is specified | settled: [draft/companion.md](https://github.com/ternmesh/spec/blob/main/draft/companion.md), spoken over USB by the Heltec V3 port |
 | Where the node model lives once there are two boards | a second board |

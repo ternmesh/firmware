@@ -6,6 +6,7 @@
 #include "check.h"
 #include "display.h"
 #include "qr.h"
+#include "tern/share.h"
 
 /* The Heltec V3 port's screen for the person carrying the board (ports/heltec-v3/main/ui.c),
  * which has no hardware in it. Each page is drawn into a picture and read back from it, a line at
@@ -311,6 +312,21 @@ static void the_node_page_gives_its_address(void) {
     CHECK_ROW(7, "Tern 0.1.0-alpha.3");
 }
 
+/* The first address in the specification's sharing vectors, and the short code they give it. */
+static void the_node_page_gives_its_short_code(void) {
+    static const uint8_t address[TERN_ADDRESS_LEN] = {
+        0xd6, 0xd1, 0x5f, 0xab, 0xbc, 0x42, 0xce, 0x56, 0x17, 0x4a, 0x43,
+        0x63, 0xe7, 0x57, 0x43, 0x7a, 0x4a, 0x7b, 0xaf, 0x42, 0x1b, 0x69,
+        0x0c, 0xaa, 0x24, 0x67, 0x6f, 0x3f, 0x4f, 0x17, 0xc9, 0x96};
+    struct ui_node n = alone();
+    memcpy(n.address, address, sizeof address);
+    draw(&n, UI_NODE, "node-code");
+    CHECK_ROW(1, "Code 5358 3737 3382");
+    CHECK_ROW(2, "  D6D15FAB BC42CE56");
+    CHECK_ROW(5, "  24676F3F 4F17C996");
+    draw(&n, UI_SHARE, "share-code");
+}
+
 static bool lit(int x, int y) { return (d.px[y / 8][x] >> (y % 8) & 1) != 0; }
 
 /* The code is the address in the digits the next page shows, dark on light: each module two pixels
@@ -319,13 +335,9 @@ static void the_share_page_is_the_address_as_a_code(void) {
     struct ui_node n = alone();
     struct qr want;
     draw(&n, UI_SHARE, "share");
-    char text[2 * TERN_ADDRESS_LEN + 1];
-    static const char hex[] = "0123456789ABCDEF";
-    for (int i = 0; i < TERN_ADDRESS_LEN; i++) {
-        text[2 * i] = hex[n.address[i] >> 4];
-        text[2 * i + 1] = hex[n.address[i] & 0x0F];
-    }
-    text[2 * TERN_ADDRESS_LEN] = '\0';
+    char text[TERN_ADDRESS_LINK_LEN + 1];
+    tern_address_link(n.address,
+                      text); /* src/share.c, checked against the specification's vectors */
     CHECK(qr_encode(&want, text, QR_MASK_BEST));
     int wrong = 0;
     for (int my = 0; my < QR_SIZE; my++) {
@@ -439,6 +451,7 @@ int main(int argc, char **argv) {
     RUN(no_messages_says_where_they_come_from);
     RUN(the_node_page_gives_its_address);
     RUN(the_share_page_is_the_address_as_a_code);
+    RUN(the_node_page_gives_its_short_code);
     RUN(the_battery_shows_once_it_is_known);
     RUN(pairing_shows_the_passkey);
     RUN(large_text_is_centred_and_cut);
