@@ -86,8 +86,9 @@ jobs:
       - run: cmake --build sim/build
       - run: ctest --test-dir sim/build --output-on-failure -R core
 
-  # The Heltec V3 port, built with ESP-IDF in Espressif's own container. The images it makes are
-  # kept with the run, so a board can be flashed without installing anything (ports/heltec-v3).
+  # The Heltec V3 port, built with ESP-IDF in Espressif's own container, the way a release builds
+  # it (release.yml): an image for each region. They are kept with the run, so a board can be
+  # flashed with any commit without installing anything (ports/heltec-v3).
   heltec-v3:
     name: build (heltec v3, esp-idf)
     runs-on: ubuntu-24.04
@@ -98,16 +99,11 @@ jobs:
           esp_idf_version: v5.5.5
           target: esp32s3
           path: ports/heltec-v3
-          command: idf.py build && idf.py merge-bin -o tern-heltec-v3-full.bin
+          command: ./release.sh 0.0.0-dev
       - uses: actions/upload-artifact@v4
         with:
           name: tern-heltec-v3
-          path: |
-            ports/heltec-v3/build/tern-heltec-v3-full.bin
-            ports/heltec-v3/build/tern-heltec-v3.bin
-            ports/heltec-v3/build/bootloader/bootloader.bin
-            ports/heltec-v3/build/partition_table/partition-table.bin
-            ports/heltec-v3/build/flash_args
+          path: ports/heltec-v3/release/
           if-no-files-found: error
 
   format:

@@ -1,0 +1,37 @@
+name: Release
+
+# A tag v<version> makes a release: the Heltec V3 images for each region, built from the tag, with
+# their checksums and the notes in docs/releases/v<version>.md. A version with a hyphen in it
+# (0.1.0-alpha.1) is marked a pre-release.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read the version, and find its notes
+        id: tag
+        run: |
+          echo "$GITHUB_REF_NAME" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9a-z.]+)?$'
+          test -f "docs/releases/$GITHUB_REF_NAME.md"
+          echo "version=${GITHUB_REF_NAME#v}" >>"$GITHUB_OUTPUT"
+      - uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.5
+          target: esp32s3
+          path: ports/heltec-v3
+          command: ./release.sh ${{ steps.tag.outputs.version }}
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          case "$GITHUB_REF_NAME" in *-*) pre=--prerelease ;; *) pre= ;; esac
+          gh release create "$GITHUB_REF_NAME" $pre --verify-tag --title "$GITHUB_REF_NAME" \
+            --notes-file "docs/releases/$GITHUB_REF_NAME.md" \
+            ports/heltec-v3/release/*.bin ports/heltec-v3/release/SHA256SUMS

@@ -1,5 +1,12 @@
 menu "Tern demo"
 
+    config TERN_VERSION
+        string "Version"
+        default "0.0.0-dev"
+        help
+            What the board says it runs: on the console at start, and to a client over the
+            companion link. A release sets it from its tag (release.sh).
+
     choice TERN_REGION
         prompt "Region"
         default TERN_REGION_US915

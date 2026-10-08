@@ -79,7 +79,8 @@
 #define SCREEN_MS 500  /* how often the bench screen is drawn again */
 #define HOLD_MS 1000   /* how long PRG is held to send a ping */
 #define SCREEN_TRIES 5 /* writes failed in a row before the screen is given up */
-#define FIRMWARE "tern 0.0.0 heltec-v3"
+#define FIRMWARE "tern " CONFIG_TERN_VERSION " heltec-v3"
+_Static_assert(sizeof FIRMWARE - 1 <= TERN_COMPANION_FIRMWARE_MAX, "the version fits in INFO");
 #define SETTINGS_MAGIC 0x54530001u
 #define IDS_EARLIER 0x10000u /* past the message ids of a build that did not keep them */
 #define PASSKEY_RANDOM 0xFFFFFFFFu
