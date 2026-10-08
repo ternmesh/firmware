@@ -42,6 +42,7 @@ struct board {
     bool have_saved;
     uint32_t ids; /* the message ids set aside, 0 if none were */
     unsigned id_saves;
+    unsigned id_saves_at_queued; /* how many there had been when QUEUED was last sent */
     uint8_t out[64][TERN_COMPANION_MAX_FRAME];
     size_t out_len[64];
     unsigned out_conn[64];
@@ -50,6 +51,9 @@ struct board {
 
 static void board_out(void *ctx, unsigned conn, const uint8_t *frame, size_t len) {
     struct board *b = ctx;
+    if (len > 0 && frame[0] == TERN_C_QUEUED) {
+        b->id_saves_at_queued = b->id_saves;
+    }
     if (b->n_out < COUNT(b->out)) {
         memcpy(b->out[b->n_out], frame, len);
         b->out_conn[b->n_out] = conn;
@@ -698,6 +702,18 @@ static void a_restart_gives_no_id_again(void) {
     CHECK_EQ_U64(add(), a + 1);
     restart();
     CHECK_EQ_U64(add(), a + 1 + LINK_ID_STEP);
+
+    /* An id a client is told in QUEUED is set aside before it is told: a restart just after the
+     * answer does not give it to another message. */
+    start();
+    hello();
+    struct tern_companion_msg q = send_to(bob, 0xC0FFEE02, "On the ridge by six");
+    request(&q);
+    CHECK_EQ_I64(sent(0).type, TERN_C_QUEUED);
+    CHECK_EQ_U64(board.id_saves_at_queued, 1);
+    CHECK_EQ_U64(board.id_saves, 1);
+    restart();
+    CHECK(add() > sent(0).id);
 }
 
 int main(void) {
