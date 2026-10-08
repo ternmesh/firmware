@@ -25,8 +25,7 @@
  * message key straight after its one use. */
 
 #define TERN_UNICAST_HDR 0x48      /* format 01 (draft 0), type 001 (secured unicast), no flags */
-#define TERN_UNICAST_HDR_NODE 0x49 /* the node flag: the plaintext is for the node, not its user   \
-                                    */
+#define TERN_UNICAST_HDR_NODE 0x49 /* the node flag: a plaintext for the node, not its user */
 #define TERN_UNICAST_HEAD 11       /* hdr, and the forwarder's ten bytes */
 #define TERN_UNICAST_OVERHEAD 23   /* the head, dtag and the 8-byte AEAD tag */
 #define TERN_UNICAST_MAX_FRAME 255 /* the largest LoRa frame */
