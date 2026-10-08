@@ -28,7 +28,7 @@ static const char *row(int page) {
     struct display one;
     for (int k = 0; k < COLS; k++) {
         out[k] = '#';
-        for (char c = ' '; c <= '~'; c++) {
+        for (char c = DISPLAY_BLUETOOTH; c <= '~'; c = c == DISPLAY_BLUETOOTH ? ' ' : c + 1) {
             char s[2] = {c, '\0'};
             display_init(&one);
             display_text(&one, 0, s, page == 0);
@@ -212,6 +212,46 @@ static void the_bar_shows_what_is_used(void) {
     display_bar(&d, 4, INT64_MAX / 2, INT64_MAX);
     CHECK_EQ_I64(d.px[4][63], 0x7E);
     CHECK_EQ_I64(d.px[4][65], 0x42);
+}
+
+static void home_shows_a_phone_connected(void) {
+    struct ui_node n = alone();
+    n.phone = true;
+    draw(&n, UI_HOME, "home-phone");
+    CHECK_ROW(0, "Tern " DISPLAY_BLUETOOTH_S "          US915");
+    n.battery = 100;
+    n.charging = true;
+    draw(&n, UI_HOME, "x"); /* the longest the right of it gets: the rune still fits */
+    CHECK_ROW(0, "Tern " DISPLAY_BLUETOOTH_S " Chg 100% US915");
+}
+
+static void a_group_message_names_the_group_and_its_writer(void) {
+    struct ui_node n = busy();
+    n.from_group = true;
+    snprintf(n.from, sizeof n.from, "Hikers");
+    n.message.group = true;
+    snprintf(n.message.who, sizeof n.message.who, "Hikers");
+    snprintf(n.message.writer, sizeof n.message.writer, "Bob");
+    draw(&n, UI_MESSAGES, "message-group");
+    CHECK_ROW(1, "New in Hikers  2m ago");
+    CHECK_ROW(2, "From Bob");
+    CHECK_ROW(3, "On the ridge by six.");
+    CHECK_ROW(4, "Bring the long");
+    n.message.unread = false;
+    snprintf(n.message.writer, sizeof n.message.writer, "node 1A2B3C4D");
+    draw(&n, UI_MESSAGES, "x");
+    CHECK_ROW(1, "In Hikers      2m ago");
+    CHECK_ROW(2, "From node 1A2B3C4D");
+    draw(&n, UI_HOME, "home-group");
+    CHECK_ROW(6, "Last in Hikers");
+
+    /* One this board wrote to the group: to it, with what became of it. */
+    n.message.received = false;
+    n.message.state = TERN_C_SENT;
+    draw(&n, UI_MESSAGES, "x");
+    CHECK_ROW(1, "To Hikers      2m ago");
+    CHECK_ROW(2, "On the ridge by six.");
+    CHECK_ROW(7, "Sent");
 }
 
 static void a_message_is_shown_whole(void) {
@@ -532,6 +572,8 @@ int main(int argc, char **argv) {
     RUN(the_air_says_when_it_is_full);
     RUN(the_bar_shows_what_is_used);
     RUN(a_message_is_shown_whole);
+    RUN(home_shows_a_phone_connected);
+    RUN(a_group_message_names_the_group_and_its_writer);
     RUN(text_too_long_is_cut_where_it_says_so);
     RUN(a_message_sent_says_what_became_of_it);
     RUN(no_messages_says_where_they_come_from);

@@ -119,8 +119,14 @@ static void put(struct display *d, int page, const uint8_t row[DISPLAY_WIDTH]) {
     }
 }
 
+/* Bluetooth's rune: a spine, and the two arrowheads crossing it. */
+static const uint8_t bluetooth[GLYPH_W] = {0x14, 0x08, 0x7f, 0x2a, 0x14};
+
 static const uint8_t *glyph(char ch) {
     unsigned char c = (unsigned char)ch;
+    if (ch == DISPLAY_BLUETOOTH) {
+        return bluetooth;
+    }
     return font[c < 0x20 || c > 0x7E ? 0 : c - 0x20];
 }
 

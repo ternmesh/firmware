@@ -95,8 +95,8 @@ On the boards Tern starts with, a 128×64 monochrome display and one button. Its
 
 | Page | Shows | On the Heltec V3 |
 |---|---|---|
-| Home | whether the node is on the air, how many nodes it hears, unread messages, battery, airtime left | all of it; the battery as a charge estimated from its voltage, said to be low at 10% or less, and charging as far as the voltage shows |
-| Messages | the latest few, newest first, with who they are from and their delivery state | one at a time; a long press shows the one before |
+| Home | whether the node is on the air, how many nodes it hears, unread messages, battery, airtime left | all of it; the battery as a charge estimated from its voltage, said to be low at 10% or less, and charging as far as the voltage shows; a Bluetooth rune while a phone is connected |
+| Messages | the latest few, newest first, with who they are from and their delivery state | one at a time; a long press shows the one before. A group's names the group, and who wrote it as far as the claimed routing id matches a contact |
 | Contact card | this node's address as a QR code and a short code to read aloud, for someone adding it | **Share**, the QR code and the short code, and **This node**, the short code and the address in hex |
 | Air | the airtime account: used, allowed, and when more is free | the region's limit; the budget is not drafted |
 | Mesh | neighbours and routes, for whoever is curious; the bench screen's pages, more or less | the bench pages, behind `screen bench on` |
