@@ -12,8 +12,9 @@ to the next hop its route gives, at no more power than that hop needs, is sent a
 heard of it, and is acknowledged by the board it is for. A board built as a relay passes other
 boards' frames on. A board listens first: it asks its radio before every frame, and sends none
 while one is being received (`status` counts the times a frame waited). A board holds a session
-with each of up to eight others. But first contact does not follow routes, so two boards must
-hear each other to meet. There is no airtime budget yet either.
+with each of up to eight others. First contact follows routes too, so two boards can meet
+wherever one could send the other a message: through a relay, with neither hearing the other.
+There is no airtime budget yet.
 
 ## Flashing
 
@@ -135,17 +136,22 @@ and turns it off as Bluetooth starts; from then on, Bluetooth is the source, and
 after it, a first contact's included, is made from it. If Bluetooth does not start, the noise
 source goes back on.
 
-First contact is the specification's: an EDHOC handshake of four frames, of 45, 53, 73 and 17
+First contact is the specification's: an EDHOC handshake of four frames, of 56, 60, 80 and 24
 bytes. Neither address goes over the air in clear, each board proves it holds the key behind its
 address, and each handshake gives a new session secret, so nothing has to be remembered to stop
-keys repeating.
+keys repeating. The frames go by routes, as messages do, so they do carry both boards' routing
+ids, and relays pass them on.
+
+Lost frames are the specification's as well. The board that began keeps each of its two frames
+as it keeps a message: it waits five seconds and a little for the answer, sends the frame again
+up to three times, and then gives up. The other board never sends unasked: a frame it has
+already answered gets the same answer again, and it keeps a handshake for a minute after it last
+heard anything of it. Between two boards on a bench every frame is sent once, and a handshake
+takes under two seconds.
 
 What the specification has not settled yet, the demo decides for itself. None of this is Tern
 yet:
 
-* **Lost frames.** The board that began sends each of its two frames up to four times, a little
-  over two seconds apart at the default settings, and then gives up. The other board never sends
-  unasked: a frame it has already answered gets the same answer again.
 * **Whom a board accepts.** A board accepts an address saved as a contact, as the companion draft
   says. Beyond that, a board with no session accepts whoever makes contact, and says who it was;
   one with a session accepts a peer it has again, and refuses anyone else unless `accept` was
@@ -154,7 +160,8 @@ yet:
 * **Eight peers, one handshake.** First contact with a peer the board has replaces the session
   with that peer, and leaves the others. A board with eight sessions takes no new peer until one
   is dropped: it does not choose whom to forget. While one handshake is under way another is not
-  answered.
+  answered, unless it says it comes from the board that began the one under way: that board has
+  started again.
 * **Listening for the answer.** Once a frame that follows a route has gone, the board sends no
   other for three times as long as it took: the radio cannot hear while it sends, and a board
   with several messages waiting would otherwise send the second over the acknowledgement of the
@@ -323,7 +330,7 @@ Bluetooth is always on. What it costs a battery is not measured yet.
 | File | |
 |---|---|
 | `main/board.c` | The pins, the SPI bus, the radio's reset and BUSY line, the button, the LED, and the display (an SSD1306 on its own I2C bus). |
-| `main/demo.c` | The board's identity, first contact with its retries, and the saved session. It has no hardware code, so `tests/demo.c` tests it on a host. |
+| `main/demo.c` | The board's identity, first contact, and the saved sessions. It has no hardware code, so `tests/demo.c` tests it on a host, and `tests/relay.c` with the router and the forwarder: boards that make a session through a relay. |
 | `main/status.c` | The snapshot the screen is drawn from, and its pages as lines of text. |
 | `main/display.c` | The picture of the screen, its font, and which parts of it have changed. With `status.c`, tested on a host by `tests/status.c`. |
 | `main/link.c` | The companion link: contacts, messages and what became of them, and the answers and news each client gets, on USB and over Bluetooth. No hardware code; tested on a host by `tests/link.c`, and with `tools/companion.py` by `tests/link_script.py`. |

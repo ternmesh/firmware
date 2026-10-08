@@ -77,6 +77,13 @@ def main():
     ]
     L.append("};")
 
+    L.append("static const struct wait_case wait_cases[] = {")
+    L += [
+        f"    {{\"{c['why']}\", {hexbytes(c['sent'])}, {len(c['sent']) // 2}, {b(c['listens'])}}},"
+        for c in v["waits"]
+    ]
+    L.append("};")
+
     L.append("static const struct back_case backs[] = {")
     L += [
         f"    {{{c['power']}, {c['snr_quarter_db']}, {c['spreading_factor']}, {c['lowest']}, "

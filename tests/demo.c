@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "check.h"
+#include "tern/route.h"
 
 /* The Heltec V3 port's node (ports/heltec-v3/main/demo.c), which has no hardware in it: its
  * identity, first contact over frames that may be lost, and the session that follows. What
@@ -66,7 +67,8 @@ static bool store_random(void *ctx, uint8_t *buf, size_t len) {
     return true;
 }
 
-#define RETRY 1000 /* the time the initiator waits for an answer; the tests' clock is their own */
+#define HOLD                                                                                       \
+    1000 /* how long a handshake is kept with nothing heard; the tests' clock is their own */
 
 /* A board: its flash, and what is in its RAM, which a restart loses. */
 struct board {
@@ -77,7 +79,7 @@ struct board {
 static bool boot(struct board *b) {
     struct demo_store st = {&b->flash, store_load, store_save, store_random};
     memset(&b->ram, 0xA5, sizeof b->ram); /* RAM holds nothing useful at power-on */
-    return demo_start(&b->ram, &st, RETRY);
+    return demo_start(&b->ram, &st, HOLD);
 }
 
 static struct board *new_board(void) {
@@ -115,12 +117,12 @@ static enum demo_heard contact(struct board *a, struct board *b, tern_time now) 
     struct frame f;
     struct demo_received r;
     CHECK(demo_contact(&a->ram, b->ram.id.address, now, f.data, &f.len) == DEMO_OK);
-    CHECK(f.len == 45);
-    CHECK(deliver(b, now, &f, &r) == DEMO_HEARD_CONTACT && f.len == 53);
-    CHECK(deliver(a, now, &f, &r) == DEMO_HEARD_CONTACT && f.len == 73);
+    CHECK(f.len == 56);
+    CHECK(deliver(b, now, &f, &r) == DEMO_HEARD_CONTACT && f.len == 60);
+    CHECK(deliver(a, now, &f, &r) == DEMO_HEARD_CONTACT && f.len == 80);
     enum demo_heard at_b = deliver(b, now, &f, &r);
     if (at_b == DEMO_HEARD_PAIRED) {
-        CHECK(f.len == 17 && memcmp(r.peer, a->ram.id.address, 32) == 0);
+        CHECK(f.len == 24 && memcmp(r.peer, a->ram.id.address, 32) == 0);
         CHECK(deliver(a, now, &f, &r) == DEMO_HEARD_PAIRED && f.len == 0);
         CHECK(memcmp(r.peer, b->ram.id.address, 32) == 0);
     }
@@ -208,9 +210,10 @@ static void third_board_hears_nothing(void) {
 }
 
 /* Runs first contact from a to b, losing the frame numbered `lost` (1 to 4) the first time it is
- * sent. The initiator's clock brings it round again. */
+ * sent. The forwarder, which the test stands in for, keeps the frame the initiator last sent and
+ * brings it round again. */
 static void contact_losing(struct board *a, struct board *b, int lost) {
-    struct frame f, again;
+    struct frame f, kept;
     struct demo_received r;
     tern_time now = 0;
     int sent = 0;
@@ -218,13 +221,16 @@ static void contact_losing(struct board *a, struct board *b, int lost) {
     CHECK(demo_contact(&a->ram, b->ram.id.address, now, f.data, &f.len) == DEMO_OK);
     for (int steps = 0; steps < 40 && a->ram.s[0].role == 0; steps++) {
         if (f.len == 0) {
-            /* Nothing on the air: time passes until the initiator sends again. */
-            now += RETRY;
-            CHECK(demo_tick(&a->ram, now, again.data, &again.len) == DEMO_TICK_RESEND);
-            CHECK(demo_tick(&b->ram, now, f.data, &f.len) == DEMO_TICK_NONE);
-            f = again;
+            /* Nothing on the air: time passes until the initiator's frame goes again. */
+            now += HOLD / 4;
+            CHECK(demo_tick(&a->ram, now) == DEMO_TICK_NONE);
+            CHECK(demo_tick(&b->ram, now) == DEMO_TICK_NONE);
+            f = kept;
         }
         int n = f.data[0] - 0x50;
+        if (n % 2) {
+            kept = f;
+        }
         sent++;
         if (n == lost && !dropped) {
             dropped = true;
@@ -262,9 +268,17 @@ static void a_repeat_gets_the_same_answer(void) {
     CHECK(f.len == m2.len && memcmp(f.data, m2.data, f.len) == 0);
     m3 = m2;
     CHECK(deliver(a, 1, &m3, &r) == DEMO_HEARD_CONTACT);
+    /* The board that began the handshake answers nothing twice: its own frame goes again. */
     f = m2;
-    CHECK(deliver(a, 2, &f, &r) == DEMO_HEARD_CONTACT);
-    CHECK(f.len == m3.len && memcmp(f.data, m3.data, f.len) == 0);
+    CHECK(deliver(a, 2, &f, &r) == DEMO_HEARD_OTHER && f.len == 0);
+    /* message_1 again, saying it came from somewhere else, is answered there with the same
+     * message_2. */
+    f = m1;
+    memset(f.data + 15, 0x77, 4);
+    CHECK(deliver(b, 2, &f, &r) == DEMO_HEARD_CONTACT && f.len == m2.len);
+    CHECK(tern_contact_destination(f.data) == 0x77777777u);
+    CHECK(tern_contact_destination(m2.data) == tern_route_id(a->ram.id.address));
+    CHECK(memcmp(f.data + 11, m2.data + 11, f.len - 11) == 0);
     m4 = m3;
     CHECK(deliver(b, 2, &m4, &r) == DEMO_HEARD_PAIRED);
     f = m3;
@@ -273,9 +287,13 @@ static void a_repeat_gets_the_same_answer(void) {
     CHECK(b->ram.s[0].heard == 0 &&
           b->ram.s[0].session.tx.next == 0); /* the session is untouched */
     /* Once the responder has forgotten the handshake, the repeat is nothing to it. */
-    CHECK(demo_tick(&b->ram, 2 + DEMO_HOLD(RETRY), f.data, &f.len) == DEMO_TICK_NONE);
+    /* Kept from when the last repeat came, not from when the handshake was made. */
+    CHECK(demo_tick(&b->ram, 2 + HOLD) == DEMO_TICK_NONE);
     f = m3;
-    CHECK(deliver(b, 2 + DEMO_HOLD(RETRY), &f, &r) == DEMO_HEARD_OTHER && f.len == 0);
+    CHECK(deliver(b, 2 + HOLD, &f, &r) == DEMO_HEARD_CONTACT && f.len == m4.len);
+    CHECK(demo_tick(&b->ram, 2 + 2 * HOLD) == DEMO_TICK_NONE);
+    f = m3;
+    CHECK(deliver(b, 2 + 2 * HOLD, &f, &r) == DEMO_HEARD_OTHER && f.len == 0);
 }
 
 static void initiator_gives_up_and_keeps_what_it_had(void) {
@@ -285,14 +303,13 @@ static void initiator_gives_up_and_keeps_what_it_had(void) {
     tern_time now = 0;
     CHECK(contact(a, b, now) == DEMO_HEARD_PAIRED);
     CHECK(demo_contact(&a->ram, c->ram.id.address, now, f.data, &f.len) == DEMO_OK);
-    for (int i = 1; i < DEMO_TRIES; i++) {
-        CHECK(demo_tick(&a->ram, now + RETRY - 1, f.data, &f.len) == DEMO_TICK_NONE);
-        now += RETRY;
-        CHECK(demo_tick(&a->ram, now, f.data, &f.len) == DEMO_TICK_RESEND && f.len == 45);
-    }
-    now += RETRY;
-    CHECK(demo_tick(&a->ram, now, f.data, &f.len) == DEMO_TICK_GAVE_UP && f.len == 0);
-    CHECK(demo_tick(&a->ram, now + RETRY, f.data, &f.len) == DEMO_TICK_NONE);
+    /* The forwarder sent its frame as often as it may, and says so. */
+    CHECK(a->ram.h.phase == DEMO_INITIATING);
+    CHECK(demo_tick(&a->ram, now + 100 * HOLD) == DEMO_TICK_NONE);
+    CHECK(a->ram.h.phase == DEMO_INITIATING);
+    CHECK(demo_abandon(&a->ram));
+    CHECK(a->ram.h.phase == DEMO_IDLE);
+    CHECK(!demo_abandon(&a->ram));
     CHECK(say(a, b, "still here", &n) == DEMO_HEARD_MESSAGE && n == 0);
 }
 
@@ -306,9 +323,27 @@ static void responder_forgets_a_handshake_never_finished(void) {
     CHECK(demo_contact(&c->ram, b->ram.id.address, 0, g.data, &g.len) == DEMO_OK);
     f = g;
     CHECK(deliver(b, 1, &f, &r) == DEMO_HEARD_OTHER && f.len == 0);
-    CHECK(demo_tick(&b->ram, DEMO_HOLD(RETRY) - 1, f.data, &f.len) == DEMO_TICK_NONE);
-    CHECK(demo_tick(&b->ram, DEMO_HOLD(RETRY), f.data, &f.len) == DEMO_TICK_LAPSED);
-    CHECK(deliver(b, DEMO_HOLD(RETRY), &g, &r) == DEMO_HEARD_CONTACT && g.len == 53);
+    CHECK(demo_tick(&b->ram, HOLD - 1) == DEMO_TICK_NONE);
+    CHECK(demo_tick(&b->ram, HOLD) == DEMO_TICK_LAPSED);
+    CHECK(deliver(b, HOLD, &g, &r) == DEMO_HEARD_CONTACT && g.len == 60);
+}
+
+/* A board that begins again is answered again: it is not made to wait for the handshake it
+ * left, and the new one is the one that completes. */
+static void the_board_that_began_may_begin_again(void) {
+    struct board *a = new_board(), *b = new_board();
+    struct frame f, old;
+    struct demo_received r;
+    uint32_t n;
+    CHECK(demo_contact(&a->ram, b->ram.id.address, 0, old.data, &old.len) == DEMO_OK);
+    f = old;
+    CHECK(deliver(b, 0, &f, &r) == DEMO_HEARD_CONTACT);
+    CHECK(demo_abandon(&a->ram));
+    CHECK(contact(a, b, 5) == DEMO_HEARD_PAIRED);
+    CHECK(say(a, b, "second time lucky", &n) == DEMO_HEARD_MESSAGE && n == 0);
+    /* The handshake it left is nothing to the other board now. */
+    f = old;
+    CHECK(deliver(b, 6, &f, &r) == DEMO_HEARD_CONTACT && f.len == 60);
 }
 
 /* A board with a session is not taken over by whoever asks. */
@@ -685,6 +720,7 @@ int main(void) {
     RUN(a_repeat_gets_the_same_answer);
     RUN(initiator_gives_up_and_keeps_what_it_had);
     RUN(responder_forgets_a_handshake_never_finished);
+    RUN(the_board_that_began_may_begin_again);
     RUN(stranger_is_refused_until_accepted);
     RUN(a_trusted_stranger_is_accepted);
     RUN(peer_may_make_contact_again);
