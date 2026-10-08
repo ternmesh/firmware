@@ -88,6 +88,12 @@ static bool session(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]) {
     return true;
 }
 
+static uint8_t end_session(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]) {
+    (void)ctx;
+    (void)address;
+    return 0;
+}
+
 static uint8_t why(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]) {
     (void)ctx;
     (void)address;
@@ -166,6 +172,7 @@ int main(int argc, char **argv) {
                              .set_time = set_time,
                              .session = session,
                              .why = why,
+                             .end_session = end_session,
                              .load = load,
                              .save = save,
                              .load_ids = load_ids,

@@ -415,7 +415,7 @@ static bool hand_over(const struct link_message *x, struct pending *p, bool *gon
 
 /* A session was replaced or dropped: what was sent in it can no longer be acknowledged, so the
  * forwarder lets go of it, and the client is told. Other sessions' messages go on. */
-static void pending_drop(int slot) {
+static void pending_drop(int slot, bool tell) {
     if (sealed_id != 0 && sealed_slot == slot) {
         sealed_id = 0; /* a frame sealed in the old session is no use in the new */
     }
@@ -423,7 +423,9 @@ static void pending_drop(int slot) {
         if (pending[i].id != 0 && pending[i].slot == slot) {
             /* The forwarder's only way to let a message go: as if it had been acknowledged. */
             (void)tern_forward_acked(&forward, pending[i].tag);
-            link_state(&companion, pending[i].id, TERN_C_NOT_DELIVERED, 0, 0);
+            if (tell) {
+                link_state(&companion, pending[i].id, TERN_C_NOT_DELIVERED, 0, 0);
+            }
             pending[i].id = 0;
         }
     }
@@ -553,7 +555,7 @@ static void heard(const struct tern_radio_event *ev) {
         printf(". It is peer %d of %u, and where 'send' now goes.\n", got.slot + 1,
                (unsigned)demo_peers(&demo));
         /* If it took the place of an older session with the same peer. */
-        pending_drop(got.slot);
+        pending_drop(got.slot, true);
         if (contacting && memcmp(contacting_peer, got.peer, TERN_ADDRESS_LEN) == 0) {
             contacting = false;
         }
@@ -564,12 +566,14 @@ static void heard(const struct tern_radio_event *ev) {
         print_address(got.peer);
         printf(" made contact, but this board holds as many sessions as it can. 'peers' lists "
                "them, and 'drop <number>' ends one.\n");
+        link_asked(&companion, board_now(), got.peer, TERN_C_ASKED_NO_ROOM);
         break;
     case DEMO_HEARD_REFUSED:
         printf("first contact: refused ");
         print_address(got.peer);
-        printf(", which is not one of this board's peers. Type 'accept' to let it in, and have "
-               "it try again.\n");
+        printf(", which is not one of this board's peers or contacts. Save it as a contact, or "
+               "type 'accept', to let it in, and have it try again.\n");
+        link_asked(&companion, board_now(), got.peer, TERN_C_ASKED_NOT_CONTACT);
         break;
     case DEMO_HEARD_FAILED:
         printf("first contact: a frame of the handshake failed its checks; abandoned\n");
@@ -1188,6 +1192,25 @@ static bool link_session(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]) {
     return demo_peer(&demo, address) >= 0;
 }
 
+static uint8_t link_end_session(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]) {
+    (void)ctx;
+    int slot = demo_peer(&demo, address);
+    if (slot < 0) {
+        return 0;
+    }
+    if (!demo_forget(&demo, slot)) {
+        return TERN_C_ERR_NOT_NOW; /* the flash would not forget it, so it is kept */
+    }
+    /* The link says what became of them, after it has answered. */
+    pending_drop(slot, false);
+    return 0;
+}
+
+static bool link_trusted(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]) {
+    (void)ctx;
+    return link_contact(&companion, address);
+}
+
 static uint8_t link_why(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]) {
     return link_session(ctx, address) ? pending_reason(board_now(), address) : TERN_C_WAIT_SESSION;
 }
@@ -1497,7 +1520,7 @@ static void command(char *line) {
                 printf("not dropped: the flash would not forget the session, so it is kept\n");
                 return;
             }
-            pending_drop(slot);
+            pending_drop(slot, true);
             link_session_changed(&companion, address);
             printf("dropped: this board no longer has a session with ");
             print_address(address);
@@ -1950,12 +1973,14 @@ void app_main(void) {
         .set_time = link_set_time,
         .session = link_session,
         .why = link_why,
+        .end_session = link_end_session,
         .load = link_load,
         .save = link_save,
         .load_ids = link_load_ids,
         .save_ids = link_save_ids,
     };
     link_init(&companion, &host);
+    demo_trust(&demo, link_trusted, NULL);
     link_open(&companion, LINK_SERIAL, LINK_LAPSE, 0);
     tern_companion_parser_init(&parser);
 

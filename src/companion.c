@@ -19,6 +19,7 @@ enum field {
     STATE,    /* u8 */
     REASON,   /* u8 */
     PERCENT,  /* u8 */
+    WHY,      /* u8 */
     POWER,    /* i8 */
     SNR,      /* i8 */
     HEARD,    /* u16 */
@@ -57,6 +58,7 @@ static const struct layout layouts[] = {
     {TERN_C_READ, {THROUGH}},
     {TERN_C_SAVE_CONTACT, {ADDRESS, NAME}},
     {TERN_C_REMOVE_CONTACT, {ADDRESS}},
+    {TERN_C_END_SESSION, {ADDRESS}},
     {TERN_C_OK, {END}},
     {TERN_C_ERROR, {CODE}},
     {TERN_C_INFO, {VERSION, FIRMWARE}},
@@ -71,6 +73,7 @@ static const struct layout layouts[] = {
     {TERN_C_NEIGHBOUR_GONE, {RID}},
     {TERN_C_AIRTIME, {PERIOD, ALLOWED, USED, WAIT32}},
     {TERN_C_POWER, {MV, PERCENT, FLAGS}},
+    {TERN_C_ASKED, {ADDRESS, WHY}},
 };
 
 /* SET's value, by setting. */
@@ -146,6 +149,8 @@ static void *member(struct tern_companion_msg *m, enum field f) {
         return &m->reason;
     case PERCENT:
         return &m->percent;
+    case WHY:
+        return &m->why;
     case POWER:
         return &m->power;
     case SNR:
