@@ -29,9 +29,9 @@ turns it into a header for `tests/route.c`.
 
 `forwarding.json` is a copy of
 [`vectors/forwarding.json`](https://github.com/ternmesh/spec/blob/main/vectors/forwarding.json), as of
-[ternmesh/spec#13](https://github.com/ternmesh/spec/pull/13), which adds how long a frame sent
-again may wait. `forwarding_to_c.py` turns it into a header for
-`tests/forward.c`.
+[ternmesh/spec#15](https://github.com/ternmesh/spec/pull/15), which adds when a radio is
+receiving. `forwarding_to_c.py` turns it
+into a header for `tests/forward.c`, and its listens alone into one for `tests/listen.c`.
 
 `companion.json` is a copy of
 [`vectors/companion.json`](https://github.com/ternmesh/spec/blob/main/vectors/companion.json), as

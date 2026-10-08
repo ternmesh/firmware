@@ -53,6 +53,9 @@ struct tern_radio_ops {
     int (*standby)(void *ctx);
     /* Copy out the oldest event not yet collected: 1 if there was one, 0 if not, or an error. */
     int (*poll)(void *ctx, struct tern_radio_event *ev);
+    /* Whether the radio is receiving a frame, as tern/listen.h has it, asked of the chip now: 1 if
+     * so, 0 if not, or an error. NULL for a radio that cannot tell. */
+    int (*receiving)(void *ctx);
 };
 
 struct tern_radio {
@@ -68,6 +71,10 @@ int tern_radio_receive(struct tern_radio *r);
 int tern_radio_standby(struct tern_radio *r);
 /* 1 and *ev filled if an event was waiting, 0 if none, or a negative enum tern_err. */
 int tern_radio_poll(struct tern_radio *r, struct tern_radio_event *ev);
+
+/* 1 if the radio is receiving a frame, when the core must not start to send one; 0 if it is not,
+ * or cannot tell; or a negative enum tern_err. A port asks just before each frame. */
+int tern_radio_receiving(struct tern_radio *r);
 
 /* The SX126x family takes a two-byte sync word: the one-byte form 0xXY becomes 0xX4Y4. So
  * Meshtastic's 0x2B is 0x24B4 and MeshCore's 0x12 is 0x1424. */

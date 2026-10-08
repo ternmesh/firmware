@@ -29,6 +29,10 @@ int tern_radio_poll(struct tern_radio *r, struct tern_radio_event *ev) {
     return r->ops->poll(r->ctx, ev);
 }
 
+int tern_radio_receiving(struct tern_radio *r) {
+    return r->ops->receiving != NULL ? r->ops->receiving(r->ctx) : 0;
+}
+
 uint16_t tern_sync_word_sx126x(uint8_t sync_word) {
     return (uint16_t)(((sync_word & 0xF0u) << 8) | 0x0400u | ((sync_word & 0x0Fu) << 4) | 0x04u);
 }

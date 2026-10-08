@@ -276,6 +276,113 @@ static void poll_counts_what_the_receiver_saw(void) {
     CHECK(d.counts.preambles == 2 && d.counts.headers == 1);
 }
 
+/* Listening first (tern/listen.h), as the chip's flags drive it. At SF7 and 250 kHz a symbol is
+ * 0.512 ms, so a preamble of 16 with no header after it holds the radio for 29 symbols,
+ * 14.848 ms, and a header for as long as 255 bytes are on the air. */
+static void receiving_follows_the_chips_flags(void) {
+    static struct bus b;
+    static struct tern_sx126x d;
+    start(&d, &b);
+    struct tern_radio r = tern_sx126x_radio(&d);
+    struct tern_radio_config cfg = us_config();
+    struct tern_radio_event ev;
+    const tern_time wait = 14848000, longest = tern_lora_airtime(&cfg.mod, 255);
+
+    CHECK(tern_radio_receiving(&r) == 0); /* not yet configured: nothing is asked of the chip */
+    CHECK(tern_radio_configure(&r, &cfg) == TERN_OK);
+    CHECK(tern_radio_receive(&r) == TERN_OK);
+    b.count = 0;
+    CHECK(tern_radio_receiving(&r) == 0);
+    CHECK(b.count == 1 && SENT(b, 0, 0x12, 0x00, 0x00, 0x00)); /* GetIrqStatus, and no more */
+
+    /* A preamble: counted and cleared here as in poll, once. */
+    b.now = 5000000;
+    b.irq = 0x0004;
+    CHECK(tern_radio_receiving(&r) == 1);
+    CHECK(SENT(b, b.count - 1, 0x02, 0x00, 0x04));
+    CHECK(d.counts.preambles == 1);
+    b.irq = 0;
+    b.now = 5000000 + wait - 1;
+    CHECK(tern_radio_receiving(&r) == 1);
+    b.now = 5000000 + wait;
+    CHECK(tern_radio_receiving(&r) == 0); /* no header came */
+    CHECK(d.counts.preambles == 1);
+
+    /* A preamble that poll finds, then a header: held past the wait for a header. */
+    b.now = 100000000;
+    b.irq = 0x0004;
+    CHECK(tern_radio_poll(&r, &ev) == 0);
+    b.irq = 0x0010;
+    b.now += 10000000;
+    CHECK(tern_radio_receiving(&r) == 1);
+    b.irq = 0;
+    b.now = 100000000 + longest - 1;
+    CHECK(tern_radio_receiving(&r) == 1);
+
+    /* A header found after the wait for one ran out is held from itself, not from that preamble. */
+    b.irq = 0x0002;
+    b.rx_len = 1;
+    CHECK(tern_radio_poll(&r, &ev) == 1);
+    b.now = 1000000000;
+    b.irq = 0x0004;
+    CHECK(tern_radio_receiving(&r) == 1);
+    b.irq = 0x0010;
+    b.now += wait + 1000000;
+    CHECK(tern_radio_receiving(&r) == 1);
+    b.irq = 0;
+    b.now = 1000000000 + longest;
+    CHECK(tern_radio_receiving(&r) == 1);
+    b.now = 1000000000 + wait + 1000000 + longest;
+    CHECK(tern_radio_receiving(&r) == 0);
+    b.irq = 0x0014;
+    CHECK(tern_radio_receiving(&r) == 1);
+    b.irq = 0;
+
+    /* The frame has ended and poll has not collected it: no longer receiving, and the frame is
+     * still there to collect. */
+    b.irq = 0x0002;
+    b.rx_len = 1;
+    b.count = 0;
+    CHECK(tern_radio_receiving(&r) == 0);
+    CHECK(b.count == 1);
+    CHECK(tern_radio_poll(&r, &ev) == 1 && ev.kind == TERN_RADIO_RX_DONE);
+    b.irq = 0;
+    CHECK(tern_radio_receiving(&r) == 0);
+
+    /* A header that fails its check ends the frame too. */
+    b.irq = 0x0004;
+    CHECK(tern_radio_receiving(&r) == 1);
+    b.irq = 0x0020;
+    CHECK(tern_radio_receiving(&r) == 0);
+    CHECK(tern_radio_poll(&r, &ev) == 1 && ev.kind == TERN_RADIO_RX_ERROR);
+    b.irq = 0;
+    CHECK(tern_radio_receiving(&r) == 0);
+
+    /* Sending, listening afresh, standby and a new configuration each drop what it was on. */
+    int (*const drops[])(struct tern_radio *) = {tern_radio_receive, tern_radio_standby};
+    for (size_t i = 0; i < 2; i++) {
+        b.irq = 0x0014;
+        CHECK(tern_radio_receiving(&r) == 1);
+        b.irq = 0;
+        b.count = 0;
+        CHECK(drops[i](&r) == TERN_OK);
+        CHECK(tern_radio_receiving(&r) == 0);
+    }
+    b.irq = 0x0014;
+    CHECK(tern_radio_receiving(&r) == 1);
+    b.irq = 0;
+    b.count = 0;
+    CHECK(tern_radio_transmit(&r, (const uint8_t *)"x", 1) == TERN_OK);
+    CHECK(tern_radio_receiving(&r) == 0);
+    b.irq = 0x0014;
+    CHECK(tern_radio_receiving(&r) == 1);
+    b.irq = 0;
+    b.count = 0;
+    CHECK(tern_radio_configure(&r, &cfg) == TERN_OK);
+    b.count = 0;
+    CHECK(tern_radio_receiving(&r) == 0);
+}
+
 int main(void) {
     RUN(init_sets_up_the_board);
     RUN(configure_sends_the_datasheet_commands);
@@ -283,5 +390,6 @@ int main(void) {
     RUN(transmit_writes_the_frame_and_starts);
     RUN(poll_reports_what_happened);
     RUN(poll_counts_what_the_receiver_saw);
+    RUN(receiving_follows_the_chips_flags);
     return CHECK_DONE();
 }

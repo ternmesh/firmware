@@ -10,7 +10,8 @@ It is a bench demo, not a node. Boards announce themselves and learn routes to e
 message [follows them](https://github.com/ternmesh/spec/blob/main/draft/forwarding.md): it goes
 to the next hop its route gives, at no more power than that hop needs, is sent again if nothing is
 heard of it, and is acknowledged by the board it is for. A board built as a relay passes other
-boards' frames on. But a board holds one session, with one other board, and first contact does
+boards' frames on. A board listens first: it asks its radio before every frame, and sends none
+while one is being received (`status` counts the times a frame waited). But a board holds one session, with one other board, and first contact does
 not follow routes, so the two must hear each other to meet. There is no airtime budget yet
 either.
 

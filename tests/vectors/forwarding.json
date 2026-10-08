@@ -1,5 +1,5 @@
 {
-  "description": "Frames that follow routes, draft 0 (draft/forwarding.md). Routing ids are numbers; frames and tags are hex. In hops, sent is the frame the node sent and heard the one it then received. In backs, power is what a frame was sent at in dBm and snr_quarter_db what it was heard at, and needs is what an answer must go at for its sender to hear it, between the node's lowest and full power. In powers, neighbour is what Routes gives for the neighbour, its boost included, back is what the node the frame came from needs or null for a frame that answers none, and try counts from 0. In agains, a frame of length bytes is sent again at that spreading factor and bandwidth, with the profiles' preamble and coding rate (vectors/phy.json), by a hop that heard nothing of it (hop) or by its source with no acknowledgement (source): airtime_ns is its time on the air and longest_ns the longest it may wait first.",
+  "description": "Frames that follow routes, draft 0 (draft/forwarding.md). Routing ids are numbers; frames and tags are hex. In hops, sent is the frame the node sent and heard the one it then received. In backs, power is what a frame was sent at in dBm and snr_quarter_db what it was heard at, and needs is what an answer must go at for its sender to hear it, between the node's lowest and full power. In powers, neighbour is what Routes gives for the neighbour, its boost included, back is what the node the frame came from needs or null for a frame that answers none, and try counts from 0. In agains, a frame of length bytes is sent again at that spreading factor and bandwidth, with the profiles' preamble and coding rate (vectors/phy.json), by a hop that heard nothing of it (hop) or by its source with no acknowledgement (source): airtime_ns is its time on the air and longest_ns the longest it may wait first. In listens, a radio at that spreading factor and bandwidth finds a preamble or a header, says a frame has ended (end), or is given a frame to send (sent) at the times in events, and receiving is whether a node may not start to send at each time in asks, every event at or before that time having happened.",
   "generator": "vectors/tools/forwarding.py",
   "heads": [
     {
@@ -466,6 +466,989 @@
       "length": 255,
       "airtime_ns": 9281536000,
       "longest_ns": 37126144000
+    }
+  ],
+  "listens": [
+    {
+      "spreading_factor": 9,
+      "bandwidth_hz": 500000,
+      "events": [],
+      "asks": [
+        {
+          "at_ns": 0,
+          "receiving": false
+        },
+        {
+          "at_ns": 1000000,
+          "receiving": false
+        }
+      ]
+    },
+    {
+      "spreading_factor": 9,
+      "bandwidth_hz": 500000,
+      "events": [
+        {
+          "at_ns": 6120000,
+          "radio": "preamble"
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 6119999,
+          "receiving": false
+        },
+        {
+          "at_ns": 6120000,
+          "receiving": true
+        },
+        {
+          "at_ns": 35815999,
+          "receiving": true
+        },
+        {
+          "at_ns": 35816000,
+          "receiving": false
+        }
+      ]
+    },
+    {
+      "spreading_factor": 9,
+      "bandwidth_hz": 500000,
+      "events": [
+        {
+          "at_ns": 6120000,
+          "radio": "preamble"
+        },
+        {
+          "at_ns": 22504000,
+          "radio": "header"
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 35816000,
+          "receiving": true
+        },
+        {
+          "at_ns": 326887999,
+          "receiving": true
+        },
+        {
+          "at_ns": 326888000,
+          "receiving": false
+        }
+      ]
+    },
+    {
+      "spreading_factor": 9,
+      "bandwidth_hz": 500000,
+      "events": [
+        {
+          "at_ns": 6120000,
+          "radio": "preamble"
+        },
+        {
+          "at_ns": 22504000,
+          "radio": "header"
+        },
+        {
+          "at_ns": 81128000,
+          "radio": "end"
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 22504000,
+          "receiving": true
+        },
+        {
+          "at_ns": 81127999,
+          "receiving": true
+        },
+        {
+          "at_ns": 81128000,
+          "receiving": false
+        }
+      ]
+    },
+    {
+      "spreading_factor": 9,
+      "bandwidth_hz": 500000,
+      "events": [
+        {
+          "at_ns": 6120000,
+          "radio": "preamble"
+        },
+        {
+          "at_ns": 24552000,
+          "radio": "end"
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 24551999,
+          "receiving": true
+        },
+        {
+          "at_ns": 24552000,
+          "receiving": false
+        }
+      ]
+    },
+    {
+      "spreading_factor": 9,
+      "bandwidth_hz": 500000,
+      "events": [
+        {
+          "at_ns": 6120000,
+          "radio": "preamble"
+        },
+        {
+          "at_ns": 9192000,
+          "radio": "sent"
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 9191999,
+          "receiving": true
+        },
+        {
+          "at_ns": 9192000,
+          "receiving": false
+        }
+      ]
+    },
+    {
+      "spreading_factor": 9,
+      "bandwidth_hz": 500000,
+      "events": [
+        {
+          "at_ns": 6120000,
+          "radio": "preamble"
+        },
+        {
+          "at_ns": 15336000,
+          "radio": "preamble"
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 35816000,
+          "receiving": true
+        },
+        {
+          "at_ns": 45031999,
+          "receiving": true
+        },
+        {
+          "at_ns": 45032000,
+          "receiving": false
+        }
+      ]
+    },
+    {
+      "spreading_factor": 9,
+      "bandwidth_hz": 500000,
+      "events": [
+        {
+          "at_ns": 6120000,
+          "radio": "header"
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 6119999,
+          "receiving": false
+        },
+        {
+          "at_ns": 6120000,
+          "receiving": true
+        },
+        {
+          "at_ns": 326887999,
+          "receiving": true
+        },
+        {
+          "at_ns": 326888000,
+          "receiving": false
+        }
+      ]
+    },
+    {
+      "spreading_factor": 9,
+      "bandwidth_hz": 500000,
+      "events": [
+        {
+          "at_ns": 6120000,
+          "radio": "preamble"
+        },
+        {
+          "at_ns": 46056000,
+          "radio": "header"
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 35816000,
+          "receiving": false
+        },
+        {
+          "at_ns": 46056000,
+          "receiving": true
+        },
+        {
+          "at_ns": 326888000,
+          "receiving": true
+        },
+        {
+          "at_ns": 366823999,
+          "receiving": true
+        },
+        {
+          "at_ns": 366824000,
+          "receiving": false
+        }
+      ]
+    },
+    {
+      "spreading_factor": 9,
+      "bandwidth_hz": 500000,
+      "events": [
+        {
+          "at_ns": 6120000,
+          "radio": "preamble"
+        },
+        {
+          "at_ns": 35816000,
+          "radio": "header"
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 326888000,
+          "receiving": true
+        },
+        {
+          "at_ns": 356583999,
+          "receiving": true
+        }
+      ]
+    },
+    {
+      "spreading_factor": 9,
+      "bandwidth_hz": 500000,
+      "events": [
+        {
+          "at_ns": 6120000,
+          "radio": "preamble"
+        },
+        {
+          "at_ns": 35815999,
+          "radio": "header"
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 326887999,
+          "receiving": true
+        },
+        {
+          "at_ns": 326888000,
+          "receiving": false
+        }
+      ]
+    },
+    {
+      "spreading_factor": 9,
+      "bandwidth_hz": 500000,
+      "events": [
+        {
+          "at_ns": 6120000,
+          "radio": "preamble"
+        },
+        {
+          "at_ns": 22504000,
+          "radio": "header"
+        },
+        {
+          "at_ns": 81128000,
+          "radio": "end"
+        },
+        {
+          "at_ns": 101608000,
+          "radio": "preamble"
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 101607999,
+          "receiving": false
+        },
+        {
+          "at_ns": 101608000,
+          "receiving": true
+        },
+        {
+          "at_ns": 131304000,
+          "receiving": false
+        }
+      ]
+    },
+    {
+      "spreading_factor": 7,
+      "bandwidth_hz": 125000,
+      "events": [],
+      "asks": [
+        {
+          "at_ns": 0,
+          "receiving": false
+        },
+        {
+          "at_ns": 1000000,
+          "receiving": false
+        }
+      ]
+    },
+    {
+      "spreading_factor": 7,
+      "bandwidth_hz": 125000,
+      "events": [
+        {
+          "at_ns": 6120000,
+          "radio": "preamble"
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 6119999,
+          "receiving": false
+        },
+        {
+          "at_ns": 6120000,
+          "receiving": true
+        },
+        {
+          "at_ns": 35815999,
+          "receiving": true
+        },
+        {
+          "at_ns": 35816000,
+          "receiving": false
+        }
+      ]
+    },
+    {
+      "spreading_factor": 7,
+      "bandwidth_hz": 125000,
+      "events": [
+        {
+          "at_ns": 6120000,
+          "radio": "preamble"
+        },
+        {
+          "at_ns": 22504000,
+          "radio": "header"
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 35816000,
+          "receiving": true
+        },
+        {
+          "at_ns": 413927999,
+          "receiving": true
+        },
+        {
+          "at_ns": 413928000,
+          "receiving": false
+        }
+      ]
+    },
+    {
+      "spreading_factor": 7,
+      "bandwidth_hz": 125000,
+      "events": [
+        {
+          "at_ns": 6120000,
+          "radio": "preamble"
+        },
+        {
+          "at_ns": 22504000,
+          "radio": "header"
+        },
+        {
+          "at_ns": 91368000,
+          "radio": "end"
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 22504000,
+          "receiving": true
+        },
+        {
+          "at_ns": 91367999,
+          "receiving": true
+        },
+        {
+          "at_ns": 91368000,
+          "receiving": false
+        }
+      ]
+    },
+    {
+      "spreading_factor": 7,
+      "bandwidth_hz": 125000,
+      "events": [
+        {
+          "at_ns": 6120000,
+          "radio": "preamble"
+        },
+        {
+          "at_ns": 24552000,
+          "radio": "end"
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 24551999,
+          "receiving": true
+        },
+        {
+          "at_ns": 24552000,
+          "receiving": false
+        }
+      ]
+    },
+    {
+      "spreading_factor": 7,
+      "bandwidth_hz": 125000,
+      "events": [
+        {
+          "at_ns": 6120000,
+          "radio": "preamble"
+        },
+        {
+          "at_ns": 9192000,
+          "radio": "sent"
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 9191999,
+          "receiving": true
+        },
+        {
+          "at_ns": 9192000,
+          "receiving": false
+        }
+      ]
+    },
+    {
+      "spreading_factor": 7,
+      "bandwidth_hz": 125000,
+      "events": [
+        {
+          "at_ns": 6120000,
+          "radio": "preamble"
+        },
+        {
+          "at_ns": 15336000,
+          "radio": "preamble"
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 35816000,
+          "receiving": true
+        },
+        {
+          "at_ns": 45031999,
+          "receiving": true
+        },
+        {
+          "at_ns": 45032000,
+          "receiving": false
+        }
+      ]
+    },
+    {
+      "spreading_factor": 7,
+      "bandwidth_hz": 125000,
+      "events": [
+        {
+          "at_ns": 6120000,
+          "radio": "header"
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 6119999,
+          "receiving": false
+        },
+        {
+          "at_ns": 6120000,
+          "receiving": true
+        },
+        {
+          "at_ns": 413927999,
+          "receiving": true
+        },
+        {
+          "at_ns": 413928000,
+          "receiving": false
+        }
+      ]
+    },
+    {
+      "spreading_factor": 7,
+      "bandwidth_hz": 125000,
+      "events": [
+        {
+          "at_ns": 6120000,
+          "radio": "preamble"
+        },
+        {
+          "at_ns": 46056000,
+          "radio": "header"
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 35816000,
+          "receiving": false
+        },
+        {
+          "at_ns": 46056000,
+          "receiving": true
+        },
+        {
+          "at_ns": 413928000,
+          "receiving": true
+        },
+        {
+          "at_ns": 453863999,
+          "receiving": true
+        },
+        {
+          "at_ns": 453864000,
+          "receiving": false
+        }
+      ]
+    },
+    {
+      "spreading_factor": 7,
+      "bandwidth_hz": 125000,
+      "events": [
+        {
+          "at_ns": 6120000,
+          "radio": "preamble"
+        },
+        {
+          "at_ns": 35816000,
+          "radio": "header"
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 413928000,
+          "receiving": true
+        },
+        {
+          "at_ns": 443623999,
+          "receiving": true
+        }
+      ]
+    },
+    {
+      "spreading_factor": 7,
+      "bandwidth_hz": 125000,
+      "events": [
+        {
+          "at_ns": 6120000,
+          "radio": "preamble"
+        },
+        {
+          "at_ns": 35815999,
+          "radio": "header"
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 413927999,
+          "receiving": true
+        },
+        {
+          "at_ns": 413928000,
+          "receiving": false
+        }
+      ]
+    },
+    {
+      "spreading_factor": 7,
+      "bandwidth_hz": 125000,
+      "events": [
+        {
+          "at_ns": 6120000,
+          "radio": "preamble"
+        },
+        {
+          "at_ns": 22504000,
+          "radio": "header"
+        },
+        {
+          "at_ns": 91368000,
+          "radio": "end"
+        },
+        {
+          "at_ns": 111848000,
+          "radio": "preamble"
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 111847999,
+          "receiving": false
+        },
+        {
+          "at_ns": 111848000,
+          "receiving": true
+        },
+        {
+          "at_ns": 141544000,
+          "receiving": false
+        }
+      ]
+    },
+    {
+      "spreading_factor": 12,
+      "bandwidth_hz": 125000,
+      "events": [],
+      "asks": [
+        {
+          "at_ns": 0,
+          "receiving": false
+        },
+        {
+          "at_ns": 1000000,
+          "receiving": false
+        }
+      ]
+    },
+    {
+      "spreading_factor": 12,
+      "bandwidth_hz": 125000,
+      "events": [
+        {
+          "at_ns": 164840000,
+          "radio": "preamble"
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 164839999,
+          "receiving": false
+        },
+        {
+          "at_ns": 164840000,
+          "receiving": true
+        },
+        {
+          "at_ns": 1115111999,
+          "receiving": true
+        },
+        {
+          "at_ns": 1115112000,
+          "receiving": false
+        }
+      ]
+    },
+    {
+      "spreading_factor": 12,
+      "bandwidth_hz": 125000,
+      "events": [
+        {
+          "at_ns": 164840000,
+          "radio": "preamble"
+        },
+        {
+          "at_ns": 689128000,
+          "radio": "header"
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 1115112000,
+          "receiving": true
+        },
+        {
+          "at_ns": 9446375999,
+          "receiving": true
+        },
+        {
+          "at_ns": 9446376000,
+          "receiving": false
+        }
+      ]
+    },
+    {
+      "spreading_factor": 12,
+      "bandwidth_hz": 125000,
+      "events": [
+        {
+          "at_ns": 164840000,
+          "radio": "preamble"
+        },
+        {
+          "at_ns": 689128000,
+          "radio": "header"
+        },
+        {
+          "at_ns": 2237416000,
+          "radio": "end"
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 689128000,
+          "receiving": true
+        },
+        {
+          "at_ns": 2237415999,
+          "receiving": true
+        },
+        {
+          "at_ns": 2237416000,
+          "receiving": false
+        }
+      ]
+    },
+    {
+      "spreading_factor": 12,
+      "bandwidth_hz": 125000,
+      "events": [
+        {
+          "at_ns": 164840000,
+          "radio": "preamble"
+        },
+        {
+          "at_ns": 754664000,
+          "radio": "end"
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 754663999,
+          "receiving": true
+        },
+        {
+          "at_ns": 754664000,
+          "receiving": false
+        }
+      ]
+    },
+    {
+      "spreading_factor": 12,
+      "bandwidth_hz": 125000,
+      "events": [
+        {
+          "at_ns": 164840000,
+          "radio": "preamble"
+        },
+        {
+          "at_ns": 263144000,
+          "radio": "sent"
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 263143999,
+          "receiving": true
+        },
+        {
+          "at_ns": 263144000,
+          "receiving": false
+        }
+      ]
+    },
+    {
+      "spreading_factor": 12,
+      "bandwidth_hz": 125000,
+      "events": [
+        {
+          "at_ns": 164840000,
+          "radio": "preamble"
+        },
+        {
+          "at_ns": 459752000,
+          "radio": "preamble"
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 1115112000,
+          "receiving": true
+        },
+        {
+          "at_ns": 1410023999,
+          "receiving": true
+        },
+        {
+          "at_ns": 1410024000,
+          "receiving": false
+        }
+      ]
+    },
+    {
+      "spreading_factor": 12,
+      "bandwidth_hz": 125000,
+      "events": [
+        {
+          "at_ns": 164840000,
+          "radio": "header"
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 164839999,
+          "receiving": false
+        },
+        {
+          "at_ns": 164840000,
+          "receiving": true
+        },
+        {
+          "at_ns": 9446375999,
+          "receiving": true
+        },
+        {
+          "at_ns": 9446376000,
+          "receiving": false
+        }
+      ]
+    },
+    {
+      "spreading_factor": 12,
+      "bandwidth_hz": 125000,
+      "events": [
+        {
+          "at_ns": 164840000,
+          "radio": "preamble"
+        },
+        {
+          "at_ns": 1442792000,
+          "radio": "header"
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 1115112000,
+          "receiving": false
+        },
+        {
+          "at_ns": 1442792000,
+          "receiving": true
+        },
+        {
+          "at_ns": 9446376000,
+          "receiving": true
+        },
+        {
+          "at_ns": 10724327999,
+          "receiving": true
+        },
+        {
+          "at_ns": 10724328000,
+          "receiving": false
+        }
+      ]
+    },
+    {
+      "spreading_factor": 12,
+      "bandwidth_hz": 125000,
+      "events": [
+        {
+          "at_ns": 164840000,
+          "radio": "preamble"
+        },
+        {
+          "at_ns": 1115112000,
+          "radio": "header"
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 9446376000,
+          "receiving": true
+        },
+        {
+          "at_ns": 10396647999,
+          "receiving": true
+        }
+      ]
+    },
+    {
+      "spreading_factor": 12,
+      "bandwidth_hz": 125000,
+      "events": [
+        {
+          "at_ns": 164840000,
+          "radio": "preamble"
+        },
+        {
+          "at_ns": 1115111999,
+          "radio": "header"
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 9446375999,
+          "receiving": true
+        },
+        {
+          "at_ns": 9446376000,
+          "receiving": false
+        }
+      ]
+    },
+    {
+      "spreading_factor": 12,
+      "bandwidth_hz": 125000,
+      "events": [
+        {
+          "at_ns": 164840000,
+          "radio": "preamble"
+        },
+        {
+          "at_ns": 689128000,
+          "radio": "header"
+        },
+        {
+          "at_ns": 2237416000,
+          "radio": "end"
+        },
+        {
+          "at_ns": 2892776000,
+          "radio": "preamble"
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 2892775999,
+          "receiving": false
+        },
+        {
+          "at_ns": 2892776000,
+          "receiving": true
+        },
+        {
+          "at_ns": 3843048000,
+          "receiving": false
+        }
+      ]
     }
   ]
 }
