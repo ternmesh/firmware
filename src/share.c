@@ -5,7 +5,8 @@
 #include "tern/crypto.h"
 
 static const char hex[] = "0123456789ABCDEF";
-static const char scheme[] = "TERN:";
+static const char link[] = "HTTPS://TERNMESH.ORG/A/";
+static const char base32[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"; /* RFC 4648, section 6 */
 
 void tern_address_text(const uint8_t address[TERN_ADDRESS_LEN],
                        char out[TERN_ADDRESS_TEXT_LEN + 1]) {
@@ -18,8 +19,20 @@ void tern_address_text(const uint8_t address[TERN_ADDRESS_LEN],
 
 void tern_address_link(const uint8_t address[TERN_ADDRESS_LEN],
                        char out[TERN_ADDRESS_LINK_LEN + 1]) {
-    memcpy(out, scheme, sizeof scheme - 1);
-    tern_address_text(address, out + sizeof scheme - 1);
+    char *b = out + sizeof link - 1;
+    unsigned n = 0, bits = 0;
+    memcpy(out, link, sizeof link - 1);
+    /* Five bits a character, most significant first; the last carries one bit and four zeros. */
+    for (size_t i = 0; i < TERN_ADDRESS_LEN; i++) {
+        n = (n << 8 | address[i]) & 0xFFF;
+        bits += 8;
+        while (bits >= 5) {
+            bits -= 5;
+            *b++ = base32[n >> bits & 31];
+        }
+    }
+    *b++ = base32[n << (5 - bits) & 31];
+    *b = '\0';
 }
 
 void tern_short_code(const uint8_t address[TERN_ADDRESS_LEN], char out[TERN_SHORT_CODE_LEN + 1]) {
@@ -57,20 +70,49 @@ static int digit(char c) {
                                   : -1;
 }
 
+static char upper(char c) { return c >= 'a' && c <= 'z' ? (char)(c - 'a' + 'A') : c; }
+
+static int base32_value(char c) {
+    const char *at = c != '\0' ? strchr(base32, upper(c)) : NULL;
+    return at != NULL ? (int)(at - base32) : -1;
+}
+
+/* The base32 of a link: exactly 52 characters, either case, the last four bits zero. */
+static bool read_base32(const char *text, uint8_t address[TERN_ADDRESS_LEN]) {
+    uint8_t got[TERN_ADDRESS_LEN];
+    unsigned n = 0, bits = 0;
+    size_t k = 0;
+    if (strlen(text) != TERN_ADDRESS_BASE32_LEN) {
+        return false;
+    }
+    for (size_t i = 0; i < TERN_ADDRESS_BASE32_LEN; i++) {
+        int v = base32_value(text[i]);
+        if (v < 0) {
+            return false;
+        }
+        n = (n << 5 | (unsigned)v) & 0xFFF; /* at most seven bits pending, and five more */
+        bits += 5;
+        if (bits >= 8) {
+            bits -= 8;
+            got[k++] = (uint8_t)(n >> bits);
+        }
+    }
+    if ((n & ((1u << bits) - 1)) != 0) {
+        return false; /* a spare bit set: not the one link this address has */
+    }
+    memcpy(address, got, TERN_ADDRESS_LEN);
+    return true;
+}
+
 bool tern_address_read(const char *text, uint8_t address[TERN_ADDRESS_LEN]) {
     uint8_t got[TERN_ADDRESS_LEN];
     size_t n = 0;
-    bool linked = true;
-    for (size_t i = 0; i < sizeof scheme - 1; i++) {
-        char c = text[i];
-        char upper = c >= 'a' && c <= 'z' ? (char)(c - 'a' + 'A') : c;
-        if (upper != scheme[i]) {
-            linked = false;
-            break;
-        }
+    size_t i = 0;
+    while (i < sizeof link - 1 && upper(text[i]) == link[i]) {
+        i++;
     }
-    if (linked) {
-        text += sizeof scheme - 1;
+    if (i == sizeof link - 1) {
+        return read_base32(text + i, address);
     }
     for (; *text != '\0'; text++) {
         if (*text == ' ') {
