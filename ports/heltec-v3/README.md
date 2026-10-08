@@ -331,8 +331,11 @@ What to know before trusting one with anything:
   for that. It spends up to 3% of its time passing on other boards'.
 * **An invite not joined before a restart is gone**, since messages are not saved. A group that
   was joined is kept.
-* **A restart forgets which frames it has read.** A frame recorded and sent again after one is
-  read a second time, as a new message. The draft lists replay as not yet closed.
+* **An old message can be sent again by anyone who recorded it, and is read as new.** The board
+  knows a group frame it has had only by the last 64 it read in that group, and forgets those
+  when it restarts. A frame older than that, recorded off the air and sent again, shows as a new
+  message with its old words, and nobody need hold the group's secret to do it. The draft lists
+  replay as not yet closed.
 
 ## The companion link
 
