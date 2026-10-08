@@ -31,6 +31,13 @@ menu "Tern demo"
             The gain of the antenna fitted, which counts towards the power the region allows.
             The small antenna sold with the board is 2 to 3 dBi.
 
+    config TERN_SCREEN_FLIP
+        bool "Turn the screen upside down"
+        default n
+        help
+            If the bench screen reads upside down on your board, or the board is mounted the other
+            way up, this turns it round.
+
     comment "For experiments. Changing these takes the board off its region's profile."
 
     config TERN_FREQ_HZ

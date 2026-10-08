@@ -19,11 +19,17 @@
  *   beacon <count> <ms>      send so many test frames, so far apart
  *   counts [reset]           what has been sent and received since the last reset
  *
- * Pressing PRG sends a ping, and a board that receives a ping answers with a pong saying how
- * well it heard it. The LED lights while a frame is on the air or has just arrived.
+ * The same port speaks the companion protocol (draft/companion.md in ternmesh/spec), for a phone or
+ * a computer to drive the board: its frames are told from typed text byte by byte, and are
+ * answered by link.c. A message a client sends, and one sent with 'send', waits in the link's
+ * list until this loop puts it on the air.
+ *
+ * Pressing PRG shows the bench screen's next page; holding it for a second sends a ping, and a
+ * board that receives a ping answers with a pong saying how well it heard it. (With no screen,
+ * a press sends a ping.) The LED lights while a frame is on the air or has just arrived.
  *
  * Everything runs in one loop: the core never runs in interrupt context, so the loop polls the
- * radio, the serial port and the button in turn. */
+ * radio, the serial port, the button and the screen in turn. */
 
 #include <stdio.h>
 #include <string.h>
@@ -31,12 +37,17 @@
 #include "board.h"
 #include "bootloader_random.h"
 #include "demo.h"
+#include "display.h"
 #include "driver/uart.h"
 #include "esp_random.h"
+#include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "link.h"
 #include "nvs.h"
 #include "nvs_flash.h"
+#include "status.h"
+#include "tern/companion.h"
 #include "tern/duty.h"
 #include "tern/err.h"
 #include "tern/lora.h"
@@ -53,6 +64,12 @@
 #define DESTINATIONS 128
 #define TX_MIN_DBM (-9) /* the SX1262's least */
 #define POWER_UNSET INT8_MIN
+#define SCREEN_MS 500  /* how often the bench screen is drawn again */
+#define HOLD_MS 1000   /* how long PRG is held to send a ping */
+#define SCREEN_TRIES 5 /* writes failed in a row before the screen is given up */
+#define FIRMWARE "tern 0.0.0 heltec-v3"
+#define SETTINGS_MAGIC 0x54530001u
+#define PASSKEY_RANDOM 0xFFFFFFFFu
 
 static struct tern_sx126x sx;
 static struct tern_radio radio;
@@ -77,6 +94,51 @@ static uint8_t waiting[TERN_CONTACT_MAX_FRAME];
 static size_t waiting_len;
 static tern_time tx_deadline; /* when a frame on the air should certainly have finished */
 static tern_time led_until;
+/* What the bench screen shows that nothing else keeps. */
+static uint32_t frames_out, frames_in;
+static tern_time air_total;
+static char last_text[STATUS_TEXT];
+static tern_time last_at; /* when last_text was heard, or 0 for nothing yet */
+static struct display screen;
+static bool have_screen;
+static int screen_page;
+static tern_time screen_due;
+static tern_time screen_retry; /* after a failed write, when to try again */
+static unsigned screen_failures;
+
+/* The companion link: the client's half of the conversation is link.c's; this is the port. */
+static struct link companion;
+static struct tern_companion_parser parser;
+static uint32_t clock_base; /* seconds since 1970 as a client last set them, or 0 */
+static tern_time clock_at;
+static bool restart_due; /* a setting saved that takes a restart, once its answer has gone */
+/* A message sealed and not yet on the air: sealing takes a counter and saves the session, so a
+ * frame the radio or the flash refused is kept and tried again, a second apart, not sealed again
+ * on every turn of the loop. Kept for one session only. */
+static uint32_t sealed_id;
+static uint8_t sealed[TERN_UNICAST_MAX_FRAME];
+static size_t sealed_len;
+static uint32_t sealed_counter;
+static tern_time outgoing_retry;
+/* The handshake begun for a message, and with whom. */
+static bool contacting;
+static uint8_t contacting_peer[TERN_ADDRESS_LEN];
+/* The SNR each neighbour's last announce was heard at, which the router does not keep. */
+static struct {
+    uint32_t id;
+    int8_t snr; /* quarter-dB */
+} heard_snr[NEIGHBOURS];
+static size_t heard_snr_next;
+
+/* What a client changed that outlives a restart, over what the build chose. */
+struct settings {
+    uint32_t magic;
+    uint8_t region; /* enum tern_region_id, or 0 for the build's */
+    uint8_t role;   /* 0 leaf, 1 relay, or 0xFF for the build's */
+    int8_t power;   /* dBm, or POWER_UNSET for the build's */
+    uint32_t passkey;
+};
+static struct settings settings = {SETTINGS_MAGIC, 0, 0xFF, POWER_UNSET, PASSKEY_RANDOM};
 
 /* The bench: test frames sent on a timer, and counts of what was received. */
 #define BEACON_LEN 24
@@ -190,6 +252,8 @@ static tern_time transmit_at(const uint8_t *frame, size_t len, int8_t dbm) {
         return 0;
     }
     transmitting = true;
+    frames_out++;
+    air_total += air;
     tx_deadline = board_now() + air + 2000000000LL;
     flash_led();
     return air;
@@ -199,26 +263,53 @@ static tern_time transmit(const uint8_t *frame, size_t len) {
     return transmit_at(frame, len, cfg.tx_power_dbm);
 }
 
+static uint32_t clock_now(void) {
+    if (clock_base == 0) {
+        return 0;
+    }
+    return clock_base + (uint32_t)((board_now() - clock_at) / 1000000000LL);
+}
+
+/* Queues a message to the peer, as a client's would be: poll_outgoing() sends it. */
 static void send(const char *text) {
-    size_t len = strlen(text);
-    uint8_t frame[TERN_UNICAST_MAX_FRAME];
-    if (transmitting) {
-        printf("busy: the last frame is still on the air\n");
+    if (demo.s.role == 0) {
+        printf("not sent: %s\n", result_text(DEMO_UNPAIRED));
         return;
     }
-    uint32_t counter = demo.s.session.tx.next;
-    enum demo_result r = demo_seal(&demo, (const uint8_t *)text, len, frame);
-    if (r != DEMO_OK) {
-        printf("not sent: %s\n", result_text(r));
+    if (strlen(text) > TERN_COMPANION_TEXT_MAX) {
+        printf("not sent: too long: at most %d bytes\n", TERN_COMPANION_TEXT_MAX);
         return;
     }
-    size_t frame_len = len + TERN_UNICAST_OVERHEAD;
-    tern_time air = transmit(frame, frame_len);
-    if (air != 0) {
-        printf("sent #%lu \"%s\": %u bytes, %lld.%03lld ms on the air\n", (unsigned long)counter,
-               text, (unsigned)frame_len, (long long)(air / 1000000),
-               (long long)(air / 1000 % 1000));
+    if (link_add(&companion, demo.s.peer, clock_now(), TERN_C_WAITING, TERN_C_WAIT_UNNAMED,
+                 (const uint8_t *)text, strlen(text)) == 0) {
+        printf("not sent: no room for another message, or nothing to send\n");
     }
+}
+
+/* Seals a message, once, and puts it on the air. False if it could not go now, with *gone set if
+ * it never will. */
+static bool transmit_message(const struct link_message *x, bool *gone) {
+    *gone = false;
+    if (sealed_id != x->id) {
+        sealed_counter = demo.s.session.tx.next;
+        enum demo_result r = demo_seal(&demo, x->text, x->text_len, sealed);
+        if (r != DEMO_OK) {
+            printf("not sent: %s\n", result_text(r));
+            *gone = r == DEMO_SPENT;
+            return false;
+        }
+        sealed_id = x->id;
+        sealed_len = x->text_len + TERN_UNICAST_OVERHEAD;
+    }
+    tern_time air = transmit(sealed, sealed_len);
+    if (air == 0) {
+        return false;
+    }
+    sealed_id = 0;
+    printf("sent #%lu \"%.*s\": %u bytes, %lld.%03lld ms on the air\n",
+           (unsigned long)sealed_counter, (int)x->text_len, (const char *)x->text,
+           (unsigned)sealed_len, (long long)(air / 1000000), (long long)(air / 1000 % 1000));
+    return true;
 }
 
 /* Sends a handshake frame, or keeps it until the frame on the air has gone. */
@@ -237,6 +328,21 @@ static void print_address(const uint8_t address[TERN_ADDRESS_LEN]) {
     }
 }
 
+/* An announce's sender, at offset 1 (draft/routing.md), and the SNR it was heard at. */
+static void note_snr(const uint8_t *frame, int8_t snr) {
+    uint32_t id =
+        (uint32_t)frame[1] << 24 | (uint32_t)frame[2] << 16 | (uint32_t)frame[3] << 8 | frame[4];
+    for (size_t i = 0; i < NEIGHBOURS; i++) {
+        if (heard_snr[i].id == id) {
+            heard_snr[i].snr = snr;
+            return;
+        }
+    }
+    heard_snr[heard_snr_next].id = id;
+    heard_snr[heard_snr_next].snr = snr;
+    heard_snr_next = (heard_snr_next + 1) % NEIGHBOURS;
+}
+
 static void heard(const struct tern_radio_event *ev) {
     uint8_t msg[TERN_UNICAST_MAX_PLAINTEXT + 1];
     struct demo_received got;
@@ -246,6 +352,9 @@ static void heard(const struct tern_radio_event *ev) {
     int snr_whole = snr_abs / 100, snr_frac = snr_abs % 100;
 
     if (tern_route_frame(ev->data, ev->len)) {
+        if (ev->len >= 5 && ev->data[0] == 0x59) {
+            note_snr(ev->data, (int8_t)(ev->snr_cdb / 25));
+        }
         /* The router takes quarters of a decibel, as the radio measures. */
         tern_route_heard(&route, board_now(), ev->data, ev->len, (int16_t)(ev->snr_cdb / 25));
         if (route.seq != route_seq_saved && nvs_save(NULL, "seq", &route.seq, sizeof route.seq)) {
@@ -253,6 +362,10 @@ static void heard(const struct tern_radio_event *ev) {
         }
         return;
     }
+    /* A handshake that completes replaces the session: the old peer is told of too. */
+    bool had_peer = demo.s.role != 0;
+    uint8_t old_peer[TERN_ADDRESS_LEN];
+    memcpy(old_peer, demo.s.peer, TERN_ADDRESS_LEN);
     enum demo_heard what = demo_receive(&demo, board_now(), ev->data, ev->len, msg, &got);
     switch (what) {
     case DEMO_HEARD_MESSAGE:
@@ -260,6 +373,12 @@ static void heard(const struct tern_radio_event *ev) {
         msg[got.msg_len] = '\0';
         printf("heard #%lu \"%s\" at %d dBm, SNR %s%d.%02d dB\n", (unsigned long)got.counter,
                (const char *)msg, ev->rssi_dbm, snr_sign, snr_whole, snr_frac);
+        /* As much as the screen keeps of it. */
+        size_t keep = got.msg_len < sizeof last_text - 1 ? got.msg_len : sizeof last_text - 1;
+        memcpy(last_text, msg, keep);
+        last_text[keep] = '\0';
+        last_at = board_now();
+        link_add(&companion, got.peer, clock_now(), TERN_C_RECEIVED, 0, msg, got.msg_len);
         if (strncmp((const char *)msg, "ping", 4) == 0) {
             char reply[64];
             snprintf(reply, sizeof reply, "pong to #%lu: %d dBm, SNR %s%d.%02d dB",
@@ -274,10 +393,19 @@ static void heard(const struct tern_radio_event *ev) {
         break;
     case DEMO_HEARD_PAIRED:
         flash_led();
+        last_at = 0; /* the last message was the old session's */
         printf("first contact: complete. Session started, as the %s, with ",
                demo.s.role == TERN_INITIATOR ? "initiator" : "responder");
         print_address(got.peer);
         printf("\n");
+        sealed_id = 0; /* a frame sealed in the old session is no use in the new */
+        if (contacting && memcmp(contacting_peer, got.peer, TERN_ADDRESS_LEN) == 0) {
+            contacting = false;
+        }
+        link_session_changed(&companion, got.peer);
+        if (had_peer && memcmp(old_peer, got.peer, TERN_ADDRESS_LEN) != 0) {
+            link_session_changed(&companion, old_peer);
+        }
         break;
     case DEMO_HEARD_REFUSED:
         printf("first contact: refused ");
@@ -336,6 +464,7 @@ static void poll_radio(void) {
         }
         break;
     case TERN_RADIO_RX_DONE:
+        frames_in++;
         if (bench) {
             if (ev.len == BEACON_LEN && memcmp(ev.data, beacon_text, sizeof beacon_text) == 0) {
                 bench_ours++;
@@ -377,12 +506,66 @@ static void poll_contact(void) {
         printf("first contact: no answer after %d tries; given up. Is the other board on, in "
                "range, and on the same radio settings?\n",
                DEMO_TRIES);
+        if (contacting) {
+            contacting = false;
+            link_unreachable(&companion, contacting_peer);
+        }
         break;
     case DEMO_TICK_LAPSED:
         printf("first contact: the board that began it went quiet; forgotten\n");
         break;
     case DEMO_TICK_NONE:
         break;
+    }
+}
+
+/* Puts the oldest message waiting on the air, or says why it waits. One session at a time: a
+ * message to another node starts first contact with it, which replaces the session the demo
+ * has, once no handshake is under way. */
+static void poll_outgoing(void) {
+    struct link_message *x = link_outgoing(&companion);
+    if (x == NULL) {
+        return;
+    }
+    bool session = demo.s.role != 0 && memcmp(demo.s.peer, x->address, TERN_ADDRESS_LEN) == 0;
+    if (!session) {
+        link_state(&companion, x->id, TERN_C_WAITING, TERN_C_WAIT_SESSION, 0);
+        bool idle = demo.h.phase == DEMO_IDLE || demo.h.phase == DEMO_ANSWERED;
+        if (!idle || transmitting) {
+            return;
+        }
+        uint8_t frame[TERN_CONTACT_MAX_FRAME];
+        size_t len;
+        enum demo_result r = demo_contact(&demo, x->address, board_now(), frame, &len);
+        if (r != DEMO_OK) {
+            printf("no contact made: %s\n", result_text(r));
+            link_state(&companion, x->id, TERN_C_NOT_DELIVERED, 0, 0);
+            return;
+        }
+        contacting = true;
+        memcpy(contacting_peer, x->address, TERN_ADDRESS_LEN);
+        send_contact(frame, len);
+        return;
+    }
+    tern_time air = tern_lora_airtime(&cfg.mod, (uint32_t)(x->text_len + TERN_UNICAST_OVERHEAD));
+    if (transmitting || waiting_len != 0) {
+        link_state(&companion, x->id, TERN_C_WAITING, TERN_C_WAIT_RADIO, 0);
+        return;
+    }
+    if (!tern_duty_allows(&duty, board_now(), air)) {
+        link_state(&companion, x->id, TERN_C_WAITING, TERN_C_WAIT_REGION, 0);
+        return;
+    }
+    if (board_now() < outgoing_retry) {
+        return;
+    }
+    bool gone;
+    if (transmit_message(x, &gone)) {
+        link_aired(&companion, x->id);
+    } else if (gone) {
+        link_state(&companion, x->id, TERN_C_NOT_DELIVERED, 0, 0);
+    } else {
+        outgoing_retry = board_now() + 1000000000LL; /* the radio, or the flash */
     }
 }
 
@@ -593,6 +776,165 @@ static bool bench_command(char *line) {
         printf("beacon: %lu frames of %d bytes, %lu ms apart\n", a, BEACON_LEN, b);
     }
     return true;
+}
+
+/* --- The companion link --------------------------------------------------------------------- */
+
+/* One frame to the client, after whatever the console has printed. */
+static void link_out(void *ctx, const uint8_t *frame, size_t len) {
+    uint8_t wrapped[TERN_COMPANION_STREAM_MAX];
+    (void)ctx;
+    size_t n = tern_companion_wrap(frame, len, wrapped);
+    fflush(stdout);
+    if (n != 0) {
+        uart_write_bytes(CONSOLE, wrapped, n);
+    }
+}
+
+/* How long until the longest frame could go, by the region's limit: worked out on a copy of the
+ * account, a slice at a time. */
+static uint32_t duty_wait_ms(tern_time now) {
+    static struct tern_duty ahead;
+    tern_time air = tern_lora_airtime(&cfg.mod, 255);
+    if (tern_duty_allows(&duty, now, air)) {
+        return 0;
+    }
+    ahead = duty;
+    for (int k = 1; k <= TERN_DUTY_SLICES; k++) {
+        if (tern_duty_allows(&ahead, now + k * duty.slice, air)) {
+            return (uint32_t)(k * duty.slice / 1000000);
+        }
+    }
+    return (uint32_t)(TERN_DUTY_SLICES * duty.slice / 1000000);
+}
+
+static void link_view(void *ctx, struct link_view *v) {
+    tern_time now = board_now();
+    (void)ctx;
+    memset(v, 0, sizeof *v);
+    memcpy(v->address, demo.id.address, TERN_ADDRESS_LEN);
+    v->role = route.config.relay ? 1 : 0;
+    v->region = region->name;
+    v->power = cfg.tx_power_dbm;
+    v->time = clock_now();
+    for (int i = 0; i < NEIGHBOURS && v->n_neighbours < LINK_NEIGHBOURS; i++) {
+        const struct tern_route_neighbour *n = &neighbours[i];
+        if (!n->used) {
+            continue;
+        }
+        int8_t snr = 0;
+        for (size_t k = 0; k < NEIGHBOURS; k++) {
+            snr = heard_snr[k].id == n->id ? heard_snr[k].snr : snr;
+        }
+        tern_time ago = (now - n->heard) / 1000000000LL;
+        v->neighbours[v->n_neighbours++] = (struct link_neighbour){
+            .id = n->id,
+            .role = n->relay ? 1 : 0,
+            .snr = snr,
+            .heard = (uint16_t)(ago > 0xFFFF ? 0xFFFF : ago),
+        };
+    }
+    if (region->duty_ppm < TERN_DUTY_UNLIMITED) {
+        v->period_s = region->duty_window_s;
+        v->allowed_ms = (uint32_t)(duty.limit / 1000000);
+        v->used_ms = (uint32_t)(tern_duty_used(&duty, now) / 1000000);
+        v->wait_ms = duty_wait_ms(now);
+    }
+    /* The board's battery is not read yet. */
+    v->millivolts = 0;
+    v->percent = 255;
+}
+
+static const struct tern_region *region_named(const uint8_t *name, size_t len) {
+    for (int id = TERN_REGION_US915; id < TERN_REGION_END; id++) {
+        const struct tern_region *r = tern_region((enum tern_region_id)id);
+        if (r != NULL && strlen(r->name) == len && memcmp(r->name, name, len) == 0) {
+            return r;
+        }
+    }
+    return NULL;
+}
+
+/* A setting from a client. Region, role and power take a restart, since the radio and the router
+ * were set up with them; the passkey is kept for Bluetooth, which this build does not have. */
+static uint8_t link_set(void *ctx, const struct tern_companion_msg *m) {
+    struct settings next = settings;
+    struct tern_radio_config check;
+    bool restart = true;
+    (void)ctx;
+    switch (m->setting) {
+    case TERN_C_SET_REGION: {
+        const struct tern_region *r = region_named(m->text, m->text_len);
+        if (r == NULL ||
+            tern_region_radio(r, cfg.tx_power_dbm, CONFIG_TERN_ANTENNA_DBI, &check) != TERN_OK) {
+            return TERN_C_ERR_REFUSED;
+        }
+        if (r == region) {
+            return 0;
+        }
+        for (int id = TERN_REGION_US915; id < TERN_REGION_END; id++) {
+            next.region = tern_region((enum tern_region_id)id) == r ? (uint8_t)id : next.region;
+        }
+        break;
+    }
+    case TERN_C_SET_ROLE:
+        if (m->role > 1) {
+            return TERN_C_ERR_REFUSED;
+        }
+        if (m->role == (route.config.relay ? 1 : 0)) {
+            return 0;
+        }
+        next.role = m->role;
+        break;
+    case TERN_C_SET_POWER:
+        if (m->power < TX_MIN_DBM || m->power > 22 ||
+            tern_region_radio(region, m->power, CONFIG_TERN_ANTENNA_DBI, &check) != TERN_OK) {
+            return TERN_C_ERR_REFUSED;
+        }
+        if (m->power == cfg.tx_power_dbm) {
+            return 0;
+        }
+        next.power = m->power;
+        break;
+    case TERN_C_SET_PASSKEY:
+        if (m->passkey > 999999 && m->passkey != PASSKEY_RANDOM) {
+            return TERN_C_ERR_REFUSED;
+        }
+        next.passkey = m->passkey;
+        restart = false;
+        break;
+    default:
+        return TERN_C_ERR_UNKNOWN;
+    }
+    if (!nvs_save(NULL, "settings", &next, sizeof next)) {
+        return TERN_C_ERR_NOT_NOW;
+    }
+    settings = next;
+    restart_due = restart_due || restart;
+    return 0;
+}
+
+static void link_set_time(void *ctx, uint32_t time) {
+    (void)ctx;
+    clock_base = time;
+    clock_at = board_now();
+}
+
+static bool link_session(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]) {
+    (void)ctx;
+    return demo.s.role != 0 && memcmp(demo.s.peer, address, TERN_ADDRESS_LEN) == 0;
+}
+
+static uint8_t link_why(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]) {
+    return link_session(ctx, address) ? TERN_C_WAIT_UNNAMED : TERN_C_WAIT_SESSION;
+}
+
+static bool link_load(void *ctx, void *buf, size_t len) {
+    return nvs_load(ctx, "contacts", buf, len);
+}
+
+static bool link_save(void *ctx, const void *buf, size_t len) {
+    return nvs_save(ctx, "contacts", buf, len);
 }
 
 /* --- The console ---------------------------------------------------------------------------- */
@@ -818,48 +1160,195 @@ static void command(char *line) {
         selftest();
     } else if (line[0] != '\0') {
         printf(
-            "commands: contact <address>, accept, send <text>, status, routes, selftest. PRG sends "
-            "a ping. For the bench: bench on|off, sync <hex>, power <dBm>, freq <Hz>, sf <n>, bw "
-            "<Hz>, "
-            "counts [reset].\n");
+            "commands: contact <address>, accept, send <text>, status, routes, selftest. Holding "
+            "PRG sends a ping. For the bench: bench on|off, sync <hex>, power <dBm>, freq <Hz>, "
+            "sf <n>, bw <Hz>, beacon <count> <ms>, counts [reset].\n");
+    }
+}
+
+/* A byte of typed text. */
+static void console_text(void *ctx, uint8_t c) {
+    static char line[CONSOLE_LINE];
+    static size_t used;
+    (void)ctx;
+    if (c == '\r' || c == '\n') {
+        if (used > 0 || c == '\n') {
+            printf("\n");
+            line[used] = '\0';
+            command(line);
+            used = 0;
+        }
+    } else if ((c == 0x08 || c == 0x7F) && used > 0) {
+        used--;
+        printf("\b \b");
+    } else if (c >= 0x20 && used < CONSOLE_LINE - 1) {
+        line[used++] = (char)c;
+        putchar(c);
+    }
+}
+
+/* A companion frame. A setting that takes a restart is applied once its answer has gone. */
+static void console_frame(void *ctx, const uint8_t *frame, size_t len) {
+    (void)ctx;
+    link_receive(&companion, board_now(), frame, len);
+    if (restart_due) {
+        printf("restarting to apply a setting\n");
+        fflush(stdout);
+        uart_wait_tx_done(CONSOLE, pdMS_TO_TICKS(500));
+        esp_restart();
     }
 }
 
 static void poll_console(void) {
-    static char line[CONSOLE_LINE];
-    static size_t used;
+    static const struct tern_companion_sink sink = {NULL, console_frame, console_text};
     uint8_t c;
     while (uart_read_bytes(CONSOLE, &c, 1, 0) == 1) {
-        if (c == '\r' || c == '\n') {
-            if (used > 0 || c == '\n') {
-                printf("\n");
-                line[used] = '\0';
-                command(line);
-                used = 0;
-            }
-        } else if ((c == 0x08 || c == 0x7F) && used > 0) {
-            used--;
-            printf("\b \b");
-        } else if (c >= 0x20 && used < CONSOLE_LINE - 1) {
-            line[used++] = (char)c;
-            putchar(c);
-        }
+        tern_companion_push(&parser, board_now(), c, &sink);
         fflush(stdout);
+    }
+    tern_companion_idle(&parser, board_now(), &sink);
+    link_tick(&companion, board_now());
+}
+
+/* --- The bench screen ------------------------------------------------------------------------ */
+
+/* The board as the screen shows it (status.h). */
+static void fill_status(struct node_status *st) {
+    tern_time now = board_now();
+    memset(st, 0, sizeof *st);
+    st->id = route.id;
+    st->relay = route.config.relay;
+    st->region = region->name;
+    st->off_profile = off_profile;
+    st->freq_hz = cfg.freq_hz;
+    st->bw_hz = cfg.mod.bw_hz;
+    st->sf = cfg.mod.sf;
+    st->dbm = cfg.tx_power_dbm;
+    st->uptime_s = (uint32_t)(now / 1000000000LL);
+    st->air_total_ms = air_total / 1000000;
+    st->limited = region->duty_ppm < TERN_DUTY_UNLIMITED;
+    if (st->limited) {
+        st->air_used_ms = tern_duty_used(&duty, now) / 1000000;
+        st->air_limit_ms = duty.limit / 1000000;
+        st->window_s = region->duty_window_s;
+    }
+    st->frames_out = frames_out;
+    st->frames_in = frames_in;
+
+    /* Neighbours whose link is up are listed first. */
+    for (int pass = 0; pass < 2; pass++) {
+        for (int i = 0; i < NEIGHBOURS; i++) {
+            const struct tern_route_neighbour *n = &neighbours[i];
+            if (!n->used || n->up != (pass == 0)) {
+                continue;
+            }
+            st->heard++;
+            st->up += n->up;
+            if (st->n_neighbours < STATUS_LISTED) {
+                st->neighbours[st->n_neighbours++] = (struct status_neighbour){
+                    .id = n->id,
+                    .relay = n->relay,
+                    .up = n->up,
+                    .floor_dbm = (int16_t)(n->floor / 16),
+                    .spare_db = n->theirs != 0 ? (int16_t)(n->theirs - 128) : INT16_MIN,
+                };
+            }
+        }
+    }
+    for (int i = 0; i < DESTINATIONS; i++) {
+        uint32_t next;
+        uint16_t metric;
+        if (!destinations[i].used || !tern_route_next(&route, destinations[i].id, &next, &metric)) {
+            continue;
+        }
+        st->routed++;
+        if (st->n_routes < STATUS_LISTED) {
+            st->routes[st->n_routes++] = (struct status_route){
+                .dest = destinations[i].id, .next = next, .metric_ms = metric};
+        }
+    }
+
+    st->session = demo.s.role != 0;
+    st->contacting = demo.h.phase == DEMO_INITIATING || demo.h.phase == DEMO_RESPONDING;
+    st->peer = (uint32_t)demo.s.peer[0] << 24 | (uint32_t)demo.s.peer[1] << 16 |
+               (uint32_t)demo.s.peer[2] << 8 | demo.s.peer[3];
+    st->sent = demo.s.sent;
+    st->received = demo.s.heard;
+    st->have_last = last_at != 0;
+    memcpy(st->last, last_text, sizeof st->last);
+    st->last_s = (uint32_t)((now - last_at) / 1000000000LL);
+}
+
+/* Draws the page shown every SCREEN_MS, and sends at most one changed page of the picture each
+ * turn of the loop, about 3 ms, so the radio is never kept waiting long. A write that fails can
+ * take 50 ms (board.c), so after one the screen waits a second, and after SCREEN_TRIES in a row
+ * it is given up. */
+static void poll_screen(void) {
+    if (!have_screen) {
+        return;
+    }
+    if (board_now() >= screen_due) {
+        static struct node_status st;
+        char rows[STATUS_ROWS][STATUS_COLS + 1];
+        fill_status(&st);
+        status_page(&st, screen_page, rows);
+        for (int i = 0; i < STATUS_ROWS; i++) {
+            display_text(&screen, i, rows[i], i == 0);
+        }
+        screen_due = board_now() + (tern_time)SCREEN_MS * 1000000;
+    }
+    if (board_now() < screen_retry) {
+        return;
+    }
+    int page = display_take(&screen);
+    if (page < 0) {
+        return;
+    }
+    if (board_screen_page(page, screen.px[page])) {
+        screen_failures = 0;
+        return;
+    }
+    screen.dirty |= (uint8_t)(1u << page);
+    screen_retry = board_now() + 1000000000LL;
+    if (++screen_failures >= SCREEN_TRIES) {
+        have_screen = false;
+        printf("the screen stopped answering; carrying on without it. PRG now sends a ping.\n");
     }
 }
 
-static void poll_button(void) {
-    static bool was;
-    static tern_time last;
+static void ping(void) {
     static unsigned pings;
-    bool now = board_button();
-    if (now && !was && !bench && board_now() - last > 300 * 1000000LL) {
-        char text[32];
-        last = board_now();
-        snprintf(text, sizeof text, "ping %u", ++pings);
-        send(text);
+    char text[32];
+    if (bench) {
+        return; /* on the bench, only test frames are sent */
     }
-    was = now;
+    snprintf(text, sizeof text, "ping %u", ++pings);
+    send(text);
+}
+
+/* A press shows the next page; holding PRG for HOLD_MS sends a ping, once, while it is still
+ * held. With no screen, a press sends a ping, as it did before there was one. */
+static void poll_button(void) {
+    static bool was, held;
+    static tern_time down, last;
+    tern_time now = board_now();
+    bool pressed = board_button();
+    if (pressed && !was) {
+        down = now;
+        held = false;
+    } else if (have_screen && pressed && !held && now - down >= (tern_time)HOLD_MS * 1000000) {
+        held = true;
+        ping();
+    } else if (!pressed && was && !held && now - last > 300 * 1000000LL) {
+        last = now;
+        if (have_screen) {
+            screen_page = (screen_page + 1) % STATUS_PAGES;
+            screen_due = 0;
+        } else {
+            ping();
+        }
+    }
+    was = pressed;
 }
 
 void app_main(void) {
@@ -885,12 +1374,29 @@ void app_main(void) {
 #else
     region = tern_region(TERN_REGION_US915);
 #endif
-    if (tern_region_radio(region, CONFIG_TERN_TX_POWER_DBM, CONFIG_TERN_ANTENNA_DBI, &cfg) !=
-        TERN_OK) {
+    int8_t power = CONFIG_TERN_TX_POWER_DBM;
+    /* What a client set, over what the build chose. Each was checked against the region and the
+     * antenna when it was set; if the pair no longer fits, the build's settings are used. */
+    struct settings saved;
+    if (nvs_load(NULL, "settings", &saved, sizeof saved) && saved.magic == SETTINGS_MAGIC) {
+        settings = saved;
+    }
+    const struct tern_region *chosen =
+        settings.region != 0 ? tern_region((enum tern_region_id)settings.region) : NULL;
+    int8_t chosen_power = settings.power != POWER_UNSET ? settings.power : power;
+    if (chosen == NULL) {
+        chosen = region;
+    }
+    if (tern_region_radio(chosen, chosen_power, CONFIG_TERN_ANTENNA_DBI, &cfg) == TERN_OK) {
+        region = chosen;
+        power = chosen_power;
+    } else {
+        printf("the settings a client saved do not fit this antenna; using the build's\n");
+    }
+    if (tern_region_radio(region, power, CONFIG_TERN_ANTENNA_DBI, &cfg) != TERN_OK) {
         printf("%d dBm into a %d dBi antenna is more than %s allows (%d dBm radiated). Not "
                "starting.\n",
-               CONFIG_TERN_TX_POWER_DBM, CONFIG_TERN_ANTENNA_DBI, region->name,
-               region->max_eirp_dbm);
+               power, CONFIG_TERN_ANTENNA_DBI, region->name, region->max_eirp_dbm);
         return;
     }
     /* Experiments: a build may move the board off its region's profile. The region's limit on
@@ -932,6 +1438,9 @@ void app_main(void) {
 #else
     bool relay = false;
 #endif
+    if (settings.role <= 1) {
+        relay = settings.role == 1;
+    }
     struct tern_route_config rc =
         tern_route_defaults(&cfg.mod, cfg.tx_power_dbm, TX_MIN_DBM, relay);
     uint64_t seed;
@@ -957,7 +1466,30 @@ void app_main(void) {
         return;
     }
 
-    printf("\nTern demo on the Heltec V3. Type 'status', or press PRG to ping.\n");
+    struct link_host host = {
+        .ctx = NULL,
+        .firmware = FIRMWARE,
+        .out = link_out,
+        .view = link_view,
+        .set = link_set,
+        .set_time = link_set_time,
+        .session = link_session,
+        .why = link_why,
+        .load = link_load,
+        .save = link_save,
+    };
+    link_init(&companion, &host);
+    tern_companion_parser_init(&parser);
+
+    have_screen = board_screen_init();
+    if (have_screen) {
+        display_init(&screen);
+        printf("\nTern demo on the Heltec V3. Type 'status'. PRG shows the screen's next page; "
+               "hold it to ping.\n");
+    } else {
+        printf("\nTern demo on the Heltec V3, with no screen found. Type 'status', or press PRG "
+               "to ping.\n");
+    }
     status();
     for (;;) {
         poll_radio();
@@ -965,10 +1497,12 @@ void app_main(void) {
             poll_beacon();
         } else {
             poll_contact();
+            poll_outgoing();
             poll_route();
         }
         poll_console();
         poll_button();
+        poll_screen();
         if (transmitting && board_now() > tx_deadline) {
             /* TX_DONE never came. Listen again rather than stay busy for ever. */
             printf("the radio never said the frame had gone; listening again\n");

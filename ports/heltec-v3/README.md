@@ -55,23 +55,44 @@ Type commands into the serial terminal:
 | `status` | This board's address, the radio settings and the session. |
 | `contact <address>` | Make first contact with the board whose address that is. |
 | `accept` | For two minutes, let a board other than the present peer make contact. |
-| `send <text>` | Send up to 239 bytes. |
+| `send <text>` | Send up to 128 bytes to the peer. |
 | `routes` | The boards this one hears, how well each hears the other, and the routes it has. |
 | `selftest` | Run a handshake between two nodes in the board's memory, and time it. |
 
-Pressing **PRG** sends a ping. A board that hears a ping answers with a pong saying how strongly
-it heard it, so one press checks both directions. The white LED blinks for each frame sent or
-received.
+Holding **PRG** for a second sends a ping. A board that hears a ping answers with a pong saying
+how strongly it heard it, so one ping checks both directions. A short press shows the
+[screen](#the-screen)'s next page. (On a board whose screen does not answer, a short press sends
+the ping.) The white LED blinks for each frame sent or received.
 
 To start:
 
 1. Type `status` on the second board and copy its address, sixty-four hex digits.
 2. On the first board, type `contact` and that address. Four frames cross, taking two or three
    seconds, and both boards say that a session has started and with whom.
-3. Press PRG on either board.
+3. Hold PRG on either board for a second.
 
 With only one board, `selftest` shows that the handshake and a message each way work on it, with
 nothing sent.
+
+## The screen
+
+The board's display shows what the console would, without a laptop: four pages, moved through by
+pressing PRG.
+
+| Page | |
+|---|---|
+| **Node** | The routing id, relay or leaf, the radio settings, how many boards it hears and has routes to, frames sent and heard, and time on the air: against the region's limit in EU868, in all since starting in US915. The title shows how long since it started. A `*` after the region means the build moved it off the region's settings. |
+| **Neighbours** | Up to six boards it hears, those both ways first: routing id, `R` relay or `L` leaf, the link `up` or `dn`, the dBm it needs us to send at, and the dB to spare it says it hears us with (`?` until it says). |
+| **Routes** | Up to six: the board, the neighbour a frame to it goes to, and the route's milliseconds on the air. |
+| **Session** | The peer's first four bytes, messages sent and heard, and the last message heard. |
+
+It is a bench screen, for whoever is developing Tern, and it will be thrown away. What a Tern node
+should show the person carrying it is a different question, and
+[docs/ui.md](../../docs/ui.md) is where it is being worked out.
+
+The screen is drawn from one snapshot of the board (`main/status.h`), not from the demo's own
+variables, and only the lines that change are sent to it, one at a time between turns of the
+loop. If it reads upside down, `menuconfig`, **Turn the screen upside down**.
 
 ## Identity and first contact
 
@@ -180,13 +201,56 @@ A frame with another sync word shows as a preamble and nothing more. The simulat
 board set to another network's sync word hears that network and can disturb it: use these where
 none is in range, and put the board back (`sync 5E`, or restart it) afterwards.
 
+## The companion link
+
+The same USB port speaks the
+[companion protocol](https://github.com/ternmesh/spec/blob/main/draft/companion.md), so a
+program on a computer can drive the board while the console carries on. Its frames start with
+the byte `0xF5`, which typed text never contains, so the board tells them from commands byte by
+byte, and a terminal that has not said `HELLO` is never sent one.
+
+`tools/companion.py`, at the top of the repository, is an example client:
+
+```bash
+pip install pyserial                       # on Linux and macOS, optional
+python3 tools/companion.py --port /dev/ttyUSB0 state
+python3 tools/companion.py --port /dev/ttyUSB0 contact <address> Bob
+python3 tools/companion.py --port /dev/ttyUSB0 send <address> "On the ridge by six"
+python3 tools/companion.py --port /dev/ttyUSB0 watch
+```
+
+`state` sets the board's clock from the computer's and prints what it holds: itself, its
+contacts, the messages it has kept, the boards it hears, and its time on the air. Close the
+serial monitor first: only one program can have the port.
+
+What the board offers is what the demo is:
+
+* **Messages** are the ones sent and received since it started, up to 32; they are not saved.
+  Contacts, up to 16, are saved to flash.
+* **One session at a time.** A message to a node the board has no session with starts first
+  contact with it, which replaces the present session once it completes. Its state says it is
+  waiting for a session meanwhile, and "not delivered" if the handshake gives up.
+* **A message on the air stays waiting.** The demo sends straight to its peer, with no
+  forwarding and no acknowledgement, so it never learns whether a message arrived. The draft
+  forbids claiming more than the node knows, so the state never reaches "sent" or "delivered".
+  That changes when the board sends along routes ([forwarding](https://github.com/ternmesh/spec/blob/main/draft/forwarding.md)).
+* **Settings.** Region, role and power are saved to flash and applied by a restart, after the
+  board has answered; a power or region the antenna setting does not allow is refused. A
+  Bluetooth passkey is kept for when there is Bluetooth.
+* **Battery** is not measured yet, and is reported as unknown.
+
+Messages sent with `send` and pings go the same way as a client's, so a client sees them too.
+
 ## How it is put together
 
 | File | |
 |---|---|
-| `main/board.c` | The pins, the SPI bus, the radio's reset and BUSY line, the button and the LED. |
+| `main/board.c` | The pins, the SPI bus, the radio's reset and BUSY line, the button, the LED, and the display (an SSD1306 on its own I2C bus). |
 | `main/demo.c` | The board's identity, first contact with its retries, and the saved session. It has no hardware code, so `tests/demo.c` tests it on a host. |
-| `main/main.c` | One loop that polls the radio, the serial port and the button. |
+| `main/status.c` | The snapshot the screen is drawn from, and its pages as lines of text. |
+| `main/display.c` | The picture of the screen, its font, and which parts of it have changed. With `status.c`, tested on a host by `tests/status.c`. |
+| `main/link.c` | The companion link: contacts, messages and what became of them, and the answers and news a client gets. No hardware code; tested on a host by `tests/link.c`, and with `tools/companion.py` by `tests/link_script.py`. |
+| `main/main.c` | One loop that polls the radio, the serial port, the button and the screen. |
 | `../../src/sx126x.c` | The SX1262 driver, part of the core and shared with future boards. |
 
 The core is compiled into the app unchanged, from the repository's `src/`.

@@ -2,6 +2,7 @@
 #define HELTEC_V3_BOARD_H
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #include "tern/sx126x.h"
 #include "tern/time.h"
@@ -18,5 +19,13 @@ tern_time board_now(void);
 bool board_button(void);
 
 void board_led(bool on);
+
+/* The 128x64 OLED display, an SSD1306 on its own I2C bus. Powers it, resets it and sets it up
+ * blank; false if it does not answer, and the board then runs without it. */
+bool board_screen_init(void);
+
+/* Sends one page of the picture: eight rows of 128 columns, a byte a column, the lowest bit at
+ * the top (display.h). About 3 ms at the bus's 400 kHz. */
+bool board_screen_page(int page, const uint8_t data[128]);
 
 #endif
