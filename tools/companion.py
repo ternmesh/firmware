@@ -211,6 +211,7 @@ class Node:
         self.seq, self.pending, self.inbox = 0, [], []
         self.greeted, self.answered = False, time.monotonic()
         self.messages = {}  # message id: the MESSAGE last heard, with any STATE since
+        self.lost = set()  # ids that, since a restart, name another message or none
 
     def _read(self):
         frames, text = self.parser.push(self.port.read())
@@ -283,6 +284,9 @@ class Node:
         self.request("SYNC", after=0)
         self.pending = [m for m in self.pending
                         if m["type"] != "MESSAGE" or heard.get(m["id"]) != dict(m, seq=0)]
+        same = ("contact", "time", "text")
+        self.lost |= {i for i, m in heard.items()
+                      if [m[k] for k in same] != [self.messages.get(i, {}).get(k) for k in same]}
 
     def hello(self):
         self.greeted = False
@@ -355,13 +359,23 @@ def run(args):
             print(describe(m, names))
     elif args.command == "send":
         ref = random.getrandbits(32)
-        q = node.request("SEND", ref=ref, to=address(args.address), text=args.text)
+        to = address(args.address)
+        q = node.request("SEND", ref=ref, to=to, text=args.text)
         print(f"queued as message #{q['id']}")
         for m in node.news(args.wait):
-            if m.get("id") == q["id"]:
-                print(describe(m, names))
-                if m["state"] in (2, 3):
-                    break
+            if m.get("id") != q["id"]:
+                continue
+            # A node that restarted numbers its messages from 1 again, so this id may now be
+            # another message's: one that is not the text sent, or one a catch-up found changed.
+            if m["type"] == "MESSAGE" and (m["contact"], m["text"]) != (to, args.text):
+                node.lost.add(q["id"])
+            if q["id"] in node.lost:
+                break
+            print(describe(m, names))
+            if m["state"] in (2, 3):
+                break
+        if q["id"] in node.lost:
+            print(f"message #{q['id']}: the node restarted, and no longer holds it")
     elif args.command == "contact":
         node.request("SAVE_CONTACT", address=address(args.address), name=args.name)
         print("saved")

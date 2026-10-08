@@ -95,6 +95,18 @@ def main():
     finally:
         board.stdin.close()
         board.wait(timeout=10)
+
+    # A restart while a send is watched: the node's new #1 is not the message sent as #1.
+    board, port = node()
+    try:
+        run(port, "--idle", "1", "send", BOB, "On the ridge by six", "--wait", "4",
+            meanwhile=lambda: tell("r", 1.5),
+            expect=["queued as message #1", GONE,
+                    "message #1: the node restarted, and no longer holds it"],
+            absent=["Back after a restart"])
+    finally:
+        board.stdin.close()
+        board.wait(timeout=10)
     return 1 if failed else 0
 
 
