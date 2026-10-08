@@ -98,13 +98,15 @@ On the boards Tern starts with, a 128×64 monochrome display and one button. Its
 | Home | whether the node is on the air, how many nodes it hears, unread messages, battery, airtime left | all of it; the battery as a charge estimated from its voltage, said to be low at 10% or less, and charging as far as the voltage shows; a Bluetooth rune while a phone is connected |
 | Messages | the latest few, newest first, with who they are from and their delivery state | one at a time; a long press shows the one before. A group's names the group, and who wrote it as far as the claimed routing id matches a contact |
 | Contact card | this node's address as a QR code and a short code to read aloud, for someone adding it | **Share**, the QR code and the short code, and **This node**, the short code and the address in hex |
+| Nearby | the nodes heard directly, with how well and how long ago | most recently heard first, seven to a screen; a long press shows the next. A node by a contact's name, else its routing id |
 | Air | the airtime account: used, allowed, and when more is free | the region's limit; the budget is not drafted |
-| Mesh | neighbours and routes, for whoever is curious; the bench screen's pages, more or less | the bench pages, behind `screen bench on` |
+| Mesh | routes and frame counts, for whoever is curious; the bench screen's pages, more or less | the bench pages, behind `screen bench on` |
 
 Controls on one button: a short press moves to the next page, a long press acts on the page shown
-(show the message before, or on a bench page send a ping), and any press wakes the screen. A
+(show the message before, the next nodes nearby, or on a bench page send a ping), and any press wakes the screen. A
 message shown is read once a press says someone saw it. The screen goes dark after a while on a
-battery, and lights when a message arrives, showing it. Holding the button for five seconds turns
+battery, and lights when a message arrives, showing it; while one is unread the LED blinks a
+moment every few seconds, for a node in sight with its screen dark. Holding the button for five seconds turns
 the node off, with a countdown from the second second so that letting go keeps it on, as Meshtastic
 does; a press turns it on again. A node turns itself off when its battery is empty, and says so.
 Boards with more buttons or a touch screen get more, but nothing should need them.

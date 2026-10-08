@@ -37,10 +37,11 @@
  * list until this loop seals it and hands it to the forwarder.
  *
  * Pressing PRG shows the screen's next page (ui.h), and holding it for a second acts on the page
- * shown: on Messages it shows the one before. 'screen bench on' adds the bench screen's pages
- * (status.h) after them, where holding PRG sends a ping, and a board that receives a ping answers
- * with a pong saying how well it heard it. (With no screen, a press sends a ping.) The LED lights
- * while a frame is on the air or has just arrived.
+ * shown: on Messages it shows the one before, on Nearby the next nodes. 'screen bench on' adds the
+ * bench screen's pages (status.h) after them, where holding PRG sends a ping, and a board that
+ * receives a ping answers with a pong saying how well it heard it. (With no screen, a press sends a
+ * ping.) The LED lights while a frame is on the air or has just arrived, and blinks while a message
+ * is unread.
  *
  * Everything runs in one loop: the core never runs in interrupt context, so the loop polls the
  * radio, the serial port, the button and the screen in turn. */
@@ -82,6 +83,13 @@
 #define CONSOLE UART_NUM_0
 #define CONSOLE_LINE 300
 #define LED_MS 150
+#define UNREAD_BLINK_MS 100  /* while a message is unread, the LED blinks this long */
+#define UNREAD_EVERY_MS 4000 /* this often */
+#if CONFIG_TERN_UNREAD_LED   /* a bool Kconfig leaves undefined when it is off */
+#define UNREAD_LED true
+#else
+#define UNREAD_LED false
+#endif
 #define ACCEPT_S 120
 #define NEIGHBOURS 64 /* 2.5 kB; in a crowd, 32 held a tenth fewer routes in the simulator */
 #define DESTINATIONS 128
@@ -174,6 +182,7 @@ static bool have_screen;
 /* The page shown: one of the user's (enum ui_page), or past them, the bench screen's. */
 static int screen_page;
 static uint8_t message_shown; /* which message the Messages page shows, counted from the newest */
+static uint16_t nearby_first; /* the first node the Nearby page shows, most recently heard first */
 /* The page shown was reached by a press, so its reader has seen it: a message shown because it
  * has just arrived is not read until a press says someone is looking. */
 static bool screen_looked;
@@ -1353,6 +1362,15 @@ static uint32_t duty_wait_ms(tern_time now) {
     return (uint32_t)(TERN_DUTY_SLICES * duty.slice / 1000000);
 }
 
+/* The SNR, in quarter-dB, a neighbour's last announce was heard at, or 0 if it is not known. */
+static int8_t snr_of(uint32_t id) {
+    int8_t snr = 0;
+    for (size_t k = 0; k < NEIGHBOURS; k++) {
+        snr = heard_snr[k].id == id ? heard_snr[k].snr : snr;
+    }
+    return snr;
+}
+
 static void link_view(void *ctx, struct link_view *v) {
     tern_time now = board_now();
     (void)ctx;
@@ -1367,10 +1385,7 @@ static void link_view(void *ctx, struct link_view *v) {
         if (!n->used) {
             continue;
         }
-        int8_t snr = 0;
-        for (size_t k = 0; k < NEIGHBOURS; k++) {
-            snr = heard_snr[k].id == n->id ? heard_snr[k].snr : snr;
-        }
+        int8_t snr = snr_of(n->id);
         tern_time ago = (now - n->heard) / 1000000000LL;
         v->neighbours[v->n_neighbours++] = (struct link_neighbour){
             .id = n->id,
@@ -2205,18 +2220,19 @@ static void name_of(const uint8_t address[TERN_ADDRESS_LEN], char out[UI_NAME + 
     snprintf(out, UI_NAME + 1, "%02X%02X%02X%02X", address[0], address[1], address[2], address[3]);
 }
 
-/* Who wrote a group message, from the routing id it claims: the contact whose address gives that
- * id, by their name or address, or failing that the id itself. A claim, as the group draft says:
- * anyone with the group's key can write any id. */
-static void writer_of(uint32_t from, char out[UI_NAME + 1]) {
+/* Whom a routing id is to the user: the contact whose address gives that id, by their name or
+ * address, or failing that `bare` and the id itself. A group message's writer is named so, from
+ * the id it claims: a claim, as the group draft says, since anyone with the group's key can write
+ * any id. */
+static void node_named(uint32_t id, const char *bare, char out[UI_NAME + 1]) {
     for (size_t i = 0; i < LINK_CONTACTS; i++) {
         const struct link_contact *k = &companion.contacts[i];
-        if (k->used && tern_route_id(k->address) == from) {
+        if (k->used && tern_route_id(k->address) == id) {
             name_of(k->address, out);
             return;
         }
     }
-    snprintf(out, UI_NAME + 1, "node %08lX", (unsigned long)from);
+    snprintf(out, UI_NAME + 1, "%s%08lX", bare, (unsigned long)id);
 }
 
 /* Whom a message is with, as the Messages page names it: a group by the user's name for it, and
@@ -2256,10 +2272,32 @@ static void fill_ui(struct ui_node *u) {
     u->battery = power_percent(battery_mv);
     u->charging = watch.charging;
     u->phone = phone;
+    /* The neighbours, most recently heard first, and of them the ones the Nearby page shows. */
+    uint8_t heard[NEIGHBOURS];
     for (int i = 0; i < NEIGHBOURS; i++) {
-        if (neighbours[i].used) {
-            u->nearby++;
+        if (!neighbours[i].used) {
+            continue;
         }
+        size_t at = u->nearby++;
+        while (at > 0 && neighbours[heard[at - 1]].heard < neighbours[i].heard) {
+            heard[at] = heard[at - 1];
+            at--;
+        }
+        heard[at] = (uint8_t)i;
+    }
+    if (nearby_first >= u->nearby) {
+        nearby_first = 0; /* past the last: round to the first again */
+    }
+    u->nearby_first = nearby_first;
+    for (size_t k = nearby_first; k < u->nearby && u->nearby_n < UI_NEARBY_ROWS; k++) {
+        const struct tern_route_neighbour *g = &neighbours[heard[k]];
+        struct ui_neighbour *v = &u->neighbour[u->nearby_n++];
+        tern_time ago = (now - g->heard) / 1000000000LL;
+        /* The id alone, with no "node " before it: the list's heading says what they are, and a
+         * line has room for little more than a name beside the signal. */
+        node_named(g->id, "", v->name);
+        v->snr_db = (int8_t)(snr_of(g->id) / 4);
+        v->ago_s = (uint32_t)(ago < 0 ? 0 : ago > UINT32_MAX ? UINT32_MAX : ago);
     }
     for (int i = 0; i < DESTINATIONS; i++) {
         uint32_t next;
@@ -2301,7 +2339,7 @@ static void fill_ui(struct ui_node *u) {
         m->group = x->kind == LINK_KIND_GROUP;
         with_whom(x, m->who);
         if (m->group && m->received) {
-            writer_of(x->from, m->writer);
+            node_named(x->from, "node ", m->writer);
         }
         m->aged = clock != 0 && x->time != 0 && clock >= x->time;
         m->ago_s = m->aged ? clock - x->time : 0;
@@ -2491,6 +2529,40 @@ static void poll_battery(void) {
     }
 }
 
+/* Whether any message is unread, here or on any client. */
+static bool any_unread(void) {
+    for (size_t i = 0; i < LINK_MESSAGES; i++) {
+        if (companion.messages[i].used && unread(&companion.messages[i])) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* Puts the LED out once a flash of it is over and nothing is on the air, and while a message is
+ * unread blinks it, a moment every few seconds, for someone who has the board in sight but not
+ * its screen: until the message is read, on the screen or on a client. */
+static void poll_led(void) {
+    static tern_time blink_next;
+    tern_time now = board_now();
+    if (led_until != 0) {
+        if (now > led_until && !transmitting) {
+            board_led(false);
+            led_until = 0;
+        }
+        return;
+    }
+    if (!UNREAD_LED || transmitting || !any_unread()) {
+        blink_next = 0; /* the first blink comes at once, for a message that has just come */
+        return;
+    }
+    if (now >= blink_next) {
+        board_led(true);
+        led_until = now + (tern_time)UNREAD_BLINK_MS * 1000000;
+        blink_next = now + (tern_time)UNREAD_EVERY_MS * 1000000;
+    }
+}
+
 static void ping(void) {
     static unsigned pings;
     char text[32];
@@ -2501,12 +2573,15 @@ static void ping(void) {
     send(text);
 }
 
-/* Holding PRG acts on the page shown: on Messages, it shows the message before; on a bench page,
- * it sends a ping. Elsewhere it does nothing. */
+/* Holding PRG acts on the page shown: on Messages, it shows the message before; on Nearby, the
+ * next nodes; on a bench page, it sends a ping. Elsewhere it does nothing. */
 static void screen_hold(void) {
     if (screen_page == UI_MESSAGES) {
         message_shown++; /* fill_ui() goes round to the newest after the oldest */
         screen_looked = true;
+        screen_due = 0;
+    } else if (screen_page == UI_NEARBY) {
+        nearby_first += UI_NEARBY_ROWS; /* fill_ui() goes round to the first after the last */
         screen_due = 0;
     } else if (screen_page >= UI_PAGES) {
         ping();
@@ -2552,6 +2627,7 @@ static void poll_button(void) {
         if (have_screen) {
             screen_page = (screen_page + 1) % screen_pages();
             message_shown = 0;
+            nearby_first = 0;
             screen_looked = true;
             screen_due = 0;
         } else {
@@ -2853,10 +2929,7 @@ void app_main(void) {
             }
             tern_radio_receive(&radio);
         }
-        if (led_until != 0 && board_now() > led_until && !transmitting) {
-            board_led(false);
-            led_until = 0;
-        }
+        poll_led();
         vTaskDelay(1);
     }
 }

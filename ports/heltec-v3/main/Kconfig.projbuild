@@ -62,6 +62,13 @@ menu "Tern demo"
             user's. 'screen bench on|off' on the console changes it on a running board, and the
             board keeps the change.
 
+    config TERN_UNREAD_LED
+        bool "Blink the LED while a message is unread"
+        default y
+        help
+            A short blink every four seconds while a message has come and not been read, on the
+            screen or on a client, for a board in sight whose screen is off.
+
     comment "For experiments. Changing these takes the board off its region's profile."
 
     config TERN_FREQ_HZ

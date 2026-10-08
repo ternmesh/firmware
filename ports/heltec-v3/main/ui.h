@@ -21,6 +21,7 @@
 enum ui_page {
     UI_HOME,     /* whether it is on the air, who is nearby, what is new, the air left */
     UI_MESSAGES, /* one message at a time, newest first */
+    UI_NEARBY,   /* the nodes heard directly, most recently heard first */
     UI_AIR,      /* the region's limit on transmitting, and what is used of it */
     UI_SHARE,    /* this node's address as a QR code, for a phone to scan */
     UI_NODE,     /* this node's address in digits, to read out or copy */
@@ -46,6 +47,15 @@ struct ui_message {
     uint8_t text[TERN_COMPANION_TEXT_MAX]; /* UTF-8, as the link keeps it */
 };
 
+#define UI_NEARBY_ROWS 7 /* nodes the Nearby page has room for at once */
+
+/* A node heard directly: a neighbour, in the router's word. */
+struct ui_neighbour {
+    char name[UI_NAME + 1]; /* a contact's name, or its routing id */
+    int8_t snr_db;          /* how well its last announce was heard */
+    uint32_t ago_s;         /* since it was last heard */
+};
+
 struct ui_node {
     const char *region;
     const char *version;
@@ -59,6 +69,11 @@ struct ui_node {
 
     uint16_t nearby;    /* nodes heard directly */
     uint16_t reachable; /* nodes it has a route to, nearby ones included */
+    /* The ones the Nearby page shows: `nearby_n` of them, from the `nearby_first`th most recently
+     * heard. */
+    uint16_t nearby_first;
+    uint8_t nearby_n;
+    struct ui_neighbour neighbour[UI_NEARBY_ROWS];
 
     /* The air: in a region that limits transmitting, what is counted against the limit, the
      * limit, over what span, and how long until the next frame may go. Elsewhere, only what was

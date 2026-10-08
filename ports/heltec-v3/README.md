@@ -91,7 +91,9 @@ A short press of **PRG** shows the [screen](#the-screen)'s next page, and holdin
 acts on the page shown. On a [bench page](#the-bench-pages), holding it sends a ping: a board
 that hears a ping answers with a pong saying how strongly it heard it, so one ping checks both
 directions. (On a board whose screen does not answer, a short press sends the ping.) The white
-LED blinks for each frame sent or received.
+LED blinks for each frame sent or received, and while a message is unread it blinks briefly
+every four seconds, until the message is read on the screen or on a client (**Blink the LED while
+a message is unread** in `idf.py menuconfig` turns that off).
 
 Holding PRG for five seconds turns the board off. From the second second the screen counts
 down, and letting go before the end leaves it on. Off, the board is in deep sleep with its
@@ -112,13 +114,14 @@ nothing sent.
 ## The screen
 
 The board's display shows what someone carrying it needs at a glance, in their words rather than
-the protocol's: five pages, moved through by pressing PRG. It is the first version of the screen
+the protocol's: six pages, moved through by pressing PRG. It is the first version of the screen
 [docs/ui.md](../../docs/ui.md) describes.
 
 | Page | |
 |---|---|
 | **Home** | Bluetooth's rune beside **Tern** while a client is connected over Bluetooth; the battery's charge, once the board has read it, and the region; in large letters the one thing most worth knowing: how many new messages, or else how many nodes it hears, or that it is still listening for one. Below, what that does not say: how many nodes it hears and can reach by routes, who the last new message is from or how many of its own await delivery, and how much of the region's limit on the air is left. |
 | **Messages** | One message at a time, newest first: who it is from or to (a group's by the group's name, and below it who wrote it: the contact whose address gives the routing id it claims, or else that id), how long ago (once a client has set the board's clock), and its text, wrapped. A message this board sent says what became of it: waiting, and why (no route yet, making contact, the region's limit, the radio busy), then delivered or not delivered. Hold PRG for the one before. |
+| **Nearby** | The nodes it hears directly, most recently heard first, seven at a time: each by a contact's name if one has its address, or else its routing id, with how well its last announce was heard, in dB of SNR, and how long ago. Hold PRG for the next seven. |
 | **Air** | The region's limit on time on the air, as a bar: what is counted against it, of how much, over what span, and when the next frame may go. In a region with no limit, how long it has sent for. |
 | **Share** | Its address as a QR code holding its link, `HTTPS://TERNMESH.ORG/A/` and the address in base32, which a phone's camera opens as a web page showing the address and its short code; and beside it, its short code. |
 | **This node** | Its short code, twelve digits two people compare to check a phone has the right node; its address, sixty-four hex digits in groups of eight, to read out or copy; relay or leaf, the region and the power; and the firmware's version. |
