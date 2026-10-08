@@ -33,11 +33,13 @@ import sys
 import time
 
 MAX_FRAME, MAGIC = 180, b"\xf5\x54"
+# The version this script speaks. It has no commands for groups, which came with version 2, so it
+# says 1 and is told of none: the frames of version 2 are here only to be checked.
 VERSION = 1
 ANSWER_WAIT = 5.0
 IDLE = 20.0  # the most a client lets pass after an answer before it asks again
 
-# type: (name, fields). A field is (name, kind) with kind one of B b H I addr str.
+# type: (name, fields). A field is (name, kind) with kind one of B b H I addr gid str.
 FRAMES = {
     0x01: ("HELLO", [("version", "B")]),
     0x02: ("SYNC", [("after", "I")]),
@@ -49,11 +51,18 @@ FRAMES = {
     0x18: ("SAVE_CONTACT", [("address", "addr"), ("name", "str")]),
     0x19: ("REMOVE_CONTACT", [("address", "addr")]),
     0x1A: ("END_SESSION", [("address", "addr")]),
+    0x20: ("MAKE_GROUP", [("name", "str")]),
+    0x21: ("LEAVE_GROUP", [("group", "gid")]),
+    0x22: ("NAME_GROUP", [("group", "gid"), ("name", "str")]),
+    0x23: ("SEND_GROUP", [("ref", "I"), ("group", "gid"), ("text", "str")]),
+    0x24: ("SEND_INVITE", [("group", "gid"), ("to", "addr")]),
+    0x25: ("JOIN", [("id", "I")]),
     0x40: ("OK", []),
     0x41: ("ERROR", [("code", "B")]),
     0x42: ("INFO", [("version", "B"), ("firmware", "str")]),
     0x43: ("SYNCED", []),
     0x44: ("QUEUED", [("id", "I")]),
+    0x45: ("MADE", [("group", "gid")]),
     0x80: ("SELF", [("address", "addr"), ("role", "B"), ("region", "str"), ("power", "b"),
                     ("time", "I")]),
     0x81: ("CONTACT", [("address", "addr"), ("session", "B"), ("name", "str")]),
@@ -67,7 +76,16 @@ FRAMES = {
     0x87: ("AIRTIME", [("period", "I"), ("allowed", "I"), ("used", "I"), ("wait", "I")]),
     0x88: ("POWER", [("millivolts", "H"), ("percent", "B"), ("flags", "B")]),
     0x89: ("ASKED", [("address", "addr"), ("why", "B")]),
+    0x8A: ("GROUP", [("group", "gid"), ("name", "str")]),
+    0x8B: ("GROUP_GONE", [("group", "gid")]),
+    0x8C: ("GROUP_MESSAGE", [("id", "I"), ("group", "gid"), ("from", "I"), ("time", "I"),
+                             ("flags", "B"), ("state", "B"), ("reason", "B"), ("wait", "H"),
+                             ("text", "str")]),
+    0x8D: ("INVITE", [("id", "I"), ("contact", "addr"), ("group", "gid"), ("time", "I"),
+                      ("flags", "B"), ("state", "B"), ("reason", "B"), ("wait", "H"),
+                      ("name", "str")]),
 }
+BYTES = {"addr": 32, "gid": 8}
 TYPE = {name: t for t, (name, _) in FRAMES.items()}
 SETTINGS = {1: ("region", "str"), 2: ("role", "B"), 3: ("power", "b"), 4: ("passkey", "I")}
 SETTING = {name: (n, kind) for n, (name, kind) in SETTINGS.items()}
@@ -96,7 +114,7 @@ def encode(kind_name, seq, /, **values):
     out = bytes([t, seq])
     for field, kind in fields:
         v = values[field]
-        if kind == "addr":
+        if kind in BYTES:
             out += v
         elif kind == "str":
             raw = v.encode("utf-8")
@@ -113,10 +131,10 @@ def decode(frame):
     name, fields = FRAMES[frame[0]]
     values, at = {"type": name, "seq": frame[1]}, 2
     for field, kind in fields:
-        if kind == "addr":
-            if at + 32 > len(frame):
+        if kind in BYTES:
+            if at + BYTES[kind] > len(frame):
                 return None
-            values[field], at = frame[at:at + 32], at + 32
+            values[field], at = frame[at:at + BYTES[kind]], at + BYTES[kind]
         elif kind == "str":
             if at >= len(frame) or at + 1 + frame[at] > len(frame):
                 return None
@@ -415,7 +433,7 @@ def selftest(path):
     failed = 0
     for f in v["frames"]:
         fields = dict(f["fields"])
-        for k in ("to", "address", "contact"):
+        for k in ("to", "address", "contact", "group"):
             if k in fields:
                 fields[k] = bytes.fromhex(fields[k])
         frame = bytes.fromhex(f["frame"])

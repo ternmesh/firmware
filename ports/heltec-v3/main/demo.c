@@ -200,8 +200,8 @@ void demo_trust(struct demo *d, bool (*trusted)(void *ctx, const uint8_t address
     d->trusted_ctx = ctx;
 }
 
-enum demo_result demo_seal(struct demo *d, int slot, const uint8_t *msg, size_t len,
-                           uint8_t *frame) {
+static enum demo_result seal(struct demo *d, int slot, bool node, const uint8_t *msg, size_t len,
+                             uint8_t *frame) {
     if (!held(d, slot)) {
         return DEMO_UNPAIRED;
     }
@@ -209,7 +209,8 @@ enum demo_result demo_seal(struct demo *d, int slot, const uint8_t *msg, size_t 
         return DEMO_TOO_LONG;
     }
     struct demo_state *s = &d->s[slot];
-    int err = tern_unicast_seal(&s->session.tx, msg, len, frame, len + TERN_UNICAST_OVERHEAD);
+    int err = (node ? tern_unicast_seal_node : tern_unicast_seal)(&s->session.tx, msg, len, frame,
+                                                                  len + TERN_UNICAST_OVERHEAD);
     if (err == TERN_ESPENT) {
         return DEMO_SPENT;
     }
@@ -217,6 +218,16 @@ enum demo_result demo_seal(struct demo *d, int slot, const uint8_t *msg, size_t 
     d->last = slot;
     /* Saved before it is sent: if the board stops between the two, the counter is still used. */
     return save_state(d, slot) ? DEMO_OK : DEMO_STORE_FAILED;
+}
+
+enum demo_result demo_seal(struct demo *d, int slot, const uint8_t *msg, size_t len,
+                           uint8_t *frame) {
+    return seal(d, slot, false, msg, len, frame);
+}
+
+enum demo_result demo_seal_node(struct demo *d, int slot, const uint8_t *msg, size_t len,
+                                uint8_t *frame) {
+    return seal(d, slot, true, msg, len, frame);
 }
 
 bool demo_acked(const struct demo *d, int slot, uint32_t counter, const uint8_t *frame,
@@ -264,6 +275,7 @@ static enum demo_heard unicast_frame(struct demo *d, const uint8_t *frame, size_
             out->slot = slot[r.session];
             out->counter = r.counter;
             out->msg_len = r.len;
+            out->node = tern_unicast_for_node(frame);
             out->ack_slot[0] = out->slot;
             out->acks = tern_unicast_ack(rx[r.session], r.counter, out->ack[0]);
             d->last = out->slot;
@@ -441,6 +453,7 @@ static enum demo_heard contact_frame(struct demo *d, tern_time now, const uint8_
 enum demo_heard demo_receive(struct demo *d, tern_time now, const uint8_t *frame, size_t len,
                              uint8_t *msg, struct demo_received *out) {
     out->msg_len = 0;
+    out->node = false;
     out->counter = 0;
     out->reply_len = 0;
     out->acks = 0;
@@ -448,7 +461,7 @@ enum demo_heard demo_receive(struct demo *d, tern_time now, const uint8_t *frame
     if (len == 0) {
         return DEMO_HEARD_MALFORMED;
     }
-    if (frame[0] == TERN_UNICAST_HDR) {
+    if (frame[0] == TERN_UNICAST_HDR || frame[0] == TERN_UNICAST_HDR_NODE) {
         return unicast_frame(d, frame, len, msg, out);
     }
     if (frame[0] >= 0x51 && frame[0] <= 0x54) {

@@ -148,6 +148,11 @@ bool demo_forget(struct demo *d, int slot);
 enum demo_result demo_seal(struct demo *d, int slot, const uint8_t *msg, size_t len,
                            uint8_t *frame);
 
+/* The same, for a plaintext that is for the peer's node and not its user, such as a group's
+ * invite (tern/group.h). */
+enum demo_result demo_seal_node(struct demo *d, int slot, const uint8_t *msg, size_t len,
+                                uint8_t *frame);
+
 /* Whether a frame is the acknowledgement, by the peer in that slot, of the message this board
  * sent it with that counter. */
 bool demo_acked(const struct demo *d, int slot, uint32_t counter, const uint8_t *frame, size_t len);
@@ -172,6 +177,8 @@ enum demo_heard {
 
 struct demo_received {
     size_t msg_len;
+    bool
+        node; /* a message for this node itself, not words for its user: its first byte says what */
     uint32_t counter;
     uint8_t peer[TERN_ADDRESS_LEN];
     int slot; /* the session a message or copy came in, or a handshake made; -1 otherwise */

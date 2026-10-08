@@ -8,7 +8,7 @@
 #include "tern/address.h"
 #include "tern/time.h"
 
-/* The companion protocol: version 1 of draft/companion.md in ternmesh/spec.
+/* The companion protocol: version 2 of draft/companion.md in ternmesh/spec.
  *
  * The link between a node and the client driving it, a phone or a computer, over USB serial, TCP
  * or Bluetooth LE. It never goes over LoRa. This is the part every node and every client needs:
@@ -16,13 +16,14 @@
  * text console. What a node answers and when is the node's business, not the core's (on the
  * Heltec V3, ports/heltec-v3/main/link.c). */
 
-#define TERN_COMPANION_VERSION 1
+#define TERN_COMPANION_VERSION 2
 #define TERN_COMPANION_MAX_FRAME 180
 #define TERN_COMPANION_STREAM_MAX (TERN_COMPANION_MAX_FRAME + 6) /* magic, length, CRC */
 #define TERN_COMPANION_NAME_MAX 31
 #define TERN_COMPANION_TEXT_MAX 128
 #define TERN_COMPANION_FIRMWARE_MAX 31
 #define TERN_COMPANION_REGION_MAX 15
+#define TERN_COMPANION_GROUP 8          /* a group's id */
 #define TERN_COMPANION_GAP TERN_MS(500) /* a partial frame idle this long is not a frame */
 
 enum tern_companion_type {
@@ -37,12 +38,19 @@ enum tern_companion_type {
     TERN_C_SAVE_CONTACT = 0x18,
     TERN_C_REMOVE_CONTACT = 0x19,
     TERN_C_END_SESSION = 0x1A, /* version 1 */
+    TERN_C_MAKE_GROUP = 0x20,  /* version 2, as are the five after it */
+    TERN_C_LEAVE_GROUP = 0x21,
+    TERN_C_NAME_GROUP = 0x22,
+    TERN_C_SEND_GROUP = 0x23,
+    TERN_C_SEND_INVITE = 0x24,
+    TERN_C_JOIN = 0x25,
     /* Answers, node to client. */
     TERN_C_OK = 0x40,
     TERN_C_ERROR = 0x41,
     TERN_C_INFO = 0x42,
     TERN_C_SYNCED = 0x43,
     TERN_C_QUEUED = 0x44,
+    TERN_C_MADE = 0x45, /* version 2 */
     /* News, node to client. */
     TERN_C_SELF = 0x80,
     TERN_C_CONTACT = 0x81,
@@ -54,7 +62,15 @@ enum tern_companion_type {
     TERN_C_AIRTIME = 0x87,
     TERN_C_POWER = 0x88,
     TERN_C_ASKED = 0x89, /* version 1 */
+    TERN_C_GROUP = 0x8A, /* version 2, as are the three after it */
+    TERN_C_GROUP_GONE = 0x8B,
+    TERN_C_GROUP_MESSAGE = 0x8C,
+    TERN_C_INVITE = 0x8D,
 };
+
+/* The first version of the protocol that defines a type: a node sends a client no frame its
+ * version lacks, and answers a request its version lacks as one it does not know. */
+uint8_t tern_companion_since(uint8_t type);
 
 /* Which range a type is in. */
 bool tern_companion_request(uint8_t type);
@@ -76,6 +92,7 @@ enum tern_companion_error {
     TERN_C_ERR_HELLO_FIRST = 6,
     TERN_C_ERR_MTU = 7,
     TERN_C_ERR_NOT_NOW = 8,
+    TERN_C_ERR_NOT_HELD = 9, /* version 2 */
 };
 
 enum tern_companion_state {
@@ -117,7 +134,9 @@ struct tern_companion_msg {
     int8_t power, snr;
     uint16_t heard, millivolts;
     uint32_t after, time, ref, through, id, routing_id, period, allowed, used, wait, passkey;
+    uint32_t from;
     uint8_t address[TERN_ADDRESS_LEN];
+    uint8_t group[TERN_COMPANION_GROUP];
     uint8_t text_len;
     uint8_t text[TERN_COMPANION_TEXT_MAX];
 };
@@ -128,6 +147,9 @@ enum tern_companion_read {
     TERN_C_READ_MALFORMED = TERN_C_ERR_MALFORMED, /* cut short, a string too long or not UTF-8 */
     TERN_C_READ_SHORT = 3,                        /* under two bytes: nothing to answer */
 };
+
+/* A group's id, from its secret (tern/group.h): what a client knows the group by. */
+void tern_companion_group_id(const uint8_t secret[16], uint8_t id[TERN_COMPANION_GROUP]);
 
 /* Reads a frame's fields. Bytes after the last field this version defines are ignored. */
 enum tern_companion_read tern_companion_read(struct tern_companion_msg *m, const uint8_t *frame,

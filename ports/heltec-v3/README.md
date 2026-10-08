@@ -75,6 +75,12 @@ Type commands into the serial terminal:
 | `to <number>` | Choose the peer `send` and the button send to. |
 | `send <text>` | Send up to 128 bytes to that peer: the one last made contact with, written to or heard from, unless `to` chose another. |
 | `drop <number>` | End the session with a peer and forget it. The other board is not told. |
+| `groups` | The [groups](#groups) this board holds, by number, and the invites it has had, by id. |
+| `group new <name>` | Make a group. |
+| `group invite <number>` | Invite the peer `send` sends to, to that group. |
+| `group join <id>` | Take the group an invite was to. |
+| `group send <number> <text>` | Write up to 128 bytes to a group. |
+| `group leave <number>` | Leave a group. The others are not told. |
 | `routes` | The boards this one hears, how well each hears the other, and the routes it has. |
 | `selftest` | Run a handshake between two nodes in the board's memory, and time it. |
 | `forget` | Forget every Bluetooth client that has paired ([the companion link](#over-bluetooth)). |
@@ -296,6 +302,35 @@ A frame with another sync word shows as a preamble and nothing more. The simulat
 board set to another network's sync word hears that network and can disturb it: use these where
 none is in range, and put the board back (`sync 5E`, or restart it) afterwards.
 
+## Groups
+
+A group is the boards that hold one secret, as the draft's
+[Groups](https://github.com/ternmesh/spec/blob/main/draft/groups.md) has it. A message to a
+group is one frame, [flooded](https://github.com/ternmesh/spec/blob/main/draft/flooding.md): every
+relay that hears it sends it once more, unless it hears another do so first, and every board
+that holds the secret reads it. From the console:
+
+1. `group new Hut` on one board makes a group, and `groups` lists it as number 1.
+2. `group invite 1` sends its secret to the peer `send` sends to, over their session.
+3. On that board, `groups` shows the invite and its id, and `group join <id>` takes the group.
+4. `group send 1 <text>` on either writes to it.
+
+What to know before trusting one with anything:
+
+* **Any member can write as any other.** A group's frames say who wrote them, and every member
+  holds the key that says so. The console prints the routing id a frame gave and nothing more.
+* **Whoever gets the secret reads everything**, past frames they recorded included, and nobody
+  can be put out of a group. The others start a new one.
+* **Nothing says a message arrived.** A group message is waiting, then sent once it has gone on
+  the air. No board answers it.
+* **A board writes only so much.** Its own group messages take at most 0.5% of its time, about
+  two dozen short ones at once and one every 25 seconds after; it tells a client when one waits
+  for that. It spends up to 3% of its time passing on other boards'.
+* **An invite not joined before a restart is gone**, since messages are not saved. A group that
+  was joined is kept.
+* **A restart forgets which frames it has read.** A frame recorded and sent again after one is
+  read a second time, as a new message. The draft lists replay as not yet closed.
+
 ## The companion link
 
 The same USB port speaks the
@@ -304,7 +339,9 @@ program on a computer can drive the board while the console carries on. Its fram
 the byte `0xF5`, which typed text never contains, so the board tells them from commands byte by
 byte, and a terminal that has not said `HELLO` is never sent one.
 
-`tools/companion.py`, at the top of the repository, is an example client:
+`tools/companion.py`, at the top of the repository, is an example client. It speaks version 1
+of the protocol, from before groups, so the board tells it of none. A client that says version
+2 is told of groups, their messages and invites, and can make, join and write to them.
 
 ```bash
 pip install pyserial                       # on Linux and macOS, optional
@@ -336,9 +373,11 @@ What the board offers is what the demo is:
   a contact does not end its session; `END_SESSION`, or `drop` on the console, does, and gives up
   the messages to that node not yet delivered, on the air or not. The other board is not told, and keeps its half
   until one of them makes first contact again.
+* **Groups**, up to four, with their secrets, saved to flash: see [Groups](#groups).
 * **Letting a board in.** Saving an address as a contact lets that board make first contact
   whenever it tries. One that is refused, for not being a contact or for want of room, is news
-  to every client of version 1 (`ASKED`), at most once every ten seconds for each address.
+  to every client of version 1 or later (`ASKED`), at most once every ten seconds for each
+  address.
 * **A message is waiting, then delivered or not delivered.** It is delivered when its
   destination's acknowledgement comes back, and not delivered when the board gives it up, after
   four tries of some five seconds each. While it waits, its reason says if there is no route to

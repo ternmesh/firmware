@@ -20,6 +20,9 @@ TYPES = {
     "INFO": 0x42, "SYNCED": 0x43, "QUEUED": 0x44, "SELF": 0x80, "CONTACT": 0x81,
     "CONTACT_GONE": 0x82, "MESSAGE": 0x83, "STATE": 0x84, "NEIGHBOUR": 0x85,
     "NEIGHBOUR_GONE": 0x86, "AIRTIME": 0x87, "POWER": 0x88, "ASKED": 0x89,
+    "MAKE_GROUP": 0x20, "LEAVE_GROUP": 0x21, "NAME_GROUP": 0x22, "SEND_GROUP": 0x23,
+    "SEND_INVITE": 0x24, "JOIN": 0x25, "MADE": 0x45, "GROUP": 0x8A, "GROUP_GONE": 0x8B,
+    "GROUP_MESSAGE": 0x8C, "INVITE": 0x8D,
 }
 STRINGS = ("text", "name", "firmware", "region")
 ADDRESSES = ("to", "address", "contact")
@@ -45,6 +48,8 @@ def msg(kind, seq, fields):
                 parts.append(f".text = {hexbytes(raw)}")
         elif name in ADDRESSES:
             parts.append(f".address = {hexbytes(value)}")
+        elif name == "group":
+            parts.append(f".group = {hexbytes(value)}")
         else:
             parts.append(f".{RENAMED.get(name, name)} = {value}")
     return "{" + ", ".join(parts) + "}"
@@ -84,6 +89,10 @@ def cases(L, v):
     ]
     L.append("};")
 
+    L.append("static const struct group_id_case group_ids[] = {")
+    L += [f"    {{{hexbytes(g['group_secret'])}, {hexbytes(g['group'])}}}," for g in v["group_ids"]]
+    L.append("};")
+
     L.append("static const struct rejected_case rejected[] = {")
     L += [
         f"    {{\"{r['why']}\", {blob(r['frame'])}, {-1 if r['answer'] is None else r['answer']}}},"
@@ -107,11 +116,16 @@ def cases(L, v):
 
 
 def exchange(L, v):
-    for name in ("exchange", "older"):
+    """The exchange, and each earlier version's connection as older_<version>, with the two
+    groups' secrets."""
+    L.append(f"static const uint8_t made_secret[16] = {hexbytes(v['made'])};")
+    L.append(f"static const uint8_t invited_secret[16] = {hexbytes(v['invited'])};")
+    runs = [("exchange", v["exchange"])] + [(f"older_{o['version']}", o["frames"]) for o in v["older"]]
+    for name, frames in runs:
         L.append(f"static const struct step {name}[] = {{")
         L += [
             f"    {{{'true' if e['from'] == 'client' else 'false'}, {blob(e['frame'])}}},"
-            for e in v[name]
+            for e in frames
         ]
         L.append("};")
 

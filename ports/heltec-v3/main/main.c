@@ -13,6 +13,12 @@
  *   send <text>              send a message to that peer: the one last made contact with,
  *                            written to or heard from, unless 'to' chose another
  *   drop <number>            end the session with a peer, and forget it
+ *   groups                   list the groups this board holds, and the invites it has had
+ *   group new <name>         make a group
+ *   group invite <number>    invite the peer 'send' sends to, to that group
+ *   group join <id>          take the group an invite was to
+ *   group send <number> <text>   write to a group
+ *   group leave <number>     leave one
  *   status                   show this board's address, its sessions and the radio settings
  *   selftest                 run a handshake between two nodes in memory, and time it
  *
@@ -62,7 +68,9 @@
 #include "tern/companion.h"
 #include "tern/duty.h"
 #include "tern/err.h"
+#include "tern/flood.h"
 #include "tern/forward.h"
+#include "tern/group.h"
 #include "tern/lora.h"
 #include "tern/radio.h"
 #include "tern/region.h"
@@ -111,6 +119,21 @@ static int8_t route_dbm;
 static tern_time route_retry; /* when to try it again, if the radio refused it */
 static struct tern_forward forward;
 static struct tern_forward_slot forward_slots[FORWARD_SLOTS];
+
+/* Frames for every node: a group's (tern/flood.h). */
+#define FLOOD_SLOTS 4 /* this board's and those it passes on, waiting their turn: 1.1 kB */
+#define FLOODING 4    /* this board's own group messages not yet on the air */
+static struct tern_flood flood;
+static struct tern_flood_slot flood_slots[FLOOD_SLOTS];
+static uint8_t flood_seen[TERN_FLOOD_SEEN][TERN_FLOOD_ID];
+static bool flood_out; /* the frame on the air is the flooder's */
+static uint8_t flood_handle;
+static tern_time flood_retry;
+/* A group message handed to the flooder, by the nonce its frame carries: sent once it has gone. */
+static struct {
+    uint32_t id;
+    uint8_t nonce[TERN_GROUP_NONCE];
+} flooding[FLOODING];
 static bool forward_out;       /* the frame on the air is the forwarder's */
 static uint8_t forward_handle; /* and this is the forwarder's name for it */
 static tern_time forward_retry;
@@ -411,8 +434,24 @@ static bool hand_over(const struct link_message *x, struct pending *p, bool *gon
         return false; /* dropped since it was asked for: poll_outgoing() makes contact again */
     }
     if (sealed_id != x->id) {
+        /* An invite is a message for the peer's node: its group's secret and name, sealed as a
+         * message is, with the header that says whom it is for. */
+        uint8_t invite[TERN_GROUP_INVITE_MAX];
+        const uint8_t *plain = x->text;
+        size_t len = x->text_len;
+        if (x->kind == LINK_KIND_INVITE) {
+            len = link_invite_write(&companion, x, invite);
+            plain = invite;
+            if (len == 0) {
+                *gone = true; /* its group was left since */
+                return false;
+            }
+        }
         sealed_counter = demo.s[slot].session.tx.next;
-        enum demo_result r = demo_seal(&demo, slot, x->text, x->text_len, sealed);
+        enum demo_result r = x->kind == LINK_KIND_INVITE
+                                 ? demo_seal_node(&demo, slot, plain, len, sealed)
+                                 : demo_seal(&demo, slot, plain, len, sealed);
+        tern_wipe(invite, sizeof invite);
         if (r != DEMO_OK) {
             printf("not sent: %s\n", result_text(r));
             *gone = r == DEMO_SPENT;
@@ -420,7 +459,7 @@ static bool hand_over(const struct link_message *x, struct pending *p, bool *gon
         }
         sealed_id = x->id;
         sealed_slot = slot;
-        sealed_len = x->text_len + TERN_UNICAST_OVERHEAD;
+        sealed_len = len + TERN_UNICAST_OVERHEAD;
     }
     /* An acknowledgement names its message by its tag alone, and so does the forwarder. Four
      * bytes can be the tag of two messages, so one that shares a tag with a message still on its
@@ -540,6 +579,51 @@ static void heard_ack(const struct tern_radio_event *ev) {
     p->id = 0;
 }
 
+/* A flooded frame: taken once however many copies come, passed on by the flooder if this board is
+ * a relay, and opened if it is for a group this board holds. */
+static void heard_flood(const struct tern_radio_event *ev) {
+    struct tern_group *groups[LINK_GROUPS];
+    static uint8_t text[TERN_GROUP_MAX_CONTENT + 1];
+    struct tern_group_received got;
+    if (!tern_flood_heard(&flood, board_now(), ev->data, ev->len)) {
+        return;
+    }
+    link_groups(&companion, groups);
+    if (tern_group_open(groups, LINK_GROUPS, route.id, ev->data, ev->len, text,
+                        TERN_GROUP_MAX_CONTENT, &got) != TERN_OK ||
+        got.verdict != TERN_GROUP_ACCEPTED) {
+        return; /* another group's, most often: nothing to say */
+    }
+    flash_led();
+    text[got.len] = '\0';
+    const struct link_group *g = &companion.groups[got.group];
+    /* Who wrote is what the frame says, which any member could have written. */
+    printf("heard in \"%.*s\", from %08lx: \"%s\" at %d dBm\n", (int)g->name_len,
+           (const char *)g->name, (unsigned long)got.from, (const char *)text, ev->rssi_dbm);
+    if (link_add_group(&companion, got.group, got.from, clock_now(), text, got.len) != 0) {
+        screen_wake();
+    }
+}
+
+/* A message for this board itself, from a peer it shares a session with. The one kind there is
+ * is an invite to a group, which is kept for the user to take or leave: the board holds no group
+ * it was not told to. Anything else is acknowledged, as the specification has it, and let go. */
+static void heard_for_node(const uint8_t *plain, size_t len, const uint8_t peer[TERN_ADDRESS_LEN]) {
+    uint8_t secret[TERN_GROUP_SECRET], name[TERN_GROUP_NAME_MAX];
+    size_t name_len;
+    if (!tern_group_invite_read(plain, len, secret, name, &name_len)) {
+        printf("(a message for this board that it does not know what to do with)\n");
+        return;
+    }
+    printf("invited to the group \"%.*s\" by ", (int)name_len, (const char *)name);
+    print_address(peer);
+    printf(". A client can join it.\n");
+    if (link_add_invite(&companion, peer, clock_now(), secret, name, name_len) != 0) {
+        screen_wake();
+    }
+    tern_wipe(secret, sizeof secret);
+}
+
 static void heard(const struct tern_radio_event *ev) {
     uint8_t msg[TERN_UNICAST_MAX_PLAINTEXT + 1];
     struct demo_received got;
@@ -558,6 +642,10 @@ static void heard(const struct tern_radio_event *ev) {
         if (route.seq != route_seq_saved && nvs_save(NULL, "seq", &route.seq, sizeof route.seq)) {
             route_seq_saved = route.seq;
         }
+        return;
+    }
+    if (tern_flood_frame(ev->data, ev->len)) {
+        heard_flood(ev);
         return;
     }
     if (tern_forward_frame(ev->data, ev->len)) {
@@ -579,6 +667,10 @@ static void heard(const struct tern_radio_event *ev) {
     switch (what) {
     case DEMO_HEARD_MESSAGE:
         flash_led();
+        if (got.node) {
+            heard_for_node(msg, got.msg_len, got.peer);
+            break;
+        }
         msg[got.msg_len] = '\0';
         printf("heard #%lu \"%s\" at %d dBm, SNR %s%d.%02d dB\n", (unsigned long)got.counter,
                (const char *)msg, ev->rssi_dbm, snr_sign, snr_whole, snr_frac);
@@ -693,6 +785,10 @@ static void poll_radio(void) {
             tern_route_sent(&route, board_now());
             route_out = false;
         }
+        if (flood_out) {
+            tern_flood_sent(&flood, board_now(), flood_handle);
+            flood_out = false;
+        }
         if (forward_out) {
             tern_forward_sent(&forward, board_now(), forward_handle);
             forward_out = false;
@@ -753,9 +849,43 @@ static void poll_contact(void) {
 
 /* Hands the oldest message waiting to the forwarder, or says why it waits. A message to a node
  * this board has no session with starts first contact with it, once no handshake is under way. */
+/* Seals a group message under a nonce drawn for it and hands it to the flooder, which sends it
+ * once, when the board's allowance for its own floods can pay. */
+static void send_group(struct link_message *x) {
+    static uint8_t frame[TERN_GROUP_MAX_FRAME];
+    const struct tern_group *g = link_group_of(&companion, x);
+    int place = -1;
+    for (int i = 0; i < FLOODING; i++) {
+        place = flooding[i].id == 0 && place < 0 ? i : place;
+    }
+    if (g == NULL) {
+        link_state(&companion, x->id, TERN_C_NOT_DELIVERED, 0, 0); /* left since it was written */
+        return;
+    }
+    if (place < 0 || board_now() < outgoing_retry) {
+        link_state(&companion, x->id, TERN_C_WAITING, TERN_C_WAIT_RADIO, 0);
+        return;
+    }
+    uint8_t nonce[TERN_GROUP_NONCE];
+    size_t len = x->text_len + TERN_GROUP_OVERHEAD;
+    if (!board_random(NULL, nonce, sizeof nonce) ||
+        tern_group_seal(g, nonce, route.id, x->text, x->text_len, frame, sizeof frame) != TERN_OK ||
+        !tern_flood_send(&flood, board_now(), frame, len)) {
+        outgoing_retry = board_now() + 1000000000LL; /* the flooder's room */
+        return;
+    }
+    flooding[place].id = x->id;
+    memcpy(flooding[place].nonce, nonce, sizeof nonce);
+    link_taken(&companion, x->id);
+}
+
 static void poll_outgoing(void) {
     struct link_message *x = link_outgoing(&companion);
     if (x == NULL) {
+        return;
+    }
+    if (x->kind == LINK_KIND_GROUP) {
+        send_group(x);
         return;
     }
     if (demo_peer(&demo, x->address) < 0) {
@@ -881,6 +1011,58 @@ static void poll_forward(void) {
         printf("passed on a %u-byte frame for %02x%02x%02x%02x by %02x%02x%02x%02x, at %d dBm\n",
                (unsigned)len, frame[7], frame[8], frame[9], frame[10], frame[3], frame[4], frame[5],
                frame[6], dbm);
+    }
+}
+
+/* Sends what the flooder has to send: this board's group messages, and frames for every node
+ * that it passes on. A frame of its own waits for the board's allowance, and the client is told
+ * so; one to pass on that the allowance cannot pay for is dropped by the flooder. */
+static void poll_flood(void) {
+    static uint8_t frame[TERN_FLOOD_FRAME_MAX];
+    tern_time now = board_now(), due = tern_flood_due(&flood);
+    if (due != INT64_MAX && due > now + 1000000000LL) {
+        for (int i = 0; i < FLOODING; i++) {
+            if (flooding[i].id != 0) {
+                tern_time wait = (due - now) / 1000000000LL + 1;
+                link_state(&companion, flooding[i].id, TERN_C_WAITING, TERN_C_WAIT_BUDGET,
+                           (uint16_t)(wait > UINT16_MAX ? UINT16_MAX : wait));
+            }
+        }
+    }
+    if (transmitting || now < flood_retry || now < due || held()) {
+        return;
+    }
+    int8_t dbm;
+    enum tern_flood_kind kind;
+    size_t len = tern_flood_poll(&flood, now, frame, &dbm, &kind, &flood_handle);
+    if (len == 0) {
+        return;
+    }
+    tern_time air = 0;
+    if (tern_flood_wanted(&flood, flood_handle) &&
+        tern_duty_allows(&duty, now, tern_lora_airtime(&cfg.mod, (uint32_t)len))) {
+        air = transmit_at(frame, len, dbm);
+    }
+    if (air == 0) {
+        /* A frame of this board's goes back to wait; one to pass on is let go. */
+        tern_flood_withdrawn(&flood, now, flood_handle);
+        flood_retry = now + 1000000000LL;
+        return;
+    }
+    flood_out = true;
+    if (kind == TERN_FLOOD_RELAY) {
+        printf("passed on a %u-byte frame for every node, at %d dBm\n", (unsigned)len, dbm);
+        return;
+    }
+    for (int i = 0; i < FLOODING; i++) {
+        if (flooding[i].id != 0 &&
+            memcmp(flooding[i].nonce, frame + TERN_FLOOD_HEAD, TERN_GROUP_NONCE) == 0) {
+            printf("sent to a group: %u bytes at %d dBm, %lld.%03lld ms on the air\n",
+                   (unsigned)len, dbm, (long long)(air / 1000000), (long long)(air / 1000 % 1000));
+            /* On the air is as much as a group message is ever known to be. */
+            link_state(&companion, flooding[i].id, TERN_C_SENT, 0, 0);
+            flooding[i].id = 0;
+        }
     }
 }
 
@@ -1097,9 +1279,20 @@ static bool bench_command(char *line) {
 
 /* One frame to a client: as a notification over Bluetooth, or on the USB port, wrapped, after
  * whatever the console has printed. */
+/* The answer to what the board last asked of the link itself (ask()). */
+static struct tern_companion_msg board_answer;
+
 static void link_out(void *ctx, unsigned conn, const uint8_t *frame, size_t len) {
     uint8_t wrapped[TERN_COMPANION_STREAM_MAX];
     (void)ctx;
+    if (conn == LINK_BOARD) {
+        /* The board's own connection: its answers are kept for ask(), and it has no use for
+         * news of what it can see for itself. */
+        if (len >= 1 && frame[0] >= TERN_C_OK && frame[0] < TERN_C_SELF) {
+            (void)tern_companion_read(&board_answer, frame, len);
+        }
+        return;
+    }
     if (conn == LINK_BLE) {
         ble_send(frame, len);
         return;
@@ -1279,6 +1472,14 @@ static bool link_save(void *ctx, const void *buf, size_t len) {
 /* A board that had an identity before it kept its message ids ran a build that counted them from
  * 1 at every start. Clients may hold ids of that address, so it goes on from past any such a
  * build is likely to have given, and not from 1 again. */
+static bool link_load_groups(void *ctx, void *buf, size_t len) {
+    return nvs_load(ctx, "groups", buf, len);
+}
+
+static bool link_save_groups(void *ctx, const void *buf, size_t len) {
+    return nvs_save(ctx, "groups", buf, len);
+}
+
 static bool link_load_ids(void *ctx, uint32_t *next) {
     if (nvs_load(ctx, "ids", next, sizeof *next)) {
         return true;
@@ -1297,6 +1498,145 @@ static bool link_save_ids(void *ctx, uint32_t next) {
 /* --- The console ---------------------------------------------------------------------------- */
 
 /* The sessions this board holds, by the numbers 'to' and 'drop' take. */
+/* Asks the link for something as a client would, and says so if it is refused. True if it was
+ * done: the answer is then in board_answer. */
+static bool ask(struct tern_companion_msg *q) {
+    uint8_t frame[TERN_COMPANION_MAX_FRAME];
+    q->seq = 1;
+    size_t len = tern_companion_write(q, frame);
+    board_answer = (struct tern_companion_msg){.type = TERN_C_ERROR, .code = TERN_C_ERR_MALFORMED};
+    if (len != 0) {
+        link_receive(&companion, LINK_BOARD, board_now(), frame, len);
+    }
+    if (board_answer.type != TERN_C_ERROR) {
+        return true;
+    }
+    switch (board_answer.code) {
+    case TERN_C_ERR_FULL:
+        printf("no room: this board holds %d groups and %d messages at most\n", LINK_GROUPS,
+               LINK_MESSAGES);
+        break;
+    case TERN_C_ERR_NOT_HELD:
+        printf("no such group, or no such invite: 'groups' lists both\n");
+        break;
+    case TERN_C_ERR_REFUSED:
+        printf("nothing to send\n");
+        break;
+    case TERN_C_ERR_NOT_NOW:
+        printf("not now: the flash would not take it\n");
+        break;
+    default:
+        printf("not done: too long, or not text\n");
+        break;
+    }
+    return false;
+}
+
+static void groups_list(void) {
+    int n = 0;
+    for (int i = 0; i < LINK_GROUPS; i++) {
+        const struct link_group *g = &companion.groups[i];
+        if (g->used) {
+            printf("  %d  \"%.*s\"  id ", i + 1, (int)g->name_len, (const char *)g->name);
+            for (size_t k = 0; k < sizeof g->id; k++) {
+                printf("%02x", g->id[k]);
+            }
+            printf("\n");
+            n++;
+        }
+    }
+    if (n == 0) {
+        printf("no groups: 'group new <name>' makes one, and 'group join <id>' takes an "
+               "invite\n");
+    }
+    for (size_t i = 0; i < LINK_MESSAGES; i++) {
+        const struct link_message *x = &companion.messages[i];
+        if (x->used && x->kind == LINK_KIND_INVITE && x->state == TERN_C_RECEIVED) {
+            printf("  invite %lu to \"%.*s\" from ", (unsigned long)x->id, (int)x->text_len,
+                   (const char *)x->text);
+            print_address(x->address);
+            printf("\n");
+        }
+    }
+}
+
+/* The group a number typed at the console names, as 'groups' lists them; false, and said, if
+ * there is none. */
+static bool group_numbered(const char *text, struct tern_companion_msg *q, const char **rest) {
+    char *end;
+    long n = strtol(text, &end, 10);
+    if (end == text || n < 1 || n > LINK_GROUPS || !companion.groups[n - 1].used) {
+        printf("no such group: 'groups' lists them by number\n");
+        return false;
+    }
+    memcpy(q->group, companion.groups[n - 1].id, sizeof q->group);
+    while (*end == ' ') {
+        end++;
+    }
+    *rest = end;
+    return true;
+}
+
+/* 'group ...': everything a client can do with groups, from the console. */
+static void group_command(const char *line) {
+    struct tern_companion_msg q = {0};
+    const char *rest = "";
+    if (strncmp(line, "new ", 4) == 0) {
+        size_t len = strlen(line + 4);
+        if (len > TERN_COMPANION_NAME_MAX) {
+            printf("too long: a group's name is at most %d bytes\n", TERN_COMPANION_NAME_MAX);
+            return;
+        }
+        q.type = TERN_C_MAKE_GROUP;
+        q.text_len = (uint8_t)len;
+        memcpy(q.text, line + 4, len);
+        if (ask(&q)) {
+            printf("made the group \"%s\". 'group invite <number>' asks a peer in.\n", line + 4);
+        }
+    } else if (strncmp(line, "invite ", 7) == 0) {
+        if (demo.last < 0) {
+            printf("nobody to invite: %s\n", result_text(DEMO_UNPAIRED));
+        } else if (group_numbered(line + 7, &q, &rest)) {
+            q.type = TERN_C_SEND_INVITE;
+            memcpy(q.address, demo.s[demo.last].peer, TERN_ADDRESS_LEN);
+            if (ask(&q)) {
+                printf("inviting ");
+                print_address(q.address);
+                printf("\n");
+            }
+        }
+    } else if (strncmp(line, "join ", 5) == 0) {
+        q.type = TERN_C_JOIN;
+        q.id = (uint32_t)strtoul(line + 5, NULL, 10);
+        if (ask(&q)) {
+            printf("joined\n");
+        }
+    } else if (strncmp(line, "send ", 5) == 0) {
+        if (group_numbered(line + 5, &q, &rest)) {
+            size_t len = strlen(rest);
+            if (len > TERN_COMPANION_TEXT_MAX) {
+                printf("not sent: too long: at most %d bytes\n", TERN_COMPANION_TEXT_MAX);
+                return;
+            }
+            q.type = TERN_C_SEND_GROUP;
+            q.ref = esp_random();
+            q.text_len = (uint8_t)len;
+            memcpy(q.text, rest, len);
+            (void)ask(&q);
+        }
+    } else if (strncmp(line, "leave ", 6) == 0) {
+        if (group_numbered(line + 6, &q, &rest)) {
+            q.type = TERN_C_LEAVE_GROUP;
+            if (ask(&q)) {
+                printf("left\n");
+            }
+        }
+    } else {
+        printf("group new <name>, group invite <number>, group join <id>, group send <number> "
+               "<text>, group leave <number>\n");
+    }
+}
+
 static void peers(void) {
     if (demo_peers(&demo) == 0) {
         printf("sessions: none. %s\n", result_text(DEMO_UNPAIRED));
@@ -1582,6 +1922,10 @@ static void command(char *line) {
         }
     } else if (strncmp(line, "send ", 5) == 0) {
         send(&line[5]);
+    } else if (strcmp(line, "groups") == 0) {
+        groups_list();
+    } else if (strncmp(line, "group ", 6) == 0) {
+        group_command(&line[6]);
     } else if (strcmp(line, "status") == 0) {
         status();
     } else if (strcmp(line, "routes") == 0) {
@@ -1599,7 +1943,7 @@ static void command(char *line) {
         }
     } else if (line[0] != '\0') {
         printf("commands: contact <address>, accept, peers, to <number>, send <text>, drop "
-               "<number>, status, routes, selftest, forget "
+               "<number>, groups, group ..., status, routes, selftest, forget "
                "(Bluetooth clients), screen sleep <seconds>, screen bench on|off. Holding "
                "PRG on a bench page sends a ping. For the bench: bench on|off, sync <hex>, power "
                "<dBm>, freq <Hz>, "
@@ -1825,6 +2169,24 @@ static void name_of(const uint8_t address[TERN_ADDRESS_LEN], char out[UI_NAME + 
     snprintf(out, UI_NAME + 1, "%02X%02X%02X%02X", address[0], address[1], address[2], address[3]);
 }
 
+/* Whom a message is with, as the Messages page names it: a group by the user's name for it, and
+ * anything else by its address. */
+static void with_whom(const struct link_message *x, char out[UI_NAME + 1]) {
+    if (x->kind != LINK_KIND_GROUP) {
+        name_of(x->address, out);
+        return;
+    }
+    snprintf(out, UI_NAME + 1, "a group");
+    for (size_t i = 0; i < LINK_GROUPS; i++) {
+        const struct link_group *g = &companion.groups[i];
+        if (g->used && memcmp(g->id, x->group, sizeof g->id) == 0 && g->name_len > 0) {
+            size_t len = g->name_len < UI_NAME ? g->name_len : UI_NAME;
+            memcpy(out, g->name, len);
+            out[len] = '\0';
+        }
+    }
+}
+
 static bool unread(const struct link_message *x) {
     return x->state == TERN_C_RECEIVED && !(x->flags & TERN_C_READ_FLAG);
 }
@@ -1868,7 +2230,7 @@ static void fill_ui(struct ui_node *u) {
     for (size_t k = 0; k < n; k++) {
         const struct link_message *x = &companion.messages[order[k]];
         if (unread(x) && u->unread++ == 0) {
-            name_of(x->address, u->from);
+            with_whom(x, u->from);
         }
         if (x->state == TERN_C_WAITING || x->state == TERN_C_SENT) {
             u->waiting++;
@@ -1883,14 +2245,21 @@ static void fill_ui(struct ui_node *u) {
         struct ui_message *m = &u->message;
         m->received = x->state == TERN_C_RECEIVED;
         m->unread = unread(x);
-        name_of(x->address, m->who);
+        with_whom(x, m->who);
         m->aged = clock != 0 && x->time != 0 && clock >= x->time;
         m->ago_s = m->aged ? clock - x->time : 0;
         m->state = x->state;
         m->reason = x->reason;
         m->wait_s = x->wait;
-        m->text_len = x->text_len;
-        memcpy(m->text, x->text, x->text_len);
+        if (x->kind == LINK_KIND_INVITE) {
+            /* An invite's text is its group's name: said to be one, since it is not words. */
+            int len = snprintf((char *)m->text, sizeof m->text, "Invite to the group \"%.*s\"",
+                               (int)x->text_len, (const char *)x->text);
+            m->text_len = (uint8_t)(len < (int)sizeof m->text ? len : (int)sizeof m->text - 1);
+        } else {
+            m->text_len = x->text_len;
+            memcpy(m->text, x->text, x->text_len);
+        }
     }
 }
 
@@ -2166,6 +2535,9 @@ void app_main(void) {
     power_now = cfg.tx_power_dbm;
     struct tern_forward_config fc = tern_forward_defaults();
     tern_forward_init(&forward, &fc, &route, forward_slots, FORWARD_SLOTS, seed ^ 0x666f7277u);
+    struct tern_flood_config flc = tern_flood_defaults();
+    tern_flood_init(&flood, &flc, &route, flood_slots, FLOOD_SLOTS, flood_seen, TERN_FLOOD_SEEN,
+                    seed ^ 0x666c6f6fu, board_now());
 
     int err = board_init(&sx);
     radio = tern_sx126x_radio(&sx);
@@ -2192,12 +2564,18 @@ void app_main(void) {
         .end_session = link_end_session,
         .load = link_load,
         .save = link_save,
+        .load_groups = link_load_groups,
+        .save_groups = link_save_groups,
+        .random = board_random,
         .load_ids = link_load_ids,
         .save_ids = link_save_ids,
     };
     link_init(&companion, &host);
     demo_trust(&demo, link_trusted, NULL);
     link_open(&companion, LINK_SERIAL, LINK_LAPSE, 0);
+    /* The board's own connection, for what is typed at its console. */
+    link_open(&companion, LINK_BOARD, 0, 0);
+    ask(&(struct tern_companion_msg){.type = TERN_C_HELLO, .version = TERN_COMPANION_VERSION});
     tern_companion_parser_init(&parser);
 
     if (!board_battery_init()) {
@@ -2223,6 +2601,7 @@ void app_main(void) {
             poll_contact();
             poll_outgoing();
             poll_forward();
+            poll_flood();
             poll_route();
         }
         poll_console();

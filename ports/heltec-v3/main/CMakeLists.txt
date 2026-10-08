@@ -20,7 +20,9 @@ idf_component_register(
         ${root}/src/contact.c
         ${root}/src/duty.c
         ${root}/src/fe25519.c
+        ${root}/src/flood.c
         ${root}/src/forward.c
+        ${root}/src/group.c
         ${root}/src/listen.c
         ${root}/src/hkdf.c
         ${root}/src/lora.c
