@@ -1184,6 +1184,14 @@ static bool link_save(void *ctx, const void *buf, size_t len) {
     return nvs_save(ctx, "contacts", buf, len);
 }
 
+static bool link_load_ids(void *ctx, uint32_t *next) {
+    return nvs_load(ctx, "ids", next, sizeof *next);
+}
+
+static bool link_save_ids(void *ctx, uint32_t next) {
+    return nvs_save(ctx, "ids", &next, sizeof next);
+}
+
 /* --- The console ---------------------------------------------------------------------------- */
 
 /* Sixty-four hex digits. */
@@ -1917,6 +1925,8 @@ void app_main(void) {
         .why = link_why,
         .load = link_load,
         .save = link_save,
+        .load_ids = link_load_ids,
+        .save_ids = link_save_ids,
     };
     link_init(&companion, &host);
     link_open(&companion, LINK_SERIAL, LINK_LAPSE, 0);

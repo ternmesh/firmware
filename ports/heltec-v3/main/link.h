@@ -30,7 +30,8 @@
 
 #define LINK_CONTACTS 16
 #define LINK_MESSAGES 32
-#define LINK_REFS 16 /* SENDs remembered, so one sent again is not sent twice */
+#define LINK_REFS 16    /* SENDs remembered, so one sent again is not sent twice */
+#define LINK_ID_STEP 64 /* message ids set aside by one write to flash */
 #define LINK_NEIGHBOURS 64
 #define LINK_QUIET TERN_S(10) /* the least time between two news frames about one thing */
 #define LINK_LOOK TERN_S(1)   /* how often the link looks for changes to tell */
@@ -78,6 +79,10 @@ struct link_host {
     /* The contacts, saved whole and loaded at start. */
     bool (*load)(void *ctx, void *buf, size_t len);
     bool (*save)(void *ctx, const void *buf, size_t len);
+    /* The first message id not yet set aside, kept so that an id is never given twice
+     * (link_init()). */
+    bool (*load_ids)(void *ctx, uint32_t *next);
+    bool (*save_ids)(void *ctx, uint32_t next);
 };
 
 struct link_contact {
@@ -141,13 +146,21 @@ struct link {
     struct link_contact contacts[LINK_CONTACTS];
     struct link_message messages[LINK_MESSAGES];
     uint32_t next_id;
+    uint32_t ids_saved; /* ids below this are set aside in flash: no restart gives them again */
     struct link_ref refs[LINK_REFS];
     size_t next_ref;
 
     struct link_view view; /* scratch, filled by the host */
 };
 
-/* Loads the contacts. Every connection starts closed. */
+/* Loads the contacts, and where the message ids had got to. Every connection starts closed.
+ *
+ * A message's id is greater than every one the node gave before, across restarts too
+ * (draft/companion.md, "Messages"): a client asks for what is new by the greatest id it holds.
+ * The messages themselves are not kept, so the ids are: LINK_ID_STEP of them are set aside in
+ * flash at a time, and a restart begins after the last set aside, skipping the few not used. If
+ * the write fails the id is given all the same and the next message tries again; a restart
+ * before one succeeds may give those ids twice. */
 void link_init(struct link *l, const struct link_host *host);
 
 /* A connection opened: a client connected, or a port that one may open at any time. It starts

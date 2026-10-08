@@ -171,9 +171,25 @@ void link_init(struct link *l, const struct link_host *host) {
     memset(l, 0, sizeof *l);
     l->host = *host;
     l->next_id = 1;
+    uint32_t saved = 0;
+    if (l->host.load_ids(l->host.ctx, &saved) && saved > 1) {
+        l->next_id = saved;
+        l->ids_saved = saved;
+    }
     if (!l->host.load(l->host.ctx, l->contacts, sizeof l->contacts)) {
         memset(l->contacts, 0, sizeof l->contacts);
     }
+}
+
+/* The next message id, set aside in flash before it is given. */
+static uint32_t take_id(struct link *l) {
+    if (l->next_id >= l->ids_saved) {
+        uint32_t to = l->next_id + LINK_ID_STEP;
+        if (l->host.save_ids(l->host.ctx, to)) {
+            l->ids_saved = to;
+        }
+    }
+    return l->next_id++;
 }
 
 uint32_t link_add(struct link *l, const uint8_t address[TERN_ADDRESS_LEN], uint32_t time,
@@ -184,7 +200,7 @@ uint32_t link_add(struct link *l, const uint8_t address[TERN_ADDRESS_LEN], uint3
         return 0;
     }
     *x = (struct link_message){
-        .used = true, .id = l->next_id++, .time = time, .state = state, .reason = reason};
+        .used = true, .id = take_id(l), .time = time, .state = state, .reason = reason};
     memcpy(x->address, address, TERN_ADDRESS_LEN);
     memcpy(x->text, text, keep);
     x->text_len = (uint8_t)keep;
