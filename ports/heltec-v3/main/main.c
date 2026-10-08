@@ -445,14 +445,16 @@ static void contact_let_go(void) {
 
 /* Hands a handshake frame to the forwarder, which sends it by a route as it does a message. The
  * two a board sends when it begins a handshake are kept there until answered; the two it sends
- * in answer go once, and again when the other board asks again. False if it could not be taken. */
-static bool send_contact(const uint8_t *frame, size_t len) {
+ * in answer go once, and again when the other board asks again. `back` is, for a frame that
+ * answers one received, what the forwarder said the node it came from needs, and INT8_MIN for
+ * message_1, which answers none. False if it could not be taken. */
+static bool send_contact(const uint8_t *frame, size_t len, int8_t back) {
     bool keep = frame[0] == TERN_HDR_CONTACT_1 || frame[0] == TERN_HDR_CONTACT_1 + 2;
     if (keep) {
         contact_let_go();
     }
     if (!tern_forward_send(&forward, board_now(), tern_contact_destination(frame), frame, len, keep,
-                           INT8_MIN)) {
+                           back)) {
         printf("first contact: message_%d not sent: %s\n", frame[0] - 0x50,
                keep ? "no room for it" : "no route back yet, or no room; it goes when asked again");
         return false;
@@ -630,7 +632,7 @@ static void heard(const struct tern_radio_event *ev) {
         printf("(a %u-byte frame that is not Tern's, at %d dBm)\n", ev->len, ev->rssi_dbm);
         break;
     }
-    if (got.reply_len != 0 && !send_contact(got.reply, got.reply_len) &&
+    if (got.reply_len != 0 && !send_contact(got.reply, got.reply_len, routed.back) &&
         got.reply[0] == TERN_HDR_CONTACT_1 + 2) {
         contact_gave_up();
     }
@@ -742,7 +744,7 @@ static void poll_outgoing(void) {
         }
         contacting = true;
         memcpy(contacting_peer, x->address, TERN_ADDRESS_LEN);
-        if (!send_contact(frame, len)) {
+        if (!send_contact(frame, len, INT8_MIN)) {
             contact_gave_up();
         }
         return;
@@ -1519,7 +1521,7 @@ static void command(char *line) {
             contacting = false;
             link_unreachable(&companion, contacting_peer);
         }
-        if (!send_contact(frame, len)) {
+        if (!send_contact(frame, len, INT8_MIN)) {
             contact_gave_up();
         }
     } else if (strcmp(line, "accept") == 0) {

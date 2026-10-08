@@ -130,12 +130,12 @@ static void message(int from, int to, uint8_t tag) {
 
 /* A first-contact frame as a test has it: the right length, a tag, and who it is from where a
  * test's message says so. Its answer is the handshake's next frame, with the same tag. */
-static void contact(int from, int to, uint8_t hdr, uint8_t tag, bool tracked) {
+static void contact(int from, int to, uint8_t hdr, uint8_t tag, bool tracked, int8_t back) {
     uint8_t frame[TERN_CONTACT_LEN(TERN_HDR_CONTACT_1 + 2)] = {hdr};
     memset(frame + TERN_FORWARD_HEAD, tag, TERN_FORWARD_TAG);
     frame[TERN_FORWARD_HEAD + TERN_FORWARD_TAG] = (uint8_t)from;
     CHECK(tern_forward_send(&net.node[from].f, net.now, id_of(to), frame, TERN_CONTACT_LEN(hdr),
-                            tracked, INT8_MIN));
+                            tracked, back));
 }
 
 static void on_air(int from, const uint8_t *frame, size_t len, int8_t dbm) {
@@ -168,7 +168,8 @@ static void on_air(int from, const uint8_t *frame, size_t len, int8_t dbm) {
                                                      frame + TERN_FORWARD_HEAD);
                 }
                 if (frame[0] < TERN_HDR_CONTACT_4 && !y->silent) {
-                    contact(k, who, (uint8_t)(frame[0] + 1), frame[TERN_FORWARD_HEAD], false);
+                    contact(k, who, (uint8_t)(frame[0] + 1), frame[TERN_FORWARD_HEAD], false,
+                            got.back);
                 }
             }
         }
@@ -372,7 +373,7 @@ static void a_message_goes_along_the_line_and_is_acknowledged(void) {
  * last hop of each is sent once: nothing is heard after it. */
 static void first_contact_goes_along_the_line_and_back(void) {
     line();
-    contact(0, 3, TERN_HDR_CONTACT_1, 0x51, true);
+    contact(0, 3, TERN_HDR_CONTACT_1, 0x51, true, INT8_MIN);
     run(net.now + TERN_S(60));
     CHECK_EQ_I64(net.node[3].contacts, 2);
     CHECK_EQ_I64(net.node[0].contacts, 2);
@@ -395,7 +396,7 @@ static void first_contact_unanswered_is_tried_again_and_no_hop_is_given_up(void)
     link(0, 1);
     run(TERN_S(1200));
     net.node[1].silent = true;
-    contact(0, 1, TERN_HDR_CONTACT_1 + 2, 0x53, true);
+    contact(0, 1, TERN_HDR_CONTACT_1 + 2, 0x53, true, INT8_MIN);
     run(net.now + TERN_S(120));
     CHECK_EQ_I64(net.node[0].sent[TERN_FORWARD_OWN], 4);
     CHECK_EQ_I64(net.node[1].contacts, 4);
@@ -411,7 +412,7 @@ static void first_contact_unanswered_is_tried_again_and_no_hop_is_given_up(void)
 static void first_contact_lost_on_the_way_is_sent_again(void) {
     line();
     net.node[2].deaf = true;
-    contact(0, 3, TERN_HDR_CONTACT_1, 0x51, true);
+    contact(0, 3, TERN_HDR_CONTACT_1, 0x51, true, INT8_MIN);
     run(net.now + TERN_S(20));
     CHECK(net.node[1].f.counts.sent_again >= 1);
     CHECK_EQ_I64(net.node[3].contacts, 0);

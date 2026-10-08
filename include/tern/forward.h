@@ -173,8 +173,9 @@ void tern_forward_init(struct tern_forward *f, const struct tern_forward_config 
  * that is to be answered: it is kept, and sent again until tern_forward_acked() or
  * tern_forward_done(), or it is given up on, which tern_forward_failed() or
  * tern_forward_contact_failed() tells. `back` is,
- * for a frame that answers one received, what tern_forward_heard() gave, so that the node it came
- * from hears the answer; INT8_MIN otherwise.
+ * for a frame that answers one received - an acknowledgement, or any of a handshake's frames but
+ * the first - what tern_forward_heard() gave, so that the node it came from hears the answer;
+ * INT8_MIN otherwise.
  *
  * Returns false if there is no slot for it, or it is not tracked and there is no route. A tracked
  * frame with no route is kept while the router asks for one. */

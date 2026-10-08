@@ -135,13 +135,13 @@ static void let_go(struct node *x) {
     }
 }
 
-static bool send_contact(struct node *x, const uint8_t *frame, size_t len) {
+static bool send_contact(struct node *x, const uint8_t *frame, size_t len, int8_t back) {
     bool keep = frame[0] == TERN_HDR_CONTACT_1 || frame[0] == TERN_HDR_CONTACT_1 + 2;
     if (keep) {
         let_go(x);
     }
     if (!tern_forward_send(&x->f, net.now, tern_contact_destination(frame), frame, len, keep,
-                           INT8_MIN)) {
+                           back)) {
         return false;
     }
     if (keep) {
@@ -157,7 +157,7 @@ static void contact(int from, int to) {
     uint8_t frame[TERN_CONTACT_MAX_FRAME];
     size_t len;
     CHECK(demo_contact(&x->demo, net.node[to].demo.id.address, net.now, frame, &len) == DEMO_OK);
-    CHECK(send_contact(x, frame, len));
+    CHECK(send_contact(x, frame, len, INT8_MIN));
 }
 
 static void say(int from, int to, const char *text) {
@@ -207,7 +207,7 @@ static void heard(struct node *y, const uint8_t *frame, size_t len, int16_t snr)
         let_go(y);
     }
     if (got.reply_len != 0) {
-        (void)send_contact(y, got.reply, got.reply_len);
+        (void)send_contact(y, got.reply, got.reply_len, routed.back);
     }
     for (size_t i = 0; i < got.acks; i++) {
         (void)tern_forward_send(&y->f, net.now, tern_route_id(y->demo.s[got.ack_slot[i]].peer),
