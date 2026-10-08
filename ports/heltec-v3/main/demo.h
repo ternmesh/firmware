@@ -28,14 +28,16 @@
  *   silent after message_3 if it refuses.
  * - One handshake at a time. While one is under way, another message_1 is not answered.
  *
- * The session is saved after every message, as before: a frame is sent only once the counter it
- * uses is saved, and a received message is shown only once its counter is saved as received. A
+ * The session is saved after every message: a frame is sent only once the counter it uses is
+ * saved, and a received message is shown, and acknowledged, only once its counter is saved as
+ * received. A
  * restart carries on from where it was, never repeats a counter, and never accepts a frame
  * twice. A handshake is not saved: a restart in the middle of one abandons it.
  *
  * Nothing here touches the hardware, so tests/demo.c runs it on a host with a fake store. */
 
 #define DEMO_TRIES 4 /* times the initiator sends each of its frames */
+#define DEMO_ACKS 2
 /* How long a responder keeps a handshake, or its last answer, with nothing new heard. */
 #define DEMO_HOLD(retry) (2 * DEMO_TRIES * (retry))
 
@@ -109,14 +111,21 @@ enum demo_result demo_contact(struct demo *d, const uint8_t peer[TERN_ADDRESS_LE
 /* Lets a board that has a session accept contact from a new peer until the time given. */
 void demo_accept(struct demo *d, tern_time until);
 
-/* Seals msg into frame (at least len + 16 bytes) and saves the session. Send the frame only if
- * this returns DEMO_OK. */
+/* Seals msg into frame (at least len + 23 bytes), as the message whose counter is the session's
+ * tx.next before the call, and saves the session. Send the frame only if this returns DEMO_OK.
+ * The ten bytes after its first are the forwarder's to fill in (tern/forward.h). */
 enum demo_result demo_seal(struct demo *d, const uint8_t *msg, size_t len, uint8_t *frame);
 
+/* Whether a frame is the peer's acknowledgement of the message this board sent with that
+ * counter. */
+bool demo_acked(const struct demo *d, uint32_t counter, const uint8_t *frame, size_t len);
+
 enum demo_heard {
-    DEMO_HEARD_MESSAGE,   /* from the peer: msg, msg_len and counter are set */
+    DEMO_HEARD_MESSAGE,   /* from the peer: msg, msg_len, counter and peer are set */
+    DEMO_HEARD_COPY,      /* a message already heard, sent again: counter is set, and it is
+                             acknowledged again, not shown again */
     DEMO_HEARD_UNSAVED,   /* from the peer, but the session could not be saved, so the message
-                             is not shown: after a restart it could be accepted again */
+                             is not shown or acknowledged, and is accepted when it comes again */
     DEMO_HEARD_OTHER,     /* not for this board: someone else's session or handshake */
     DEMO_HEARD_FORGED,    /* its tag was ours, but it did not authenticate */
     DEMO_HEARD_MALFORMED, /* not a Tern frame this code knows */
@@ -135,6 +144,11 @@ struct demo_received {
     /* A frame to send in answer, if reply_len is not 0. Any verdict may come with one. */
     uint8_t reply[TERN_CONTACT_MAX_FRAME];
     size_t reply_len;
+    /* The acknowledgements to send to the peer, by the forwarder: one with a message, and with a
+     * copy one for each message it is a copy of, which is one unless two of the session's
+     * messages share a tag. More than DEMO_ACKS of them never happens to an honest peer. */
+    uint8_t ack[DEMO_ACKS][TERN_UNICAST_ACK_LEN];
+    size_t acks;
 };
 
 /* What a received frame was. msg must hold TERN_UNICAST_MAX_PLAINTEXT bytes. */

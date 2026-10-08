@@ -200,7 +200,7 @@ int main(int argc, char **argv) {
             aired_at = now + TERN_MS(200);
         }
         if (x != NULL && now >= aired_at) {
-            link_aired(&node, x->id);
+            link_taken(&node, x->id);
             aired_at = 0;
         }
         if (now - chatter > TERN_MS(300)) {

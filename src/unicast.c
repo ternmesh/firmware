@@ -3,7 +3,11 @@
 #include "tern/err.h"
 
 /* Secured unicast frames, as draft/unicast-security.md in ternmesh/spec defines them. Section
- * names in comments are that document's. */
+ * names in comments are that document's. Acknowledgements are draft/forwarding.md's. */
+
+#define AT_DTAG TERN_UNICAST_HEAD
+#define AT_BODY                                                                                    \
+    (AT_DTAG + TERN_UNICAST_DTAG) /* a message's ciphertext, or an acknowledgement's proof */
 
 #define EPOCH_SHIFT 5 /* 32 messages to an epoch */
 #define LAST_EPOCH (UINT32_MAX >> EPOCH_SHIFT)
@@ -72,6 +76,15 @@ static void dtag(const struct tern_aes128 *tag_key, uint32_t n, uint8_t out[TERN
     copy(out, block, TERN_UNICAST_DTAG);
 }
 
+/* The tag's block with 0x01 at byte 11, so that neither gives the other. */
+static void proof(const struct tern_aes128 *tag_key, uint32_t n, uint8_t out[TERN_UNICAST_PROOF]) {
+    uint8_t block[TERN_AES_BLOCK] = {0};
+    block[11] = 0x01;
+    put_u32be(&block[12], n);
+    tern_aes128_encrypt(tag_key, block, block);
+    copy(out, block, TERN_UNICAST_PROOF);
+}
+
 static void nonce(const uint8_t iv[TERN_CCM_NONCE], uint32_t n, uint8_t out[TERN_CCM_NONCE]) {
     uint8_t be[4];
     put_u32be(be, n);
@@ -117,8 +130,8 @@ void tern_session_wipe(struct tern_session *s) { tern_wipe(s, sizeof *s); }
 
 /* --- Sending ---------------------------------------------------------------------------------- */
 
-int tern_unicast_seal(struct tern_unicast_tx *tx, uint8_t hop, uint16_t label,
-                      const uint8_t *plaintext, size_t len, uint8_t *frame, size_t frame_cap) {
+int tern_unicast_seal(struct tern_unicast_tx *tx, const uint8_t *plaintext, size_t len,
+                      uint8_t *frame, size_t frame_cap) {
     if (tx->spent) {
         return TERN_ESPENT;
     }
@@ -131,16 +144,17 @@ int tern_unicast_seal(struct tern_unicast_tx *tx, uint8_t hop, uint16_t label,
     uint8_t mk[TERN_AES128_KEY], nc[TERN_CCM_NONCE], aad[1 + TERN_UNICAST_DTAG];
 
     frame[0] = TERN_UNICAST_HDR;
-    frame[1] = hop;
-    frame[2] = (uint8_t)(label >> 8);
-    frame[3] = (uint8_t)label;
-    dtag(&tx->tag_key, n, &frame[4]);
+    for (size_t i = 1; i < TERN_UNICAST_HEAD; i++) {
+        frame[i] = 0;
+    }
+    dtag(&tx->tag_key, n, &frame[AT_DTAG]);
 
     aad[0] = TERN_UNICAST_HDR;
-    copy(&aad[1], &frame[4], TERN_UNICAST_DTAG);
+    copy(&aad[1], &frame[AT_DTAG], TERN_UNICAST_DTAG);
     message_key(tx->epoch_key, n, mk);
     nonce(tx->iv, n, nc);
-    (void)tern_ccm_seal(mk, nc, aad, sizeof aad, plaintext, len, &frame[8], &frame[8 + len]);
+    (void)tern_ccm_seal(mk, nc, aad, sizeof aad, plaintext, len, &frame[AT_BODY],
+                        &frame[AT_BODY + len]);
     tern_wipe(mk, sizeof mk);
 
     /* Sending, steps 1, 2 and 5: one more each time, never past 2^32 - 1, and once the last
@@ -273,8 +287,8 @@ int tern_unicast_open(struct tern_unicast_rx *const *rx, size_t count, const uin
         return TERN_EINVAL;
     }
 
-    const uint8_t *tag = &frame[4];
-    const uint8_t *ct = &frame[8];
+    const uint8_t *tag = &frame[AT_DTAG];
+    const uint8_t *ct = &frame[AT_BODY];
     uint8_t aad[1 + TERN_UNICAST_DTAG];
     aad[0] = frame[0];
     copy(&aad[1], tag, TERN_UNICAST_DTAG);
@@ -282,13 +296,25 @@ int tern_unicast_open(struct tern_unicast_rx *const *rx, size_t count, const uin
     /* Steps 2 to 4: every window entry with this tag, in every session, until one authenticates.
      * A linear scan stands in for the specification's table; it gives the same answer, and a
      * faster structure is a later change. */
-    bool matched = false;
+    bool matched = false, copied = false;
     for (size_t i = 0; i < count; i++) {
         struct tern_unicast_rx *r = rx[i];
         uint32_t lo = window_lo(r), hi = window_hi(r);
         for (uint64_t m = lo; m <= hi; m++) {
             uint32_t n = (uint32_t)m;
-            if (accepted(r, n) || !same_dtag(r->dtags[m % 64], tag)) {
+            if (!same_dtag(r->dtags[m % 64], tag)) {
+                continue;
+            }
+            if (accepted(r, n)) {
+                /* A copy of a message this node has: remembered, in case no entry still in a
+                 * window takes the frame. An accepted counter's tag is still where it was put:
+                 * the counter that shares its slot is 64 on, and enters only once this one is
+                 * more than 31 below H. */
+                if (!copied) {
+                    copied = true;
+                    out->session = i;
+                    out->counter = n;
+                }
                 continue;
             }
             matched = true;
@@ -309,6 +335,65 @@ int tern_unicast_open(struct tern_unicast_rx *const *rx, size_t count, const uin
         }
     }
 
+    if (copied) {
+        out->verdict = TERN_UNICAST_COPY;
+        return TERN_OK;
+    }
     out->verdict = matched ? TERN_UNICAST_FORGED : TERN_UNICAST_NOT_OURS;
     return TERN_OK;
+}
+
+/* --- Acknowledgements ------------------------------------------------------------------------- */
+
+bool tern_unicast_copy_next(struct tern_unicast_rx *const *rx, size_t count, const uint8_t *frame,
+                            size_t len, struct tern_unicast_received *got) {
+    if (rx == NULL || frame == NULL || got == NULL || len < TERN_UNICAST_OVERHEAD ||
+        got->verdict != TERN_UNICAST_COPY) {
+        return false;
+    }
+    /* In the order tern_unicast_open() looks: by session, and in each by counter. */
+    for (size_t i = got->session; i < count; i++) {
+        const struct tern_unicast_rx *r = rx[i];
+        uint64_t from = i == got->session ? (uint64_t)got->counter + 1 : window_lo(r);
+        for (uint64_t m = from; r->started && m <= r->high; m++) {
+            if (accepted(r, (uint32_t)m) && same_dtag(r->dtags[m % 64], &frame[AT_DTAG])) {
+                got->session = i;
+                got->counter = (uint32_t)m;
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool tern_unicast_ack(const struct tern_unicast_rx *rx, uint32_t counter,
+                      uint8_t frame[TERN_UNICAST_ACK_LEN]) {
+    if (!accepted(rx, counter)) {
+        return false;
+    }
+    frame[0] = TERN_UNICAST_ACK_HDR;
+    for (size_t i = 1; i < TERN_UNICAST_HEAD; i++) {
+        frame[i] = 0;
+    }
+    dtag(&rx->tag_key, counter, &frame[AT_DTAG]);
+    proof(&rx->tag_key, counter, &frame[AT_BODY]);
+    return true;
+}
+
+bool tern_unicast_acked(const struct tern_unicast_tx *tx, uint32_t counter, const uint8_t *frame,
+                        size_t len) {
+    if (frame == NULL || len != TERN_UNICAST_ACK_LEN || frame[0] != TERN_UNICAST_ACK_HDR) {
+        return false;
+    }
+    /* A counter not yet used has no acknowledgement. */
+    if (!tx->spent && counter >= tx->next) {
+        return false;
+    }
+    uint8_t want[TERN_UNICAST_DTAG + TERN_UNICAST_PROOF], diff = 0;
+    dtag(&tx->tag_key, counter, want);
+    proof(&tx->tag_key, counter, &want[TERN_UNICAST_DTAG]);
+    for (size_t i = 0; i < sizeof want; i++) {
+        diff |= (uint8_t)(want[i] ^ frame[AT_DTAG + i]);
+    }
+    return diff == 0;
 }
