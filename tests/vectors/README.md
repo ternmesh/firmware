@@ -40,5 +40,13 @@ of the companion protocol's version 1, in
 header for `tests/companion.c`, and its two exchanges alone into one for `tests/link.c`.
 `tools/companion.py selftest` reads it directly.
 
+`flooding.json` and `groups.json` are copies of
+[`vectors/flooding.json`](https://github.com/ternmesh/spec/blob/main/vectors/flooding.json) and
+[`vectors/groups.json`](https://github.com/ternmesh/spec/blob/main/vectors/groups.json), as of
+[ternmesh/spec#18](https://github.com/ternmesh/spec/pull/18), which adds both sections.
+`flooding_to_c.py` and `groups_to_c.py` turn them into headers for `tests/flood.c` and
+`tests/group.c`. The same pull request gives a unicast message the node flag, so
+`unicast-security.json` and `forwarding.json` are as of it too.
+
 When the specification's vectors change, copy the new file here in the same pull request that
 changes the code to match, and update the commit above.

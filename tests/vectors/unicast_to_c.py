@@ -44,7 +44,7 @@ def main():
         i = c["intermediate"]
         lines.append(
             f"    {{{c_str(c['name'])}, {c_array(c['session_secret'], 32)}, {c['direction']}, "
-            f"{c['counter']}u, {c['hops']}, {c['power']}, 0x{c['next']:08x}u, "
+            f"{c['counter']}u, {c['hdr']}, {c['hops']}, {c['power']}, 0x{c['next']:08x}u, "
             f"0x{c['destination']:08x}u, {c_bytes(c['plaintext'])}, "
             f"{c_bytes(c['frame'])}, {c_array(i['epoch_key'], 32)}, {c_array(i['proof'], 4)}}},"
         )

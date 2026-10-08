@@ -21,6 +21,15 @@
       "frame": "4801f700000001fffffffe808182838485868788898a8b"
     },
     {
+      "hdr": 73,
+      "hops": 32,
+      "power": 14,
+      "next": 489570112,
+      "destination": 168496141,
+      "tag": "30313233",
+      "frame": "49200e1d2e3f400a0b0c0d303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f"
+    },
+    {
       "hdr": 80,
       "hops": 31,
       "power": 0,
@@ -82,6 +91,14 @@
     {
       "why": "not a frame of this section's",
       "frame": "59200e0000000700000009000000000000000000000000"
+    },
+    {
+      "why": "a message for the node a byte short of its check",
+      "frame": "49200e00000007000000090000000000000000000000"
+    },
+    {
+      "why": "a message with a reserved flag",
+      "frame": "4a200e0000000700000009000000000000000000000000"
     },
     {
       "why": "an acknowledgement too long",
@@ -180,6 +197,24 @@
       "ends": false
     },
     {
+      "why": "a message for the node, passed on",
+      "sent": "49140e000000070000000930313233606162636465666768696a6b6c",
+      "heard": "49130e000000080000000930313233606162636465666768696a6b6c",
+      "ends": true
+    },
+    {
+      "why": "a message for the node, acknowledged",
+      "sent": "49140e000000070000000930313233606162636465666768696a6b6c",
+      "heard": "502003000000070000004d3031323300000000",
+      "ends": true
+    },
+    {
+      "why": "the same bytes as a message for the user: another frame",
+      "sent": "49140e000000070000000930313233606162636465666768696a6b6c",
+      "heard": "48130e000000070000000930313233606162636465666768696a6b6c",
+      "ends": false
+    },
+    {
       "why": "acknowledged",
       "sent": "48140e000000070000000930313233606162636465666768696a6b6c",
       "heard": "502003000000070000004d3031323300000000",
@@ -261,6 +296,11 @@
     {
       "why": "a message to its destination: its acknowledgement is listened for",
       "sent": "48140e000000090000000930313233606162636465666768696a6b6c",
+      "listens": true
+    },
+    {
+      "why": "a message for the node, to its destination",
+      "sent": "49140e000000090000000930313233606162636465666768696a6b6c",
       "listens": true
     },
     {

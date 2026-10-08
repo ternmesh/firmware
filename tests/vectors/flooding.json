@@ -1,0 +1,1414 @@
+{
+  "description": "Frames for every node, draft 0 (draft/flooding.md). Frames, ids and what follows a head (rest) are hex; power is signed. A frame's id is the first eight bytes of the SHA-256 of everything after its three-byte head. In passes, a node of that role with that many relay neighbours receives a frame it has not seen with those hops, and sends it on with sends as its hops, or does not, for null. In copies, received counts every copy a relay waiting to pass a frame on has received, the first included. In waits, airtime_ns is the frame's time on the air with the profiles' preamble and coding rate (vectors/phy.json) and longest_ns the longest a relay waits before passing it on. In powers, every is what Routes gives for a frame for every neighbour, in dBm, and floors_sixteenths the floors, in sixteenths of a dBm, of the neighbours the node's selected routes go through that are relays, null for one not known. In seen, ids are names, taken as seen at the times given, and each ask is true where the node must still hold the id as seen; an id never taken is not seen. In allowances, a bucket that fills at share_ppm millionths of the node's time and holds window_s seconds of that, or one 255-byte frame if that is more, is full at time 0; each frame is offered at at_ns, and is sent and charged if the bucket pays.",
+  "generator": "vectors/tools/flooding.py",
+  "heads": [
+    {
+      "hdr": 96,
+      "hops": 5,
+      "power": 22,
+      "rest": "303132333435363738393a3b3c3d3e3f4041424344454647",
+      "id": "78fabffbcf5d727d",
+      "frame": "600516303132333435363738393a3b3c3d3e3f4041424344454647"
+    },
+    {
+      "hdr": 96,
+      "hops": 1,
+      "power": -9,
+      "rest": "808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7",
+      "id": "410e1925d90a2fa4",
+      "frame": "6001f7808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7"
+    },
+    {
+      "hdr": 96,
+      "hops": 0,
+      "power": 0,
+      "rest": "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "id": "913c6e2c32d99e4b",
+      "frame": "600000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ],
+  "rejected": [
+    {
+      "name": "short",
+      "frame": "60050e303132333435363738393a3b3c3d3e3f40414243444546"
+    },
+    {
+      "name": "a-message",
+      "frame": "48050e303132333435363738393a3b3c3d3e3f4041424344454647"
+    },
+    {
+      "name": "an-acknowledgement",
+      "frame": "50050e303132333435363738393a3b3c3d3e3f4041424344454647"
+    },
+    {
+      "name": "an-announce",
+      "frame": "59050e303132333435363738393a3b3c3d3e3f4041424344454647"
+    },
+    {
+      "name": "a-flag-set",
+      "frame": "61050e303132333435363738393a3b3c3d3e3f4041424344454647"
+    },
+    {
+      "name": "empty",
+      "frame": ""
+    }
+  ],
+  "same": [
+    {
+      "name": "passed-on",
+      "a": "60050e303132333435363738393a3b3c3d3e3f4041424344454647",
+      "b": "6004fe303132333435363738393a3b3c3d3e3f4041424344454647",
+      "same": true
+    },
+    {
+      "name": "itself",
+      "a": "60050e303132333435363738393a3b3c3d3e3f4041424344454647",
+      "b": "60050e303132333435363738393a3b3c3d3e3f4041424344454647",
+      "same": true
+    },
+    {
+      "name": "last-byte",
+      "a": "60050e303132333435363738393a3b3c3d3e3f4041424344454647",
+      "b": "60050e303132333435363738393a3b3c3d3e3f4041424344454646",
+      "same": false
+    },
+    {
+      "name": "first-byte-after-the-head",
+      "a": "60050e303132333435363738393a3b3c3d3e3f4041424344454647",
+      "b": "60050eb03132333435363738393a3b3c3d3e3f4041424344454647",
+      "same": false
+    },
+    {
+      "name": "longer",
+      "a": "60050e303132333435363738393a3b3c3d3e3f4041424344454647",
+      "b": "60050e303132333435363738393a3b3c3d3e3f404142434445464700",
+      "same": false
+    }
+  ],
+  "passes": [
+    {
+      "role": "relay",
+      "relay_neighbours": 9,
+      "hops": 5,
+      "sends": 4
+    },
+    {
+      "role": "relay",
+      "relay_neighbours": 9,
+      "hops": 4,
+      "sends": 3
+    },
+    {
+      "role": "relay",
+      "relay_neighbours": 9,
+      "hops": 2,
+      "sends": 1
+    },
+    {
+      "role": "relay",
+      "relay_neighbours": 9,
+      "hops": 1,
+      "sends": null
+    },
+    {
+      "role": "relay",
+      "relay_neighbours": 9,
+      "hops": 0,
+      "sends": null
+    },
+    {
+      "role": "relay",
+      "relay_neighbours": 9,
+      "hops": 6,
+      "sends": 4
+    },
+    {
+      "role": "relay",
+      "relay_neighbours": 9,
+      "hops": 255,
+      "sends": 4
+    },
+    {
+      "role": "relay",
+      "relay_neighbours": 8,
+      "hops": 5,
+      "sends": 5
+    },
+    {
+      "role": "relay",
+      "relay_neighbours": 8,
+      "hops": 4,
+      "sends": 4
+    },
+    {
+      "role": "relay",
+      "relay_neighbours": 8,
+      "hops": 2,
+      "sends": 2
+    },
+    {
+      "role": "relay",
+      "relay_neighbours": 8,
+      "hops": 1,
+      "sends": 1
+    },
+    {
+      "role": "relay",
+      "relay_neighbours": 8,
+      "hops": 0,
+      "sends": null
+    },
+    {
+      "role": "relay",
+      "relay_neighbours": 8,
+      "hops": 6,
+      "sends": 5
+    },
+    {
+      "role": "relay",
+      "relay_neighbours": 8,
+      "hops": 255,
+      "sends": 5
+    },
+    {
+      "role": "relay",
+      "relay_neighbours": 0,
+      "hops": 5,
+      "sends": 5
+    },
+    {
+      "role": "relay",
+      "relay_neighbours": 0,
+      "hops": 4,
+      "sends": 4
+    },
+    {
+      "role": "relay",
+      "relay_neighbours": 0,
+      "hops": 2,
+      "sends": 2
+    },
+    {
+      "role": "relay",
+      "relay_neighbours": 0,
+      "hops": 1,
+      "sends": 1
+    },
+    {
+      "role": "relay",
+      "relay_neighbours": 0,
+      "hops": 0,
+      "sends": null
+    },
+    {
+      "role": "relay",
+      "relay_neighbours": 0,
+      "hops": 6,
+      "sends": 5
+    },
+    {
+      "role": "relay",
+      "relay_neighbours": 0,
+      "hops": 255,
+      "sends": 5
+    },
+    {
+      "role": "relay",
+      "relay_neighbours": 40,
+      "hops": 5,
+      "sends": 4
+    },
+    {
+      "role": "relay",
+      "relay_neighbours": 40,
+      "hops": 4,
+      "sends": 3
+    },
+    {
+      "role": "relay",
+      "relay_neighbours": 40,
+      "hops": 2,
+      "sends": 1
+    },
+    {
+      "role": "relay",
+      "relay_neighbours": 40,
+      "hops": 1,
+      "sends": null
+    },
+    {
+      "role": "relay",
+      "relay_neighbours": 40,
+      "hops": 0,
+      "sends": null
+    },
+    {
+      "role": "relay",
+      "relay_neighbours": 40,
+      "hops": 6,
+      "sends": 4
+    },
+    {
+      "role": "relay",
+      "relay_neighbours": 40,
+      "hops": 255,
+      "sends": 4
+    },
+    {
+      "role": "leaf",
+      "relay_neighbours": 3,
+      "hops": 5,
+      "sends": null
+    },
+    {
+      "role": "leaf",
+      "relay_neighbours": 3,
+      "hops": 4,
+      "sends": null
+    },
+    {
+      "role": "leaf",
+      "relay_neighbours": 3,
+      "hops": 2,
+      "sends": null
+    },
+    {
+      "role": "leaf",
+      "relay_neighbours": 3,
+      "hops": 1,
+      "sends": null
+    },
+    {
+      "role": "leaf",
+      "relay_neighbours": 3,
+      "hops": 0,
+      "sends": null
+    },
+    {
+      "role": "leaf",
+      "relay_neighbours": 3,
+      "hops": 6,
+      "sends": null
+    },
+    {
+      "role": "leaf",
+      "relay_neighbours": 3,
+      "hops": 255,
+      "sends": null
+    }
+  ],
+  "copies": [
+    {
+      "received": 1,
+      "drops": false
+    },
+    {
+      "received": 2,
+      "drops": true
+    },
+    {
+      "received": 3,
+      "drops": true
+    }
+  ],
+  "waits": [
+    {
+      "spreading_factor": 9,
+      "bandwidth_hz": 500000,
+      "length": 27,
+      "airtime_ns": 64768000,
+      "longest_ns": 518144000
+    },
+    {
+      "spreading_factor": 9,
+      "bandwidth_hz": 500000,
+      "length": 67,
+      "airtime_ns": 110848000,
+      "longest_ns": 886784000
+    },
+    {
+      "spreading_factor": 9,
+      "bandwidth_hz": 500000,
+      "length": 255,
+      "airtime_ns": 320768000,
+      "longest_ns": 2566144000
+    },
+    {
+      "spreading_factor": 7,
+      "bandwidth_hz": 125000,
+      "length": 27,
+      "airtime_ns": 75008000,
+      "longest_ns": 600064000
+    },
+    {
+      "spreading_factor": 7,
+      "bandwidth_hz": 125000,
+      "length": 67,
+      "airtime_ns": 131328000,
+      "longest_ns": 1050624000
+    },
+    {
+      "spreading_factor": 7,
+      "bandwidth_hz": 125000,
+      "length": 255,
+      "airtime_ns": 407808000,
+      "longest_ns": 3262464000
+    }
+  ],
+  "powers": [
+    {
+      "every": 2,
+      "floors_sixteenths": [],
+      "lowest": -9,
+      "full": 22,
+      "power": 2
+    },
+    {
+      "every": 2,
+      "floors_sixteenths": [
+        -56
+      ],
+      "lowest": -9,
+      "full": 22,
+      "power": 7
+    },
+    {
+      "every": 2,
+      "floors_sixteenths": [
+        -56,
+        40,
+        -200
+      ],
+      "lowest": -9,
+      "full": 22,
+      "power": 13
+    },
+    {
+      "every": 12,
+      "floors_sixteenths": [
+        -56
+      ],
+      "lowest": -9,
+      "full": 22,
+      "power": 12
+    },
+    {
+      "every": 2,
+      "floors_sixteenths": [
+        -56,
+        null
+      ],
+      "lowest": -9,
+      "full": 22,
+      "power": 22
+    },
+    {
+      "every": 22,
+      "floors_sixteenths": [],
+      "lowest": -9,
+      "full": 22,
+      "power": 22
+    },
+    {
+      "every": -9,
+      "floors_sixteenths": [
+        -400
+      ],
+      "lowest": -9,
+      "full": 22,
+      "power": -9
+    },
+    {
+      "every": 2,
+      "floors_sixteenths": [
+        300
+      ],
+      "lowest": -9,
+      "full": 22,
+      "power": 22
+    },
+    {
+      "every": 2,
+      "floors_sixteenths": [
+        16
+      ],
+      "lowest": -9,
+      "full": 22,
+      "power": 11
+    },
+    {
+      "every": 2,
+      "floors_sixteenths": [
+        17
+      ],
+      "lowest": -9,
+      "full": 22,
+      "power": 12
+    }
+  ],
+  "seen": [
+    {
+      "name": "for-a-minute",
+      "takes": [
+        {
+          "at_ns": 0,
+          "id": "a"
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 0,
+          "id": "a",
+          "seen": true
+        },
+        {
+          "at_ns": 59000000000,
+          "id": "a",
+          "seen": true
+        },
+        {
+          "at_ns": 59999999999,
+          "id": "a",
+          "seen": true
+        },
+        {
+          "at_ns": 0,
+          "id": "b",
+          "seen": false
+        }
+      ]
+    },
+    {
+      "name": "room",
+      "note": "128 others taken since: the first may be forgotten, and the second not yet",
+      "takes": [
+        {
+          "at_ns": 0,
+          "id": "a"
+        },
+        {
+          "at_ns": 1000000000,
+          "id": "n0"
+        },
+        {
+          "at_ns": 1000000001,
+          "id": "n1"
+        },
+        {
+          "at_ns": 1000000002,
+          "id": "n2"
+        },
+        {
+          "at_ns": 1000000003,
+          "id": "n3"
+        },
+        {
+          "at_ns": 1000000004,
+          "id": "n4"
+        },
+        {
+          "at_ns": 1000000005,
+          "id": "n5"
+        },
+        {
+          "at_ns": 1000000006,
+          "id": "n6"
+        },
+        {
+          "at_ns": 1000000007,
+          "id": "n7"
+        },
+        {
+          "at_ns": 1000000008,
+          "id": "n8"
+        },
+        {
+          "at_ns": 1000000009,
+          "id": "n9"
+        },
+        {
+          "at_ns": 1000000010,
+          "id": "n10"
+        },
+        {
+          "at_ns": 1000000011,
+          "id": "n11"
+        },
+        {
+          "at_ns": 1000000012,
+          "id": "n12"
+        },
+        {
+          "at_ns": 1000000013,
+          "id": "n13"
+        },
+        {
+          "at_ns": 1000000014,
+          "id": "n14"
+        },
+        {
+          "at_ns": 1000000015,
+          "id": "n15"
+        },
+        {
+          "at_ns": 1000000016,
+          "id": "n16"
+        },
+        {
+          "at_ns": 1000000017,
+          "id": "n17"
+        },
+        {
+          "at_ns": 1000000018,
+          "id": "n18"
+        },
+        {
+          "at_ns": 1000000019,
+          "id": "n19"
+        },
+        {
+          "at_ns": 1000000020,
+          "id": "n20"
+        },
+        {
+          "at_ns": 1000000021,
+          "id": "n21"
+        },
+        {
+          "at_ns": 1000000022,
+          "id": "n22"
+        },
+        {
+          "at_ns": 1000000023,
+          "id": "n23"
+        },
+        {
+          "at_ns": 1000000024,
+          "id": "n24"
+        },
+        {
+          "at_ns": 1000000025,
+          "id": "n25"
+        },
+        {
+          "at_ns": 1000000026,
+          "id": "n26"
+        },
+        {
+          "at_ns": 1000000027,
+          "id": "n27"
+        },
+        {
+          "at_ns": 1000000028,
+          "id": "n28"
+        },
+        {
+          "at_ns": 1000000029,
+          "id": "n29"
+        },
+        {
+          "at_ns": 1000000030,
+          "id": "n30"
+        },
+        {
+          "at_ns": 1000000031,
+          "id": "n31"
+        },
+        {
+          "at_ns": 1000000032,
+          "id": "n32"
+        },
+        {
+          "at_ns": 1000000033,
+          "id": "n33"
+        },
+        {
+          "at_ns": 1000000034,
+          "id": "n34"
+        },
+        {
+          "at_ns": 1000000035,
+          "id": "n35"
+        },
+        {
+          "at_ns": 1000000036,
+          "id": "n36"
+        },
+        {
+          "at_ns": 1000000037,
+          "id": "n37"
+        },
+        {
+          "at_ns": 1000000038,
+          "id": "n38"
+        },
+        {
+          "at_ns": 1000000039,
+          "id": "n39"
+        },
+        {
+          "at_ns": 1000000040,
+          "id": "n40"
+        },
+        {
+          "at_ns": 1000000041,
+          "id": "n41"
+        },
+        {
+          "at_ns": 1000000042,
+          "id": "n42"
+        },
+        {
+          "at_ns": 1000000043,
+          "id": "n43"
+        },
+        {
+          "at_ns": 1000000044,
+          "id": "n44"
+        },
+        {
+          "at_ns": 1000000045,
+          "id": "n45"
+        },
+        {
+          "at_ns": 1000000046,
+          "id": "n46"
+        },
+        {
+          "at_ns": 1000000047,
+          "id": "n47"
+        },
+        {
+          "at_ns": 1000000048,
+          "id": "n48"
+        },
+        {
+          "at_ns": 1000000049,
+          "id": "n49"
+        },
+        {
+          "at_ns": 1000000050,
+          "id": "n50"
+        },
+        {
+          "at_ns": 1000000051,
+          "id": "n51"
+        },
+        {
+          "at_ns": 1000000052,
+          "id": "n52"
+        },
+        {
+          "at_ns": 1000000053,
+          "id": "n53"
+        },
+        {
+          "at_ns": 1000000054,
+          "id": "n54"
+        },
+        {
+          "at_ns": 1000000055,
+          "id": "n55"
+        },
+        {
+          "at_ns": 1000000056,
+          "id": "n56"
+        },
+        {
+          "at_ns": 1000000057,
+          "id": "n57"
+        },
+        {
+          "at_ns": 1000000058,
+          "id": "n58"
+        },
+        {
+          "at_ns": 1000000059,
+          "id": "n59"
+        },
+        {
+          "at_ns": 1000000060,
+          "id": "n60"
+        },
+        {
+          "at_ns": 1000000061,
+          "id": "n61"
+        },
+        {
+          "at_ns": 1000000062,
+          "id": "n62"
+        },
+        {
+          "at_ns": 1000000063,
+          "id": "n63"
+        },
+        {
+          "at_ns": 1000000064,
+          "id": "n64"
+        },
+        {
+          "at_ns": 1000000065,
+          "id": "n65"
+        },
+        {
+          "at_ns": 1000000066,
+          "id": "n66"
+        },
+        {
+          "at_ns": 1000000067,
+          "id": "n67"
+        },
+        {
+          "at_ns": 1000000068,
+          "id": "n68"
+        },
+        {
+          "at_ns": 1000000069,
+          "id": "n69"
+        },
+        {
+          "at_ns": 1000000070,
+          "id": "n70"
+        },
+        {
+          "at_ns": 1000000071,
+          "id": "n71"
+        },
+        {
+          "at_ns": 1000000072,
+          "id": "n72"
+        },
+        {
+          "at_ns": 1000000073,
+          "id": "n73"
+        },
+        {
+          "at_ns": 1000000074,
+          "id": "n74"
+        },
+        {
+          "at_ns": 1000000075,
+          "id": "n75"
+        },
+        {
+          "at_ns": 1000000076,
+          "id": "n76"
+        },
+        {
+          "at_ns": 1000000077,
+          "id": "n77"
+        },
+        {
+          "at_ns": 1000000078,
+          "id": "n78"
+        },
+        {
+          "at_ns": 1000000079,
+          "id": "n79"
+        },
+        {
+          "at_ns": 1000000080,
+          "id": "n80"
+        },
+        {
+          "at_ns": 1000000081,
+          "id": "n81"
+        },
+        {
+          "at_ns": 1000000082,
+          "id": "n82"
+        },
+        {
+          "at_ns": 1000000083,
+          "id": "n83"
+        },
+        {
+          "at_ns": 1000000084,
+          "id": "n84"
+        },
+        {
+          "at_ns": 1000000085,
+          "id": "n85"
+        },
+        {
+          "at_ns": 1000000086,
+          "id": "n86"
+        },
+        {
+          "at_ns": 1000000087,
+          "id": "n87"
+        },
+        {
+          "at_ns": 1000000088,
+          "id": "n88"
+        },
+        {
+          "at_ns": 1000000089,
+          "id": "n89"
+        },
+        {
+          "at_ns": 1000000090,
+          "id": "n90"
+        },
+        {
+          "at_ns": 1000000091,
+          "id": "n91"
+        },
+        {
+          "at_ns": 1000000092,
+          "id": "n92"
+        },
+        {
+          "at_ns": 1000000093,
+          "id": "n93"
+        },
+        {
+          "at_ns": 1000000094,
+          "id": "n94"
+        },
+        {
+          "at_ns": 1000000095,
+          "id": "n95"
+        },
+        {
+          "at_ns": 1000000096,
+          "id": "n96"
+        },
+        {
+          "at_ns": 1000000097,
+          "id": "n97"
+        },
+        {
+          "at_ns": 1000000098,
+          "id": "n98"
+        },
+        {
+          "at_ns": 1000000099,
+          "id": "n99"
+        },
+        {
+          "at_ns": 1000000100,
+          "id": "n100"
+        },
+        {
+          "at_ns": 1000000101,
+          "id": "n101"
+        },
+        {
+          "at_ns": 1000000102,
+          "id": "n102"
+        },
+        {
+          "at_ns": 1000000103,
+          "id": "n103"
+        },
+        {
+          "at_ns": 1000000104,
+          "id": "n104"
+        },
+        {
+          "at_ns": 1000000105,
+          "id": "n105"
+        },
+        {
+          "at_ns": 1000000106,
+          "id": "n106"
+        },
+        {
+          "at_ns": 1000000107,
+          "id": "n107"
+        },
+        {
+          "at_ns": 1000000108,
+          "id": "n108"
+        },
+        {
+          "at_ns": 1000000109,
+          "id": "n109"
+        },
+        {
+          "at_ns": 1000000110,
+          "id": "n110"
+        },
+        {
+          "at_ns": 1000000111,
+          "id": "n111"
+        },
+        {
+          "at_ns": 1000000112,
+          "id": "n112"
+        },
+        {
+          "at_ns": 1000000113,
+          "id": "n113"
+        },
+        {
+          "at_ns": 1000000114,
+          "id": "n114"
+        },
+        {
+          "at_ns": 1000000115,
+          "id": "n115"
+        },
+        {
+          "at_ns": 1000000116,
+          "id": "n116"
+        },
+        {
+          "at_ns": 1000000117,
+          "id": "n117"
+        },
+        {
+          "at_ns": 1000000118,
+          "id": "n118"
+        },
+        {
+          "at_ns": 1000000119,
+          "id": "n119"
+        },
+        {
+          "at_ns": 1000000120,
+          "id": "n120"
+        },
+        {
+          "at_ns": 1000000121,
+          "id": "n121"
+        },
+        {
+          "at_ns": 1000000122,
+          "id": "n122"
+        },
+        {
+          "at_ns": 1000000123,
+          "id": "n123"
+        },
+        {
+          "at_ns": 1000000124,
+          "id": "n124"
+        },
+        {
+          "at_ns": 1000000125,
+          "id": "n125"
+        },
+        {
+          "at_ns": 1000000126,
+          "id": "n126"
+        },
+        {
+          "at_ns": 1000000127,
+          "id": "n127"
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 1000000126,
+          "id": "a",
+          "seen": true
+        },
+        {
+          "at_ns": 2000000000,
+          "id": "n0",
+          "seen": true
+        },
+        {
+          "at_ns": 2000000000,
+          "id": "n127",
+          "seen": true
+        }
+      ]
+    }
+  ],
+  "allowances": [
+    {
+      "name": "own",
+      "share_ppm": 5000,
+      "window_s": 600,
+      "spreading_factor": 9,
+      "bandwidth_hz": 500000,
+      "frames": [
+        {
+          "at_ns": 0,
+          "airtime_ns": 320768000,
+          "pays": true
+        },
+        {
+          "at_ns": 0,
+          "airtime_ns": 320768000,
+          "pays": true
+        },
+        {
+          "at_ns": 0,
+          "airtime_ns": 320768000,
+          "pays": true
+        },
+        {
+          "at_ns": 0,
+          "airtime_ns": 320768000,
+          "pays": true
+        },
+        {
+          "at_ns": 0,
+          "airtime_ns": 320768000,
+          "pays": true
+        },
+        {
+          "at_ns": 0,
+          "airtime_ns": 320768000,
+          "pays": true
+        },
+        {
+          "at_ns": 0,
+          "airtime_ns": 320768000,
+          "pays": true
+        },
+        {
+          "at_ns": 0,
+          "airtime_ns": 320768000,
+          "pays": true
+        },
+        {
+          "at_ns": 0,
+          "airtime_ns": 320768000,
+          "pays": true
+        },
+        {
+          "at_ns": 0,
+          "airtime_ns": 320768000,
+          "pays": false
+        },
+        {
+          "at_ns": 41535999999,
+          "airtime_ns": 320768000,
+          "pays": false
+        },
+        {
+          "at_ns": 41536000000,
+          "airtime_ns": 320768000,
+          "pays": true
+        },
+        {
+          "at_ns": 3600000000000,
+          "airtime_ns": 110848000,
+          "pays": true
+        }
+      ]
+    },
+    {
+      "name": "own-short",
+      "share_ppm": 5000,
+      "window_s": 600,
+      "spreading_factor": 7,
+      "bandwidth_hz": 125000,
+      "frames": [
+        {
+          "at_ns": 0,
+          "airtime_ns": 131328000,
+          "pays": true
+        },
+        {
+          "at_ns": 1000000000,
+          "airtime_ns": 131328000,
+          "pays": true
+        },
+        {
+          "at_ns": 2000000000,
+          "airtime_ns": 131328000,
+          "pays": true
+        },
+        {
+          "at_ns": 3000000000,
+          "airtime_ns": 131328000,
+          "pays": true
+        },
+        {
+          "at_ns": 4000000000,
+          "airtime_ns": 131328000,
+          "pays": true
+        },
+        {
+          "at_ns": 5000000000,
+          "airtime_ns": 131328000,
+          "pays": true
+        },
+        {
+          "at_ns": 6000000000,
+          "airtime_ns": 131328000,
+          "pays": true
+        },
+        {
+          "at_ns": 7000000000,
+          "airtime_ns": 131328000,
+          "pays": true
+        },
+        {
+          "at_ns": 8000000000,
+          "airtime_ns": 131328000,
+          "pays": true
+        },
+        {
+          "at_ns": 9000000000,
+          "airtime_ns": 131328000,
+          "pays": true
+        },
+        {
+          "at_ns": 10000000000,
+          "airtime_ns": 131328000,
+          "pays": true
+        },
+        {
+          "at_ns": 11000000000,
+          "airtime_ns": 131328000,
+          "pays": true
+        },
+        {
+          "at_ns": 12000000000,
+          "airtime_ns": 131328000,
+          "pays": true
+        },
+        {
+          "at_ns": 13000000000,
+          "airtime_ns": 131328000,
+          "pays": true
+        },
+        {
+          "at_ns": 14000000000,
+          "airtime_ns": 131328000,
+          "pays": true
+        },
+        {
+          "at_ns": 15000000000,
+          "airtime_ns": 131328000,
+          "pays": true
+        },
+        {
+          "at_ns": 16000000000,
+          "airtime_ns": 131328000,
+          "pays": true
+        },
+        {
+          "at_ns": 17000000000,
+          "airtime_ns": 131328000,
+          "pays": true
+        },
+        {
+          "at_ns": 18000000000,
+          "airtime_ns": 131328000,
+          "pays": true
+        },
+        {
+          "at_ns": 19000000000,
+          "airtime_ns": 131328000,
+          "pays": true
+        },
+        {
+          "at_ns": 20000000000,
+          "airtime_ns": 131328000,
+          "pays": true
+        },
+        {
+          "at_ns": 21000000000,
+          "airtime_ns": 131328000,
+          "pays": true
+        },
+        {
+          "at_ns": 22000000000,
+          "airtime_ns": 131328000,
+          "pays": true
+        },
+        {
+          "at_ns": 23000000000,
+          "airtime_ns": 131328000,
+          "pays": false
+        },
+        {
+          "at_ns": 24000000000,
+          "airtime_ns": 131328000,
+          "pays": false
+        },
+        {
+          "at_ns": 25000000000,
+          "airtime_ns": 131328000,
+          "pays": false
+        },
+        {
+          "at_ns": 26000000000,
+          "airtime_ns": 131328000,
+          "pays": false
+        },
+        {
+          "at_ns": 27000000000,
+          "airtime_ns": 131328000,
+          "pays": false
+        },
+        {
+          "at_ns": 28000000000,
+          "airtime_ns": 131328000,
+          "pays": false
+        },
+        {
+          "at_ns": 29000000000,
+          "airtime_ns": 131328000,
+          "pays": false
+        }
+      ]
+    },
+    {
+      "name": "relay",
+      "share_ppm": 30000,
+      "window_s": 60,
+      "spreading_factor": 9,
+      "bandwidth_hz": 500000,
+      "frames": [
+        {
+          "at_ns": 0,
+          "airtime_ns": 167168000,
+          "pays": true
+        },
+        {
+          "at_ns": 100000000,
+          "airtime_ns": 167168000,
+          "pays": true
+        },
+        {
+          "at_ns": 200000000,
+          "airtime_ns": 167168000,
+          "pays": true
+        },
+        {
+          "at_ns": 300000000,
+          "airtime_ns": 167168000,
+          "pays": true
+        },
+        {
+          "at_ns": 400000000,
+          "airtime_ns": 167168000,
+          "pays": true
+        },
+        {
+          "at_ns": 500000000,
+          "airtime_ns": 167168000,
+          "pays": true
+        },
+        {
+          "at_ns": 600000000,
+          "airtime_ns": 167168000,
+          "pays": true
+        },
+        {
+          "at_ns": 700000000,
+          "airtime_ns": 167168000,
+          "pays": true
+        },
+        {
+          "at_ns": 800000000,
+          "airtime_ns": 167168000,
+          "pays": true
+        },
+        {
+          "at_ns": 900000000,
+          "airtime_ns": 167168000,
+          "pays": true
+        },
+        {
+          "at_ns": 1000000000,
+          "airtime_ns": 167168000,
+          "pays": false
+        },
+        {
+          "at_ns": 1100000000,
+          "airtime_ns": 167168000,
+          "pays": false
+        },
+        {
+          "at_ns": 1200000000,
+          "airtime_ns": 167168000,
+          "pays": false
+        },
+        {
+          "at_ns": 1300000000,
+          "airtime_ns": 167168000,
+          "pays": true
+        },
+        {
+          "at_ns": 1400000000,
+          "airtime_ns": 167168000,
+          "pays": false
+        },
+        {
+          "at_ns": 1500000000,
+          "airtime_ns": 167168000,
+          "pays": false
+        },
+        {
+          "at_ns": 10000000000,
+          "airtime_ns": 320768000,
+          "pays": false
+        },
+        {
+          "at_ns": 10000000000,
+          "airtime_ns": 320768000,
+          "pays": false
+        },
+        {
+          "at_ns": 10000000000,
+          "airtime_ns": 64768000,
+          "pays": true
+        }
+      ]
+    },
+    {
+      "name": "relay-eu",
+      "share_ppm": 30000,
+      "window_s": 60,
+      "spreading_factor": 7,
+      "bandwidth_hz": 125000,
+      "frames": [
+        {
+          "at_ns": 0,
+          "airtime_ns": 407808000,
+          "pays": true
+        },
+        {
+          "at_ns": 0,
+          "airtime_ns": 407808000,
+          "pays": true
+        },
+        {
+          "at_ns": 0,
+          "airtime_ns": 407808000,
+          "pays": true
+        },
+        {
+          "at_ns": 0,
+          "airtime_ns": 407808000,
+          "pays": true
+        },
+        {
+          "at_ns": 0,
+          "airtime_ns": 407808000,
+          "pays": false
+        },
+        {
+          "at_ns": 0,
+          "airtime_ns": 407808000,
+          "pays": false
+        },
+        {
+          "at_ns": 5000000000,
+          "airtime_ns": 131328000,
+          "pays": true
+        },
+        {
+          "at_ns": 5000000000,
+          "airtime_ns": 131328000,
+          "pays": true
+        },
+        {
+          "at_ns": 60000000000,
+          "airtime_ns": 407808000,
+          "pays": true
+        }
+      ]
+    }
+  ]
+}

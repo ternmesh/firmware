@@ -1,0 +1,436 @@
+{
+  "description": "Groups, draft 0 (draft/groups.md). Secrets, nonces, frames and content are hex; routing ids (from, self) and hops are numbers, and power is signed. hops and power are the flood's (draft/flooding.md), and are 5 and 14 where a case does not give them. self is the routing id of the node receiving. In members, group is the index in groups of the group a frame is accepted for. In recent, the frames with nonces first to first + count - 1, each as eight bytes most significant first, are from, content, hops and power sealed under group_secret. In invites and bad_invites, plaintext is that of a unicast message whose hdr has the node flag set (draft/unicast-security.md).",
+  "generator": "vectors/tools/groups.py",
+  "accepted": [
+    {
+      "name": "first",
+      "note": "a short message",
+      "group_secret": "000102030405060708090a0b0c0d0e0f",
+      "nonce": "0001020304050607",
+      "from": 489570112,
+      "content": "68656c6c6f",
+      "hops": 5,
+      "power": 14,
+      "self": 168496141,
+      "intermediate": {
+        "group_key": "9daacaa012ecf2799e55a29684426266",
+        "tag_key": "c3c54d8483bfc1815fb62f17102fbc54",
+        "gtag": "f4be0374",
+        "ccm_nonce": "00000000000001020304050607",
+        "associated_data": "600001020304050607f4be0374",
+        "plaintext": "1d2e3f4068656c6c6f"
+      },
+      "frame": "60050e0001020304050607f4be03745408b7a32f0c17de0d16b4391091e572fb"
+    },
+    {
+      "name": "another-nonce",
+      "note": "the same words again: nothing in the frame is as before",
+      "group_secret": "000102030405060708090a0b0c0d0e0f",
+      "nonce": "f0e1d2c3b4a59687",
+      "from": 489570112,
+      "content": "68656c6c6f",
+      "hops": 5,
+      "power": 14,
+      "self": 168496141,
+      "intermediate": {
+        "group_key": "9daacaa012ecf2799e55a29684426266",
+        "tag_key": "c3c54d8483bfc1815fb62f17102fbc54",
+        "gtag": "b3d807fb",
+        "ccm_nonce": "0000000000f0e1d2c3b4a59687",
+        "associated_data": "60f0e1d2c3b4a59687b3d807fb",
+        "plaintext": "1d2e3f4068656c6c6f"
+      },
+      "frame": "60050ef0e1d2c3b4a59687b3d807fbe321008e6b38fc57406792038d484db23a"
+    },
+    {
+      "name": "another-group",
+      "note": "the same nonce under another secret",
+      "group_secret": "c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4",
+      "nonce": "0001020304050607",
+      "from": 489570112,
+      "content": "68656c6c6f",
+      "hops": 5,
+      "power": 14,
+      "self": 168496141,
+      "intermediate": {
+        "group_key": "34338867a09cadaee31e095781e938f3",
+        "tag_key": "3bbf27eec613b6ac620a2f16cedef8cd",
+        "gtag": "d77c24f0",
+        "ccm_nonce": "00000000000001020304050607",
+        "associated_data": "600001020304050607d77c24f0",
+        "plaintext": "1d2e3f4068656c6c6f"
+      },
+      "frame": "60050e0001020304050607d77c24f0ca61d1b6f245987864c30573605422f2dc"
+    },
+    {
+      "name": "passed-on",
+      "note": "hops and power as a relay left them; not authenticated",
+      "group_secret": "000102030405060708090a0b0c0d0e0f",
+      "nonce": "0001020304050607",
+      "from": 489570112,
+      "content": "68656c6c6f",
+      "hops": 2,
+      "power": -4,
+      "self": 168496141,
+      "intermediate": {
+        "group_key": "9daacaa012ecf2799e55a29684426266",
+        "tag_key": "c3c54d8483bfc1815fb62f17102fbc54",
+        "gtag": "f4be0374",
+        "ccm_nonce": "00000000000001020304050607",
+        "associated_data": "600001020304050607f4be0374",
+        "plaintext": "1d2e3f4068656c6c6f"
+      },
+      "frame": "6002fc0001020304050607f4be03745408b7a32f0c17de0d16b4391091e572fb"
+    },
+    {
+      "name": "empty",
+      "note": "no content: the 27-byte minimum frame",
+      "group_secret": "000102030405060708090a0b0c0d0e0f",
+      "nonce": "1111111111111111",
+      "from": 489570112,
+      "content": "",
+      "hops": 5,
+      "power": 14,
+      "self": 168496141,
+      "intermediate": {
+        "group_key": "9daacaa012ecf2799e55a29684426266",
+        "tag_key": "c3c54d8483bfc1815fb62f17102fbc54",
+        "gtag": "951f56c6",
+        "ccm_nonce": "00000000001111111111111111",
+        "associated_data": "601111111111111111951f56c6",
+        "plaintext": "1d2e3f40"
+      },
+      "frame": "60050e1111111111111111951f56c6781e97ebbf3bef5fd2a2c199"
+    },
+    {
+      "name": "non-latin",
+      "note": "UTF-8 text outside Latin script",
+      "group_secret": "c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4",
+      "nonce": "2222222222222222",
+      "from": 4294967294,
+      "content": "ce9aceb1cebbceb7cebcceadcf81ceb1",
+      "hops": 5,
+      "power": 14,
+      "self": 168496141,
+      "intermediate": {
+        "group_key": "34338867a09cadaee31e095781e938f3",
+        "tag_key": "3bbf27eec613b6ac620a2f16cedef8cd",
+        "gtag": "82153384",
+        "ccm_nonce": "00000000002222222222222222",
+        "associated_data": "60222222222222222282153384",
+        "plaintext": "fffffffece9aceb1cebbceb7cebcceadcf81ceb1"
+      },
+      "frame": "60050e222222222222222282153384765f2e1c6c2bdae70109dc3678660cbccf4df58f3c5fc9b6f050015f"
+    },
+    {
+      "name": "largest",
+      "note": "228 bytes of content: a 255-byte frame",
+      "group_secret": "c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4",
+      "nonce": "3333333333333333",
+      "from": 1,
+      "content": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3",
+      "hops": 5,
+      "power": 14,
+      "self": 168496141,
+      "intermediate": {
+        "group_key": "34338867a09cadaee31e095781e938f3",
+        "tag_key": "3bbf27eec613b6ac620a2f16cedef8cd",
+        "gtag": "b598656d",
+        "ccm_nonce": "00000000003333333333333333",
+        "associated_data": "603333333333333333b598656d",
+        "plaintext": "00000001000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3"
+      },
+      "frame": "60050e3333333333333333b598656d7dda635a11fd1b321fe196a4128fcad771c114133af21dcb0c0e5ec39b5464db18aaa166e78be5c372a383a3e27bfc9c2eaded30e706fb622a727b4127116863afac1dd1c9ec6ee9f7017e75401cce5f86efe8ac68770ef3d92c67fa7743f5f7d29614b77569cb64a4ddb47537b2f394feaeffa46c9e5b0998652dd3a31268d5a6affe2461cf3f148d725354ec8d11661741e2a5f5380c7635830adbea32b1edc5cab08c65fb033fc03ec47ca8b913af85f36562d9edf5eb540971d3167bc5a609dafc94bd15747676752e0b520f591ab5412327f915179fa668fb4be9acb04188fc60593e755115eeeddebe37b1aced"
+    }
+  ],
+  "rejected": [
+    {
+      "name": "check-flipped",
+      "note": "last bit of the AEAD tag changed",
+      "group_secret": "000102030405060708090a0b0c0d0e0f",
+      "self": 168496141,
+      "frame": "60050e0001020304050607f4be03745408b7a32f0c17de0d16b4391091e572fa"
+    },
+    {
+      "name": "ciphertext-flipped",
+      "note": "first ciphertext bit changed",
+      "group_secret": "000102030405060708090a0b0c0d0e0f",
+      "self": 168496141,
+      "frame": "60050e0001020304050607f4be0374d408b7a32f0c17de0d16b4391091e572fb"
+    },
+    {
+      "name": "nonce-flipped",
+      "note": "a bit of the nonce changed: the tag no longer matches it",
+      "group_secret": "000102030405060708090a0b0c0d0e0f",
+      "self": 168496141,
+      "frame": "60050e0101020304050607f4be03745408b7a32f0c17de0d16b4391091e572fb"
+    },
+    {
+      "name": "nonce-changed",
+      "note": "another nonce, with the tag that goes with it: the check fails",
+      "group_secret": "000102030405060708090a0b0c0d0e0f",
+      "self": 168496141,
+      "frame": "60050e010102030405060734f9865a5408b7a32f0c17de0d16b4391091e572fb"
+    },
+    {
+      "name": "tag-flipped",
+      "note": "a bit of the group tag changed",
+      "group_secret": "000102030405060708090a0b0c0d0e0f",
+      "self": 168496141,
+      "frame": "60050e0001020304050607f5be03745408b7a32f0c17de0d16b4391091e572fb"
+    },
+    {
+      "name": "header-changed",
+      "note": "a reserved flag set: the header is authenticated",
+      "group_secret": "000102030405060708090a0b0c0d0e0f",
+      "self": 168496141,
+      "frame": "61050e0001020304050607f4be03745408b7a32f0c17de0d16b4391091e572fb"
+    },
+    {
+      "name": "a-message",
+      "note": "a unicast message's header on it",
+      "group_secret": "000102030405060708090a0b0c0d0e0f",
+      "self": 168496141,
+      "frame": "48050e0001020304050607f4be03745408b7a32f0c17de0d16b4391091e572fb"
+    },
+    {
+      "name": "truncated",
+      "note": "26 bytes: shorter than any frame",
+      "group_secret": "000102030405060708090a0b0c0d0e0f",
+      "self": 168496141,
+      "frame": "60050e0001020304050607f4be03745408b7a32f0c17de0d16b4"
+    },
+    {
+      "name": "another-group",
+      "note": "a frame of a group this node does not hold",
+      "group_secret": "000102030405060708090a0b0c0d0e0f",
+      "self": 168496141,
+      "frame": "60050e0001020304050607d77c24f0ca61d1b6f245987864c30573605422f2dc"
+    },
+    {
+      "name": "from-nobody",
+      "note": "from is 0x00000000: sealed rightly, and refused",
+      "group_secret": "000102030405060708090a0b0c0d0e0f",
+      "self": 168496141,
+      "frame": "60050e0001020304050607f4be0374492688e32f0c17de0d1e7b0b900a65b391"
+    },
+    {
+      "name": "from-everyone",
+      "note": "from is 0xFFFFFFFF",
+      "group_secret": "000102030405060708090a0b0c0d0e0f",
+      "self": 168496141,
+      "frame": "60050e0001020304050607f4be0374b6d9771c2f0c17de0d764609d8a0c9d55e"
+    },
+    {
+      "name": "from-itself",
+      "note": "from is the receiver's own routing id: another member writing as it",
+      "group_secret": "000102030405060708090a0b0c0d0e0f",
+      "self": 168496141,
+      "frame": "60050e0001020304050607f4be0374432d84ee2f0c17de0d24a860f882b64e30"
+    },
+    {
+      "name": "no-from",
+      "note": "three bytes of plaintext, sealed rightly: 26 bytes",
+      "group_secret": "000102030405060708090a0b0c0d0e0f",
+      "self": 168496141,
+      "frame": "60050e0001020304050607f4be037448248b6a97a7470e05727c"
+    }
+  ],
+  "members": [
+    {
+      "name": "two-groups",
+      "note": "frames of each group, of neither, and one a second time",
+      "self": 168496141,
+      "groups": [
+        "000102030405060708090a0b0c0d0e0f",
+        "c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4"
+      ],
+      "deliveries": [
+        {
+          "frame": "60050e0001020304050607f4be03745408b7a32f0c17de0d16b4391091e572fb",
+          "accept": true,
+          "group": 0,
+          "from": 489570112,
+          "content": "68656c6c6f"
+        },
+        {
+          "frame": "60050e0001020304050607d77c24f0ca61d1b6ee579b52421d1a54e1eae8",
+          "accept": true,
+          "group": 1,
+          "from": 489570112,
+          "content": "74776f"
+        },
+        {
+          "frame": "60050e0001020304050607b0b08e9bde621e7779d401c4f98d2854fb8b5a1e78",
+          "accept": false
+        },
+        {
+          "frame": "60050e0001020304050607f4be03745408b7a32f0c17de0d16b4391091e572fb",
+          "accept": false
+        },
+        {
+          "frame": "60050e0001020304050608deb2db8795a90f823e588b408c8c66cc6986b7d9e8",
+          "accept": true,
+          "group": 0,
+          "from": 489570112,
+          "content": "68656c6c6f"
+        }
+      ]
+    },
+    {
+      "name": "again-passed-on",
+      "note": "a copy that came another way, hops and power changed: the same frame",
+      "self": 168496141,
+      "groups": [
+        "000102030405060708090a0b0c0d0e0f"
+      ],
+      "deliveries": [
+        {
+          "frame": "60050e0001020304050607f4be03745408b7a32f0c17de0d16b4391091e572fb",
+          "accept": true,
+          "group": 0,
+          "from": 489570112,
+          "content": "68656c6c6f"
+        },
+        {
+          "frame": "6001030001020304050607f4be03745408b7a32f0c17de0d16b4391091e572fb",
+          "accept": false
+        }
+      ]
+    },
+    {
+      "name": "tags-collide",
+      "note": "two groups whose tags for this nonce are the same four bytes: a frame of each (the secrets are the first 16 bytes of SHA-256(\"tern group\" || u32be(i)) for i = 48640 and 56128)",
+      "self": 168496141,
+      "groups": [
+        "675af7d6af182698c4c6a4c83fdc28f8",
+        "879094637497524cd70d9b6aeeea464f"
+      ],
+      "deliveries": [
+        {
+          "frame": "60050e0000000000000000910b60ecc0cc202a432b0417687bfbc2674a0c7902b5",
+          "accept": true,
+          "group": 1,
+          "from": 489570112,
+          "content": "7365636f6e64"
+        },
+        {
+          "frame": "60050e0000000000000000910b60ece5be38e55cf511dd636dfe90a9d9a02046",
+          "accept": true,
+          "group": 0,
+          "from": 489570112,
+          "content": "6669727374"
+        }
+      ]
+    },
+    {
+      "name": "same-nonce-two-groups",
+      "note": "a nonce accepted for one group does not stand against another's",
+      "self": 168496141,
+      "groups": [
+        "000102030405060708090a0b0c0d0e0f",
+        "c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4"
+      ],
+      "deliveries": [
+        {
+          "frame": "60050e0001020304050607f4be03745408b7a32f0c17de0d16b4391091e572fb",
+          "accept": true,
+          "group": 0,
+          "from": 489570112,
+          "content": "68656c6c6f"
+        },
+        {
+          "frame": "60050e0001020304050607d77c24f0ca61d1b6ee579b52421d1a54e1eae8",
+          "accept": true,
+          "group": 1,
+          "from": 489570112,
+          "content": "74776f"
+        }
+      ]
+    }
+  ],
+  "recent": [
+    {
+      "name": "edge",
+      "note": "65 frames accepted: the first's nonce has been dropped and the second's has not. Accepting the first again drops the second's.",
+      "group_secret": "000102030405060708090a0b0c0d0e0f",
+      "self": 168496141,
+      "from": 489570112,
+      "content": "68656c6c6f",
+      "hops": 5,
+      "power": 14,
+      "first": 1000,
+      "count": 65,
+      "again": [
+        {
+          "nonce": "0000000000000428",
+          "frame": "60050e0000000000000428b7221d65d493a4a13da2a2c92eae8b0c50e075c2c6",
+          "accept": false
+        },
+        {
+          "nonce": "00000000000003e9",
+          "frame": "60050e00000000000003e90b3407dbe27ae764ad08d6cef3e58b4ed719b4ab50",
+          "accept": false
+        },
+        {
+          "nonce": "00000000000003e8",
+          "frame": "60050e00000000000003e88b0e1ef94277a2d4b2bc77736099d714024138919a",
+          "accept": true
+        },
+        {
+          "nonce": "00000000000003e9",
+          "frame": "60050e00000000000003e90b3407dbe27ae764ad08d6cef3e58b4ed719b4ab50",
+          "accept": true
+        }
+      ]
+    }
+  ],
+  "invites": [
+    {
+      "group_secret": "c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4",
+      "name": "",
+      "plaintext": "01c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4"
+    },
+    {
+      "group_secret": "c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4",
+      "name": "hut",
+      "plaintext": "01c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4687574"
+    },
+    {
+      "group_secret": "c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4",
+      "name": "Καλημέρα",
+      "plaintext": "01c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4ce9aceb1cebbceb7cebcceadcf81ceb1"
+    },
+    {
+      "group_secret": "c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4",
+      "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "plaintext": "01c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c478787878787878787878787878787878787878787878787878787878787878"
+    }
+  ],
+  "bad_invites": [
+    {
+      "name": "short",
+      "plaintext": "01c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4"
+    },
+    {
+      "name": "long",
+      "plaintext": "01c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c47878787878787878787878787878787878787878787878787878787878787878"
+    },
+    {
+      "name": "not-utf-8",
+      "plaintext": "01c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4fffe"
+    },
+    {
+      "name": "cut-mid-character",
+      "plaintext": "01c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c3"
+    },
+    {
+      "name": "another-kind",
+      "plaintext": "02c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4687574"
+    },
+    {
+      "name": "empty",
+      "plaintext": ""
+    }
+  ]
+}

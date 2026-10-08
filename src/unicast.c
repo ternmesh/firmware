@@ -130,8 +130,8 @@ void tern_session_wipe(struct tern_session *s) { tern_wipe(s, sizeof *s); }
 
 /* --- Sending ---------------------------------------------------------------------------------- */
 
-int tern_unicast_seal(struct tern_unicast_tx *tx, const uint8_t *plaintext, size_t len,
-                      uint8_t *frame, size_t frame_cap) {
+static int seal(struct tern_unicast_tx *tx, uint8_t hdr, const uint8_t *plaintext, size_t len,
+                uint8_t *frame, size_t frame_cap) {
     if (tx->spent) {
         return TERN_ESPENT;
     }
@@ -143,13 +143,13 @@ int tern_unicast_seal(struct tern_unicast_tx *tx, const uint8_t *plaintext, size
     uint32_t n = tx->next;
     uint8_t mk[TERN_AES128_KEY], nc[TERN_CCM_NONCE], aad[1 + TERN_UNICAST_DTAG];
 
-    frame[0] = TERN_UNICAST_HDR;
+    frame[0] = hdr;
     for (size_t i = 1; i < TERN_UNICAST_HEAD; i++) {
         frame[i] = 0;
     }
     dtag(&tx->tag_key, n, &frame[AT_DTAG]);
 
-    aad[0] = TERN_UNICAST_HDR;
+    aad[0] = hdr;
     copy(&aad[1], &frame[AT_DTAG], TERN_UNICAST_DTAG);
     message_key(tx->epoch_key, n, mk);
     nonce(tx->iv, n, nc);
@@ -169,6 +169,16 @@ int tern_unicast_seal(struct tern_unicast_tx *tx, const uint8_t *plaintext, size
         }
     }
     return TERN_OK;
+}
+
+int tern_unicast_seal(struct tern_unicast_tx *tx, const uint8_t *plaintext, size_t len,
+                      uint8_t *frame, size_t frame_cap) {
+    return seal(tx, TERN_UNICAST_HDR, plaintext, len, frame, frame_cap);
+}
+
+int tern_unicast_seal_node(struct tern_unicast_tx *tx, const uint8_t *plaintext, size_t len,
+                           uint8_t *frame, size_t frame_cap) {
+    return seal(tx, TERN_UNICAST_HDR_NODE, plaintext, len, frame, frame_cap);
 }
 
 /* --- Receiving -------------------------------------------------------------------------------- */
@@ -278,7 +288,7 @@ int tern_unicast_open(struct tern_unicast_rx *const *rx, size_t count, const uin
 
     /* Receiving, step 1. */
     if (len < TERN_UNICAST_OVERHEAD || len > TERN_UNICAST_MAX_FRAME ||
-        frame[0] != TERN_UNICAST_HDR) {
+        (frame[0] != TERN_UNICAST_HDR && frame[0] != TERN_UNICAST_HDR_NODE)) {
         out->verdict = TERN_UNICAST_MALFORMED;
         return TERN_OK;
     }

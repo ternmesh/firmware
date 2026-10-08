@@ -17,6 +17,7 @@ struct accepted_case {
     uint8_t secret[32];
     uint8_t dir;
     uint32_t counter;
+    uint8_t hdr;
     uint8_t hops;
     int8_t power;
     uint32_t next, destination;
@@ -168,7 +169,9 @@ static void accepted_cases(void) {
         /* The sender holds the key of the epoch it is in, and no other. */
         CHECK(memcmp(tx.tx.epoch_key, c->epoch_key, 32) == 0);
 
-        CHECK(tern_unicast_seal(&tx.tx, c->pt, c->pt_len, frame, sizeof frame) == TERN_OK);
+        CHECK((c->hdr == TERN_UNICAST_HDR_NODE ? tern_unicast_seal_node : tern_unicast_seal)(
+                  &tx.tx, c->pt, c->pt_len, frame, sizeof frame) == TERN_OK);
+        CHECK(tern_unicast_for_node(frame) == (c->hdr == TERN_UNICAST_HDR_NODE));
         /* Sealed, the forwarder's bytes are zero. */
         static const uint8_t zeros[TERN_UNICAST_HEAD - 1] = {0};
         CHECK(memcmp(&frame[1], zeros, sizeof zeros) == 0);
@@ -400,9 +403,15 @@ static void open_sorts_what_it_is_shown(void) {
     /* Too short, and an unknown header, are malformed. */
     CHECK(tern_unicast_open(rx, 1, frame, 22, pt, sizeof pt, &r) == TERN_OK);
     CHECK(r.verdict == TERN_UNICAST_MALFORMED);
-    frame[0] ^= 0x01;
+    frame[0] ^= 0x02;
     CHECK(tern_unicast_open(rx, 1, frame, 25, pt, sizeof pt, &r) == TERN_OK);
     CHECK(r.verdict == TERN_UNICAST_MALFORMED);
+    frame[0] ^= 0x02;
+    /* The node flag is a header this code knows, and authenticated: set on a frame sealed
+     * without it, the frame's tag matches and its check does not. */
+    frame[0] ^= 0x01;
+    CHECK(tern_unicast_open(rx, 1, frame, 25, pt, sizeof pt, &r) == TERN_OK);
+    CHECK(r.verdict == TERN_UNICAST_FORGED);
     frame[0] ^= 0x01;
 
     /* A tag in no window is someone else's. */
