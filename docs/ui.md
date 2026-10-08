@@ -107,6 +107,12 @@ message shown is read once a press says someone saw it. The screen goes dark aft
 battery, and lights when a message arrives, showing it. Boards with more buttons or a touch screen
 get more, but nothing should need them.
 
+Two screens come before the pages. At start, the node's name and firmware version, then its
+region and short code, for a few seconds or until a press: what Meshtastic and MeshCore show, and
+the version someone asking for help is first asked for. And if it cannot start, why, and what to
+do about it, on the screen: a board that fails only on its serial console looks dead to anyone
+without a laptop.
+
 A QR code fits: a 32-byte address is 64 characters of upper-case hex, which a version 3 code holds
 in its alphanumeric mode at its lowest error correction (77 characters). That is 29 modules square,
 so 58 pixels at two pixels a module. The Heltec V3 draws it so, dark on light. The code holds the

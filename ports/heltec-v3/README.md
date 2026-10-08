@@ -117,6 +117,15 @@ the protocol's: five pages, moved through by pressing PRG. It is the first versi
 | **Share** | Its address as a QR code holding its link, `HTTPS://TERNMESH.ORG/A/` and the address in base32, which a phone's camera opens as a web page showing the address and its short code; and beside it, its short code. |
 | **This node** | Its short code, twelve digits two people compare to check a phone has the right node; its address, sixty-four hex digits in groups of eight, to read out or copy; relay or leaf, the region and the power; and the firmware's version. |
 
+When it starts, the board shows its name and firmware version at once, then its region and
+short code as it reads them (and **New address made** on the start that gave it its address), for two and a half seconds after it is on the air, or until PRG is
+pressed. If it cannot start, it says so on the screen rather than only on the console: **Did not
+start**, what went wrong, what to do about it, and the version. The reasons are saved data this
+firmware cannot read (erase the flash and flash it again; the board gets a new address), an
+identity that could not be saved, a power more than the region allows into the antenna, no
+random numbers, and a radio that did not answer, with the driver's error number. The screen then
+sleeps as it otherwise would, and PRG lights it again.
+
 A message that arrives turns the screen on and shows it. It counts as read, here and on every
 connected [client](#the-companion-link), once PRG is pressed while it is shown, or when a
 client says so; until then Home counts it as new. Names are the ones a client saved for its

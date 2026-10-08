@@ -90,6 +90,7 @@
 #define TX_MIN_DBM (-9) /* the SX1262's least */
 #define POWER_UNSET INT8_MIN
 #define SCREEN_MS 500  /* how often the bench screen is drawn again */
+#define BOOT_MS 2500   /* how long the boot screen stays up once the board has started */
 #define BATTERY_S 30   /* how often the battery is read */
 #define HOLD_MS 1000   /* how long PRG is held to send a ping */
 #define SCREEN_TRIES 5 /* writes failed in a row before the screen is given up */
@@ -177,7 +178,9 @@ static tern_time screen_due;
 static tern_time screen_retry; /* after a failed write, when to try again */
 static unsigned screen_failures;
 static bool screen_asleep;
-static tern_time screen_woken; /* the last reason to be on: a press, a message, a pairing */
+static struct ui_start start_info; /* what the boot screen says, filled in as the board starts */
+static tern_time boot_until;       /* until when the boot screen stays up, unless PRG is pressed */
+static tern_time screen_woken;     /* the last reason to be on: a press, a message, a pairing */
 static void screen_wake(void);
 
 /* The companion link: the client's half of the conversation is link.c's; this is the port. */
@@ -2328,7 +2331,7 @@ static void poll_screen(void) {
         screen_woken = board_now(); /* the passkey stays up for as long as the pairing takes */
     }
     /* Turned on or off here only, so a write the screen did not take is tried again. */
-    bool on = settings.screen_sleep == 0 ||
+    bool on = settings.screen_sleep == 0 || board_now() < boot_until ||
               board_now() - screen_woken < (tern_time)settings.screen_sleep * 1000000000LL;
     if (on == screen_asleep) {
         if (!board_screen_power(on)) {
@@ -2342,7 +2345,9 @@ static void poll_screen(void) {
     if (screen_asleep) {
         return; /* the picture is brought up to date when it wakes */
     }
-    if (board_now() >= screen_due) {
+    if (pairing_passkey == PAIRING_NONE && board_now() < boot_until) {
+        /* the boot screen, drawn by app_main(), until it has been seen */
+    } else if (board_now() >= screen_due) {
         if (screen_page >= screen_pages()) {
             screen_page = UI_HOME; /* the bench pages were turned off while one was shown */
         }
@@ -2422,7 +2427,8 @@ static void poll_button(void) {
     if (pressed && !was) {
         down = now;
         held = false;
-        waking = have_screen && screen_asleep;
+        waking = have_screen && (screen_asleep || now < boot_until);
+        boot_until = 0;
         if (waking) {
             screen_page = UI_HOME;
             screen_due = 0;
@@ -2452,7 +2458,61 @@ static void poll_button(void) {
     was = pressed;
 }
 
+/* Sends the whole picture now, not a page a turn: for the screens drawn before the loop runs. A
+ * page the screen did not take is left for poll_screen() to send again. */
+static void screen_flush(void) {
+    int page;
+    while (have_screen && (page = display_take(&screen)) >= 0) {
+        if (!board_screen_page(page, screen.px[page])) {
+            screen.dirty |= (uint8_t)(1u << page);
+            return;
+        }
+    }
+}
+
+/* The boot screen, as far as the board knows itself yet. */
+static void show_start(void) {
+    if (have_screen) {
+        ui_boot(&start_info, &screen);
+        screen_flush();
+    }
+}
+
+/* The board cannot start: why, on the screen, for someone with no console to read it. The screen
+ * sleeps as it would have, so a board left like this does not run its battery down lighting it,
+ * and PRG lights it again. Never returns. */
+__attribute__((noreturn)) static void halt(enum ui_fault why, int code) {
+    if (have_screen) {
+        ui_fault(why, &start_info, code, &screen);
+        screen_flush();
+    }
+    tern_time woken = board_now();
+    bool on = true;
+    for (;;) {
+        if (board_button()) {
+            woken = board_now();
+        }
+        bool want = settings.screen_sleep == 0 ||
+                    board_now() - woken < (tern_time)settings.screen_sleep * 1000000000LL;
+        if (have_screen && want != on && board_screen_power(want)) {
+            on = want;
+        }
+        if (on) {
+            screen_flush(); /* a page the screen did not take the first time */
+        }
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+}
+
 void app_main(void) {
+    /* The screen first, so that if the board cannot start it can say why. */
+    start_info.version = CONFIG_TERN_VERSION;
+    have_screen = board_screen_init();
+    if (have_screen) {
+        display_init(&screen);
+    }
+    show_start();
+
     esp_err_t e = nvs_flash_init();
     if (e == ESP_ERR_NVS_NO_FREE_PAGES || e == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         /* Never erased to make room: the saved session is what stops counters repeating, and the
@@ -2460,7 +2520,7 @@ void app_main(void) {
         printf("NVS needs erasing (%s). Not starting: this board's identity and session would "
                "be lost. Erase the flash yourself; the board will then have a new address.\n",
                esp_err_to_name(e));
-        return;
+        halt(UI_FAULT_STORAGE, 0);
     }
     ESP_ERROR_CHECK(e);
     ESP_ERROR_CHECK(uart_driver_install(CONSOLE, 512, 0, 0, NULL, 0));
@@ -2503,7 +2563,7 @@ void app_main(void) {
         printf("%d dBm into a %d dBi antenna is more than %s allows (%d dBm radiated). Not "
                "starting.\n",
                power, CONFIG_TERN_ANTENNA_DBI, region->name, region->max_eirp_dbm);
-        return;
+        halt(UI_FAULT_POWER, 0);
     }
     /* Experiments: a build may move the board off its region's profile. The region's limit on
      * transmitting still applies. */
@@ -2519,6 +2579,8 @@ void app_main(void) {
     cfg.sync_word = CONFIG_TERN_SYNC_WORD;
     off_profile = cfg.freq_hz != region->freq_hz || cfg.mod.sf != region->sf ||
                   cfg.mod.bw_hz != region->bw_hz || cfg.sync_word != TERN_SYNC_WORD;
+    start_info.region = region->name;
+    show_start();
     /* The board's clock starts again at a restart, so the times of what it sent before are
      * lost. All of it is counted as sent now, which can only hold the board back longer. */
     tern_duty_init(&duty, region->duty_ppm, region->duty_window_s);
@@ -2532,8 +2594,11 @@ void app_main(void) {
     had_identity = nvs_has("identity");
     if (!demo_start(&demo, &store, DEMO_HOLD)) {
         printf("could not make this board's identity and save it to flash. Not starting.\n");
-        return;
+        halt(UI_FAULT_IDENTITY, 0);
     }
+    start_info.address = demo.id.address;
+    start_info.new_address = !had_identity;
+    show_start();
 
     /* Routing: its id from the address, the last sequence number used if one was kept, and
      * announces no louder than the build's power. */
@@ -2550,7 +2615,7 @@ void app_main(void) {
     uint64_t seed;
     if (!board_random(NULL, (uint8_t *)&seed, sizeof seed)) {
         printf("no random numbers. Not starting.\n");
-        return;
+        halt(UI_FAULT_RANDOM, 0);
     }
     (void)nvs_load(NULL, "seq", &route_seq_saved, sizeof route_seq_saved);
     tern_route_init(&route, &rc, tern_route_id(demo.id.address), neighbours, NEIGHBOURS,
@@ -2572,7 +2637,7 @@ void app_main(void) {
     }
     if (err != TERN_OK) {
         printf("the radio did not start (error %d)\n", err);
-        return;
+        halt(UI_FAULT_RADIO, err);
     }
 
     struct link_host host = {
@@ -2604,9 +2669,7 @@ void app_main(void) {
     if (!board_battery_init()) {
         printf("the battery's ADC did not start: the battery is reported as unknown\n");
     }
-    have_screen = board_screen_init();
     if (have_screen) {
-        display_init(&screen);
         printf("\nTern demo on the Heltec V3. Type 'status'. PRG shows the screen's next page; "
                "'screen bench on' adds the bench pages.\n");
     } else {
@@ -2616,6 +2679,8 @@ void app_main(void) {
     pairing_passkey = PAIRING_NONE;
     start_bluetooth();
     status();
+    boot_until = board_now() + (tern_time)BOOT_MS * 1000000;
+    screen_wake();
     for (;;) {
         poll_radio();
         if (bench) {
