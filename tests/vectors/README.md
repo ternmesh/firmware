@@ -50,8 +50,8 @@ header for `tests/companion.c`, and its two exchanges alone into one for `tests/
 
 `sharing.json` is a copy of
 [`vectors/sharing.json`](https://github.com/ternmesh/spec/blob/main/vectors/sharing.json), as of
-[ternmesh/spec#19](https://github.com/ternmesh/spec/pull/19) (sharing an address: the text form,
-the `TERN:` link and the short code). `sharing_to_c.py` turns it into a header for
+[ternmesh/spec#21](https://github.com/ternmesh/spec/pull/21) (sharing an address: the text form,
+the `ternmesh.org` link with the address in base32, and the short code). `sharing_to_c.py` turns it into a header for
 `tests/share.c`.
 
 When the specification's vectors change, copy the new file here in the same pull request that

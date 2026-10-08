@@ -26,7 +26,8 @@ def main():
     for c in v["cases"]:
         reads = ", ".join(json.dumps(r) for r in c["reads"])
         lines.append(
-            f"    {{{c_bytes(c['address'])}, {json.dumps(c['text'])}, {json.dumps(c['link'])}, "
+            f"    {{{c_bytes(c['address'])}, {json.dumps(c['text'])}, {json.dumps(c['base32'])}, "
+            f"{json.dumps(c['link'])}, "
             f"{json.dumps(c['short_code'])}, {len(c['reads'])}, {{{reads}}}}},"
         )
     lines.append("};")

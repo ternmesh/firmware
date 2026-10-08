@@ -110,8 +110,9 @@ get more, but nothing should need them.
 A QR code fits: a 32-byte address is 64 characters of upper-case hex, which a version 3 code holds
 in its alphanumeric mode at its lowest error correction (77 characters). That is 29 modules square,
 so 58 pixels at two pixels a module. The Heltec V3 draws it so, dark on light. The code holds the
-address's link, `TERN:` and the hex, 69 characters, as
-[draft/sharing.md](https://github.com/ternmesh/spec/blob/main/draft/sharing.md) defines it.
+address's link, `HTTPS://TERNMESH.ORG/A/` and the address in base32, 75 characters, as
+[draft/sharing.md](https://github.com/ternmesh/spec/blob/main/draft/sharing.md) defines it: a
+web address, because a phone's camera does nothing with a scheme no app has claimed.
 
 ## Addresses and contacts
 

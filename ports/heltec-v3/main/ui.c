@@ -311,8 +311,8 @@ static void share(const struct ui_node *n, struct display *d) {
     static struct qr code;
     char link[TERN_ADDRESS_LINK_LEN + 1], sc[TERN_SHORT_CODE_LEN + 1];
     display_init(&canvas);
-    /* The link (draft/sharing.md): "TERN:" and the digits, which a phone reads as a link and the
-     * console's 'contact' takes as it is. */
+    /* The link (draft/sharing.md): a web address a phone's camera opens, with the address in it in
+     * base32, which the console's 'contact' also takes as it is. */
     tern_address_link(n->address, link);
     tern_short_code(n->address, sc);
     if (!qr_encode(&code, link, QR_MASK_BEST)) {
@@ -329,10 +329,11 @@ static void share(const struct ui_node *n, struct display *d) {
     }
     /* Beside it, the short code, for whoever scanned it to check against their phone's. */
     sc[9] = '\0'; /* "5358 3737" on one line, "3382" on the next */
-    display_text_at(&canvas, 0, QR_WORDS, "Scan for");
-    display_text_at(&canvas, 1, QR_WORDS, "this");
-    display_text_at(&canvas, 2, QR_WORDS, "node's");
-    display_text_at(&canvas, 3, QR_WORDS, "address");
+    /* Where the code leads: a phone with no Tern app opens a page on the site (draft/sharing.md).
+     */
+    display_text_at(&canvas, 1, QR_WORDS, "Scan to");
+    display_text_at(&canvas, 2, QR_WORDS, "open its");
+    display_text_at(&canvas, 3, QR_WORDS, "web page");
     display_text_at(&canvas, 5, QR_WORDS, "Its code:");
     display_text_at(&canvas, 6, QR_WORDS, sc);
     display_text_at(&canvas, 7, QR_WORDS, &sc[10]);

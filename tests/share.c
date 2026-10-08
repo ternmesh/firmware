@@ -10,7 +10,7 @@
 
 struct share_case {
     uint8_t address[TERN_ADDRESS_LEN];
-    const char *text, *link, *short_code;
+    const char *text, *base32, *link, *short_code;
     size_t n_reads;
     const char *reads[8];
 };
@@ -33,6 +33,7 @@ static void each_address_is_written_as_the_specification_writes_it(void) {
         tern_short_code(cases[i].address, code);
         CHECK(strcmp(text, cases[i].text) == 0);
         CHECK(strcmp(link, cases[i].link) == 0);
+        CHECK(strcmp(link + TERN_ADDRESS_LINK_LEN - TERN_ADDRESS_BASE32_LEN, cases[i].base32) == 0);
         if (strcmp(code, cases[i].short_code) != 0) {
             fprintf(stderr, "case %zu: short code \"%s\", expected \"%s\"\n", i, code,
                     cases[i].short_code);

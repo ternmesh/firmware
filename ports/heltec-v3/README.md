@@ -69,7 +69,7 @@ Type commands into the serial terminal:
 | Command | |
 |---|---|
 | `status` | This board's address, the radio settings and its sessions. |
-| `contact <address>` | Make first contact with the board whose address that is: its sixty-four digits, in either case, spaces allowed, or its `TERN:` link, as a phone reads it off the **Share** page. |
+| `contact <address>` | Make first contact with the board whose address that is: its sixty-four digits, in either case, spaces allowed, or its link, `https://ternmesh.org/a/…`, as a phone reads it off the **Share** page. |
 | `accept` | For two minutes, let a board that is not yet a peer make contact. |
 | `peers` | The boards this one has a session with, by number. |
 | `to <number>` | Choose the peer `send` and the button send to. |
@@ -108,7 +108,7 @@ the protocol's: five pages, moved through by pressing PRG. It is the first versi
 | **Home** | The battery's charge, once the board has read it, and the region; in large letters the one thing most worth knowing: how many new messages, or else how many nodes it hears, or that it is still listening for one. Below, what that does not say: how many nodes it hears and can reach by routes, who the last new message is from or how many of its own await delivery, and how much of the region's limit on the air is left. |
 | **Messages** | One message at a time, newest first: who it is from or to, how long ago (once a client has set the board's clock), and its text, wrapped. A message this board sent says what became of it: waiting, and why (no route yet, making contact, the region's limit, the radio busy), then delivered or not delivered. Hold PRG for the one before. |
 | **Air** | The region's limit on time on the air, as a bar: what is counted against it, of how much, over what span, and when the next frame may go. In a region with no limit, how long it has sent for. |
-| **Share** | Its address as a QR code holding its link, `TERN:` and the sixty-four digits **This node** shows, which a phone's camera reads; and beside it, its short code. |
+| **Share** | Its address as a QR code holding its link, `HTTPS://TERNMESH.ORG/A/` and the address in base32, which a phone's camera opens as a web page showing the address and its short code; and beside it, its short code. |
 | **This node** | Its short code, twelve digits two people compare to check a phone has the right node; its address, sixty-four hex digits in groups of eight, to read out or copy; relay or leaf, the region and the power; and the firmware's version. |
 
 A message that arrives turns the screen on and shows it. It counts as read, here and on every
@@ -145,7 +145,10 @@ each revision.
 
 The link and the short code are the specification's
 ([draft/sharing.md](https://github.com/ternmesh/spec/blob/main/draft/sharing.md)), so a phone app
-shows the same code for the address it scanned. `status` on the console prints both. The short
+shows the same code for the address it scanned. `status` on the console prints both. A phone
+with no Tern app opens the link as a page on `ternmesh.org`, which reads the address out of the
+link: so opening it tells the site which address was looked at. The site keeps no logs, but the
+QR code is a way to hand your address to anyone who scans it, the site included. The short
 code catches a mistake, and someone passing off a node of their own as yours without much effort;
 the full address, in the QR code, is the strong check.
 

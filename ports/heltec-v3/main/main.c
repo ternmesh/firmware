@@ -1533,7 +1533,7 @@ static void command(char *line) {
         uint8_t peer[TERN_ADDRESS_LEN], frame[TERN_CONTACT_MAX_FRAME];
         size_t len;
         if (!tern_address_read(&line[8], peer)) {
-            printf("'%s' is not an address: sixty-four hex digits, or a TERN: link, as 'status' "
+            printf("'%s' is not an address: sixty-four hex digits, or its link, as 'status' "
                    "shows\n",
                    &line[8]);
             return;

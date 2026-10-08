@@ -9,12 +9,14 @@
 /* Sharing an address off the air: specification draft 0, draft/sharing.md in ternmesh/spec.
  *
  * An address is written as sixty-four upper-case hex digits, the text form; as a link, and in a QR
- * code, as "TERN:" and the text form; and checked by two people with a short code, twelve digits
- * made from a hash of it, the same in every implementation. None of these goes over the air. */
+ * code, as "HTTPS://TERNMESH.ORG/A/" and its 32 bytes in base32 (RFC 4648), which every phone's
+ * camera opens; and checked by two people with a short code, twelve digits made from a hash of
+ * it, the same in every implementation. None of these goes over the air. */
 
-#define TERN_ADDRESS_TEXT_LEN (2 * TERN_ADDRESS_LEN)      /* 64 */
-#define TERN_ADDRESS_LINK_LEN (5 + TERN_ADDRESS_TEXT_LEN) /* 69 */
-#define TERN_SHORT_CODE_LEN 14                            /* "5358 3737 3382" */
+#define TERN_ADDRESS_TEXT_LEN (2 * TERN_ADDRESS_LEN) /* 64 */
+#define TERN_ADDRESS_BASE32_LEN 52
+#define TERN_ADDRESS_LINK_LEN (23 + TERN_ADDRESS_BASE32_LEN) /* 75 */
+#define TERN_SHORT_CODE_LEN 14                               /* "5358 3737 3382" */
 
 /* The text form, NUL-terminated. */
 void tern_address_text(const uint8_t address[TERN_ADDRESS_LEN],
@@ -32,10 +34,10 @@ void tern_short_code(const uint8_t address[TERN_ADDRESS_LEN], char out[TERN_SHOR
  * groups of four. tern_short_code() is this, of the address's value. */
 void tern_short_code_text(uint64_t value, char out[TERN_SHORT_CODE_LEN + 1]);
 
-/* Reads an address as a person gives one: the link, its scheme in any case, or the text form
- * alone; the digits in either case, with spaces anywhere among them. False, writing nothing, for
- * anything else. Whether the address is valid is not checked here: a caller that keeps it as a
- * contact checks that (tern_address_valid()). */
+/* Reads an address as a person gives one: the link, its scheme, host, path and base32 each in
+ * either case, or the text form, its digits in either case with spaces anywhere among them. False,
+ * writing nothing, for anything else. Whether the address is valid is not checked here: a caller
+ * that keeps it as a contact checks that (tern_address_valid()). */
 bool tern_address_read(const char *text, uint8_t address[TERN_ADDRESS_LEN]);
 
 #endif
