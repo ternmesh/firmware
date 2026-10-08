@@ -1604,20 +1604,8 @@ static void screen_failed(void) {
     }
 }
 
-/* Something to see: the screen is turned on, if it slept, and stays on for screen_sleep more. */
-static void screen_wake(void) {
-    screen_woken = board_now();
-    if (!have_screen || !screen_asleep) {
-        return;
-    }
-    if (board_screen_power(true)) {
-        screen_asleep = false;
-        screen_failures = 0;
-        screen_due = 0;
-    } else {
-        screen_failed();
-    }
-}
+/* Something to see: the screen is on, or turned on by poll_screen(), for screen_sleep more. */
+static void screen_wake(void) { screen_woken = board_now(); }
 
 /* Draws the page shown every SCREEN_MS, and sends at most one changed page of the picture each
  * turn of the loop, about 3 ms, so the radio is never kept waiting long. A write that fails can
@@ -1630,13 +1618,17 @@ static void poll_screen(void) {
     if (pairing_passkey != PAIRING_NONE) {
         screen_woken = board_now(); /* the passkey stays up for as long as the pairing takes */
     }
-    if (!screen_asleep && settings.screen_sleep != 0 &&
-        board_now() - screen_woken >= (tern_time)settings.screen_sleep * 1000000000LL) {
-        if (!board_screen_power(false)) {
+    /* Turned on or off here only, so a write the screen did not take is tried again. */
+    bool on = settings.screen_sleep == 0 ||
+              board_now() - screen_woken < (tern_time)settings.screen_sleep * 1000000000LL;
+    if (on == screen_asleep) {
+        if (!board_screen_power(on)) {
             screen_failed();
             return;
         }
-        screen_asleep = true;
+        screen_asleep = !on;
+        screen_failures = 0;
+        screen_due = 0;
     }
     if (screen_asleep) {
         return; /* the picture is brought up to date when it wakes */
