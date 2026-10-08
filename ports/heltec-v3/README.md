@@ -263,6 +263,8 @@ seconds to stay connected, and if it is cut off anyway, it says `HELLO` again an
 What the board offers is what the demo is:
 
 * **Messages** are the ones sent and received since it started, up to 32; they are not saved.
+  Their ids are: a message's id is greater than every one before it, across restarts too, so a
+  client that asks for what is new since the last id it holds is never answered with nothing.
   Contacts, up to 16, are saved to flash.
 * **A session with each of eight nodes.** A message to a node the board has no session with
   starts first contact with it. Its state says it is waiting for a session meanwhile, and "not

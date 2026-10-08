@@ -81,6 +81,7 @@
 #define SCREEN_TRIES 5 /* writes failed in a row before the screen is given up */
 #define FIRMWARE "tern 0.0.0 heltec-v3"
 #define SETTINGS_MAGIC 0x54530001u
+#define IDS_EARLIER 0x10000u /* past the message ids of a build that did not keep them */
 #define PASSKEY_RANDOM 0xFFFFFFFFu
 
 static struct tern_sx126x sx;
@@ -214,6 +215,20 @@ static bool nvs_save(void *ctx, const char *key, const void *buf, size_t len) {
     nvs_close(h);
     return ok;
 }
+
+static bool nvs_has(const char *key) {
+    nvs_handle_t h;
+    size_t len = 0;
+    if (nvs_open("tern", NVS_READONLY, &h) != ESP_OK) {
+        return false;
+    }
+    bool ok = nvs_get_blob(h, key, NULL, &len) == ESP_OK;
+    nvs_close(h);
+    return ok;
+}
+
+/* Whether the board had an identity when it started, or made one (link_load_ids()). */
+static bool had_identity;
 
 /* The ESP32's generator, which is a true one while its entropy source is on (app_main()). */
 static bool board_random(void *ctx, uint8_t *buf, size_t len) {
@@ -1184,6 +1199,24 @@ static bool link_save(void *ctx, const void *buf, size_t len) {
     return nvs_save(ctx, "contacts", buf, len);
 }
 
+/* A board that had an identity before it kept its message ids ran a build that counted them from
+ * 1 at every start. Clients may hold ids of that address, so it goes on from past any such a
+ * build is likely to have given, and not from 1 again. */
+static bool link_load_ids(void *ctx, uint32_t *next) {
+    if (nvs_load(ctx, "ids", next, sizeof *next)) {
+        return true;
+    }
+    if (had_identity) {
+        *next = IDS_EARLIER;
+        return true;
+    }
+    return false;
+}
+
+static bool link_save_ids(void *ctx, uint32_t next) {
+    return nvs_save(ctx, "ids", &next, sizeof next);
+}
+
 /* --- The console ---------------------------------------------------------------------------- */
 
 /* Sixty-four hex digits. */
@@ -1864,6 +1897,7 @@ void app_main(void) {
     tern_time retry = 2000000000LL + 4 * tern_lora_airtime(&cfg.mod, TERN_CONTACT_MAX_FRAME);
     struct demo_store store = {
         .ctx = NULL, .load = nvs_load, .save = nvs_save, .random = board_random};
+    had_identity = nvs_has("identity");
     if (!demo_start(&demo, &store, retry)) {
         printf("could not make this board's identity and save it to flash. Not starting.\n");
         return;
@@ -1917,6 +1951,8 @@ void app_main(void) {
         .why = link_why,
         .load = link_load,
         .save = link_save,
+        .load_ids = link_load_ids,
+        .save_ids = link_save_ids,
     };
     link_init(&companion, &host);
     link_open(&companion, LINK_SERIAL, LINK_LAPSE, 0);

@@ -126,6 +126,18 @@ static void text_in(void *ctx, uint8_t byte) {
     (void)byte;
 }
 
+static bool load_ids(void *ctx, uint32_t *next) {
+    (void)ctx;
+    (void)next;
+    return false;
+}
+
+static bool save_ids(void *ctx, uint32_t next) {
+    (void)ctx;
+    (void)next;
+    return true;
+}
+
 int main(int argc, char **argv) {
     master = posix_openpt(O_RDWR | O_NOCTTY);
     if (master < 0 || grantpt(master) != 0 || unlockpt(master) != 0) {
@@ -155,7 +167,9 @@ int main(int argc, char **argv) {
                              .session = session,
                              .why = why,
                              .load = load,
-                             .save = save};
+                             .save = save,
+                             .load_ids = load_ids,
+                             .save_ids = save_ids};
     link_init(&node, &host);
     link_open(&node, LINK_SERIAL, lapse, 0);
     struct tern_companion_parser parser;

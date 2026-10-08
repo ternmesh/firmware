@@ -171,8 +171,24 @@ void link_init(struct link *l, const struct link_host *host) {
     memset(l, 0, sizeof *l);
     l->host = *host;
     l->next_id = 1;
+    uint32_t saved = 0;
+    if (l->host.load_ids(l->host.ctx, &saved) && saved > 1) {
+        l->next_id = saved;
+        l->ids_saved = saved;
+    }
     if (!l->host.load(l->host.ctx, l->contacts, sizeof l->contacts)) {
         memset(l->contacts, 0, sizeof l->contacts);
+    }
+}
+
+/* Sets the next message id aside in flash, if it is not yet. Done before the id is told to
+ * anyone, so that a restart at any moment after cannot give it again. */
+static void reserve_id(struct link *l) {
+    if (l->next_id >= l->ids_saved) {
+        uint32_t to = l->next_id + LINK_ID_STEP;
+        if (l->host.save_ids(l->host.ctx, to)) {
+            l->ids_saved = to;
+        }
     }
 }
 
@@ -183,6 +199,7 @@ uint32_t link_add(struct link *l, const uint8_t address[TERN_ADDRESS_LEN], uint3
     if (x == NULL) {
         return 0;
     }
+    reserve_id(l);
     *x = (struct link_message){
         .used = true, .id = l->next_id++, .time = time, .state = state, .reason = reason};
     memcpy(x->address, address, TERN_ADDRESS_LEN);
@@ -320,7 +337,9 @@ static void send_request(struct link *l, const struct tern_companion_msg *q) {
         error(l, q->seq, TERN_C_ERR_FULL);
         return;
     }
-    /* Answered before the news of it, as the draft's exchange has it. */
+    /* Answered before the news of it, as the draft's exchange has it, and the id set aside
+     * before the answer names it. */
+    reserve_id(l);
     struct tern_companion_msg a = {.type = TERN_C_QUEUED, .seq = q->seq, .id = l->next_id};
     send_msg(l, l->asker, &a);
     uint32_t id = link_add(l, q->address, l->view.time, TERN_C_WAITING,

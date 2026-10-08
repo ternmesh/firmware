@@ -40,6 +40,9 @@ struct board {
     bool save_fails;
     uint8_t saved[sizeof(struct link_contact) * LINK_CONTACTS];
     bool have_saved;
+    uint32_t ids; /* the message ids set aside, 0 if none were */
+    unsigned id_saves;
+    unsigned id_saves_at_queued; /* how many there had been when QUEUED was last sent */
     uint8_t out[64][TERN_COMPANION_MAX_FRAME];
     size_t out_len[64];
     unsigned out_conn[64];
@@ -48,6 +51,9 @@ struct board {
 
 static void board_out(void *ctx, unsigned conn, const uint8_t *frame, size_t len) {
     struct board *b = ctx;
+    if (len > 0 && frame[0] == TERN_C_QUEUED) {
+        b->id_saves_at_queued = b->id_saves;
+    }
     if (b->n_out < COUNT(b->out)) {
         memcpy(b->out[b->n_out], frame, len);
         b->out_conn[b->n_out] = conn;
@@ -100,6 +106,22 @@ static bool board_save(void *ctx, const void *buf, size_t len) {
     return true;
 }
 
+static bool board_load_ids(void *ctx, uint32_t *next) {
+    struct board *b = ctx;
+    *next = b->ids;
+    return b->ids != 0;
+}
+
+static bool board_save_ids(void *ctx, uint32_t next) {
+    struct board *b = ctx;
+    if (b->save_fails) {
+        return false;
+    }
+    b->ids = next;
+    b->id_saves++;
+    return true;
+}
+
 static struct board board;
 static struct link companion;
 
@@ -132,9 +154,22 @@ static void start(void) {
         .why = board_why,
         .load = board_load,
         .save = board_save,
+        .load_ids = board_load_ids,
+        .save_ids = board_save_ids,
     };
     link_init(&companion, &host);
     link_open(&companion, LINK_SERIAL, 0, 0);
+}
+
+/* The board restarts: the link begins again with what the board kept. */
+static void restart(void) {
+    struct link_host host = companion.host;
+    link_init(&companion, &host);
+    link_open(&companion, LINK_SERIAL, 0, 0);
+}
+
+static uint32_t add(void) {
+    return link_add(&companion, bob, 1789999000, TERN_C_RECEIVED, 0, (const uint8_t *)"x", 1);
 }
 
 static void request_at(tern_time now, const struct tern_companion_msg *q) {
@@ -631,6 +666,56 @@ static void the_oldest_finished_message_makes_room(void) {
     CHECK_EQ_I64(sent(LINK_MESSAGES).id, next);
 }
 
+static void a_restart_gives_no_id_again(void) {
+    start();
+    CHECK_EQ_U64(add(), 1);
+    CHECK_EQ_U64(add(), 2);
+    CHECK_EQ_U64(board.id_saves, 1);
+
+    /* The ids set aside and not used are skipped. */
+    restart();
+    CHECK_EQ_U64(add(), 1 + LINK_ID_STEP);
+    CHECK_EQ_U64(board.id_saves, 2);
+
+    /* One write sets aside LINK_ID_STEP of them, and the next is when they run out. */
+    uint32_t last = 0;
+    for (unsigned i = 1; i < LINK_ID_STEP; i++) {
+        last = add();
+    }
+    CHECK_EQ_U64(last, 2 * LINK_ID_STEP);
+    CHECK_EQ_U64(board.id_saves, 2);
+    CHECK_EQ_U64(add(), 2 * LINK_ID_STEP + 1);
+    CHECK_EQ_U64(board.id_saves, 3);
+
+    /* A restart with no message since costs no write, and none of the ids. */
+    restart();
+    restart();
+    CHECK_EQ_U64(board.id_saves, 3);
+    CHECK_EQ_U64(add(), 3 * LINK_ID_STEP + 1);
+
+    /* A write that fails does not stop the message, and is tried again with the next. */
+    restart();
+    board.save_fails = true;
+    uint32_t a = add();
+    CHECK_EQ_U64(a, 4 * LINK_ID_STEP + 1);
+    board.save_fails = false;
+    CHECK_EQ_U64(add(), a + 1);
+    restart();
+    CHECK_EQ_U64(add(), a + 1 + LINK_ID_STEP);
+
+    /* An id a client is told in QUEUED is set aside before it is told: a restart just after the
+     * answer does not give it to another message. */
+    start();
+    hello();
+    struct tern_companion_msg q = send_to(bob, 0xC0FFEE02, "On the ridge by six");
+    request(&q);
+    CHECK_EQ_I64(sent(0).type, TERN_C_QUEUED);
+    CHECK_EQ_U64(board.id_saves_at_queued, 1);
+    CHECK_EQ_U64(board.id_saves, 1);
+    restart();
+    CHECK(add() > sent(0).id);
+}
+
 int main(void) {
     RUN(the_exchange_is_followed_frame_for_frame);
     RUN(nothing_but_hello_before_hello);
@@ -649,5 +734,6 @@ int main(void) {
     RUN(the_oldest_finished_message_makes_room);
     RUN(a_silent_serial_client_is_taken_for_gone);
     RUN(two_clients_drive_one_node);
+    RUN(a_restart_gives_no_id_again);
     return CHECK_DONE();
 }
