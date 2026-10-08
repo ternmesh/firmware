@@ -73,6 +73,7 @@ struct tern_forward_config tern_forward_defaults(void) {
         .retries = 3,
         .step_db = 3,
         .jitter = 2,
+        .retry_jitter = 4,
         .ack_factor = 4,
         .hop_wait = TERN_S(4),
         .ack_wait = TERN_S(5),
@@ -110,6 +111,13 @@ static tern_time airtime(const struct tern_forward *f, size_t len) {
  * would otherwise answer it at the same instant. */
 static tern_time jitter(struct tern_forward *f, size_t len) {
     return (tern_time)rand_below(f, (uint64_t)f->config.jitter * (uint64_t)airtime(f, len) + 1);
+}
+
+/* How long a frame sent again waits. What lost it the first time may have been another node's
+ * frame, sent at the same moment and due again at the same moment as this one. */
+static tern_time again(struct tern_forward *f, size_t len) {
+    return (tern_time)rand_below(f,
+                                 (uint64_t)f->config.retry_jitter * (uint64_t)airtime(f, len) + 1);
 }
 
 static uint32_t dest_of(const struct tern_forward_slot *s) { return get32(s->frame + AT_DEST); }
@@ -359,7 +367,7 @@ static void try_again(struct tern_forward *f, struct tern_forward_slot *s, tern_
             s->unheard = next == s->next ? s->unheard : 0;
             s->next = next;
             s->state = TERN_FORWARD_WAITING;
-            s->at = now;
+            s->at = now + again(f, s->len);
         } else {
             tern_route_want(f->route, now, dest_of(s));
             s->state = TERN_FORWARD_HELD;
@@ -388,7 +396,7 @@ size_t tern_forward_poll(struct tern_forward *f, tern_time now,
                 s->tries++;
                 s->again = true;
                 s->state = TERN_FORWARD_WAITING;
-                s->at = now;
+                s->at = now + again(f, s->len);
                 f->counts.sent_again++;
             } else {
                 give_up(f, s, now);

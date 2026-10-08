@@ -78,13 +78,14 @@ bool tern_forward_ends(const uint8_t *sent, size_t sent_len, const uint8_t *hear
 int8_t tern_forward_power(int8_t neighbour, int8_t back, uint8_t tries, uint8_t step, int8_t full);
 
 struct tern_forward_config {
-    uint8_t hop_max;     /* nodes a frame may be passed on by */
-    uint8_t hop_retries; /* times a hop is sent again */
-    uint8_t salvage;     /* other neighbours a frame given up on is tried at */
-    uint8_t retries;     /* times a node's own message is sent again from the start */
-    uint8_t step_db;     /* louder, each time a hop is sent again */
-    uint8_t jitter;      /* airtimes a frame sent in answer to one received waits, at most */
-    uint8_t ack_factor;  /* route metrics more the acknowledgement is waited for */
+    uint8_t hop_max;      /* nodes a frame may be passed on by */
+    uint8_t hop_retries;  /* times a hop is sent again */
+    uint8_t salvage;      /* other neighbours a frame given up on is tried at */
+    uint8_t retries;      /* times a node's own message is sent again from the start */
+    uint8_t step_db;      /* louder, each time a hop is sent again */
+    uint8_t jitter;       /* airtimes a frame sent in answer to one received waits, at most */
+    uint8_t retry_jitter; /* airtimes a frame sent again waits, at most */
+    uint8_t ack_factor;   /* route metrics more the acknowledgement is waited for */
     tern_time hop_wait;
     tern_time ack_wait;
 };
