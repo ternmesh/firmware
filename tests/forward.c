@@ -354,6 +354,47 @@ static void a_hop_unheard_is_sent_again_louder_and_then_given_up(void) {
     CHECK(net.node[0].sent[TERN_FORWARD_OWN] >= 4 && net.node[0].sent[TERN_FORWARD_OWN] <= 12);
 }
 
+/* How long node 0's forwarder, started again with this seed and jitter, holds a frame back once
+ * its hop's wait has passed with nothing heard. */
+static tern_time held_back(uint64_t seed, uint8_t retry_jitter, size_t *len) {
+    struct node *x = &net.node[0];
+    struct tern_forward_config fc = tern_forward_defaults();
+    uint8_t frame[TERN_FORWARD_FRAME_MAX], handle;
+    enum tern_forward_kind kind;
+    int8_t dbm;
+    fc.retry_jitter = retry_jitter;
+    tern_forward_init(&x->f, &fc, &x->r, x->slot, SLOTS, seed);
+    message(0, 3, 0x44);
+    *len = tern_forward_poll(&x->f, net.now, frame, &dbm, &kind, &handle);
+    CHECK(*len != 0);
+    tern_forward_sent(&x->f, net.now, handle);
+    tern_time waited = tern_forward_due(&x->f); /* when the hop is given up waiting on */
+    CHECK(waited > net.now);
+    if (tern_forward_poll(&x->f, waited, frame, &dbm, &kind, &handle) != 0) {
+        return 0; /* sent again at once */
+    }
+    return tern_forward_due(&x->f) - waited;
+}
+
+/* The specification's RETRY_JITTER: two nodes whose frames met wait as long as each other, and
+ * would meet again at every try if each did not then wait a time of its own. */
+static void a_frame_sent_again_waits_a_time_of_its_own(void) {
+    tern_time first = -1;
+    bool differ = false;
+    size_t len;
+    line();
+    for (uint64_t seed = 1; seed <= 32; seed++) {
+        tern_time held = held_back(seed, tern_forward_defaults().retry_jitter, &len);
+        tern_time air = tern_lora_airtime(&net.lora, (uint32_t)len);
+        CHECK(held >= 0 && held <= 4 * air);
+        differ = differ || (first >= 0 && held != first);
+        first = held;
+        CHECK_EQ_I64(held_back(seed, 0, &len), 0);
+    }
+    CHECK(differ);
+    CHECK_EQ_I64(tern_forward_defaults().retry_jitter, 4);
+}
+
 static void a_message_unacknowledged_is_sent_again_and_every_copy_arrives(void) {
     line();
     net.node[3].silent = true;
@@ -454,6 +495,7 @@ int main(void) {
     RUN(a_message_goes_along_the_line_and_is_acknowledged);
     RUN(a_leaf_passes_nothing_on);
     RUN(a_hop_unheard_is_sent_again_louder_and_then_given_up);
+    RUN(a_frame_sent_again_waits_a_time_of_its_own);
     RUN(a_message_unacknowledged_is_sent_again_and_every_copy_arrives);
     RUN(a_frame_given_up_on_goes_another_way);
     RUN(a_frame_already_being_passed_on_is_not_taken_twice);
