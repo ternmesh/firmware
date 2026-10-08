@@ -22,6 +22,7 @@ enum field {
     REASON,   /* u8 */
     PERCENT,  /* u8 */
     WHY,      /* u8 */
+    NEWS,     /* u8 */
     POWER,    /* i8 */
     SNR,      /* i8 */
     HEARD,    /* u16 */
@@ -72,7 +73,7 @@ static const struct layout layouts[] = {
     {TERN_C_OK, {END}},
     {TERN_C_ERROR, {CODE}},
     {TERN_C_INFO, {VERSION, FIRMWARE}},
-    {TERN_C_SYNCED, {END}},
+    {TERN_C_SYNCED, {NEWS}},
     {TERN_C_QUEUED, {ID}},
     {TERN_C_MADE, {GROUP}},
     {TERN_C_SELF, {ADDRESS, ROLE, REGION, POWER, TIME}},
@@ -90,6 +91,24 @@ static const struct layout layouts[] = {
     {TERN_C_GROUP_MESSAGE, {ID, GROUP, FROM, TIME, FLAGS, STATE, REASON, WAIT16, TEXT}},
     {TERN_C_INVITE, {ID, ADDRESS, GROUP, TIME, FLAGS, STATE, REASON, WAIT16, NAME}},
 };
+
+/* A later version adds fields only at the end of a frame: from field `from` on, a type's fields
+ * are `since`'s, and an earlier version's frame stops before them. */
+static const struct {
+    uint8_t type, from, since;
+} later_fields[] = {
+    {TERN_C_SYNCED, 0, 3},
+};
+
+static bool added_later(uint8_t type, size_t i, uint8_t version) {
+    for (size_t k = 0; k < sizeof later_fields / sizeof later_fields[0]; k++) {
+        if (later_fields[k].type == type && i >= later_fields[k].from &&
+            version < later_fields[k].since) {
+            return true;
+        }
+    }
+    return false;
+}
 
 /* SET's value, by setting. */
 static enum field setting_value(uint8_t setting) {
@@ -181,6 +200,8 @@ static void *member(struct tern_companion_msg *m, enum field f) {
         return &m->percent;
     case WHY:
         return &m->why;
+    case NEWS:
+        return &m->news;
     case POWER:
         return &m->power;
     case SNR:
@@ -257,12 +278,18 @@ static void set_member(struct tern_companion_msg *m, enum field f, uint32_t v) {
     }
 }
 
-/* The next field of a frame: from its layout, then, after SET's setting, its value. */
-static enum field next_field(const struct layout *l, size_t i, const struct tern_companion_msg *m) {
+/* The next field of a frame as `version` has it: from its layout, then, after SET's setting, its
+ * value. */
+static enum field next_field(const struct layout *l, size_t i, const struct tern_companion_msg *m,
+                             uint8_t version) {
+    if (added_later(l->type, i, version)) {
+        return END;
+    }
     if (i < FIELDS_MAX && l->fields[i] != END) {
         return (enum field)l->fields[i];
     }
-    if (l->type == TERN_C_SET && (i == FIELDS_MAX || l->fields[i] == END) && i == 1) {
+    /* SET's layout is its setting alone: the field after it is that setting's value. */
+    if (l->type == TERN_C_SET && i == 1) {
         return setting_value(m->setting);
     }
     return END;
@@ -270,6 +297,11 @@ static enum field next_field(const struct layout *l, size_t i, const struct tern
 
 enum tern_companion_read tern_companion_read(struct tern_companion_msg *m, const uint8_t *frame,
                                              size_t len) {
+    return tern_companion_read_as(m, frame, len, TERN_COMPANION_VERSION);
+}
+
+enum tern_companion_read tern_companion_read_as(struct tern_companion_msg *m, const uint8_t *frame,
+                                                size_t len, uint8_t version) {
     if (len < 2) {
         return TERN_C_READ_SHORT;
     }
@@ -277,14 +309,15 @@ enum tern_companion_read tern_companion_read(struct tern_companion_msg *m, const
         return TERN_C_READ_MALFORMED;
     }
     const struct layout *l = layout_of(frame[0]);
-    if (l == NULL) {
+    /* A type the version spoken does not have is unknown before its fields are looked at. */
+    if (l == NULL || tern_companion_since(frame[0]) > version) {
         return TERN_C_READ_UNKNOWN;
     }
     m->type = frame[0];
     m->seq = frame[1];
     size_t at = 2;
     for (size_t i = 0;; i++) {
-        enum field f = next_field(l, i, m);
+        enum field f = next_field(l, i, m, version);
         if (f == END) {
             if (l->type == TERN_C_SET && i == 1) {
                 return TERN_C_READ_UNKNOWN; /* a setting this version does not define */
@@ -324,15 +357,19 @@ enum tern_companion_read tern_companion_read(struct tern_companion_msg *m, const
 }
 
 size_t tern_companion_write(const struct tern_companion_msg *m, uint8_t *out) {
+    return tern_companion_write_as(m, out, TERN_COMPANION_VERSION);
+}
+
+size_t tern_companion_write_as(const struct tern_companion_msg *m, uint8_t *out, uint8_t version) {
     const struct layout *l = layout_of(m->type);
-    if (l == NULL) {
+    if (l == NULL || tern_companion_since(m->type) > version) {
         return 0;
     }
     out[0] = m->type;
     out[1] = m->seq;
     size_t at = 2;
     for (size_t i = 0;; i++) {
-        enum field f = next_field(l, i, m);
+        enum field f = next_field(l, i, m, version);
         if (f == END) {
             return l->type == TERN_C_SET && i == 1 ? 0 : at;
         }

@@ -8,7 +8,7 @@
 #include "tern/address.h"
 #include "tern/time.h"
 
-/* The companion protocol: version 2 of draft/companion.md in ternmesh/spec.
+/* The companion protocol: version 3 of draft/companion.md in ternmesh/spec.
  *
  * The link between a node and the client driving it, a phone or a computer, over USB serial, TCP
  * or Bluetooth LE. It never goes over LoRa. This is the part every node and every client needs:
@@ -16,7 +16,7 @@
  * text console. What a node answers and when is the node's business, not the core's (on the
  * Heltec V3, ports/heltec-v3/main/link.c). */
 
-#define TERN_COMPANION_VERSION 2
+#define TERN_COMPANION_VERSION 3
 #define TERN_COMPANION_MAX_FRAME 180
 #define TERN_COMPANION_STREAM_MAX (TERN_COMPANION_MAX_FRAME + 6) /* magic, length, CRC */
 #define TERN_COMPANION_NAME_MAX 31
@@ -48,7 +48,7 @@ enum tern_companion_type {
     TERN_C_OK = 0x40,
     TERN_C_ERROR = 0x41,
     TERN_C_INFO = 0x42,
-    TERN_C_SYNCED = 0x43,
+    TERN_C_SYNCED = 0x43, /* its news count, version 3 */
     TERN_C_QUEUED = 0x44,
     TERN_C_MADE = 0x45, /* version 2 */
     /* News, node to client. */
@@ -123,14 +123,14 @@ enum tern_companion_why {
 #define TERN_C_EXTERNAL_POWER 0x02 /* POWER flags */
 
 /* Any frame, as its fields. Each type uses the members its table in the draft names, under the
- * same names, with three folded together: the one string a frame carries (text, name, firmware,
- * region, or SET's region) is `text`; the one address (to, address, contact) is `address`; and
- * `wait` is MESSAGE's and STATE's u16 or AIRTIME's u32. SET's value is `text`, `role`, `power` or
- * `passkey` as `setting` says. Members a type does not use are ignored when writing and left as
- * they were when reading. */
+ * same names (SYNCED's news is `news`), with three folded together: the one string a frame carries
+ * (text, name, firmware, region, or SET's region) is `text`; the one address (to, address, contact)
+ * is `address`; and `wait` is MESSAGE's and STATE's u16 or AIRTIME's u32. SET's value is `text`,
+ * `role`, `power` or `passkey` as `setting` says. Members a type does not use are ignored when
+ * writing and left as they were when reading. */
 struct tern_companion_msg {
     uint8_t type, seq;
-    uint8_t version, setting, code, role, session, flags, state, reason, percent, why;
+    uint8_t version, setting, code, role, session, flags, state, reason, percent, why, news;
     int8_t power, snr;
     uint16_t heard, millivolts;
     uint32_t after, time, ref, through, id, routing_id, period, allowed, used, wait, passkey;
@@ -151,14 +151,25 @@ enum tern_companion_read {
 /* A group's id, from its secret (tern/group.h): what a client knows the group by. */
 void tern_companion_group_id(const uint8_t secret[16], uint8_t id[TERN_COMPANION_GROUP]);
 
-/* Reads a frame's fields. Bytes after the last field this version defines are ignored. */
+/* Reads a frame's fields as this version has them. Bytes after the last field this version
+ * defines are ignored. */
 enum tern_companion_read tern_companion_read(struct tern_companion_msg *m, const uint8_t *frame,
                                              size_t len);
 
-/* Writes a frame from its fields into out (TERN_COMPANION_MAX_FRAME bytes). Returns its length,
- * or 0 if the type is not one this version defines or a string is too long for its field. The
- * strings are not checked for UTF-8: a writer is trusted to give text. */
+/* Reads a frame as `version` has it, the version both ends speak: a type a later version added
+ * is unknown, however its fields read, and a field a later version added is not there. A node of
+ * version 2's SYNCED is two bytes. */
+enum tern_companion_read tern_companion_read_as(struct tern_companion_msg *m, const uint8_t *frame,
+                                                size_t len, uint8_t version);
+
+/* Writes a frame from its fields into out (TERN_COMPANION_MAX_FRAME bytes), as this version has
+ * it. Returns its length, or 0 if the type is not one this version defines or a string is too
+ * long for its field. The strings are not checked for UTF-8: a writer is trusted to give text. */
 size_t tern_companion_write(const struct tern_companion_msg *m, uint8_t *out);
+
+/* Writes a frame as `version` has it: without the fields a later version added, and not at all
+ * (0) if a later version added the type. */
+size_t tern_companion_write_as(const struct tern_companion_msg *m, uint8_t *out, uint8_t version);
 
 /* Whether len bytes are UTF-8 with no overlong form, surrogate, or code point past U+10FFFF. */
 bool tern_companion_utf8(const uint8_t *text, size_t len);

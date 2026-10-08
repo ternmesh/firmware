@@ -6,9 +6,10 @@
 
 /* --- Frames out ----------------------------------------------------------------------------- */
 
+/* Each client gets a frame as its version has it: a SYNCED to one of version 2 is two bytes. */
 static void send_msg(struct link *l, struct link_conn *c, const struct tern_companion_msg *m) {
     uint8_t frame[TERN_COMPANION_MAX_FRAME];
-    size_t len = tern_companion_write(m, frame);
+    size_t len = tern_companion_write_as(m, frame, c->version);
     if (len != 0) {
         l->host.out(l->host.ctx, (unsigned)(c - l->conns), frame, len);
     }
@@ -485,7 +486,9 @@ static void sync(struct link *l, const struct tern_companion_msg *q, tern_time n
     tell(l, c, &c->power);
     c->look_at = c->air_at = c->power_at = now;
     c->synced = true;
-    answer(l, TERN_C_SYNCED, q->seq);
+    /* With the count as it stands, so that a client that missed the last of the news knows. */
+    struct tern_companion_msg a = {.type = TERN_C_SYNCED, .seq = q->seq, .news = c->news};
+    send_msg(l, c, &a);
 }
 
 /* SEND and SEND_GROUP: a message to an address or to a group, once for each ref. */

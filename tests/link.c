@@ -376,6 +376,12 @@ static void a_client_before_groups_is_not_told_of_them(void) {
            bob_writes_and_invites);
 }
 
+/* A client of version 2 is answered SYNCED as version 2 has it, without the count. */
+static void a_client_of_version_2_is_answered_without_the_count(void) {
+    begin();
+    follow("older 2", older_2, COUNT(older_2), COUNT(older_2), NULL);
+}
+
 /* --- Groups ---------------------------------------------------------------------------------- */
 
 static const uint8_t *made_id(void) { return companion.groups[0].id; }
@@ -1230,6 +1236,7 @@ static void a_restart_gives_no_id_again(void) {
 int main(void) {
     RUN(the_exchange_is_followed_frame_for_frame);
     RUN(an_older_client_is_not_told_who_asked);
+    RUN(a_client_of_version_2_is_answered_without_the_count);
     RUN(a_client_before_groups_is_not_told_of_them);
     RUN(a_group_is_made_with_the_boards_randomness_and_kept);
     RUN(a_group_is_not_made_without_randomness_room_or_flash);

@@ -34,8 +34,10 @@ import time
 
 MAX_FRAME, MAGIC = 180, b"\xf5\x54"
 # The version this script speaks. It has no commands for groups, which came with version 2, so it
-# says 1 and is told of none: the frames of version 2 are here only to be checked.
+# says 1 and is told of none: the frames of versions 2 and 3 are here only to be checked.
 VERSION = 1
+# The latest version the frames below are, which selftest reads the vectors by.
+LATEST = 3
 ANSWER_WAIT = 5.0
 IDLE = 20.0  # the most a client lets pass after an answer before it asks again
 
@@ -60,7 +62,7 @@ FRAMES = {
     0x40: ("OK", []),
     0x41: ("ERROR", [("code", "B")]),
     0x42: ("INFO", [("version", "B"), ("firmware", "str")]),
-    0x43: ("SYNCED", []),
+    0x43: ("SYNCED", [("news", "B")]),
     0x44: ("QUEUED", [("id", "I")]),
     0x45: ("MADE", [("group", "gid")]),
     0x80: ("SELF", [("address", "addr"), ("role", "B"), ("region", "str"), ("power", "b"),
@@ -85,6 +87,8 @@ FRAMES = {
                       ("flags", "B"), ("state", "B"), ("reason", "B"), ("wait", "H"),
                       ("name", "str")]),
 }
+# Fields a later version added at the end of a frame: an earlier version's frame stops before them.
+LATER = {(0x43, "news"): 3}
 BYTES = {"addr": 32, "gid": 8}
 TYPE = {name: t for t, (name, _) in FRAMES.items()}
 SETTINGS = {1: ("region", "str"), 2: ("role", "B"), 3: ("power", "b"), 4: ("passkey", "I")}
@@ -106,9 +110,14 @@ def crc16(data):
     return crc
 
 
-def encode(kind_name, seq, /, **values):
+def fields_of(t, speak):
+    """A type's fields as version `speak` has them."""
+    return [(f, k) for f, k in FRAMES[t][1] if LATER.get((t, f), 0) <= speak]
+
+
+def encode(kind_name, seq, /, *, speak=VERSION, **values):
     t = TYPE[kind_name]
-    fields = list(FRAMES[t][1])
+    fields = fields_of(t, speak)
     if kind_name == "SET":
         fields.append(("value", SETTINGS[values["setting"]][1]))
     out = bytes([t, seq])
@@ -124,11 +133,11 @@ def encode(kind_name, seq, /, **values):
     return out
 
 
-def decode(frame):
-    """A frame's fields as a dict, or None for one this script cannot read."""
+def decode(frame, speak=VERSION):
+    """A frame's fields as version `speak` has them, or None for one this script cannot read."""
     if len(frame) < 2 or frame[0] not in FRAMES:
         return None
-    name, fields = FRAMES[frame[0]]
+    name, fields = FRAMES[frame[0]][0], fields_of(frame[0], speak)
     values, at = {"type": name, "seq": frame[1]}, 2
     for field, kind in fields:
         if kind in BYTES:
@@ -437,10 +446,17 @@ def selftest(path):
             if k in fields:
                 fields[k] = bytes.fromhex(fields[k])
         frame = bytes.fromhex(f["frame"])
-        ok = encode(f["type"], f["seq"], **fields) == frame and wrap(frame).hex() == f["stream"]
-        got = decode(frame)
+        ok = encode(f["type"], f["seq"], speak=LATEST, **fields) == frame
+        ok = ok and wrap(frame).hex() == f["stream"]
+        got = decode(frame, LATEST)
         ok = ok and got is not None and got["type"] == f["type"]
         failed += not ok
+    # Each connection read by the version its client speaks: an older one's SYNCED is two bytes.
+    for c in [{"version": LATEST, "frames": v["exchange"]}] + v["older"]:
+        for f in c["frames"]:
+            got = decode(bytes.fromhex(f["frame"]), c["version"])
+            failed += got is None or got["type"] != f["type"]
+            failed += got is not None and f["type"] == "SYNCED" and ("news" in got) != (c["version"] >= 3)
     for s in v["streams"]:
         frames, text = Parser().push(bytes.fromhex(s["stream"]))
         want = [bytes.fromhex(i["frame"]) for i in s["items"] if "frame" in i]

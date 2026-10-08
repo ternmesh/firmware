@@ -1,5 +1,5 @@
 {
-  "description": "The companion protocol, version 2 (draft/companion.md). Frames, streams, addresses and group ids are hex; numbers are numbers; strings are text. In frames, frame is the frame alone, as one BLE write or notification carries it, and stream is the same frame as it goes on a byte stream. In extended, frame carries bytes past the fields this version defines, and fields is what a receiver reads from it. In rejected, a receiver discards frame; answer is the ERROR code a node answers it with, null for none. In streams, items are what a receiver finds in stream, in order: a frame, or a run of bytes that is not one, and pending is what it holds at the end waiting for more. In group_ids, group is the id of the group whose secret is group_secret. Exchange is one connection, in order. In it the node refuses first contact from the third address just before the ASKED; the group it makes has the secret made, where a node in use draws one; and after its own group message is sent it receives a message to that group from the second address's routing id, and then an invite from that address to the group whose secret is invited. Older holds connections to the same node by clients of earlier versions. To the client of version 0 it holds what the exchange begins with, and refuses that first contact after the sync, before the client's SAVE_CONTACT. To the client of version 1 it holds what the exchange has before its JOIN but for the group message and the invite received, which come after the sync and before the client's SEND; the client's last request is one its version does not define, which a client must not send, and the node answers it as it would any other it does not know from that client. The three addresses are the public keys of RFC 8032's first three Ed25519 test vectors.",
+  "description": "The companion protocol, version 3 (draft/companion.md). Frames, streams, addresses and group ids are hex; numbers are numbers; strings are text. In frames, frame is the frame alone, as one BLE write or notification carries it, and stream is the same frame as it goes on a byte stream. In extended, frame carries bytes past the fields this version defines, and fields is what a receiver reads from it. In rejected, a receiver discards frame; answer is the ERROR code a node answers it with, null for none. In streams, items are what a receiver finds in stream, in order: a frame, or a run of bytes that is not one, and pending is what it holds at the end waiting for more. In group_ids, group is the id of the group whose secret is group_secret. Exchange is one connection, in order. In it the node refuses first contact from the third address just before the ASKED; the group it makes has the secret made, where a node in use draws one; and after its own group message is sent it receives a message to that group from the second address's routing id, and then an invite from that address to the group whose secret is invited. Older holds connections to the same node by clients of earlier versions. To the client of version 0 it holds what the exchange begins with, and refuses that first contact after the sync, before the client's SAVE_CONTACT. To the client of version 1 it holds what the exchange has before its JOIN but for the group message and the invite received, which come after the sync and before the client's SEND; the client's last request is one its version does not define, which a client must not send, and the node answers it as it would any other it does not know from that client. To the client of version 2 it holds what the exchange begins with, and its SYNCED is version 2's, without news. Each connection's frames are read by the version its client speaks. The three addresses are the public keys of RFC 8032's first three Ed25519 test vectors.",
   "generator": "vectors/tools/companion.py",
   "crc_check": {
     "input": "313233343536373839",
@@ -8,6 +8,15 @@
   "made": "000102030405060708090a0b0c0d0e0f",
   "invited": "c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4",
   "frames": [
+    {
+      "type": "HELLO",
+      "seq": 1,
+      "fields": {
+        "version": 3
+      },
+      "frame": "010103",
+      "stream": "f5540003010103beb2"
+    },
     {
       "type": "HELLO",
       "seq": 1,
@@ -265,9 +274,11 @@
     {
       "type": "SYNCED",
       "seq": 2,
-      "fields": {},
-      "frame": "4302",
-      "stream": "f55400024302927d"
+      "fields": {
+        "news": 6
+      },
+      "frame": "430206",
+      "stream": "f5540003430206c889"
     },
     {
       "type": "QUEUED",
@@ -632,6 +643,11 @@
     },
     {
       "why": "a field cut short",
+      "frame": "4303",
+      "answer": null
+    },
+    {
+      "why": "a field cut short",
       "frame": "050601054555",
       "answer": 2
     },
@@ -875,13 +891,13 @@
       "from": "client",
       "type": "HELLO",
       "seq": 1,
-      "frame": "010102"
+      "frame": "010103"
     },
     {
       "from": "node",
       "type": "INFO",
       "seq": 1,
-      "frame": "420102147465726e20302e312e302068656c7465632d7633"
+      "frame": "420103147465726e20302e312e302068656c7465632d7633"
     },
     {
       "from": "client",
@@ -941,7 +957,7 @@
       "from": "node",
       "type": "SYNCED",
       "seq": 3,
-      "frame": "4303"
+      "frame": "430306"
     },
     {
       "from": "client",
@@ -1210,7 +1226,7 @@
           "from": "node",
           "type": "INFO",
           "seq": 1,
-          "frame": "420102147465726e20302e312e302068656c7465632d7633"
+          "frame": "420103147465726e20302e312e302068656c7465632d7633"
         },
         {
           "from": "client",
@@ -1287,7 +1303,7 @@
           "from": "node",
           "type": "INFO",
           "seq": 1,
-          "frame": "420102147465726e20302e312e302068656c7465632d7633"
+          "frame": "420103147465726e20302e312e302068656c7465632d7633"
         },
         {
           "from": "client",
@@ -1378,6 +1394,71 @@
           "type": "ERROR",
           "seq": 4,
           "frame": "410401"
+        }
+      ]
+    },
+    {
+      "version": 2,
+      "frames": [
+        {
+          "from": "client",
+          "type": "HELLO",
+          "seq": 1,
+          "frame": "010102"
+        },
+        {
+          "from": "node",
+          "type": "INFO",
+          "seq": 1,
+          "frame": "420103147465726e20302e312e302068656c7465632d7633"
+        },
+        {
+          "from": "client",
+          "type": "SYNC",
+          "seq": 2,
+          "frame": "020200000000"
+        },
+        {
+          "from": "node",
+          "type": "SELF",
+          "seq": 0,
+          "frame": "8000d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b80"
+        },
+        {
+          "from": "node",
+          "type": "CONTACT",
+          "seq": 1,
+          "frame": "81013d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c0103426f62"
+        },
+        {
+          "from": "node",
+          "type": "MESSAGE",
+          "seq": 2,
+          "frame": "8302000000113d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c6ab1379800040000000e57686572652061726520796f753f"
+        },
+        {
+          "from": "node",
+          "type": "NEIGHBOUR",
+          "seq": 3,
+          "frame": "85031d2e3f4001da002a"
+        },
+        {
+          "from": "node",
+          "type": "AIRTIME",
+          "seq": 4,
+          "frame": "870400000e1000057e400000303900000000"
+        },
+        {
+          "from": "node",
+          "type": "POWER",
+          "seq": 5,
+          "frame": "88050f935101"
+        },
+        {
+          "from": "node",
+          "type": "SYNCED",
+          "seq": 2,
+          "frame": "4302"
         }
       ]
     }
