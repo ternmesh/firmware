@@ -29,7 +29,8 @@ turns it into a header for `tests/route.c`.
 
 `forwarding.json` is a copy of
 [`vectors/forwarding.json`](https://github.com/ternmesh/spec/blob/main/vectors/forwarding.json), as of
-the forwarding draft's first version. `forwarding_to_c.py` turns it into a header for
+[ternmesh/spec#13](https://github.com/ternmesh/spec/pull/13), which adds how long a frame sent
+again may wait. `forwarding_to_c.py` turns it into a header for
 `tests/forward.c`.
 
 `companion.json` is a copy of

@@ -49,6 +49,14 @@ struct power_case {
     int8_t full, power;
 };
 
+struct again_case {
+    bool source; /* started again by its source, not sent again by a hop */
+    uint8_t sf;
+    uint32_t bw_hz;
+    uint32_t len;
+    tern_time airtime, longest;
+};
+
 #include "forwarding.h"
 
 #define COUNT(a) (sizeof(a) / sizeof(a)[0])
@@ -356,7 +364,7 @@ static void a_hop_unheard_is_sent_again_louder_and_then_given_up(void) {
 
 /* How long node 0's forwarder, started again with this seed and jitter, holds a frame back once
  * its hop's wait has passed with nothing heard. */
-static tern_time held_back(uint64_t seed, uint8_t retry_jitter, size_t *len) {
+static tern_time held_back(uint64_t seed, uint8_t retry_jitter, bool source, size_t *len) {
     struct node *x = &net.node[0];
     struct tern_forward_config fc = tern_forward_defaults();
     uint8_t frame[TERN_FORWARD_FRAME_MAX], handle;
@@ -368,8 +376,14 @@ static tern_time held_back(uint64_t seed, uint8_t retry_jitter, size_t *len) {
     *len = tern_forward_poll(&x->f, net.now, frame, &dbm, &kind, &handle);
     CHECK(*len != 0);
     tern_forward_sent(&x->f, net.now, handle);
-    tern_time waited = tern_forward_due(&x->f); /* when the hop is given up waiting on */
-    CHECK(waited > net.now);
+    if (source) {
+        /* Its next hop is heard passing it on, so what is waited for is its acknowledgement. */
+        struct tern_forward_heard got;
+        frame[1]--;
+        tern_forward_heard(&x->f, net.now, frame, *len, 40, &got);
+    }
+    tern_time waited = tern_forward_due(&x->f); /* when the hop, or the message, is given up on */
+    CHECK(waited > net.now + (source ? TERN_S(5) : 0));
     if (tern_forward_poll(&x->f, waited, frame, &dbm, &kind, &handle) != 0) {
         return 0; /* sent again at once */
     }
@@ -383,16 +397,50 @@ static void a_frame_sent_again_waits_a_time_of_its_own(void) {
     bool differ = false;
     size_t len;
     line();
-    for (uint64_t seed = 1; seed <= 32; seed++) {
-        tern_time held = held_back(seed, tern_forward_defaults().retry_jitter, &len);
-        tern_time air = tern_lora_airtime(&net.lora, (uint32_t)len);
-        CHECK(held >= 0 && held <= 4 * air);
-        differ = differ || (first >= 0 && held != first);
-        first = held;
-        CHECK_EQ_I64(held_back(seed, 0, &len), 0);
+    for (int source = 0; source < 2; source++) {
+        first = -1;
+        differ = false;
+        for (uint64_t seed = 1; seed <= 32; seed++) {
+            tern_time held = held_back(seed, tern_forward_defaults().retry_jitter, source, &len);
+            tern_time air = tern_lora_airtime(&net.lora, (uint32_t)len);
+            CHECK(held >= 0 && held <= 4 * air);
+            differ = differ || (first >= 0 && held != first);
+            first = held;
+            CHECK_EQ_I64(held_back(seed, 0, source, &len), 0);
+        }
+        CHECK(differ);
     }
-    CHECK(differ);
     CHECK_EQ_I64(tern_forward_defaults().retry_jitter, 4);
+}
+
+/* agains: the longest a frame may wait is RETRY_JITTER of its airtimes, as the core reckons
+ * airtime; and on the profile and the frame these tests run with, no wait is longer, for a hop
+ * sent again or a message started again. */
+static void a_wait_is_no_longer_than_the_specification_allows(void) {
+    int at_this_profile = 0;
+    line();
+    for (size_t i = 0; i < COUNT(again_cases); i++) {
+        const struct again_case *c = &again_cases[i];
+        struct tern_lora l = net.lora;
+        l.sf = c->sf;
+        l.bw_hz = c->bw_hz;
+        l.ldro = TERN_LDRO_AUTO;
+        CHECK_EQ_I64(tern_lora_airtime(&l, c->len), c->airtime);
+        CHECK_EQ_I64(tern_forward_defaults().retry_jitter * tern_lora_airtime(&l, c->len),
+                     c->longest);
+        if (c->sf != net.lora.sf || c->bw_hz != net.lora.bw_hz ||
+            c->len != TERN_FORWARD_HEAD + BODY) {
+            continue;
+        }
+        at_this_profile++;
+        for (uint64_t seed = 1; seed <= 64; seed++) {
+            size_t len;
+            tern_time held = held_back(seed, tern_forward_defaults().retry_jitter, c->source, &len);
+            CHECK_EQ_U64(len, c->len);
+            CHECK(held >= 0 && held <= c->longest);
+        }
+    }
+    CHECK_EQ_I64(at_this_profile, 2); /* the hop's case and the source's */
 }
 
 static void a_message_unacknowledged_is_sent_again_and_every_copy_arrives(void) {
@@ -496,6 +544,7 @@ int main(void) {
     RUN(a_leaf_passes_nothing_on);
     RUN(a_hop_unheard_is_sent_again_louder_and_then_given_up);
     RUN(a_frame_sent_again_waits_a_time_of_its_own);
+    RUN(a_wait_is_no_longer_than_the_specification_allows);
     RUN(a_message_unacknowledged_is_sent_again_and_every_copy_arrives);
     RUN(a_frame_given_up_on_goes_another_way);
     RUN(a_frame_already_being_passed_on_is_not_taken_twice);

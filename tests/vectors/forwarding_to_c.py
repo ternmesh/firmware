@@ -65,6 +65,14 @@ def main():
     ]
     L.append("};")
 
+    L.append("static const struct again_case again_cases[] = {")
+    L += [
+        f"    {{{b(c['again'] == 'source')}, {c['spreading_factor']}, {c['bandwidth_hz']}u, "
+        f"{c['length']}, {c['airtime_ns']}LL, {c['longest_ns']}LL}},"
+        for c in v["agains"]
+    ]
+    L.append("};")
+
     with open(out, "w", encoding="utf-8") as f:
         f.write("\n".join(L) + "\n")
 

@@ -1,5 +1,5 @@
 {
-  "description": "Frames that follow routes, draft 0 (draft/forwarding.md). Routing ids are numbers; frames and tags are hex. In hops, sent is the frame the node sent and heard the one it then received. In backs, power is what a frame was sent at in dBm and snr_quarter_db what it was heard at, and needs is what an answer must go at for its sender to hear it, between the node's lowest and full power. In powers, neighbour is what Routes gives for the neighbour, its boost included, back is what the node the frame came from needs or null for a frame that answers none, and try counts from 0.",
+  "description": "Frames that follow routes, draft 0 (draft/forwarding.md). Routing ids are numbers; frames and tags are hex. In hops, sent is the frame the node sent and heard the one it then received. In backs, power is what a frame was sent at in dBm and snr_quarter_db what it was heard at, and needs is what an answer must go at for its sender to hear it, between the node's lowest and full power. In powers, neighbour is what Routes gives for the neighbour, its boost included, back is what the node the frame came from needs or null for a frame that answers none, and try counts from 0. In agains, a frame of length bytes is sent again at that spreading factor and bandwidth, with the profiles' preamble and coding rate (vectors/phy.json), by a hop that heard nothing of it (hop) or by its source with no acknowledgement (source): airtime_ns is its time on the air and longest_ns the longest it may wait first.",
   "generator": "vectors/tools/forwarding.py",
   "heads": [
     {
@@ -296,6 +296,176 @@
       "try": 1,
       "full": 14,
       "power": 14
+    }
+  ],
+  "agains": [
+    {
+      "again": "hop",
+      "spreading_factor": 9,
+      "bandwidth_hz": 500000,
+      "length": 19,
+      "airtime_ns": 54528000,
+      "longest_ns": 218112000
+    },
+    {
+      "again": "hop",
+      "spreading_factor": 9,
+      "bandwidth_hz": 500000,
+      "length": 23,
+      "airtime_ns": 59648000,
+      "longest_ns": 238592000
+    },
+    {
+      "again": "hop",
+      "spreading_factor": 9,
+      "bandwidth_hz": 500000,
+      "length": 35,
+      "airtime_ns": 69888000,
+      "longest_ns": 279552000
+    },
+    {
+      "again": "hop",
+      "spreading_factor": 9,
+      "bandwidth_hz": 500000,
+      "length": 255,
+      "airtime_ns": 320768000,
+      "longest_ns": 1283072000
+    },
+    {
+      "again": "source",
+      "spreading_factor": 9,
+      "bandwidth_hz": 500000,
+      "length": 23,
+      "airtime_ns": 59648000,
+      "longest_ns": 238592000
+    },
+    {
+      "again": "source",
+      "spreading_factor": 9,
+      "bandwidth_hz": 500000,
+      "length": 35,
+      "airtime_ns": 69888000,
+      "longest_ns": 279552000
+    },
+    {
+      "again": "source",
+      "spreading_factor": 9,
+      "bandwidth_hz": 500000,
+      "length": 255,
+      "airtime_ns": 320768000,
+      "longest_ns": 1283072000
+    },
+    {
+      "again": "hop",
+      "spreading_factor": 7,
+      "bandwidth_hz": 125000,
+      "length": 19,
+      "airtime_ns": 59648000,
+      "longest_ns": 238592000
+    },
+    {
+      "again": "hop",
+      "spreading_factor": 7,
+      "bandwidth_hz": 125000,
+      "length": 23,
+      "airtime_ns": 69888000,
+      "longest_ns": 279552000
+    },
+    {
+      "again": "hop",
+      "spreading_factor": 7,
+      "bandwidth_hz": 125000,
+      "length": 35,
+      "airtime_ns": 85248000,
+      "longest_ns": 340992000
+    },
+    {
+      "again": "hop",
+      "spreading_factor": 7,
+      "bandwidth_hz": 125000,
+      "length": 255,
+      "airtime_ns": 407808000,
+      "longest_ns": 1631232000
+    },
+    {
+      "again": "source",
+      "spreading_factor": 7,
+      "bandwidth_hz": 125000,
+      "length": 23,
+      "airtime_ns": 69888000,
+      "longest_ns": 279552000
+    },
+    {
+      "again": "source",
+      "spreading_factor": 7,
+      "bandwidth_hz": 125000,
+      "length": 35,
+      "airtime_ns": 85248000,
+      "longest_ns": 340992000
+    },
+    {
+      "again": "source",
+      "spreading_factor": 7,
+      "bandwidth_hz": 125000,
+      "length": 255,
+      "airtime_ns": 407808000,
+      "longest_ns": 1631232000
+    },
+    {
+      "again": "hop",
+      "spreading_factor": 12,
+      "bandwidth_hz": 125000,
+      "length": 19,
+      "airtime_ns": 1581056000,
+      "longest_ns": 6324224000
+    },
+    {
+      "again": "hop",
+      "spreading_factor": 12,
+      "bandwidth_hz": 125000,
+      "length": 23,
+      "airtime_ns": 1744896000,
+      "longest_ns": 6979584000
+    },
+    {
+      "again": "hop",
+      "spreading_factor": 12,
+      "bandwidth_hz": 125000,
+      "length": 35,
+      "airtime_ns": 2072576000,
+      "longest_ns": 8290304000
+    },
+    {
+      "again": "hop",
+      "spreading_factor": 12,
+      "bandwidth_hz": 125000,
+      "length": 255,
+      "airtime_ns": 9281536000,
+      "longest_ns": 37126144000
+    },
+    {
+      "again": "source",
+      "spreading_factor": 12,
+      "bandwidth_hz": 125000,
+      "length": 23,
+      "airtime_ns": 1744896000,
+      "longest_ns": 6979584000
+    },
+    {
+      "again": "source",
+      "spreading_factor": 12,
+      "bandwidth_hz": 125000,
+      "length": 35,
+      "airtime_ns": 2072576000,
+      "longest_ns": 8290304000
+    },
+    {
+      "again": "source",
+      "spreading_factor": 12,
+      "bandwidth_hz": 125000,
+      "length": 255,
+      "airtime_ns": 9281536000,
+      "longest_ns": 37126144000
     }
   ]
 }
