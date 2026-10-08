@@ -115,6 +115,8 @@ static struct pending {
 /* A handshake frame that had to wait for the one on the air. */
 static uint8_t waiting[TERN_CONTACT_MAX_FRAME];
 static size_t waiting_len;
+static uint32_t held_back; /* times a frame waited for one being received to end */
+static bool holding;
 static tern_time tx_deadline; /* when a frame on the air should certainly have finished */
 static tern_time led_until;
 /* What the bench screen shows that nothing else keeps. */
@@ -242,6 +244,17 @@ static const char *result_text(enum demo_result r) {
         return "too long: at most 232 bytes";
     }
     return "?";
+}
+
+/* Whether a frame must wait: the radio is receiving one, and a node does not start to send over
+ * it (draft/forwarding.md, "Listening first"). Asked of the chip just before each frame, since a
+ * frame can begin at any moment; the bench's frames are not held, which measures the radio and
+ * not the protocol. A radio that cannot be asked holds nothing. */
+static bool held(void) {
+    bool is = tern_radio_receiving(&radio) == 1;
+    held_back += is && !holding;
+    holding = is;
+    return is;
 }
 
 /* Puts a frame on the air at so many dBm. Returns its time on air, or 0 if the radio refused it. */
@@ -381,10 +394,13 @@ static void pending_drop(void) {
     }
 }
 
-/* Sends a handshake frame, or keeps it until the frame on the air has gone. */
+/* Sends a handshake frame, or keeps it until the frame on the air, or the one being received,
+ * has gone. */
 static void send_contact(const uint8_t *frame, size_t len) {
-    if (transmitting) {
-        memcpy(waiting, frame, len);
+    if (transmitting || held()) {
+        if (frame != waiting) {
+            memcpy(waiting, frame, len);
+        }
         waiting_len = len;
     } else if (transmit(frame, len) != 0) {
         printf("first contact: sent message_%d, %u bytes\n", frame[0] - 0x50, (unsigned)len);
@@ -581,11 +597,6 @@ static void poll_radio(void) {
             forward_retry = board_now() + forward_quiet;
         }
         tern_radio_receive(&radio);
-        if (waiting_len != 0) {
-            size_t len = waiting_len;
-            waiting_len = 0;
-            send_contact(waiting, len);
-        }
         break;
     case TERN_RADIO_RX_DONE:
         frames_in++;
@@ -726,7 +737,7 @@ static void poll_forward(void) {
         }
     }
     if (transmitting || waiting_len != 0 || now < forward_retry ||
-        now < tern_forward_due(&forward)) {
+        now < tern_forward_due(&forward) || held()) {
         return;
     }
     int8_t dbm;
@@ -772,6 +783,15 @@ static void poll_forward(void) {
     }
 }
 
+/* Sends the handshake frame that was kept, once nothing is on the air or being received. */
+static void poll_waiting(void) {
+    if (waiting_len != 0 && !transmitting) {
+        size_t len = waiting_len;
+        waiting_len = 0;
+        send_contact(waiting, len);
+    }
+}
+
 /* Sends what the router has to send: its announces, and its requests for routes. A frame the
  * router has handed over is its only copy, and what it said is counted as said - a retraction as
  * one of its three - so the frame is kept until it has gone, and the router is not asked for
@@ -790,7 +810,7 @@ static void poll_route(void) {
         route_retry = 0;
     }
     if (route_len == 0 || now < route_retry ||
-        !tern_duty_allows(&duty, now, tern_lora_airtime(&cfg.mod, (uint32_t)route_len))) {
+        !tern_duty_allows(&duty, now, tern_lora_airtime(&cfg.mod, (uint32_t)route_len)) || held()) {
         return;
     }
     if (transmit_at(route_frame, route_len, route_dbm) != 0) {
@@ -1193,9 +1213,9 @@ static void status(void) {
            (unsigned long)route.id, route.config.relay ? "relay" : "leaf", heard_n, up_n, routed);
     const struct tern_forward_counts *fc = &forward.counts;
     printf("forwarding: passed on %lu, sent %lu hops again and gave %lu up; dropped %lu with no "
-           "route, %lu with no room\n",
+           "route, %lu with no room; waited %lu times for a frame being received\n",
            (unsigned long)fc->passed_on, (unsigned long)fc->sent_again, (unsigned long)fc->given_up,
-           (unsigned long)fc->no_route, (unsigned long)fc->no_room);
+           (unsigned long)fc->no_route, (unsigned long)fc->no_room, (unsigned long)held_back);
     if (demo.h.phase == DEMO_INITIATING || demo.h.phase == DEMO_RESPONDING) {
         printf("first contact: under way, as the %s\n",
                demo.h.phase == DEMO_INITIATING ? "initiator" : "responder");
@@ -1858,6 +1878,7 @@ void app_main(void) {
         if (bench) {
             poll_beacon();
         } else {
+            poll_waiting();
             poll_contact();
             poll_outgoing();
             poll_forward();

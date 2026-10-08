@@ -142,6 +142,22 @@ static void receive_and_standby_reach_the_port(void) {
     CHECK_EQ_I64(f.standbys, 1);
 }
 
+static int fake_receiving(void *ctx) {
+    (void)ctx;
+    return 1;
+}
+
+/* A port that cannot tell whether it is receiving never holds a frame back. */
+static void receiving_is_asked_of_a_port_that_can_tell(void) {
+    struct fake f = {0};
+    struct tern_radio r = {&fake_ops, &f};
+    CHECK_EQ_I64(tern_radio_receiving(&r), 0);
+    struct tern_radio_ops can = fake_ops;
+    can.receiving = fake_receiving;
+    struct tern_radio r2 = {&can, &f};
+    CHECK_EQ_I64(tern_radio_receiving(&r2), 1);
+}
+
 /* The values in use, as verified from source for MSH-28 (Research 02), and the two proposed for
  * Tern. */
 static void sync_word_sx126x_encoding(void) {
@@ -158,6 +174,7 @@ int main(void) {
     RUN(transmit_takes_one_to_255_bytes);
     RUN(poll_hands_back_events_in_order);
     RUN(receive_and_standby_reach_the_port);
+    RUN(receiving_is_asked_of_a_port_that_can_tell);
     RUN(sync_word_sx126x_encoding);
     return CHECK_DONE();
 }

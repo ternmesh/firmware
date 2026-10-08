@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "tern/listen.h"
 #include "tern/radio.h"
 #include "tern/time.h"
 
@@ -52,6 +53,7 @@ struct tern_sx126x {
     struct tern_sx126x_board board;
     struct tern_sx126x_counts counts;
     struct tern_radio_config cfg; /* as last configured */
+    struct tern_listen listen;    /* what it is receiving, for tern_radio_receiving() */
     bool configured;
     uint8_t rx[255]; /* the last frame received; RX_DONE events point here */
 };

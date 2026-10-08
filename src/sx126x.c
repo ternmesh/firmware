@@ -100,6 +100,7 @@ int tern_sx126x_init(struct tern_sx126x *d, const struct tern_sx126x_bus *bus,
     d->board = *board;
     d->configured = false;
     d->counts = (struct tern_sx126x_counts){0};
+    tern_listen_init(&d->listen);
 
     int err = CMD(d, CMD_SET_STANDBY, STANDBY_RC);
     if (err == TERN_OK && board->dcdc) {
@@ -211,6 +212,7 @@ static int sx_configure(void *ctx, const struct tern_radio_config *cfg) {
     }
     d->cfg = *cfg;
     d->configured = false;
+    tern_listen_over(&d->listen); /* it is left in standby */
 
     /* RfFreq = freq * 2^25 / 32 MHz (section 13.4.1). */
     uint32_t rf = (uint32_t)(((uint64_t)cfg->freq_hz << 25) / 32000000u);
@@ -272,6 +274,7 @@ static int sx_transmit(void *ctx, const uint8_t *frame, uint8_t len) {
         buf[2 + i] = frame[i];
     }
 
+    tern_listen_over(&d->listen);
     int err = CMD(d, CMD_SET_STANDBY, STANDBY_RC);
     if (err == TERN_OK) {
         err = packet_params(d, len);
@@ -293,6 +296,7 @@ static int sx_receive(void *ctx) {
     if (!d->configured) {
         return TERN_EINVAL;
     }
+    tern_listen_over(&d->listen);
     int err = CMD(d, CMD_SET_STANDBY, STANDBY_RC);
     if (err == TERN_OK) {
         err = packet_params(d, 255);
@@ -307,27 +311,63 @@ static int sx_receive(void *ctx) {
     return err;
 }
 
-static int sx_standby(void *ctx) { return CMD((struct tern_sx126x *)ctx, CMD_SET_STANDBY, 0x00); }
-
-static int sx_poll(void *ctx, struct tern_radio_event *ev) {
+static int sx_standby(void *ctx) {
     struct tern_sx126x *d = ctx;
-    uint8_t tx[5] = {CMD_GET_IRQ_STATUS, 0, 0, 0, 0}, rx[5];
+    tern_listen_over(&d->listen);
+    return CMD(d, CMD_SET_STANDBY, 0x00);
+}
 
+/* Asks the chip what has happened, and notes what the receiver got as far as, counted whether or
+ * not a frame comes of it: a frame with another network's sync word is a preamble and nothing
+ * more. Those two flags are cleared here, so each is noted once. */
+static int read_irq(struct tern_sx126x *d, uint16_t *irq) {
+    uint8_t tx[4] = {CMD_GET_IRQ_STATUS, 0, 0, 0}, rx[4];
     int err = d->bus.transfer(d->bus.ctx, tx, rx, 4);
     if (err != TERN_OK) {
         return err;
     }
-    uint16_t irq = (uint16_t)(rx[2] << 8 | rx[3]);
-
-    /* What the receiver got as far as, counted whether or not a frame comes of it: a frame with
-     * another network's sync word is a preamble and nothing more. */
-    if (irq & IRQ_COUNTED) {
-        d->counts.preambles += (irq & IRQ_PREAMBLE) != 0;
-        d->counts.headers += (irq & IRQ_HEADER_VALID) != 0;
-        err = clear_irq(d, irq & IRQ_COUNTED);
-        if (err != TERN_OK) {
-            return err;
+    *irq = (uint16_t)(rx[2] << 8 | rx[3]);
+    if (*irq & IRQ_COUNTED) {
+        tern_time now = d->bus.now(d->bus.ctx);
+        if (*irq & IRQ_PREAMBLE) {
+            d->counts.preambles++;
+            tern_listen_preamble(&d->listen, now);
         }
+        if (*irq & IRQ_HEADER_VALID) {
+            d->counts.headers++;
+            tern_listen_header(&d->listen, now);
+        }
+        err = clear_irq(d, *irq & IRQ_COUNTED);
+    }
+    return err;
+}
+
+/* The flags the chip ends a frame with are left for sx_poll() to collect: a frame that has ended
+ * and not yet been collected is no longer being received. */
+static int sx_receiving(void *ctx) {
+    struct tern_sx126x *d = ctx;
+    uint16_t irq;
+    if (!d->configured) {
+        return 0;
+    }
+    int err = read_irq(d, &irq);
+    if (err != TERN_OK) {
+        return err;
+    }
+    if (irq & (IRQ_RX_DONE | IRQ_HEADER_ERR | IRQ_CRC_ERR)) {
+        return 0;
+    }
+    return tern_listen_receiving(&d->listen, &d->cfg.mod, d->bus.now(d->bus.ctx)) ? 1 : 0;
+}
+
+static int sx_poll(void *ctx, struct tern_radio_event *ev) {
+    struct tern_sx126x *d = ctx;
+    uint8_t tx[5] = {CMD_GET_IRQ_STATUS, 0, 0, 0, 0}, rx[5];
+    uint16_t irq;
+
+    int err = read_irq(d, &irq);
+    if (err != TERN_OK) {
+        return err;
     }
 
     if (irq & IRQ_TX_DONE) {
@@ -338,6 +378,7 @@ static int sx_poll(void *ctx, struct tern_radio_event *ev) {
 
     if (irq & (IRQ_RX_DONE | IRQ_HEADER_ERR)) {
         tern_time at = d->bus.now(d->bus.ctx);
+        tern_listen_over(&d->listen);
         if (irq & (IRQ_HEADER_ERR | IRQ_CRC_ERR)) {
             d->counts.header_errors += (irq & IRQ_HEADER_ERR) != 0;
             d->counts.crc_errors += (irq & IRQ_HEADER_ERR) == 0;
@@ -399,6 +440,7 @@ static const struct tern_radio_ops sx_ops = {
     .receive = sx_receive,
     .standby = sx_standby,
     .poll = sx_poll,
+    .receiving = sx_receiving,
 };
 
 struct tern_radio tern_sx126x_radio(struct tern_sx126x *d) {

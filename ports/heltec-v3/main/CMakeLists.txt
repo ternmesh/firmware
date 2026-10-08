@@ -18,6 +18,7 @@ idf_component_register(
         ${root}/src/duty.c
         ${root}/src/fe25519.c
         ${root}/src/forward.c
+        ${root}/src/listen.c
         ${root}/src/hkdf.c
         ${root}/src/lora.c
         ${root}/src/radio.c
