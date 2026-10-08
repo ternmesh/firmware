@@ -138,7 +138,7 @@ static void home(const struct ui_node *n, struct frame *f) {
     } else {
         snprintf(right, sizeof right, "%s", n->region);
     }
-    ends(f->rows[0], "Tern", right);
+    ends(f->rows[0], n->phone ? "Tern " DISPLAY_BLUETOOTH_S : "Tern", right);
     f->big = 2;
     if (n->bench) {
         snprintf(f->big_text, sizeof f->big_text, "Bench mode");
@@ -162,7 +162,7 @@ static void home(const struct ui_node *n, struct frame *f) {
     if (n->unread > 0) {
         char from[UI_NAME + 1];
         ascii(from, sizeof from, (const uint8_t *)n->from, name_len(n->from));
-        line(f->rows[6], "Last from %s", from);
+        line(f->rows[6], "Last %s %s", n->from_group ? "in" : "from", from);
     } else if (n->waiting > 0) {
         line(f->rows[6], "%u awaiting delivery", (unsigned)n->waiting);
     } else {
@@ -238,7 +238,11 @@ static void messages(const struct ui_node *n, struct frame *f) {
     const struct ui_message *m = &n->message;
     char name[UI_NAME + 1], who[40], ago[16] = "";
     ascii(name, sizeof name, (const uint8_t *)m->who, name_len(m->who));
-    snprintf(who, sizeof who, "%s %s", !m->received ? "To" : m->unread ? "New from" : "From", name);
+    const char *how = !m->received ? "To" : m->unread ? "New from" : "From";
+    if (m->group && m->received) {
+        how = m->unread ? "New in" : "In";
+    }
+    snprintf(who, sizeof who, "%s %s", how, name);
     if (m->aged) {
         if (m->ago_s < 60) {
             snprintf(ago, sizeof ago, " now");
@@ -253,7 +257,13 @@ static void messages(const struct ui_node *n, struct frame *f) {
     char text[TERN_COMPANION_TEXT_MAX + 1];
     size_t len = m->text_len < TERN_COMPANION_TEXT_MAX ? m->text_len : TERN_COMPANION_TEXT_MAX;
     ascii(text, sizeof text, m->text, len);
-    if (m->received) {
+    if (m->received && m->group) {
+        /* The group on the line above; who wrote to it on its own. */
+        char writer[UI_NAME + 1];
+        ascii(writer, sizeof writer, (const uint8_t *)m->writer, name_len(m->writer));
+        line(f->rows[2], "From %s", writer);
+        wrap(f, 3, 7, text);
+    } else if (m->received) {
         wrap(f, 2, 7, text);
     } else {
         wrap(f, 2, 6, text);

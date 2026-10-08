@@ -196,6 +196,7 @@ static bool have_ble;
 static uint16_t battery_mv;      /* 0 for none, or not read */
 static struct power_watch watch; /* whether the battery charges, or is empty (power.h) */
 static unsigned off_shown;       /* while PRG is held to turn off, the seconds left shown, or 0 */
+static bool phone;               /* a client is connected over Bluetooth, for Home to say */
 static uint32_t pairing_passkey; /* shown on the screen while pairing, or PAIRING_NONE */
 #define PAIRING_NONE 0xFFFFFFFFu
 /* A message sealed and not yet with the forwarder: sealing takes a counter and saves the session,
@@ -2048,6 +2049,8 @@ static void poll_ble(void) {
         case BLE_OPEN:
             pairing_passkey = PAIRING_NONE;
             link_open(&companion, LINK_BLE, 0, e.mtu);
+            phone = true;
+            screen_due = 0;
             printf("bluetooth: a client connected\n");
             break;
         case BLE_MTU:
@@ -2060,6 +2063,8 @@ static void poll_ble(void) {
         case BLE_CLOSE:
             pairing_passkey = PAIRING_NONE;
             link_close(&companion, LINK_BLE);
+            phone = false;
+            screen_due = 0;
             printf("bluetooth: the client went\n");
             break;
         case BLE_PASSKEY:
@@ -2200,6 +2205,20 @@ static void name_of(const uint8_t address[TERN_ADDRESS_LEN], char out[UI_NAME + 
     snprintf(out, UI_NAME + 1, "%02X%02X%02X%02X", address[0], address[1], address[2], address[3]);
 }
 
+/* Who wrote a group message, from the routing id it claims: the contact whose address gives that
+ * id, by their name or address, or failing that the id itself. A claim, as the group draft says:
+ * anyone with the group's key can write any id. */
+static void writer_of(uint32_t from, char out[UI_NAME + 1]) {
+    for (size_t i = 0; i < LINK_CONTACTS; i++) {
+        const struct link_contact *k = &companion.contacts[i];
+        if (k->used && tern_route_id(k->address) == from) {
+            name_of(k->address, out);
+            return;
+        }
+    }
+    snprintf(out, UI_NAME + 1, "node %08lX", (unsigned long)from);
+}
+
 /* Whom a message is with, as the Messages page names it: a group by the user's name for it, and
  * anything else by its address. */
 static void with_whom(const struct link_message *x, char out[UI_NAME + 1]) {
@@ -2236,6 +2255,7 @@ static void fill_ui(struct ui_node *u) {
     u->bench = bench;
     u->battery = power_percent(battery_mv);
     u->charging = watch.charging;
+    u->phone = phone;
     for (int i = 0; i < NEIGHBOURS; i++) {
         if (neighbours[i].used) {
             u->nearby++;
@@ -2263,6 +2283,7 @@ static void fill_ui(struct ui_node *u) {
         const struct link_message *x = &companion.messages[order[k]];
         if (unread(x) && u->unread++ == 0) {
             with_whom(x, u->from);
+            u->from_group = x->kind == LINK_KIND_GROUP;
         }
         if (x->state == TERN_C_WAITING || x->state == TERN_C_SENT) {
             u->waiting++;
@@ -2277,7 +2298,11 @@ static void fill_ui(struct ui_node *u) {
         struct ui_message *m = &u->message;
         m->received = x->state == TERN_C_RECEIVED;
         m->unread = unread(x);
+        m->group = x->kind == LINK_KIND_GROUP;
         with_whom(x, m->who);
+        if (m->group && m->received) {
+            writer_of(x->from, m->writer);
+        }
         m->aged = clock != 0 && x->time != 0 && clock >= x->time;
         m->ago_s = m->aged ? clock - x->time : 0;
         m->state = x->state;

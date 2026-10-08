@@ -33,13 +33,15 @@ enum ui_page {
 #define UI_NAME 20 /* bytes of a name kept to show, which is as many as a line has room for */
 
 struct ui_message {
-    bool received;         /* from someone, rather than to them */
-    bool unread;           /* received, and not yet seen here or on a client */
-    char who[UI_NAME + 1]; /* the contact's name, or the first bytes of its address */
-    bool aged;             /* the node's clock is set, and so `ago_s` means something */
-    uint32_t ago_s;        /* since it was sent or received */
-    uint8_t state, reason; /* TERN_C_ states and TERN_C_WAIT_ reasons */
-    uint16_t wait_s;       /* how long it is expected to wait, or 0 if that is not known */
+    bool received;            /* from someone, rather than to them */
+    bool group;               /* to or from a group, which `who` then names */
+    char writer[UI_NAME + 1]; /* a received group message's: whom it says it is from */
+    bool unread;              /* received, and not yet seen here or on a client */
+    char who[UI_NAME + 1];    /* the contact's name, or the first bytes of its address */
+    bool aged;                /* the node's clock is set, and so `ago_s` means something */
+    uint32_t ago_s;           /* since it was sent or received */
+    uint8_t state, reason;    /* TERN_C_ states and TERN_C_WAIT_ reasons */
+    uint16_t wait_s;          /* how long it is expected to wait, or 0 if that is not known */
     uint8_t text_len;
     uint8_t text[TERN_COMPANION_TEXT_MAX]; /* UTF-8, as the link keeps it */
 };
@@ -52,6 +54,7 @@ struct ui_node {
     uint8_t address[TERN_ADDRESS_LEN];
     uint8_t battery; /* percent, or UI_BATTERY_UNKNOWN */
     bool charging;   /* as far as the board can tell (power.h): it has no wire from its charger */
+    bool phone;      /* a client is connected over Bluetooth */
     bool bench;      /* the console's bench mode: the board sends only the test frames asked for */
 
     uint16_t nearby;    /* nodes heard directly */
@@ -69,6 +72,7 @@ struct ui_node {
      * newest). */
     uint8_t messages, unread, waiting;
     char from[UI_NAME + 1];
+    bool from_group; /* and `from` is the group it was written to */
     uint8_t shown;
     struct ui_message message;
 };
