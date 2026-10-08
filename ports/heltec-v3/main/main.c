@@ -2331,7 +2331,7 @@ static void poll_screen(void) {
         screen_woken = board_now(); /* the passkey stays up for as long as the pairing takes */
     }
     /* Turned on or off here only, so a write the screen did not take is tried again. */
-    bool on = settings.screen_sleep == 0 ||
+    bool on = settings.screen_sleep == 0 || board_now() < boot_until ||
               board_now() - screen_woken < (tern_time)settings.screen_sleep * 1000000000LL;
     if (on == screen_asleep) {
         if (!board_screen_power(on)) {
