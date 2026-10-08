@@ -288,7 +288,8 @@ static enum field next_field(const struct layout *l, size_t i, const struct tern
     if (i < FIELDS_MAX && l->fields[i] != END) {
         return (enum field)l->fields[i];
     }
-    if (l->type == TERN_C_SET && (i == FIELDS_MAX || l->fields[i] == END) && i == 1) {
+    /* SET's layout is its setting alone: the field after it is that setting's value. */
+    if (l->type == TERN_C_SET && i == 1) {
         return setting_value(m->setting);
     }
     return END;
