@@ -132,7 +132,8 @@ static void text_in(void *ctx, uint8_t byte) {
     (void)byte;
 }
 
-/* This node holds no groups, and has nothing to make one with. */
+/* This node holds no groups at start, and has nothing to make one with: it joins one from a code
+ * alone, and keeps it until it stops. */
 static bool load_groups(void *ctx, void *buf, size_t len) {
     (void)ctx;
     (void)buf;

@@ -35,8 +35,8 @@ into a header for `tests/forward.c`, and its listens alone into one for `tests/l
 
 `companion.json` is a copy of
 [`vectors/companion.json`](https://github.com/ternmesh/spec/blob/main/vectors/companion.json), as
-of the companion protocol's version 6, which adds cards
-([ternmesh/spec#31](https://github.com/ternmesh/spec/pull/31)). `companion_to_c.py` turns it into a
+of the companion protocol's version 7, which adds join codes
+([ternmesh/spec#32](https://github.com/ternmesh/spec/pull/32)). `companion_to_c.py` turns it into a
 header for `tests/companion.c`, and its connections alone into one for `tests/link.c`.
 `tools/companion.py selftest` reads it directly.
 
@@ -57,6 +57,10 @@ the node flag, `0x61`, flooded as `0x60` is, and puts `hdr` in a flooded frame's
 [ternmesh/spec#21](https://github.com/ternmesh/spec/pull/21) (sharing an address: the text form,
 the `ternmesh.org` link with the address in base32, and the short code). `sharing_to_c.py` turns it into a header for
 `tests/share.c`.
+
+`groups.json` is since as of [ternmesh/spec#32](https://github.com/ternmesh/spec/pull/32) too,
+which adds join codes; `groups_to_c.py` turns its `join_codes` and `bad_join_codes` into
+`tests/group.c`'s.
 
 `positions.json` is a copy of
 [`vectors/positions.json`](https://github.com/ternmesh/spec/blob/main/vectors/positions.json), as

@@ -1074,6 +1074,46 @@ static void join(struct link *l, const struct tern_companion_msg *q) {
     news_group(l, NULL, g);
 }
 
+/* A group's join code, with the name the node holds it under: asked for only when the user asked
+ * to see or share it, and kept nowhere. */
+static void group_link(struct link *l, const struct tern_companion_msg *q) {
+    struct link_group *g = find_group(l, q->group);
+    if (g == NULL) {
+        error(l, q->seq, TERN_C_ERR_NOT_HELD);
+        return;
+    }
+    char text[TERN_GROUP_LINK_MAX + 1];
+    struct tern_companion_msg a = {.type = TERN_C_LINK, .seq = q->seq};
+    a.text_len = (uint8_t)tern_group_link(g->g.secret, g->name, g->name_len, text);
+    memcpy(a.text, text, a.text_len);
+    send_msg(l, l->asker, &a);
+    tern_wipe(text, sizeof text);
+    tern_wipe(&a, sizeof a);
+}
+
+/* A group taken from a join code, which the user gave to join from. Nothing goes on the air. */
+static void join_link(struct link *l, const struct tern_companion_msg *q) {
+    uint8_t secret[TERN_GROUP_SECRET], name[TERN_GROUP_NAME_MAX], id[TERN_COMPANION_GROUP];
+    size_t name_len;
+    if (!tern_group_link_read((const char *)q->text, q->text_len, secret, name, &name_len)) {
+        error(l, q->seq, TERN_C_ERR_REFUSED);
+        return;
+    }
+    tern_companion_group_id(secret, id);
+    struct link_group *g = find_group(l, id);
+    bool held = g != NULL; /* held already: as it was, under the name it had */
+    uint8_t code = held ? 0 : take_group(l, secret, name, name_len, &g);
+    tern_wipe(secret, sizeof secret);
+    if (code != 0) {
+        error(l, q->seq, code);
+        return;
+    }
+    made(l, q->seq, g);
+    if (!held) {
+        news_group(l, NULL, g);
+    }
+}
+
 static void leave_group(struct link *l, const struct tern_companion_msg *q) {
     struct link_group *g = find_group(l, q->group);
     if (g != NULL) {
@@ -1669,6 +1709,13 @@ void link_receive(struct link *l, unsigned conn, tern_time now, const uint8_t *f
         break;
     case TERN_C_JOIN:
         join(l, &q);
+        break;
+    case TERN_C_GROUP_LINK:
+        group_link(l, &q);
+        break;
+    case TERN_C_JOIN_LINK:
+        join_link(l, &q);
+        tern_wipe(&q, sizeof q); /* the code is the group's secret: not left for the next request */
         break;
     case TERN_C_READ:
         read_request(l, &q);

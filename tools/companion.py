@@ -9,7 +9,8 @@
     python3 tools/companion.py --port /dev/ttyUSB0 watch
     python3 tools/companion.py --port /dev/ttyUSB0 group new <name>
     python3 tools/companion.py --port /dev/ttyUSB0 group invite <group> <address>
-    python3 tools/companion.py --port /dev/ttyUSB0 group join <invite>
+    python3 tools/companion.py --port /dev/ttyUSB0 group join <invite or join code>
+    python3 tools/companion.py --port /dev/ttyUSB0 group code <group>
     python3 tools/companion.py --port /dev/ttyUSB0 group send <group> <text>
     python3 tools/companion.py --port /dev/ttyUSB0 position <lat> <lon>
     python3 tools/companion.py --port /dev/ttyUSB0 share <address or group> <precision>
@@ -19,11 +20,13 @@
 `contact` saves an address under a name, which also lets that node make first contact; `end` ends
 the session with one. `state` says hello, sets the node's clock from this computer's, and prints everything the node
 holds. `send` sends a message and prints what becomes of it. `watch` prints news as it comes.
-`group` makes a group, invites a contact to one, takes the group an invite was to, writes to one
-or leaves it; a group is named by the sixteen digits `state` lists it with. `position` tells the
+`group` makes a group, invites a contact to one, takes the group an invite or a join code was to,
+prints a group's join code, writes to one or leaves it; a group is named by the sixteen digits
+`state` lists it with. A join code is the group: anyone who has it can read every frame of it, so
+`group code` prints it only for the group asked for, and nothing here keeps it. `position` tells the
 node where it is, in degrees, and `share` has the node send that to a contact or a group, as a
 cell of a grid as coarse as `precision` says, 1 to 24, until `share ... 0` stops it. `watch`
-speaks version 1 and is told of messages only: `--speak 6 watch` is told of all of it.
+speaks version 1 and is told of messages only: `--speak 7 watch` is told of all of it.
 `update` gives the node a new image of its firmware, going on from where the node's bytes end if
 it was given part of the same image before, and the node restarts into it.
 While it waits for news it sends PING every IDLE seconds, as the specification asks, and if the
@@ -53,7 +56,7 @@ MAX_FRAME, MAGIC = 180, b"\xf5\x54"
 # brought; `--speak` says another, so that `watch` is told of groups, positions or cards.
 VERSION = 1
 # The latest version the frames below are, which selftest reads the vectors by.
-LATEST = 6
+LATEST = 7
 UPDATE_CHUNK = 172
 ANSWER_WAIT = 5.0
 IDLE = 20.0  # the most a client lets pass after an answer before it asks again
@@ -77,6 +80,8 @@ FRAMES = {
     0x23: ("SEND_GROUP", [("ref", "I"), ("group", "gid"), ("text", "str")]),
     0x24: ("SEND_INVITE", [("group", "gid"), ("to", "addr")]),
     0x25: ("JOIN", [("id", "I")]),
+    0x26: ("GROUP_LINK", [("group", "gid")]),
+    0x27: ("JOIN_LINK", [("link", "str")]),
     0x30: ("UPDATE_BEGIN", [("size", "I"), ("digest", "digest")]),
     0x31: ("UPDATE_DATA", [("offset", "I"), ("data", "raw")]),
     0x32: ("UPDATE_END", []),
@@ -93,6 +98,7 @@ FRAMES = {
     0x44: ("QUEUED", [("id", "I")]),
     0x45: ("MADE", [("group", "gid")]),
     0x46: ("UPDATING", [("offset", "I")]),
+    0x47: ("LINK", [("link", "str")]),
     0x80: ("SELF", [("address", "addr"), ("role", "B"), ("region", "str"), ("power", "b"),
                     ("time", "I"), ("cards", "B"), ("card_name", "str")]),
     0x81: ("CONTACT", [("address", "addr"), ("session", "B"), ("name", "str")]),
@@ -571,6 +577,11 @@ def update(node, info, path):
     print("the node has the image, and restarts into it")
 
 
+def joins_codes(info):
+    if info["version"] < 7:
+        raise SystemExit("this node's firmware is too old for join codes")
+
+
 def run(args):
     latest = ("state", "update", "group", "position", "share")
     speak = LATEST if args.command in latest else VERSION
@@ -629,9 +640,18 @@ def run(args):
             q = node.request("SEND_INVITE", group=group_id(args.group), to=address(args.address))
             print(f"queued as invite #{q['id']}")
             watch_message(node, q, names, args.wait, (2, 3))
-        elif args.what == "join":
-            node.request("JOIN", id=args.id)
+        elif args.what == "join" and args.invite.isdigit():
+            node.request("JOIN", id=int(args.invite))
             print("joined")
+        elif args.what == "join":
+            joins_codes(info)
+            made = node.request("JOIN_LINK", link=args.invite)
+            print(f"joined group {made['group'].hex()}")
+        elif args.what == "code":
+            joins_codes(info)
+            link = node.request("GROUP_LINK", group=group_id(args.group))["link"]
+            print(link)
+            print("anyone who sees this code can read everything sent to the group", file=sys.stderr)
         elif args.what == "send":
             q = node.request("SEND_GROUP", ref=random.getrandbits(32), group=group_id(args.group),
                              text=args.text)
@@ -726,7 +746,9 @@ def main():
     gi.add_argument("group")
     gi.add_argument("address")
     gj = gs.add_parser("join")
-    gj.add_argument("id", type=int, help="the invite's number, as `state` lists it")
+    gj.add_argument("invite", help="the invite's number, as `state` lists it, or a join code's "
+                                   "link")
+    gs.add_parser("code", help="print a group's join code").add_argument("group")
     gw = gs.add_parser("send")
     gw.add_argument("group")
     gw.add_argument("text")
