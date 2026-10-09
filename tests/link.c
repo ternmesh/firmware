@@ -2055,6 +2055,11 @@ static void a_groups_writers_are_kept_across_a_restart(void) {
     CHECK(!link_keep_writers(&companion)); /* nothing heard: nothing to write */
     CHECK(hear(0x77, 5) == TERN_GROUP_ACCEPTED);
     CHECK(hear(0x78, 900) == TERN_GROUP_ACCEPTED);
+    /* A write flash does not take is tried again at the next call, not forgotten. */
+    board.save_fails = true;
+    CHECK(link_keep_writers(&companion));
+    CHECK_EQ_U64(board.writer_saves, 0);
+    board.save_fails = false;
     CHECK(link_keep_writers(&companion));
     CHECK_EQ_U64(board.writer_saves, 1);
     CHECK_EQ_U64(board.writers_len, TERN_COMPANION_GROUP + 1 + 16);

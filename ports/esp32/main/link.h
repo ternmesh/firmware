@@ -407,10 +407,10 @@ bool link_group_count(struct link *l, uint32_t *count);
  * has them. */
 void link_group_heard(struct link *l);
 
-/* Saves the groups' writers if they have changed since they last were. The board calls this no
- * more often than it will write to flash; the link calls it when a group is left. True if there
- * was something to write: it is then not asked again until something changes, whether or not
- * the write was taken. */
+/* Saves the groups' writers if they have changed since they last were saved. The board calls this
+ * no more often than it will write to flash; the link calls it when a group is left. True if
+ * there was something to write, whether or not flash took it: one it did not take is tried again
+ * at the next call. */
 bool link_keep_writers(struct link *l);
 
 /* The keys to seal a waiting group message with, or NULL if its group has been left since. */

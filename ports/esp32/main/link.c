@@ -337,8 +337,9 @@ bool link_keep_writers(struct link *l) {
             len += TERN_COMPANION_GROUP + 1 + n;
         }
     }
-    (void)l->host.save_writers(l->host.ctx, kept, len);
-    l->writers_changed = false;
+    if (l->host.save_writers(l->host.ctx, kept, len)) {
+        l->writers_changed = false;
+    }
     return true;
 }
 
