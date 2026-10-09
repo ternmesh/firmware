@@ -156,6 +156,15 @@ static struct {
     uint8_t nonce[TERN_GROUP_NONCE];
     uint8_t frame_id[TERN_FLOOD_ID]; /* the flooder's name for its frame */
 } flooding[FLOODING];
+/* A position handed to the flooder for a group, by the group's place and id: let go of if the
+ * group is left, or no longer shared with, before it goes (link_group_position_wanted()). */
+static struct {
+    bool on;
+    bool stopped; /* the stopped position, which goes though sharing is off */
+    size_t place;
+    uint8_t group[TERN_COMPANION_GROUP];
+    uint8_t frame_id[TERN_FLOOD_ID];
+} positioning[FLOODING];
 static int flood_own = -1;     /* which of them the frame on the air is, or -1 */
 static bool forward_out;       /* the frame on the air is the forwarder's */
 static uint8_t forward_handle; /* and this is the forwarder's name for it */
@@ -733,6 +742,14 @@ static void heard_flood(const struct tern_radio_event *ev) {
         return; /* another group's, most often: nothing to say */
     }
     flash_led();
+    if (got.node) {
+        /* For this board, not words: a position, or a kind it does not know and lets go of. */
+        if (got.len > 0 && text[0] == TERN_POSITION_KIND) {
+            link_group_position_received(&companion, board_now(), got.group, got.from, text,
+                                         got.len);
+        }
+        return;
+    }
     text[got.len] = '\0';
     const struct link_group *g = &companion.groups[got.group];
     /* Who wrote is what the frame says, which any member could have written. */
@@ -1031,20 +1048,55 @@ static void send_group(struct link_message *x) {
     link_taken(&companion, x->id);
 }
 
-/* Seals the position the link says is due to a contact, as a message for its node, and hands it
- * to the forwarder, which sends it until it is acknowledged or given up, as it does a message.
- * Group positions wait for the group frame's node flag (ternmesh/spec#28). */
+/* Floods a position to a group, sealed with the flag `node` set, once the allowance for the
+ * board's own floods would still hold a 255-byte frame of words after it (draft/positions.md,
+ * "Words first"). Nothing answers it. */
+static void send_group_position(const struct link_position_out *out) {
+    static uint8_t frame[TERN_GROUP_MAX_FRAME];
+    size_t len = out->len + TERN_GROUP_OVERHEAD;
+    uint8_t nonce[TERN_GROUP_NONCE];
+    int place = -1;
+    for (int i = 0; i < FLOODING; i++) {
+        place = !positioning[i].on && place < 0 ? i : place;
+    }
+    if (place < 0 || !tern_flood_own_room(&flood, board_now(), len)) {
+        return; /* asked again on the next poll: the allowance fills as time goes */
+    }
+    if (!board_random(NULL, nonce, sizeof nonce) ||
+        tern_group_seal_node(&companion.groups[out->place].g, nonce, route.id, out->plaintext,
+                             out->len, frame, sizeof frame) != TERN_OK ||
+        !tern_flood_send(&flood, board_now(), frame, len)) {
+        outgoing_retry = board_now() + 1000000000LL; /* the flooder's room */
+        return;
+    }
+    positioning[place].on = true;
+    positioning[place].stopped = out->cell.precision == 0;
+    positioning[place].place = out->place;
+    memcpy(positioning[place].group, companion.groups[out->place].id, TERN_COMPANION_GROUP);
+    tern_flood_id(frame, len, positioning[place].frame_id);
+    link_position_sent(&companion, out, board_now());
+    printf("position to the group \"%.*s\": %u bytes, precision %u\n",
+           (int)companion.groups[out->place].name_len,
+           (const char *)companion.groups[out->place].name, (unsigned)len,
+           (unsigned)out->cell.precision);
+}
+
+/* Seals the position the link says is due, to a contact as a message for its node, which the
+ * forwarder sends until it is acknowledged or given up, as it does a message; or to a group. */
 static void send_position(void) {
     static uint8_t frame[TERN_FORWARD_FRAME_MAX];
     struct link_position_out out;
-    struct pending *p = pending_free();
-    if (p == NULL || board_now() < outgoing_retry ||
-        !link_position_next(&companion, board_now(), false, &out)) {
+    if (board_now() < outgoing_retry || !link_position_next(&companion, board_now(), true, &out)) {
         return;
     }
+    if (out.group) {
+        send_group_position(&out);
+        return;
+    }
+    struct pending *p = pending_free();
     int slot = demo_peer(&demo, out.address);
-    if (slot < 0) {
-        return; /* no session: a position does not begin first contact */
+    if (p == NULL || slot < 0) {
+        return; /* no room, or no session: a position does not begin first contact */
     }
     uint32_t counter = demo.s[slot].session.tx.next;
     if (demo_seal_node(&demo, slot, out.plaintext, out.len, frame) != DEMO_OK) {
@@ -1231,6 +1283,15 @@ static void poll_flood(void) {
             }
         }
     }
+    /* A position whose group was left, or is no longer shared with, is not to go. */
+    for (int i = 0; i < FLOODING; i++) {
+        if (positioning[i].on &&
+            !link_group_position_wanted(&companion, positioning[i].place, positioning[i].group,
+                                        positioning[i].stopped)) {
+            (void)tern_flood_cancel(&flood, now, positioning[i].frame_id);
+            positioning[i].on = false;
+        }
+    }
     /* How busy the radio has been, for a relay to pass fewer on by: what it sent and what it
      * received whole. A frame it lost part-way is not counted, the radio not saying how long it
      * was. */
@@ -1269,6 +1330,13 @@ static void poll_flood(void) {
     if (kind == TERN_FLOOD_RELAY) {
         printf("passed on a %u-byte frame for every node, at %d dBm\n", (unsigned)len, dbm);
         return;
+    }
+    uint8_t id[TERN_FLOOD_ID];
+    tern_flood_id(frame, len, id);
+    for (int i = 0; i < FLOODING; i++) {
+        if (positioning[i].on && memcmp(positioning[i].frame_id, id, TERN_FLOOD_ID) == 0) {
+            positioning[i].on = false; /* on the air: nothing more to let go of */
+        }
     }
     for (int i = 0; i < FLOODING; i++) {
         if (flooding[i].id != 0 &&

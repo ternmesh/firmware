@@ -44,20 +44,20 @@ static void ccm_nonce(const uint8_t *nonce, uint8_t out[TERN_CCM_NONCE]) {
     memcpy(out + TERN_CCM_NONCE - TERN_GROUP_NONCE, nonce, TERN_GROUP_NONCE);
 }
 
-int tern_group_seal(const struct tern_group *g, const uint8_t nonce[TERN_GROUP_NONCE],
-                    uint32_t from, const uint8_t *content, size_t len, uint8_t *frame,
-                    size_t frame_cap) {
+static int seal(const struct tern_group *g, uint8_t hdr, const uint8_t nonce[TERN_GROUP_NONCE],
+                uint32_t from, const uint8_t *content, size_t len, uint8_t *frame,
+                size_t frame_cap) {
     if (len > TERN_GROUP_MAX_CONTENT || frame == NULL || frame_cap < len + TERN_GROUP_OVERHEAD ||
         (content == NULL && len > 0) || !an_id(from)) {
         return TERN_EINVAL;
     }
     uint8_t nc[TERN_CCM_NONCE], aad[AAD], plain[FROM + TERN_GROUP_MAX_CONTENT];
-    frame[0] = TERN_GROUP_HDR;
+    frame[0] = hdr;
     frame[1] = 0;
     frame[2] = 0;
     memcpy(frame + AT_NONCE, nonce, TERN_GROUP_NONCE);
     gtag(g, nonce, frame + AT_TAG);
-    aad[0] = TERN_GROUP_HDR;
+    aad[0] = hdr;
     memcpy(aad + 1, frame + AT_NONCE, TERN_GROUP_NONCE + TERN_GROUP_TAG);
     plain[0] = (uint8_t)(from >> 24);
     plain[1] = (uint8_t)(from >> 16);
@@ -71,6 +71,18 @@ int tern_group_seal(const struct tern_group *g, const uint8_t nonce[TERN_GROUP_N
                         frame + AT_BODY + FROM + len);
     tern_wipe(plain, sizeof plain);
     return TERN_OK;
+}
+
+int tern_group_seal(const struct tern_group *g, const uint8_t nonce[TERN_GROUP_NONCE],
+                    uint32_t from, const uint8_t *content, size_t len, uint8_t *frame,
+                    size_t frame_cap) {
+    return seal(g, TERN_GROUP_HDR, nonce, from, content, len, frame, frame_cap);
+}
+
+int tern_group_seal_node(const struct tern_group *g, const uint8_t nonce[TERN_GROUP_NONCE],
+                         uint32_t from, const uint8_t *content, size_t len, uint8_t *frame,
+                         size_t frame_cap) {
+    return seal(g, TERN_GROUP_HDR_NODE, nonce, from, content, len, frame, frame_cap);
 }
 
 static bool held(const struct tern_group *g, const uint8_t *nonce) {
@@ -95,7 +107,8 @@ int tern_group_open(struct tern_group *const *g, size_t count, uint32_t self, co
         return TERN_EINVAL;
     }
     *out = (struct tern_group_received){0};
-    if (len < TERN_GROUP_OVERHEAD || len > TERN_GROUP_MAX_FRAME || frame[0] != TERN_GROUP_HDR) {
+    if (len < TERN_GROUP_OVERHEAD || len > TERN_GROUP_MAX_FRAME ||
+        (frame[0] != TERN_GROUP_HDR && frame[0] != TERN_GROUP_HDR_NODE)) {
         out->verdict = TERN_GROUP_MALFORMED;
         return TERN_OK;
     }
@@ -142,6 +155,7 @@ int tern_group_open(struct tern_group *const *g, size_t count, uint32_t self, co
             out->group = i;
             out->from = from;
             out->len = content_len;
+            out->node = frame[0] == TERN_GROUP_HDR_NODE;
             tern_wipe(plain, sizeof plain);
             return TERN_OK;
         }

@@ -1282,6 +1282,15 @@ void link_position_sent(struct link *l, const struct link_position_out *out, ter
     s->in_flight = !out->group;
 }
 
+bool link_group_position_wanted(const struct link *l, size_t place,
+                                const uint8_t id[TERN_COMPANION_GROUP], bool stopped) {
+    if (place >= LINK_GROUPS || !l->groups[place].used ||
+        memcmp(l->groups[place].id, id, TERN_COMPANION_GROUP) != 0) {
+        return false;
+    }
+    return stopped || l->group_shares[place].precision != 0;
+}
+
 void link_position_done(struct link *l, const uint8_t address[TERN_ADDRESS_LEN]) {
     for (size_t i = 0; i < LINK_CONTACTS; i++) {
         if (memcmp(l->contact_shares[i].address, address, TERN_ADDRESS_LEN) == 0) {

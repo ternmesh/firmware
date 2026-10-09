@@ -48,7 +48,9 @@ header for `tests/companion.c`, and its connections alone into one for `tests/li
 `tests/group.c`. The same pull request gives a unicast message the node flag, so
 `unicast-security.json` and `forwarding.json` are as of it too.
 `flooding.json` is since as of
-[ternmesh/spec#25](https://github.com/ternmesh/spec/pull/25), which adds a busy relay.
+[ternmesh/spec#25](https://github.com/ternmesh/spec/pull/25), which adds a busy relay. Both are
+since as of [ternmesh/spec#28](https://github.com/ternmesh/spec/pull/28), which gives a group frame
+the node flag, `0x61`, flooded as `0x60` is, and puts `hdr` in a flooded frame's id.
 
 `sharing.json` is a copy of
 [`vectors/sharing.json`](https://github.com/ternmesh/spec/blob/main/vectors/sharing.json), as of

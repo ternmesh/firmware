@@ -1,5 +1,5 @@
 {
-  "description": "Frames for every node, draft 0 (draft/flooding.md). Frames, ids and what follows a head (rest) are hex; power is signed. A frame's id is the first eight bytes of the SHA-256 of everything after its three-byte head. In passes, a node of that role with that many relay neighbours receives a frame it has not seen with those hops, and sends it on with sends as its hops, or does not, for null. In copies, received counts every copy a relay waiting to pass a frame on has received, the first included. In waits, airtime_ns is the frame's time on the air with the profiles' preamble and coding rate (vectors/phy.json) and longest_ns the longest a relay waits before passing it on. In powers, every is what Routes gives for a frame for every neighbour, in dBm, and floors_sixteenths the floors, in sixteenths of a dBm, of the neighbours the node's selected routes go through that are relays, null for one not known. In seen, ids are names, taken as seen at the times given, and each ask is true where the node must still hold the id as seen; an id never taken is not seen. In allowances, a bucket that fills at share_ppm millionths of the node's time and holds window_s seconds of that, or one 255-byte frame if that is more, is full at time 0; each frame is offered at at_ns, and is sent and charged if the bucket pays.",
+  "description": "Frames for every node, draft 0 (draft/flooding.md). Frames, ids and what follows a head (rest) are hex; power is signed. A frame's id is the first eight bytes of the SHA-256 of its hdr and everything after its three-byte head. In passes, a node of that role with that many relay neighbours receives a frame it has not seen with those hops, and sends it on with sends as its hops, or does not, for null. In copies, received counts every copy a relay waiting to pass a frame on has received, the first included. In waits, airtime_ns is the frame's time on the air with the profiles' preamble and coding rate (vectors/phy.json) and longest_ns the longest a relay waits before passing it on. In powers, every is what Routes gives for a frame for every neighbour, in dBm, and floors_sixteenths the floors, in sixteenths of a dBm, of the neighbours the node's selected routes go through that are relays, null for one not known. In seen, ids are names, taken as seen at the times given, and each ask is true where the node must still hold the id as seen; an id never taken is not seen. In allowances, a bucket that fills at share_ppm millionths of the node's time and holds window_s seconds of that, or one 255-byte frame if that is more, is full at time 0; each frame is offered at at_ns, and is sent and charged if the bucket pays.",
   "generator": "vectors/tools/flooding.py",
   "heads": [
     {
@@ -7,7 +7,7 @@
       "hops": 5,
       "power": 22,
       "rest": "303132333435363738393a3b3c3d3e3f4041424344454647",
-      "id": "78fabffbcf5d727d",
+      "id": "61f5dee4a925cdf6",
       "frame": "600516303132333435363738393a3b3c3d3e3f4041424344454647"
     },
     {
@@ -15,7 +15,7 @@
       "hops": 1,
       "power": -9,
       "rest": "808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7",
-      "id": "410e1925d90a2fa4",
+      "id": "73de67465142558d",
       "frame": "6001f7808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7"
     },
     {
@@ -23,8 +23,16 @@
       "hops": 0,
       "power": 0,
       "rest": "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
-      "id": "913c6e2c32d99e4b",
+      "id": "8c66ea3d0ca5b381",
       "frame": "600000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "hdr": 97,
+      "hops": 5,
+      "power": 14,
+      "rest": "303132333435363738393a3b3c3d3e3f4041424344454647",
+      "id": "9405edf3d86eefa3",
+      "frame": "61050e303132333435363738393a3b3c3d3e3f4041424344454647"
     }
   ],
   "rejected": [
@@ -45,8 +53,16 @@
       "frame": "59050e303132333435363738393a3b3c3d3e3f4041424344454647"
     },
     {
-      "name": "a-flag-set",
-      "frame": "61050e303132333435363738393a3b3c3d3e3f4041424344454647"
+      "name": "a-reserved-flag",
+      "frame": "62050e303132333435363738393a3b3c3d3e3f4041424344454647"
+    },
+    {
+      "name": "both-flags-set",
+      "frame": "63050e303132333435363738393a3b3c3d3e3f4041424344454647"
+    },
+    {
+      "name": "for-the-node-short",
+      "frame": "61050e303132333435363738393a3b3c3d3e3f40414243444546"
     },
     {
       "name": "empty",
@@ -65,6 +81,12 @@
       "a": "60050e303132333435363738393a3b3c3d3e3f4041424344454647",
       "b": "60050e303132333435363738393a3b3c3d3e3f4041424344454647",
       "same": true
+    },
+    {
+      "name": "node-flag-flipped",
+      "a": "60050e303132333435363738393a3b3c3d3e3f4041424344454647",
+      "b": "61050e303132333435363738393a3b3c3d3e3f4041424344454647",
+      "same": false
     },
     {
       "name": "last-byte",

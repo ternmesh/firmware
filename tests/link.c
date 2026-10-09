@@ -792,6 +792,19 @@ static void group_positions_are_held_for_each_member(void) {
     CHECK(!link_position_next(&companion, TERN_S(300), false, &out));
     CHECK(link_position_next(&companion, TERN_S(300), true, &out));
     CHECK(out.group && out.place == 0);
+    /* Handed to the flooder, it is still wanted while the group is held and shared with. */
+    CHECK(link_group_position_wanted(&companion, 0, id, false));
+    uint8_t other[TERN_COMPANION_GROUP];
+    memcpy(other, id, sizeof other);
+    other[0] ^= 1;
+    CHECK(!link_group_position_wanted(&companion, 0, other, false));
+    CHECK(!link_group_position_wanted(&companion, 1, id, false));
+    struct tern_companion_msg off = g;
+    off.precision = 0;
+    request(&off);
+    CHECK(!link_group_position_wanted(&companion, 0, id, false)); /* no longer shared */
+    CHECK(link_group_position_wanted(&companion, 0, id, true));   /* but the stopped one goes */
+    request(&g);
     /* Leaving forgets the positions and ends the sharing, as news. */
     struct tern_companion_msg leave = {.type = TERN_C_LEAVE_GROUP, .seq = 17};
     memcpy(leave.group, id, sizeof id);
@@ -804,6 +817,9 @@ static void group_positions_are_held_for_each_member(void) {
     CHECK_EQ_U64(positions, LINK_GROUP_POSITIONS - 1);
     CHECK_EQ_U64(sharing, 1);
     CHECK(!link_position_next(&companion, TERN_S(300), true, &out));
+    /* And what was handed to the flooder for it is not to go, stopped or not. */
+    CHECK(!link_group_position_wanted(&companion, 0, id, false));
+    CHECK(!link_group_position_wanted(&companion, 0, id, true));
 }
 
 /* The random wait is drawn over the whole of an eighth of the interval, not the few seconds a

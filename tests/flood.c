@@ -372,6 +372,39 @@ static void test_own(void) {
     CHECK_EQ_U64(x.f.counts.heard, 0);
 }
 
+/* A position to a group must leave the allowance room for a 255-byte frame of words, counting
+ * what of the node's own still waits. Asking spends nothing. */
+static void test_own_room(void) {
+    struct node x;
+    uint8_t frame[TERN_FLOOD_FRAME_MAX], out[TERN_FLOOD_FRAME_MAX];
+    int8_t dbm;
+    enum tern_flood_kind kind;
+    uint8_t h;
+    start(&x, false, 9);
+    /* Full, the bucket holds 3 s of airtime: 9.35 frames of 255 bytes at US915, 321 ms each. A
+     * 33-byte position is 70 ms. */
+    CHECK(tern_flood_own_room(&x.f, 0, 33));
+    CHECK(tern_flood_own_room(&x.f, 0, 33)); /* asking twice is asking once */
+    /* One sent and paid for, and seven waiting: a position and a frame still fit, 9.22 of 9.35.
+     * An eighth waiting, and they do not. */
+    CHECK(tern_flood_send(&x.f, 0, frame, make(frame, 255, 0, 0)));
+    CHECK(tern_flood_poll(&x.f, 0, out, &dbm, &kind, &h) == 255);
+    tern_flood_sent(&x.f, 0, h);
+    for (unsigned k = 1; k < 8; k++) {
+        CHECK(tern_flood_send(&x.f, 0, frame, make(frame, 255, 0, k)));
+    }
+    CHECK(tern_flood_own_room(&x.f, 0, 33));
+    CHECK(tern_flood_send(&x.f, 0, frame, make(frame, 255, 0, 8)));
+    CHECK(!tern_flood_own_room(&x.f, 0, 33));
+    /* Sent rather than waiting, they cost the same. */
+    while (tern_flood_poll(&x.f, 0, out, &dbm, &kind, &h) != 0) {
+        tern_flood_sent(&x.f, 0, h);
+    }
+    CHECK(!tern_flood_own_room(&x.f, 0, 33));
+    /* And the bucket fills again. */
+    CHECK(tern_flood_own_room(&x.f, TERN_S(600), 33));
+}
+
 /* A frame of this node's that is no longer to go: let go of while it waits, and not wanted if the
  * caller already has it, with what it was charged given back. */
 static void test_cancel(void) {
@@ -677,6 +710,7 @@ int main(void) {
     RUN(test_waits);
     RUN(test_seen);
     RUN(test_own);
+    RUN(test_own_room);
     RUN(test_unpaid);
     RUN(test_busy);
     RUN(test_draws);

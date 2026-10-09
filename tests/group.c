@@ -8,6 +8,8 @@
 
 struct accepted_case {
     const char *name;
+    uint8_t hdr;
+    bool node;
     uint8_t secret[16];
     uint8_t nonce[8];
     uint32_t from;
@@ -99,8 +101,12 @@ static void test_accepted(void) {
         uint8_t frame[TERN_GROUP_MAX_FRAME], content[TERN_GROUP_MAX_CONTENT];
         tern_group_init(&g, c->secret);
         CHECK(memcmp(g.key, c->key, 16) == 0);
-        CHECK(tern_group_seal(&g, c->nonce, c->from, c->content, c->content_len, frame,
-                              sizeof frame) == TERN_OK);
+        int sealed = c->node ? tern_group_seal_node(&g, c->nonce, c->from, c->content,
+                                                    c->content_len, frame, sizeof frame)
+                             : tern_group_seal(&g, c->nonce, c->from, c->content, c->content_len,
+                                               frame, sizeof frame);
+        CHECK(sealed == TERN_OK);
+        CHECK_EQ_U64(frame[0], c->hdr);
         /* Sealed, the flood's bytes are zero. */
         CHECK(frame[1] == 0 && frame[2] == 0 && memcmp(frame + 11, c->gtag, 4) == 0);
         frame[1] = c->hops;
@@ -111,7 +117,7 @@ static void test_accepted(void) {
         }
         struct tern_group_received r = receive(&g, c->self, c->frame, c->frame_len, content);
         if (r.verdict != TERN_GROUP_ACCEPTED || r.from != c->from || r.group != 0 ||
-            !bytes_eq(content, r.len, c->content, c->content_len)) {
+            r.node != c->node || !bytes_eq(content, r.len, c->content, c->content_len)) {
             fprintf(stderr, "accepted %s: not received as sent\n", c->name);
             check_failures++;
         }
