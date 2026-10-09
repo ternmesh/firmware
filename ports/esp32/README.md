@@ -412,11 +412,24 @@ What to know before trusting one with anything:
   minute to minute sending or receiving, it drops some of the group frames it would pass on,
   more of them the busier it is, and its own never. It counts what it sent and what it received
   whole: a frame lost part-way is not counted, so it takes itself for less busy than it is.
-* **An old message can be sent again by anyone who recorded it, and is read as new.** The board
-  knows a group frame it has had only by the last 64 it read in that group, and forgets those
-  when it restarts. A frame older than that, recorded off the air and sent again, shows as a new
-  message with its old words, and nobody need hold the group's secret to do it. The draft lists
-  replay as not yet closed.
+* **A message recorded and sent again is not read again**, with four exceptions. Each board
+  numbers the group frames it writes, and a board keeps, for each of up to sixteen writers in a
+  group, the highest number it has read and which of the 31 below it. It keeps them in flash,
+  written at most once a minute. So an old frame sent again by someone who recorded it, which
+  needs no secret, is dropped. It is still read as new:
+  * by a board that never received it and has read nothing later from its writer;
+  * by a board that lost power within a minute of first reading it;
+  * by a board so full of sessions, groups and messages that flash had no room to spare for
+    the numbers, after it restarts;
+  * in a group where more than sixteen boards write, when its writer is the one the board has
+    gone longest without hearing.
+* **Boards on 0.2.0-alpha.1 or earlier and boards on this cannot read each other's group
+  messages.** The frame changed to carry the number, and each takes the other's for a frame
+  that fails its check. Update every board in a group together. Groups, their names and saved
+  messages are kept.
+* **One member can stop another being read.** A group's frames say who wrote them and prove
+  nothing, so a member who writes under another's id with a high number has the rest drop that
+  board's own frames from then on.
 
 ## Positions
 

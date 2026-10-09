@@ -740,6 +740,7 @@ static void heard_flood(const struct tern_radio_event *ev) {
         got.verdict != TERN_GROUP_ACCEPTED) {
         return; /* another group's, most often: nothing to say */
     }
+    link_group_heard(&companion);
     flash_led();
     if (got.node) {
         /* For this board, not words: a position, or a kind it does not know and lets go of. */
@@ -1034,9 +1035,13 @@ static void send_group(struct link_message *x) {
         return;
     }
     uint8_t nonce[TERN_GROUP_NONCE];
+    uint32_t count;
     size_t len = x->text_len + TERN_GROUP_OVERHEAD;
-    if (!board_random(NULL, nonce, sizeof nonce) ||
-        tern_group_seal(g, nonce, route.id, x->text, x->text_len, frame, sizeof frame) != TERN_OK ||
+    /* A count is spent whether or not the frame goes: the next is higher, which is all it must
+     * be. */
+    if (!board_random(NULL, nonce, sizeof nonce) || !link_group_count(&companion, &count) ||
+        tern_group_seal(g, nonce, route.id, count, x->text, x->text_len, frame, sizeof frame) !=
+            TERN_OK ||
         !tern_flood_send(&flood, board_now(), frame, len)) {
         outgoing_retry = board_now() + 1000000000LL; /* the flooder's room */
         return;
@@ -1054,6 +1059,7 @@ static void send_group_position(const struct link_position_out *out) {
     static uint8_t frame[TERN_GROUP_MAX_FRAME];
     size_t len = out->len + TERN_GROUP_OVERHEAD;
     uint8_t nonce[TERN_GROUP_NONCE];
+    uint32_t count;
     int place = -1;
     for (int i = 0; i < FLOODING; i++) {
         place = !positioning[i].on && place < 0 ? i : place;
@@ -1061,9 +1067,9 @@ static void send_group_position(const struct link_position_out *out) {
     if (place < 0 || !tern_flood_own_room(&flood, board_now(), len)) {
         return; /* asked again on the next poll: the allowance fills as time goes */
     }
-    if (!board_random(NULL, nonce, sizeof nonce) ||
-        tern_group_seal_node(&companion.groups[out->place].g, nonce, route.id, out->plaintext,
-                             out->len, frame, sizeof frame) != TERN_OK ||
+    if (!board_random(NULL, nonce, sizeof nonce) || !link_group_count(&companion, &count) ||
+        tern_group_seal_node(&companion.groups[out->place].g, nonce, route.id, count,
+                             out->plaintext, out->len, frame, sizeof frame) != TERN_OK ||
         !tern_flood_send(&flood, board_now(), frame, len)) {
         outgoing_retry = board_now() + 1000000000LL; /* the flooder's room */
         return;
@@ -1792,6 +1798,69 @@ static bool link_save_ids(void *ctx, uint32_t next) {
 #define MESSAGE_ENTRIES 160
 #define MESSAGE_SPARE 40
 
+static bool link_load_count(void *ctx, uint32_t *next) {
+    return nvs_load(ctx, "gcount", next, sizeof *next);
+}
+
+static bool link_save_count(void *ctx, uint32_t next) {
+    return nvs_save(ctx, "gcount", &next, sizeof next);
+}
+
+static size_t link_load_writers(void *ctx, uint8_t *buf, size_t cap) {
+    nvs_handle_t h;
+    size_t len = cap;
+    (void)ctx;
+    if (nvs_open("tern", NVS_READONLY, &h) != ESP_OK) {
+        return 0;
+    }
+    bool ok = nvs_get_blob(h, "writers", buf, &len) == ESP_OK;
+    nvs_close(h);
+    return ok ? len : 0;
+}
+
+/* The groups' writers are saved like a message, only with MESSAGE_SPARE still free besides: at
+ * most 21 entries, which a board has unless nearly everything else it can hold is full. One that
+ * has not keeps what it last saved, and after a restart knows its writers as they were then. */
+static bool link_save_writers(void *ctx, const uint8_t *buf, size_t len) {
+    nvs_handle_t h;
+    nvs_stats_t stats;
+    (void)ctx;
+    if (nvs_open("tern", NVS_READWRITE, &h) != ESP_OK) {
+        return false;
+    }
+    esp_err_t e;
+    if (len == 0) {
+        e = nvs_erase_key(h, "writers");
+        if (e == ESP_ERR_NVS_NOT_FOUND) {
+            e = ESP_OK;
+        }
+    } else if (nvs_get_stats(NULL, &stats) != ESP_OK ||
+               stats.available_entries < MESSAGE_SPARE + (len + 31) / 32 + 3) {
+        e = ESP_ERR_NVS_NOT_ENOUGH_SPACE;
+    } else {
+        e = nvs_set_blob(h, "writers", buf, len);
+    }
+    bool ok = e == ESP_OK && nvs_commit(h) == ESP_OK;
+    nvs_close(h);
+    return ok;
+}
+
+/* A board that keeps hearing its groups writes their writers to flash this often and no more,
+ * for the flash's sake. A restart with no warning can so forget the counts of the last minute,
+ * and read those frames again if someone sends them again. */
+#define WRITERS_EVERY_S 60
+static tern_time writers_kept; /* when they were last written, or 0 if not since the start */
+
+static void poll_writers(void) {
+    tern_time now = board_now();
+    if (writers_kept != 0 && now - writers_kept < (tern_time)WRITERS_EVERY_S * 1000000000LL) {
+        return;
+    }
+    if (link_keep_writers(&companion)) {
+        writers_kept = now != 0 ? now : 1;
+    }
+}
+
 /* What each place's message takes in flash: an entry for every 32 bytes, two that say what it is,
  * and one for its word. */
 static uint16_t message_entries[LINK_MESSAGES];
@@ -2369,6 +2438,8 @@ static void console_text(void *ctx, uint8_t c) {
  * a moment to leave as a notification. */
 static void restart_if_due(void) {
     if (restart_due) {
+        link_group_heard(&companion); /* whatever the minute has not yet written */
+        (void)link_keep_writers(&companion);
         printf("restarting to apply a setting\n");
         fflush(stdout);
         board_console_flush(500);
@@ -3319,6 +3390,10 @@ void app_main(void) {
         .random = board_random,
         .load_ids = link_load_ids,
         .save_ids = link_save_ids,
+        .load_count = link_load_count,
+        .save_count = link_save_count,
+        .load_writers = link_load_writers,
+        .save_writers = link_save_writers,
         .load_message = link_load_message,
         .save_message = link_save_message,
         .load_state = link_load_state,
@@ -3373,6 +3448,7 @@ void app_main(void) {
             poll_forward();
             poll_flood();
             poll_route();
+            poll_writers();
         }
         poll_console();
         poll_ble();

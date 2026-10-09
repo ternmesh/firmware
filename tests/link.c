@@ -58,6 +58,13 @@ struct board {
     bool have_state[LINK_MESSAGES];
     bool no_room;  /* for another message, whatever is taken out */
     unsigned most; /* messages the flash has room for, or 0 for all of them */
+    /* The count of the node's own group frames, and its groups' writers, as flash has them. */
+    uint32_t count;
+    bool have_count;
+    unsigned count_saves;
+    uint8_t writers[LINK_WRITERS_MAX];
+    size_t writers_len;
+    unsigned writer_saves;
     unsigned message_saves, state_saves;
     /* The image an update writes, and what the board does with it. */
     uint8_t image[1024];
@@ -180,6 +187,43 @@ static bool board_save_ids(void *ctx, uint32_t next) {
     return true;
 }
 
+static bool board_load_count(void *ctx, uint32_t *next) {
+    struct board *b = ctx;
+    *next = b->count;
+    return b->have_count;
+}
+
+static bool board_save_count(void *ctx, uint32_t next) {
+    struct board *b = ctx;
+    if (b->save_fails) {
+        return false;
+    }
+    b->count = next;
+    b->have_count = true;
+    b->count_saves++;
+    return true;
+}
+
+static size_t board_load_writers(void *ctx, uint8_t *buf, size_t cap) {
+    struct board *b = ctx;
+    if (b->writers_len > cap) {
+        return 0;
+    }
+    memcpy(buf, b->writers, b->writers_len);
+    return b->writers_len;
+}
+
+static bool board_save_writers(void *ctx, const uint8_t *buf, size_t len) {
+    struct board *b = ctx;
+    if (b->save_fails || len > sizeof b->writers) {
+        return false;
+    }
+    memcpy(b->writers, buf, len);
+    b->writers_len = len;
+    b->writer_saves++;
+    return true;
+}
+
 static size_t board_load_message(void *ctx, size_t place, uint8_t *buf, size_t cap) {
     struct board *b = ctx;
     if (b->message_len[place] > cap) {
@@ -291,6 +335,10 @@ static void start(void) {
         .random = board_random,
         .load_ids = board_load_ids,
         .save_ids = board_save_ids,
+        .load_count = board_load_count,
+        .save_count = board_save_count,
+        .load_writers = board_load_writers,
+        .save_writers = board_save_writers,
         .load_message = board_load_message,
         .save_message = board_save_message,
         .load_state = board_load_state,
@@ -1951,6 +1999,103 @@ static void a_group_message_that_waited_goes_after_a_restart(void) {
     CHECK(x != NULL && x->state == TERN_C_WAITING && link_outgoing(&companion) == x);
 }
 
+/* --- Group frames across a restart ----------------------------------------------------------- */
+
+static void a_restart_gives_no_count_again(void) {
+    start();
+    uint32_t count = 99;
+    CHECK(link_group_count(&companion, &count));
+    CHECK_EQ_U64(count, 0);
+    CHECK(link_group_count(&companion, &count));
+    CHECK_EQ_U64(count, 1);
+    CHECK_EQ_U64(board.count_saves, 1);
+
+    /* The counts set aside and not used are skipped, and one write sets aside a step of them. */
+    restart();
+    for (unsigned i = 0; i < LINK_COUNT_STEP; i++) {
+        CHECK(link_group_count(&companion, &count));
+        CHECK_EQ_U64(count, LINK_COUNT_STEP + i);
+    }
+    CHECK_EQ_U64(board.count_saves, 2);
+
+    /* Flash that will not take the next ones gets no frame sealed: unlike a message's id, a
+     * count given twice loses the second frame at every member. */
+    board.save_fails = true;
+    count = 99;
+    CHECK(!link_group_count(&companion, &count));
+    CHECK_EQ_U64(count, 99);
+    board.save_fails = false;
+    CHECK(link_group_count(&companion, &count));
+    CHECK_EQ_U64(count, 2 * LINK_COUNT_STEP);
+    restart();
+    CHECK(link_group_count(&companion, &count));
+    CHECK_EQ_U64(count, 3 * LINK_COUNT_STEP);
+}
+
+/* A frame for the group the board made, from another member, as the board would be handed it. */
+static enum tern_group_verdict hear(uint32_t from, uint32_t count) {
+    struct tern_group theirs, *held[LINK_GROUPS];
+    struct tern_group_received got;
+    uint8_t frame[TERN_GROUP_MAX_FRAME], content[TERN_GROUP_MAX_CONTENT];
+    uint8_t nonce[TERN_GROUP_NONCE] = {(uint8_t)from, (uint8_t)count, (uint8_t)(count >> 8)};
+    tern_group_init(&theirs, made_secret);
+    CHECK(tern_group_seal(&theirs, nonce, from, count, (const uint8_t *)"hi", 2, frame,
+                          sizeof frame) == 0);
+    link_groups(&companion, held);
+    CHECK(tern_group_open(held, LINK_GROUPS, 0x01020304, frame, 2 + TERN_GROUP_OVERHEAD, content,
+                          sizeof content, &got) == 0);
+    if (got.verdict == TERN_GROUP_ACCEPTED) {
+        link_group_heard(&companion);
+    }
+    return got.verdict;
+}
+
+static void a_groups_writers_are_kept_across_a_restart(void) {
+    make_group();
+    CHECK(!link_keep_writers(&companion)); /* nothing heard: nothing to write */
+    CHECK(hear(0x77, 5) == TERN_GROUP_ACCEPTED);
+    CHECK(hear(0x78, 900) == TERN_GROUP_ACCEPTED);
+    /* A write flash does not take is tried again at the next call, not forgotten. */
+    board.save_fails = true;
+    CHECK(link_keep_writers(&companion));
+    CHECK_EQ_U64(board.writer_saves, 0);
+    board.save_fails = false;
+    CHECK(link_keep_writers(&companion));
+    CHECK_EQ_U64(board.writer_saves, 1);
+    CHECK_EQ_U64(board.writers_len, TERN_COMPANION_GROUP + 1 + 16);
+    CHECK(!link_keep_writers(&companion));
+    CHECK(hear(0x77, 5) == TERN_GROUP_AGAIN); /* refused: nothing changed, nothing to write */
+    CHECK(!link_keep_writers(&companion));
+
+    restart();
+    CHECK(hear(0x77, 5) == TERN_GROUP_AGAIN);
+    CHECK(hear(0x78, 900) == TERN_GROUP_AGAIN);
+    CHECK(hear(0x77, 6) == TERN_GROUP_ACCEPTED);
+
+    /* What was accepted and not yet written is what a restart with no warning forgets. */
+    restart();
+    CHECK(hear(0x77, 5) == TERN_GROUP_AGAIN);
+    CHECK(hear(0x77, 6) == TERN_GROUP_ACCEPTED);
+    CHECK(link_keep_writers(&companion));
+
+    /* Flash that holds what the link did not write is passed over, not trusted. */
+    board.writers[TERN_COMPANION_GROUP] = 200; /* more writers than a group has */
+    restart();
+    CHECK(hear(0x77, 5) == TERN_GROUP_ACCEPTED);
+    CHECK(link_keep_writers(&companion));
+
+    /* Left, the group's writers leave flash with it, and taken again it starts with none. */
+    hello();
+    struct tern_companion_msg leave = for_group(TERN_C_LEAVE_GROUP, made_id());
+    request(&leave);
+    CHECK_EQ_I64(sent(0).type, TERN_C_OK);
+    CHECK_EQ_U64(board.writers_len, 0);
+    request(&(struct tern_companion_msg){
+        .type = TERN_C_MAKE_GROUP, .seq = 3, .text_len = 3, .text = "Hut"});
+    restart();
+    CHECK(hear(0x77, 5) == TERN_GROUP_ACCEPTED);
+}
+
 static void a_message_flash_has_no_room_for_is_held_until_a_restart(void) {
     start();
     uint32_t first = add();
@@ -2110,6 +2255,8 @@ int main(void) {
     RUN(a_restart_gives_no_id_again);
     RUN(messages_are_kept_across_a_restart);
     RUN(a_group_message_that_waited_goes_after_a_restart);
+    RUN(a_restart_gives_no_count_again);
+    RUN(a_groups_writers_are_kept_across_a_restart);
     RUN(a_message_flash_has_no_room_for_is_held_until_a_restart);
     RUN(the_newest_messages_are_the_ones_in_flash);
     RUN(what_flash_holds_that_is_no_message_is_not_loaded);

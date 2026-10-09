@@ -46,8 +46,12 @@
 #define LINK_CONTACTS 16
 #define LINK_GROUPS 4
 #define LINK_MESSAGES 32
-#define LINK_REFS 16    /* SENDs remembered, so one sent again is not sent twice */
-#define LINK_ID_STEP 64 /* message ids set aside by one write to flash */
+#define LINK_REFS 16       /* SENDs remembered, so one sent again is not sent twice */
+#define LINK_ID_STEP 64    /* message ids set aside by one write to flash */
+#define LINK_COUNT_STEP 64 /* and counts for the node's own group frames */
+/* The writers of every group as flash keeps them, at most: for each group its id, how many
+ * writers, and each (tern_group_keep()). */
+#define LINK_WRITERS_MAX (LINK_GROUPS * (TERN_COMPANION_GROUP + 1 + TERN_GROUP_KEPT))
 /* A message as flash keeps it, at most: what does not change, then its text. */
 #define LINK_SAVED_HEAD (17 + TERN_ADDRESS_LEN + TERN_COMPANION_GROUP + TERN_GROUP_SECRET)
 #define LINK_SAVED_MAX (LINK_SAVED_HEAD + TERN_COMPANION_TEXT_MAX)
@@ -128,6 +132,15 @@ struct link_host {
      * (link_init()). */
     bool (*load_ids)(void *ctx, uint32_t *next);
     bool (*save_ids)(void *ctx, uint32_t next);
+    /* The first count for a group frame not yet set aside, kept so that the node never seals
+     * two frames with one count (link_group_count()). */
+    bool (*load_count)(void *ctx, uint32_t *next);
+    bool (*save_count)(void *ctx, uint32_t next);
+    /* The writers the node has accepted group frames from, saved whole, up to LINK_WRITERS_MAX
+     * bytes, so that a restart does not have it read old frames again. Loading gives the
+     * length, or 0 with nothing kept; saving a length of 0 forgets them. */
+    size_t (*load_writers)(void *ctx, uint8_t *buf, size_t cap);
+    bool (*save_writers)(void *ctx, const uint8_t *buf, size_t len);
     /* The messages, each saved alone by its place among LINK_MESSAGES, in two parts: what is
      * written once, up to LINK_SAVED_MAX bytes, and a word for what changes after. Loading gives
      * the length, or 0 with nothing kept there; saving a length of 0 forgets what the place
@@ -296,7 +309,10 @@ struct link {
     struct link_group groups[LINK_GROUPS];
     struct link_message messages[LINK_MESSAGES];
     uint32_t next_id;
-    uint32_t ids_saved; /* ids below this are set aside in flash: no restart gives them again */
+    uint32_t ids_saved;    /* ids below this are set aside in flash: no restart gives them again */
+    uint32_t next_count;   /* the count of the next group frame this node seals, for any group */
+    uint32_t counts_saved; /* counts below this are set aside in flash, as ids are */
+    bool writers_changed;  /* a group frame was accepted, or a group left, since the last save */
     struct link_ref refs[LINK_REFS];
     size_t next_ref;
     /* The addresses ASKED last told of, and when: one that keeps asking is told of every
@@ -379,6 +395,23 @@ uint32_t link_add(struct link *l, const uint8_t address[TERN_ADDRESS_LEN], uint3
 /* The groups the node holds, for tern_group_open(): LINK_GROUPS places, NULL where there is no
  * group. */
 void link_groups(struct link *l, struct tern_group *out[LINK_GROUPS]);
+
+/* The count for a group frame the board is about to seal: greater than every one given before,
+ * across restarts too, and one for all the node's groups, so that leaving a group and taking it
+ * again cannot bring a count back. LINK_COUNT_STEP are set aside in flash at a time, and a
+ * restart begins after the last set aside. False if flash would not take the next ones: the
+ * frame is then not sealed, since a count given twice has members refuse the second. */
+bool link_group_count(struct link *l, uint32_t *count);
+
+/* The board accepted a group frame, of words or not: the group's writers are no longer as flash
+ * has them. */
+void link_group_heard(struct link *l);
+
+/* Saves the groups' writers if they have changed since they last were saved. The board calls this
+ * no more often than it will write to flash; the link calls it when a group is left. True if
+ * there was something to write, whether or not flash took it: one it did not take is tried again
+ * at the next call. */
+bool link_keep_writers(struct link *l);
 
 /* The keys to seal a waiting group message with, or NULL if its group has been left since. */
 const struct tern_group *link_group_of(struct link *l, const struct link_message *x);

@@ -13,6 +13,7 @@ struct accepted_case {
     uint8_t secret[16];
     uint8_t nonce[8];
     uint32_t from;
+    uint32_t count;
     const uint8_t *content;
     size_t content_len;
     uint8_t hops;
@@ -36,6 +37,7 @@ struct delivery {
     bool accept;
     size_t group;
     uint32_t from;
+    uint32_t count;
     const uint8_t *content;
     size_t content_len;
 };
@@ -47,20 +49,19 @@ struct member_case {
     const struct delivery *deliveries;
     size_t n;
 };
-struct recent_again {
-    uint8_t nonce[8];
+struct counted {
+    uint32_t from, count;
     const uint8_t *frame;
     size_t frame_len;
     bool accept;
 };
-struct recent_case {
+struct count_case {
+    const char *name;
     uint8_t secret[16];
-    uint32_t self, from;
+    uint32_t self;
     const uint8_t *content;
     size_t content_len;
-    uint64_t first;
-    unsigned count;
-    const struct recent_again *again;
+    const struct counted *deliveries;
     size_t n;
 };
 struct invite_case {
@@ -101,10 +102,10 @@ static void test_accepted(void) {
         uint8_t frame[TERN_GROUP_MAX_FRAME], content[TERN_GROUP_MAX_CONTENT];
         tern_group_init(&g, c->secret);
         CHECK(memcmp(g.key, c->key, 16) == 0);
-        int sealed = c->node ? tern_group_seal_node(&g, c->nonce, c->from, c->content,
+        int sealed = c->node ? tern_group_seal_node(&g, c->nonce, c->from, c->count, c->content,
                                                     c->content_len, frame, sizeof frame)
-                             : tern_group_seal(&g, c->nonce, c->from, c->content, c->content_len,
-                                               frame, sizeof frame);
+                             : tern_group_seal(&g, c->nonce, c->from, c->count, c->content,
+                                               c->content_len, frame, sizeof frame);
         CHECK(sealed == TERN_OK);
         CHECK_EQ_U64(frame[0], c->hdr);
         /* Sealed, the flood's bytes are zero. */
@@ -117,7 +118,8 @@ static void test_accepted(void) {
         }
         struct tern_group_received r = receive(&g, c->self, c->frame, c->frame_len, content);
         if (r.verdict != TERN_GROUP_ACCEPTED || r.from != c->from || r.group != 0 ||
-            r.node != c->node || !bytes_eq(content, r.len, c->content, c->content_len)) {
+            r.node != c->node || r.count != c->count ||
+            !bytes_eq(content, r.len, c->content, c->content_len)) {
             fprintf(stderr, "accepted %s: not received as sent\n", c->name);
             check_failures++;
         }
@@ -139,7 +141,7 @@ static void test_rejected(void) {
             fprintf(stderr, "rejected %s: accepted\n", c->name);
             check_failures++;
         }
-        CHECK(g.count == 0);
+        CHECK(g.heard == 0 && g.writers[0].from == 0);
     }
 }
 
@@ -161,7 +163,7 @@ static void test_members(void) {
                                   sizeof content, &r) == TERN_OK);
             bool ok = (r.verdict == TERN_GROUP_ACCEPTED) == d->accept;
             if (ok && d->accept) {
-                ok = r.group == d->group + 1 && r.from == d->from &&
+                ok = r.group == d->group + 1 && r.from == d->from && r.count == d->count &&
                      bytes_eq(content, r.len, d->content, d->content_len);
             }
             if (!ok) {
@@ -172,32 +174,84 @@ static void test_members(void) {
     }
 }
 
-static void test_recent(void) {
-    for (size_t i = 0; i < COUNT(recent_cases); i++) {
-        const struct recent_case *c = &recent_cases[i];
+static void test_counts(void) {
+    for (size_t i = 0; i < COUNT(count_cases); i++) {
+        const struct count_case *c = &count_cases[i];
         struct tern_group g;
         uint8_t frame[TERN_GROUP_MAX_FRAME], content[TERN_GROUP_MAX_CONTENT];
         tern_group_init(&g, c->secret);
-        for (uint64_t n = c->first; n < c->first + c->count; n++) {
-            uint8_t nonce[8];
-            for (int k = 0; k < 8; k++) {
-                nonce[k] = (uint8_t)(n >> (56 - 8 * k));
-            }
-            CHECK(tern_group_seal(&g, nonce, c->from, c->content, c->content_len, frame,
-                                  sizeof frame) == TERN_OK);
-            CHECK(receive(&g, c->self, frame, c->content_len + TERN_GROUP_OVERHEAD, content)
-                      .verdict == TERN_GROUP_ACCEPTED);
-        }
         for (size_t k = 0; k < c->n; k++) {
-            const struct recent_again *a = &c->again[k];
-            bool got = receive(&g, c->self, a->frame, a->frame_len, content).verdict ==
-                       TERN_GROUP_ACCEPTED;
-            if (got != a->accept) {
-                fprintf(stderr, "recent: again %zu\n", k);
+            const struct counted *d = &c->deliveries[k];
+            /* The frame is the one this place in the list, as a nonce, seals. */
+            uint8_t nonce[8] = {0};
+            nonce[6] = (uint8_t)(k >> 8);
+            nonce[7] = (uint8_t)k;
+            CHECK(tern_group_seal(&g, nonce, d->from, d->count, c->content, c->content_len, frame,
+                                  sizeof frame) == TERN_OK);
+            CHECK(d->frame_len == c->content_len + TERN_GROUP_OVERHEAD &&
+                  memcmp(frame + 3, d->frame + 3, d->frame_len - 3) == 0);
+            struct tern_group_received r = receive(&g, c->self, d->frame, d->frame_len, content);
+            if ((r.verdict == TERN_GROUP_ACCEPTED) != d->accept ||
+                (!d->accept && r.verdict != TERN_GROUP_AGAIN)) {
+                fprintf(stderr, "counts %s: delivery %zu\n", c->name, k);
                 check_failures++;
             }
         }
     }
+}
+
+/* A member that restarts keeps each writer and its highest count, and takes nothing at or below
+ * it again: not what it had accepted, nor the few behind that it had not. */
+static void test_kept(void) {
+    static const uint8_t secret[16] = {9};
+    struct tern_group g, again;
+    uint8_t frame[TERN_GROUP_MAX_FRAME], content[TERN_GROUP_MAX_CONTENT], kept[TERN_GROUP_KEPT];
+    uint8_t nonce[8] = {0};
+    tern_group_init(&g, secret);
+    CHECK(tern_group_keep(&g, kept) == 0);
+    /* Writers 1 to 16 at count 40, then writer 1 again, so that 2 is the one heard longest ago. */
+    for (uint32_t k = 0; k <= TERN_GROUP_WRITERS; k++) {
+        uint32_t from = 1 + k % TERN_GROUP_WRITERS, count = k < TERN_GROUP_WRITERS ? 40 : 41;
+        nonce[7] = (uint8_t)k;
+        CHECK(tern_group_seal(&g, nonce, from, count, NULL, 0, frame, sizeof frame) == TERN_OK);
+        CHECK(receive(&g, 99, frame, TERN_GROUP_OVERHEAD, content).verdict == TERN_GROUP_ACCEPTED);
+    }
+    CHECK(tern_group_keep(&g, kept) == TERN_GROUP_KEPT);
+    CHECK(kept[3] == 2 && kept[7] == 40 && kept[TERN_GROUP_KEPT - 5] == 1 &&
+          kept[TERN_GROUP_KEPT - 1] == 41);
+
+    tern_group_init(&again, secret);
+    tern_group_restore(&again, kept, sizeof kept);
+    static const struct {
+        uint32_t from, count;
+        bool accept;
+    } after[] = {
+        {1, 41, false}, {1, 40, false}, {1, 39, false}, /* 39 was never accepted: not kept */
+        {3, 40, false}, {3, 9, false},  {3, 41, true},
+        {3, 40, false}, {17, 5, true}, /* one more writer: 2 goes, as it would have */
+        {2, 40, true},
+    };
+    for (size_t k = 0; k < COUNT(after); k++) {
+        nonce[6] = 1;
+        nonce[7] = (uint8_t)k;
+        CHECK(tern_group_seal(&again, nonce, after[k].from, after[k].count, NULL, 0, frame,
+                              sizeof frame) == TERN_OK);
+        if ((receive(&again, 99, frame, TERN_GROUP_OVERHEAD, content).verdict ==
+             TERN_GROUP_ACCEPTED) != after[k].accept) {
+            fprintf(stderr, "kept: delivery %zu\n", k);
+            check_failures++;
+        }
+    }
+    /* What is not a whole writer, a reserved id and a writer named twice are passed over. */
+    static const uint8_t odd[] = {0,    0,    0, 7, 0, 0, 0, 50, 0, 0, 0,  0,    0,
+                                  0,    0,    1, 0, 0, 0, 7, 0,  0, 0, 90, 0xFF, 0xFF,
+                                  0xFF, 0xFF, 0, 0, 0, 1, 0, 0,  0, 8, 0};
+    tern_group_restore(&again, odd, sizeof odd);
+    CHECK(again.heard == 1 && again.writers[0].from == 7 && again.writers[0].top == 50 &&
+          again.writers[1].from == 0);
+    CHECK(tern_group_keep(&again, kept) == 8 && memcmp(kept, odd, 8) == 0);
+    tern_group_restore(&again, NULL, 0);
+    CHECK(again.heard == 0 && again.writers[0].from == 0);
 }
 
 static void test_invites(void) {
@@ -231,16 +285,16 @@ static void test_arguments(void) {
     static const uint8_t secret[16] = {7}, nonce[8] = {1};
     uint8_t frame[TERN_GROUP_MAX_FRAME], big[TERN_GROUP_MAX_CONTENT + 1] = {0};
     tern_group_init(&g, secret);
-    CHECK(tern_group_seal(&g, nonce, 5, big, sizeof big, frame, sizeof frame) == TERN_EINVAL);
-    CHECK(tern_group_seal(&g, nonce, 5, big, 10, frame, 36) == TERN_EINVAL);
-    CHECK(tern_group_seal(&g, nonce, 0, big, 10, frame, sizeof frame) == TERN_EINVAL);
-    CHECK(tern_group_seal(&g, nonce, 0xFFFFFFFFu, big, 10, frame, sizeof frame) == TERN_EINVAL);
-    CHECK(tern_group_seal(&g, nonce, 5, big, 10, frame, 37) == TERN_OK);
+    CHECK(tern_group_seal(&g, nonce, 5, 0, big, sizeof big, frame, sizeof frame) == TERN_EINVAL);
+    CHECK(tern_group_seal(&g, nonce, 5, 0, big, 10, frame, 40) == TERN_EINVAL);
+    CHECK(tern_group_seal(&g, nonce, 0, 0, big, 10, frame, sizeof frame) == TERN_EINVAL);
+    CHECK(tern_group_seal(&g, nonce, 0xFFFFFFFFu, 0, big, 10, frame, sizeof frame) == TERN_EINVAL);
+    CHECK(tern_group_seal(&g, nonce, 5, 0, big, 10, frame, 41) == TERN_OK);
     /* A buffer too small for what the frame holds is the caller's mistake, said so. */
     struct tern_group *const one[] = {&g};
     struct tern_group_received r;
     uint8_t content[9];
-    CHECK(tern_group_open(one, 1, 6, frame, 37, content, sizeof content, &r) == TERN_EINVAL);
+    CHECK(tern_group_open(one, 1, 6, frame, 41, content, sizeof content, &r) == TERN_EINVAL);
     /* Left, nothing of the group remains. */
     static const struct tern_group none;
     tern_group_wipe(&g);
@@ -251,7 +305,8 @@ int main(void) {
     RUN(test_accepted);
     RUN(test_rejected);
     RUN(test_members);
-    RUN(test_recent);
+    RUN(test_counts);
+    RUN(test_kept);
     RUN(test_invites);
     RUN(test_arguments);
     return CHECK_DONE();
