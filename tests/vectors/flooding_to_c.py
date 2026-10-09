@@ -51,6 +51,10 @@ def main():
     L += [f"    {{{c['received']}, {b(c['drops'])}}}," for c in v["copies"]]
     L.append("};")
 
+    L.append("static const struct busy_case busy_cases[] = {")
+    L += [f"    {{{c['busy_ppm']}u, {c['drops_ppm']}u}}," for c in v["busies"]]
+    L.append("};")
+
     L.append("static const struct wait_case wait_cases[] = {")
     L += [f"    {{{c['spreading_factor']}, {c['bandwidth_hz']}u, {c['length']}, {c['airtime_ns']}LL, "
           f"{c['longest_ns']}LL}}," for c in v["waits"]]

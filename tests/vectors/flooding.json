@@ -311,6 +311,40 @@
       "drops": true
     }
   ],
+  "busies": [
+    {
+      "busy_ppm": 0,
+      "drops_ppm": 0
+    },
+    {
+      "busy_ppm": 100000,
+      "drops_ppm": 0
+    },
+    {
+      "busy_ppm": 200000,
+      "drops_ppm": 0
+    },
+    {
+      "busy_ppm": 200001,
+      "drops_ppm": 1
+    },
+    {
+      "busy_ppm": 400000,
+      "drops_ppm": 250000
+    },
+    {
+      "busy_ppm": 600000,
+      "drops_ppm": 500000
+    },
+    {
+      "busy_ppm": 900000,
+      "drops_ppm": 875000
+    },
+    {
+      "busy_ppm": 1000000,
+      "drops_ppm": 1000000
+    }
+  ],
   "waits": [
     {
       "spreading_factor": 9,
