@@ -1193,7 +1193,7 @@ static bool due(struct link *l, struct link_share *s, tern_time now, struct tern
     }
     /* A random wait, of up to an eighth of the interval, drawn once it is due. */
     if (s->go_at == 0) {
-        uint32_t r = 0;
+        uint64_t r = 0; /* 64 bits: an eighth of the interval is more nanoseconds than 32 hold */
         if (!l->host.random(l->host.ctx, (uint8_t *)&r, sizeof r)) {
             r = 0;
         }
@@ -1328,7 +1328,11 @@ void link_group_position_received(struct link *l, tern_time now, size_t place, u
         return;
     }
     if (at == NULL) {
-        at = oldest; /* the one heard from longest ago makes room */
+        at = oldest; /* the one heard from longest ago makes room, and is forgotten as news */
+        if (at->used) {
+            at->used = false;
+            news_group_position(l, NULL, place, at, now);
+        }
     }
     *at = (struct link_member_position){.used = true, .from = from, .position = p, .at = now};
     news_group_position(l, NULL, place, at, now);

@@ -772,6 +772,13 @@ static void group_positions_are_held_for_each_member(void) {
         first = first || companion.group_positions[0][k].from == 0x11111111;
     }
     CHECK(!first);
+    /* And clients are told it is forgotten, before the newcomer's. */
+    size_t n = board.n_out;
+    CHECK(n >= 2);
+    CHECK_EQ_I64(sent(n - 2).type, TERN_C_GROUP_POSITION);
+    CHECK_EQ_U64(sent(n - 2).from, 0x11111111);
+    CHECK_EQ_I64(sent(n - 2).precision, 0);
+    CHECK_EQ_U64(sent(n - 1).from, 0x20000000 + LINK_GROUP_POSITIONS - 1);
     board.n_out = 0;
     link_group_position_received(&companion, TERN_S(200), 0, 0x20000001, stop, sizeof stop);
     CHECK_EQ_I64(sent(0).type, TERN_C_GROUP_POSITION);
@@ -797,6 +804,21 @@ static void group_positions_are_held_for_each_member(void) {
     CHECK_EQ_U64(positions, LINK_GROUP_POSITIONS - 1);
     CHECK_EQ_U64(sharing, 1);
     CHECK(!link_position_next(&companion, TERN_S(300), true, &out));
+}
+
+/* The random wait is drawn over the whole of an eighth of the interval, not the few seconds a
+ * 32-bit draw of nanoseconds would reach. */
+static void a_due_position_waits_up_to_an_eighth_of_its_interval(void) {
+    static const uint8_t most[16] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F};
+    sharing_start();
+    board.random = most;
+    share_with_bob(TERN_S(100), 16, 0, 900, 0);
+    struct link_position_out out;
+    CHECK(!link_position_next(&companion, TERN_S(100), false, &out));
+    tern_time wait = companion.contact_shares[0].go_at - TERN_S(100);
+    CHECK(wait > TERN_S(5) && wait < TERN_S(900) / 8);
+    CHECK(!link_position_next(&companion, companion.contact_shares[0].go_at - 1, false, &out));
+    CHECK(link_position_next(&companion, companion.contact_shares[0].go_at, false, &out));
 }
 
 static void a_sync_tells_positions_and_sharing(void) {
@@ -2034,6 +2056,7 @@ int main(void) {
     RUN(a_removed_contact_takes_its_positions_with_it);
     RUN(group_positions_are_held_for_each_member);
     RUN(a_sync_tells_positions_and_sharing);
+    RUN(a_due_position_waits_up_to_an_eighth_of_its_interval);
     RUN(an_update_goes_on_from_where_the_link_was_lost);
     RUN(an_update_refuses_what_it_should);
     RUN(an_update_needs_a_board_and_room);
