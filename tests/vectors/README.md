@@ -35,8 +35,8 @@ into a header for `tests/forward.c`, and its listens alone into one for `tests/l
 
 `companion.json` is a copy of
 [`vectors/companion.json`](https://github.com/ternmesh/spec/blob/main/vectors/companion.json), as
-of the companion protocol's version 5, which adds positions
-([ternmesh/spec#27](https://github.com/ternmesh/spec/pull/27)). `companion_to_c.py` turns it into a
+of the companion protocol's version 6, which adds cards
+([ternmesh/spec#31](https://github.com/ternmesh/spec/pull/31)). `companion_to_c.py` turns it into a
 header for `tests/companion.c`, and its connections alone into one for `tests/link.c`.
 `tools/companion.py selftest` reads it directly.
 
@@ -63,6 +63,13 @@ the `ternmesh.org` link with the address in base32, and the short code). `sharin
 of [ternmesh/spec#27](https://github.com/ternmesh/spec/pull/27) (positions, draft 0).
 `positions_to_c.py` turns it into a header for `tests/position.c`, without its frames, which are
 the unicast and group frames' own, and its sizes.
+
+`cards.json` is a copy of
+[`vectors/cards.json`](https://github.com/ternmesh/spec/blob/main/vectors/cards.json), as of
+[ternmesh/spec#30](https://github.com/ternmesh/spec/pull/30) (presence cards, draft 0), which also
+adds cards to `flooding.json`. `cards_to_c.py` turns it into a header for `tests/card.c`.
+`positions.json` is since as of [ternmesh/spec#29](https://github.com/ternmesh/spec/pull/29), whose
+group frames carry a count.
 
 When the specification's vectors change, copy the new file here in the same pull request that
 changes the code to match, and update the commit above.

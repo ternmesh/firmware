@@ -23,12 +23,13 @@ enum field {
     PERCENT,   /* u8 */
     WHY,       /* u8 */
     NEWS,      /* u8 */
+    CARDS,     /* u8 */
     PRECISION, /* u8 */
     SHARED,    /* u8: SHARE's and SHARING's fields */
     ACC8,      /* u8, into accuracy */
     POWER,     /* i8 */
     SNR,       /* i8 */
-    HEARD,     /* u16 */
+    HEARD,     /* u16, into heard */
     MV,        /* u16 */
     WAIT16,    /* u16, into wait */
     ALTITUDE,  /* i16 */
@@ -53,6 +54,7 @@ enum field {
     LAT,       /* i32 */
     LON,       /* i32 */
     AGE32,     /* u32, into age */
+    HEARD32,   /* u32, into heard */
     ADDRESS,   /* 32 bytes */
     GROUP,     /* 8 bytes: a group's id */
     DIGEST,    /* 32 bytes: a SHA-256 */
@@ -63,6 +65,7 @@ enum field {
     BOARD,     /* a string of up to TERN_COMPANION_BOARD_MAX, into board */
     RELEASE,   /* a string of up to TERN_COMPANION_RELEASE_MAX, into release */
     DATA,      /* up to TERN_COMPANION_UPDATE_CHUNK bytes of anything, into data */
+    CARD_NAME, /* a string of up to TERN_COMPANION_NAME_MAX, into card_name */
 };
 
 struct layout {
@@ -100,7 +103,7 @@ static const struct layout layouts[] = {
     {TERN_C_QUEUED, {ID}},
     {TERN_C_MADE, {GROUP}},
     {TERN_C_UPDATING, {OFFSET}},
-    {TERN_C_SELF, {ADDRESS, ROLE, REGION, POWER, TIME}},
+    {TERN_C_SELF, {ADDRESS, ROLE, REGION, POWER, TIME, CARDS, CARD_NAME}},
     {TERN_C_CONTACT, {ADDRESS, SESSION, NAME}},
     {TERN_C_CONTACT_GONE, {ADDRESS}},
     {TERN_C_MESSAGE, {ID, ADDRESS, TIME, FLAGS, STATE, REASON, WAIT16, TEXT}},
@@ -118,6 +121,8 @@ static const struct layout layouts[] = {
     {TERN_C_GROUP_POSITION, {GROUP, FROM, PRECISION, LAT, LON, ALTITUDE, ACC8, AGE32}},
     {TERN_C_SHARING, {ADDRESS, PRECISION, SHARED, INTERVAL, MINUTES}},
     {TERN_C_GROUP_SHARING, {GROUP, PRECISION, SHARED, INTERVAL, MINUTES}},
+    {TERN_C_CARD, {ADDRESS, HEARD32, NAME}},
+    {TERN_C_CARD_GONE, {ADDRESS}},
 };
 
 /* A later version adds fields only at the end of a frame: from field `from` on, a type's fields
@@ -127,6 +132,7 @@ static const struct {
 } later_fields[] = {
     {TERN_C_SYNCED, 0, 3},
     {TERN_C_INFO, 2, 4},
+    {TERN_C_SELF, 5, 6},
 };
 
 static bool added_later(uint8_t type, size_t i, uint8_t version) {
@@ -139,8 +145,15 @@ static bool added_later(uint8_t type, size_t i, uint8_t version) {
     return false;
 }
 
-/* SET's value, by setting. */
-static enum field setting_value(uint8_t setting) {
+uint8_t tern_companion_setting_since(uint8_t setting) {
+    return setting == TERN_C_SET_CARDS || setting == TERN_C_SET_CARD_NAME ? 6 : 0;
+}
+
+/* SET's value, by setting, as `version` has it: END for one it does not define. */
+static enum field setting_value(uint8_t setting, uint8_t version) {
+    if (tern_companion_setting_since(setting) > version) {
+        return END;
+    }
     switch (setting) {
     case TERN_C_SET_REGION:
         return REGION;
@@ -150,6 +163,10 @@ static enum field setting_value(uint8_t setting) {
         return POWER;
     case TERN_C_SET_PASSKEY:
         return PASSKEY;
+    case TERN_C_SET_CARDS:
+        return CARDS;
+    case TERN_C_SET_CARD_NAME:
+        return NAME;
     default:
         return END;
     }
@@ -165,6 +182,9 @@ static const struct layout *layout_of(uint8_t type) {
 }
 
 uint8_t tern_companion_since(uint8_t type) {
+    if (type == TERN_C_CARD || type == TERN_C_CARD_GONE) {
+        return 6;
+    }
     if ((type >= TERN_C_SET_POSITION && type <= TERN_C_SHARE_GROUP) ||
         (type >= TERN_C_POSITION && type <= TERN_C_GROUP_SHARING)) {
         return 5;
@@ -206,6 +226,7 @@ static size_t string_max(enum field f) {
     case TEXT:
         return TERN_COMPANION_TEXT_MAX;
     case NAME:
+    case CARD_NAME:
         return TERN_COMPANION_NAME_MAX;
     case FIRMWARE:
         return TERN_COMPANION_FIRMWARE_MAX;
@@ -245,6 +266,8 @@ static void *member(struct tern_companion_msg *m, enum field f) {
         return &m->why;
     case NEWS:
         return &m->news;
+    case CARDS:
+        return &m->cards;
     case PRECISION:
         return &m->precision;
     case SHARED:
@@ -270,6 +293,7 @@ static void *member(struct tern_companion_msg *m, enum field f) {
     case SNR:
         return &m->snr;
     case HEARD:
+    case HEARD32:
         return &m->heard;
     case MV:
         return &m->millivolts;
@@ -324,6 +348,9 @@ static uint8_t *variable_of(struct tern_companion_msg *m, enum field f, uint8_t 
     case DATA:
         *len = &m->data_len;
         return m->data;
+    case CARD_NAME:
+        *len = &m->card_name_len;
+        return m->card_name;
     default:
         *len = &m->text_len;
         return m->text;
@@ -334,6 +361,9 @@ static uint32_t get_member(const struct tern_companion_msg *m, enum field f) {
     const void *p = member((struct tern_companion_msg *)m, f);
     if (f == WAIT16) {
         return (uint16_t)m->wait;
+    }
+    if (f == HEARD) {
+        return (uint16_t)m->heard;
     }
     if (f == AGE16) {
         return (uint16_t)m->age;
@@ -353,8 +383,8 @@ static uint32_t get_member(const struct tern_companion_msg *m, enum field f) {
 
 static void set_member(struct tern_companion_msg *m, enum field f, uint32_t v) {
     void *p = member(m, f);
-    if (f == WAIT16) {
-        m->wait = v;
+    if (f == WAIT16 || f == HEARD) {
+        *(uint32_t *)p = v;
         return;
     }
     if (f == AGE16) {
@@ -394,7 +424,7 @@ static enum field next_field(const struct layout *l, size_t i, const struct tern
     }
     /* SET's layout is its setting alone: the field after it is that setting's value. */
     if (l->type == TERN_C_SET && i == 1) {
-        return setting_value(m->setting);
+        return setting_value(m->setting, version);
     }
     return END;
 }

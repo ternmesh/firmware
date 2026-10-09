@@ -67,10 +67,40 @@ static void news_self(struct link *l, struct link_conn *c) {
         .type = TERN_C_SELF, .role = v->role, .power = v->power, .time = v->time};
     memcpy(m.address, v->address, TERN_ADDRESS_LEN);
     put_text(&m, (const uint8_t *)v->region, cstr_len(v->region, TERN_COMPANION_REGION_MAX));
+    m.cards = v->cards;
+    memcpy(m.card_name, v->card_name, v->card_name_len);
+    m.card_name_len = v->card_name_len;
     c->self_role = v->role;
     c->self_power = v->power;
     c->self_region = v->region;
+    c->self_cards = v->cards;
+    memcpy(c->self_card_name, v->card_name, v->card_name_len);
+    c->self_card_name_len = v->card_name_len;
     tell(l, c, &m);
+}
+
+/* Whether SELF says something other than what the client was last told: its time aside. */
+static bool self_changed(const struct link_view *v, const struct link_conn *c) {
+    return v->role != c->self_role || v->power != c->self_power || v->region != c->self_region ||
+           v->cards != c->self_cards || v->card_name_len != c->self_card_name_len ||
+           memcmp(v->card_name, c->self_card_name, v->card_name_len) != 0;
+}
+
+/* A card held, with how long ago it was accepted, in seconds, as of `now`. */
+static void news_card(struct link *l, struct link_conn *to, const struct tern_card *k,
+                      tern_time now) {
+    struct tern_companion_msg m = {.type = TERN_C_CARD};
+    tern_time ago = (now - k->heard) / TERN_S(1);
+    memcpy(m.address, k->address, TERN_ADDRESS_LEN);
+    m.heard = ago < 0 ? 0 : ago > (tern_time)UINT32_MAX ? UINT32_MAX : (uint32_t)ago;
+    put_text(&m, k->name, k->name_len);
+    news(l, to, &m);
+}
+
+static void news_card_gone(struct link *l, const uint8_t address[TERN_ADDRESS_LEN]) {
+    struct tern_companion_msg m = {.type = TERN_C_CARD_GONE};
+    memcpy(m.address, address, TERN_ADDRESS_LEN);
+    news(l, NULL, &m);
 }
 
 static void news_contact(struct link *l, struct link_conn *to, const struct link_contact *c) {
@@ -531,6 +561,7 @@ void link_init(struct link *l, const struct link_host *host) {
     memset(l, 0, sizeof *l);
     l->host = *host;
     l->next_id = 1;
+    tern_cards_init(&l->cards, l->card_places, LINK_CARDS);
     uint32_t saved = 0;
     if (l->host.load_ids(l->host.ctx, &saved) && saved > 1) {
         l->next_id = saved;
@@ -787,6 +818,11 @@ static void sync(struct link *l, const struct tern_companion_msg *q, tern_time n
     for (size_t i = 0; i < LINK_GROUPS; i++) {
         if (l->groups[i].used && l->group_shares[i].precision != 0) {
             news_group_sharing(l, c, i, now);
+        }
+    }
+    for (size_t i = 0; i < LINK_CARDS; i++) {
+        if (l->card_places[i].held) {
+            news_card(l, c, &l->card_places[i], now);
         }
     }
     c->air = airtime_of(&l->view);
@@ -1595,11 +1631,23 @@ void link_receive(struct link *l, unsigned conn, tern_time now, const uint8_t *f
         answer(l, TERN_C_OK, q.seq);
         break;
     case TERN_C_SET: {
-        uint8_t code = l->host.set(l->host.ctx, &q);
+        /* A setting a later version added is one this client's version does not have. */
+        uint8_t code = c->version < tern_companion_setting_since(q.setting)
+                           ? (uint8_t)TERN_C_ERR_UNKNOWN
+                           : l->host.set(l->host.ctx, &q);
         if (code != 0) {
             error(l, q.seq, code);
-        } else {
-            answer(l, TERN_C_OK, q.seq);
+            break;
+        }
+        answer(l, TERN_C_OK, q.seq);
+        /* A setting that takes effect at once, as cards do, is news now: one that takes a
+         * restart changes nothing SELF says until then. */
+        l->host.view(l->host.ctx, &l->view);
+        for (size_t i = 0; i < LINK_CONNS; i++) {
+            struct link_conn *to = &l->conns[i];
+            if (to->synced && self_changed(&l->view, to)) {
+                news_self(l, to);
+            }
         }
         break;
     }
@@ -1714,7 +1762,7 @@ static void look_at_neighbours(struct link *l, struct link_conn *c, tern_time no
 static void look(struct link *l, struct link_conn *c, tern_time now) {
     c->look_at = now;
     const struct link_view *v = &l->view;
-    if (v->role != c->self_role || v->power != c->self_power || v->region != c->self_region) {
+    if (self_changed(v, c)) {
         news_self(l, c);
     }
     look_at_neighbours(l, c, now);
@@ -1733,6 +1781,10 @@ static void look(struct link *l, struct link_conn *c, tern_time now) {
 
 void link_tick(struct link *l, tern_time now) {
     positions_tick(l, now);
+    uint8_t forgot[TERN_ADDRESS_LEN];
+    while (tern_cards_forget(&l->cards, now, TERN_CARD_KEPT, forgot)) {
+        news_card_gone(l, forgot);
+    }
     bool viewed = false;
     for (size_t i = 0; i < LINK_CONNS; i++) {
         struct link_conn *c = &l->conns[i];
@@ -1747,4 +1799,24 @@ void link_tick(struct link *l, tern_time now) {
         }
         look(l, c, now);
     }
+}
+
+/* --- Cards ---------------------------------------------------------------------------------- */
+
+enum tern_card_verdict link_card_received(struct link *l, tern_time now, const uint8_t *frame,
+                                          size_t len) {
+    size_t at;
+    bool gone;
+    uint8_t gone_address[TERN_ADDRESS_LEN];
+    l->host.view(l->host.ctx, &l->view);
+    enum tern_card_verdict v =
+        tern_cards_receive(&l->cards, l->view.address, now, frame, len, &at, &gone, gone_address);
+    if (v != TERN_CARD_ACCEPTED) {
+        return v;
+    }
+    if (gone) {
+        news_card_gone(l, gone_address);
+    }
+    news_card(l, NULL, &l->card_places[at], now);
+    return v;
 }

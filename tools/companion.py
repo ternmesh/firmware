@@ -37,11 +37,11 @@ import time
 
 MAX_FRAME, MAGIC = 180, b"\xf5\x54"
 # The version this script speaks. It has no commands for groups, which came with version 2, so it
-# says 1 and is told of none: the frames of versions 2 to 5 are here only to be checked. `update`
+# says 1 and is told of none: the frames of versions 2 to 6 are here only to be checked. `update`
 # says the latest, which it needs.
 VERSION = 1
 # The latest version the frames below are, which selftest reads the vectors by.
-LATEST = 5
+LATEST = 6
 UPDATE_CHUNK = 172
 ANSWER_WAIT = 5.0
 IDLE = 20.0  # the most a client lets pass after an answer before it asks again
@@ -82,7 +82,7 @@ FRAMES = {
     0x45: ("MADE", [("group", "gid")]),
     0x46: ("UPDATING", [("offset", "I")]),
     0x80: ("SELF", [("address", "addr"), ("role", "B"), ("region", "str"), ("power", "b"),
-                    ("time", "I")]),
+                    ("time", "I"), ("cards", "B"), ("card_name", "str")]),
     0x81: ("CONTACT", [("address", "addr"), ("session", "B"), ("name", "str")]),
     0x82: ("CONTACT_GONE", [("address", "addr")]),
     0x83: ("MESSAGE", [("id", "I"), ("contact", "addr"), ("time", "I"), ("flags", "B"),
@@ -110,12 +110,16 @@ FRAMES = {
                        ("interval", "H"), ("minutes", "H")]),
     0x91: ("GROUP_SHARING", [("group", "gid"), ("precision", "B"), ("fields", "B"),
                              ("interval", "H"), ("minutes", "H")]),
+    0x92: ("CARD", [("address", "addr"), ("heard", "I"), ("name", "str")]),
+    0x93: ("CARD_GONE", [("address", "addr")]),
 }
 # Fields a later version added at the end of a frame: an earlier version's frame stops before them.
-LATER = {(0x43, "news"): 3, (0x42, "board"): 4, (0x42, "release"): 4}
+LATER = {(0x43, "news"): 3, (0x42, "board"): 4, (0x42, "release"): 4, (0x80, "cards"): 6,
+         (0x80, "card_name"): 6}
 BYTES = {"addr": 32, "gid": 8, "digest": 32}
 TYPE = {name: t for t, (name, _) in FRAMES.items()}
-SETTINGS = {1: ("region", "str"), 2: ("role", "B"), 3: ("power", "b"), 4: ("passkey", "I")}
+SETTINGS = {1: ("region", "str"), 2: ("role", "B"), 3: ("power", "b"), 4: ("passkey", "I"),
+            5: ("cards", "B"), 6: ("card_name", "str")}
 SETTING = {name: (n, kind) for n, (name, kind) in SETTINGS.items()}
 STATES = ["waiting", "sent", "delivered", "not delivered", "received"]
 REASONS = ["", "for a route", "for a session", "for the region's limit", "for its budget",

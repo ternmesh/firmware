@@ -8,7 +8,7 @@
 #include "tern/address.h"
 #include "tern/time.h"
 
-/* The companion protocol: version 5 of draft/companion.md in ternmesh/spec.
+/* The companion protocol: version 6 of draft/companion.md in ternmesh/spec.
  *
  * The link between a node and the client driving it, a phone or a computer, over USB serial, TCP
  * or Bluetooth LE. It never goes over LoRa. This is the part every node and every client needs:
@@ -16,7 +16,7 @@
  * text console. What a node answers and when is the node's business, not the core's (in the node
  * every port shares, ports/node/link.c). */
 
-#define TERN_COMPANION_VERSION 5
+#define TERN_COMPANION_VERSION 6
 #define TERN_COMPANION_MAX_FRAME 180
 #define TERN_COMPANION_STREAM_MAX (TERN_COMPANION_MAX_FRAME + 6) /* magic, length, CRC */
 #define TERN_COMPANION_NAME_MAX 31
@@ -81,6 +81,8 @@ enum tern_companion_type {
     TERN_C_GROUP_POSITION = 0x8F,
     TERN_C_SHARING = 0x90,
     TERN_C_GROUP_SHARING = 0x91,
+    TERN_C_CARD = 0x92, /* version 6, as is the one after it */
+    TERN_C_CARD_GONE = 0x93,
 };
 
 /* The first version of the protocol that defines a type: a node sends a client no frame its
@@ -92,11 +94,16 @@ bool tern_companion_request(uint8_t type);
 bool tern_companion_news(uint8_t type);
 
 enum tern_companion_setting {
-    TERN_C_SET_REGION = 1,  /* text */
-    TERN_C_SET_ROLE = 2,    /* role */
-    TERN_C_SET_POWER = 3,   /* power */
-    TERN_C_SET_PASSKEY = 4, /* passkey */
+    TERN_C_SET_REGION = 1,    /* text */
+    TERN_C_SET_ROLE = 2,      /* role */
+    TERN_C_SET_POWER = 3,     /* power */
+    TERN_C_SET_PASSKEY = 4,   /* passkey */
+    TERN_C_SET_CARDS = 5,     /* cards: version 6, as is the one after it */
+    TERN_C_SET_CARD_NAME = 6, /* text */
 };
+
+/* The first version of the protocol that defines a setting of SET's. */
+uint8_t tern_companion_setting_since(uint8_t setting);
 
 enum tern_companion_error {
     TERN_C_ERR_UNKNOWN = 1,
@@ -145,17 +152,19 @@ enum tern_companion_why {
 
 /* Any frame, as its fields. Each type uses the members its table in the draft names, under the
  * same names (SYNCED's news is `news`), with three folded together: the one string a frame carries
- * (text, name, firmware, region, or SET's region) is `text`; the one address (to, address, contact)
- * is `address`; and `wait` is MESSAGE's and STATE's u16 or AIRTIME's u32. INFO's board and release,
- * and UPDATE_DATA's data, have members of their own. A position's `accuracy` and `age` are one
+ * (text, name, firmware, region, or SET's region or card name) is `text`; the one address (to,
+ * address, contact) is `address`; and `wait` is MESSAGE's and STATE's u16 or AIRTIME's u32, as
+ * `heard` is NEIGHBOUR's u16 or CARD's u32. INFO's board and release, SELF's card_name, and
+ * UPDATE_DATA's data, have members of their own. A position's `accuracy` and `age` are one
  * member each, though SET_POSITION's are wider than the news'. SET's value is `text`,
- * `role`, `power` or `passkey` as `setting` says. Members a type does not use are ignored when
- * writing and left as they were when reading. */
+ * `role`, `power`, `passkey` or `cards` as `setting` says. Members a type does not use are ignored
+ * when writing and left as they were when reading. */
 struct tern_companion_msg {
     uint8_t type, seq;
-    uint8_t version, setting, code, role, session, flags, state, reason, percent, why, news;
+    uint8_t version, setting, code, role, session, flags, state, reason, percent, why, news, cards;
     int8_t power, snr;
-    uint16_t heard, millivolts;
+    uint16_t millivolts;
+    uint32_t heard;
     uint32_t after, time, ref, through, id, routing_id, period, allowed, used, wait, passkey;
     uint32_t from, size, offset;
     int32_t lat, lon;          /* positions' and SET_POSITION's, in 10^-7 degree */
@@ -172,6 +181,8 @@ struct tern_companion_msg {
     uint8_t board_len, release_len; /* INFO's */
     uint8_t board[TERN_COMPANION_BOARD_MAX];
     uint8_t release[TERN_COMPANION_RELEASE_MAX];
+    uint8_t card_name_len; /* SELF's */
+    uint8_t card_name[TERN_COMPANION_NAME_MAX];
     uint8_t data_len; /* UPDATE_DATA's */
     uint8_t data[TERN_COMPANION_UPDATE_CHUNK];
 };
