@@ -11,6 +11,16 @@
 	board_controls {
 		compatible = "gpio-leds";
 	};
+
+	/* The battery through 390k over 100k onto AIN2, behind a switch P0.06 turns on (Heltec's
+	 * schematic, MeshNode-T114_V2.1), which Zephyr's board gives only as adc-control. */
+	vbatt: vbatt {
+		compatible = "voltage-divider";
+		io-channels = <&adc 2>;
+		output-ohms = <100000>;
+		full-ohms = <490000>;
+		power-gpios = <&gpio0 6 GPIO_ACTIVE_HIGH>;
+	};
 };
 
 &lora {

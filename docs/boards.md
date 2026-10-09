@@ -16,6 +16,8 @@ between the core and a port is [architecture.md](architecture.md); this is about
 | Heltec WiFi LoRa 32 V2, V2.1 | ESP32 | SX1276 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board |
 | LilyGo LoRa32 T3 V1.6.1 (868/915 MHz) | ESP32 | SX1276 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board; no user button, so it turns off only when its battery runs down |
 | Heltec Mesh Node T114 V2 | nRF52840 | SX1262 | [`ports/nrf52/`](../ports/nrf52/) | Built, not yet run on a board |
+| RAKwireless RAK4631 (on a RAK19007 or RAK19003) | nRF52840 | SX1262 | [`ports/nrf52/`](../ports/nrf52/) | Built, not yet run on a board; no user button |
+| Seeed Wio Tracker L1, L1 Lite | nRF52840 | SX1262 | [`ports/nrf52/`](../ports/nrf52/) | Built, not yet run on a board |
 
 A board is **Runs** once someone has flashed a release onto one and checked it as
 [below](#bringing-a-board-up), and **Built** until then: CI builds its images, and nothing has
@@ -80,11 +82,24 @@ On the first board of a kind, before its status is **Runs**:
 
 The port is built on Zephyr, which describes boards in devicetree, and has many of these already:
 among them the RAK4631, Seeed's Wio Tracker L1, XIAO nRF52840 and Wio-WM1110 kit, and the T114.
-`src/board.c` is the T114's today. It reads what it can from the devicetree (the radio's bus and
-lines, the button, the LED, the screen), so the next board starts by moving what is the T114's
-own (its screen's turn and size, its switches) behind that board's devicetree, and then is an
-overlay in `boards/` and a target in `release.sh` and CI. A board Zephyr has not got is its
-devicetree first, from its maker's documents, as for an ESP32 board's row.
+`src/board.c` reads the board from its devicetree: the SX1262 node (`lora`: its bus and lines,
+`dio3-tcxo-voltage`, `dio2-tx-enable`, and any `antenna-enable-gpios`, `rx-enable-gpios` and
+`tx-enable-gpios`), `sw0` and `led0` if it has them, `zephyr,display` (a 128x64 SSD1306 or SH1106
+as it is; a colour panel drawn into), and the battery's divider as a `vbatt` node
+(`voltage-divider`, with `power-gpios` for its switch). So a board Zephyr has is:
+
+1. **Its maker's documents, read** against Zephyr's board, as for an ESP32 board's row. Where they
+   differ, the maker's are taken and the overlay says why (the RAK4631's antenna switch, TCXO and
+   LEDs).
+2. **An overlay**, `boards/<board>_<soc>.overlay`, that disables Zephyr's LoRa driver
+   (`&lora { status = "disabled"; }`), adds `vbatt` if the board does not have it, and changes
+   what the maker's documents say otherwise; and a `.conf` beside it for what the board needs of
+   Zephyr, such as I2C for its screen, or a UF2 image and a USB console where Zephyr's board does
+   not build them.
+3. **Its names**, `TERN_BOARD_NAME` and `TERN_BOARD_TITLE` in `Kconfig`, for its Zephyr board.
+4. **A target** in `release.sh`, and its name in the `nrf52` job's matrix in CI.
+
+A board Zephyr has not got is its devicetree first, from its maker's documents.
 
 ## Every board Meshtastic and MeshCore run on
 
@@ -96,7 +111,7 @@ goes a family or a radio at a time, and each one brings a crowd of boards with i
 |---|---|---|---|
 | ESP32-S3 + SX1262 | Heltec V3, V4, Wireless Stick Lite V3, Wireless Tracker, Vision Master, Wireless Paper; LilyGo T3-S3, T-Beam Supreme, T-Deck; Seeed XIAO ESP32S3 kit; B&Q Station G2; RAK3312 | A row each; a power chip for the T-Beam Supreme, other screens for the rest | Port exists: V3 runs; V4, Stick Lite V3, Tracker, Vision Master and Paper built |
 | ESP32 (classic) + SX1276 | Heltec V2, V2.1, Wireless Stick; LilyGo T3 V1.6.1, LoRa32 V1.3, T-Beam to v1.2 | A row each; a power chip for the T-Beam | Port builds for it: V2, V2.1 and T3 V1.6.1 built |
-| nRF52840 + SX1262 | Heltec T114, Mesh Pocket; RAK4631 and the WisMesh devices on it; Seeed Wio Tracker L1, XIAO nRF52840 kit; LilyGo T-Echo; Elecrow ThinkNode | An overlay each, once `board.c` reads its board from the devicetree; e-paper for the T-Echo and others | Port exists: T114 built |
+| nRF52840 + SX1262 | Heltec T114, Mesh Pocket; RAK4631 and the WisMesh devices on it; Seeed Wio Tracker L1, XIAO nRF52840 kit; LilyGo T-Echo; Elecrow ThinkNode | An overlay each; e-paper for the T-Echo and others | Port exists: T114, RAK4631 and Wio Tracker L1 built |
 | SX1276/SX1278 driver | The boards above, and other boards of before 2022 | A driver in `src/`, beside the SX1262's | Done (`src/sx127x.c`); the SX1278's 433 MHz waits on a region for it |
 | LR1110/LR1121 driver | Seeed SenseCAP T1000-E, Wio Tracker 1110; newer boards | A driver in `src/` | Next radio |
 | ESP32-C3/C6 | Heltec HT-CT62, and boards built from modules like it | The ESP32 port for another target | Later |
@@ -141,11 +156,16 @@ And the screens these boards have, which the port does not drive yet: the Wirele
 
 ### More nRF52840 boards
 
-The port is there ([`ports/nrf52/`](../ports/nrf52/)), on Zephyr, with the T114. Next: `board.c`
-read from the devicetree, so that a board Zephyr already has is an overlay (the RAK4631, the Wio
-Tracker L1, whose 128x64 screen is the node's own size, the XIAO nRF52840 kit); a layout for the
-T114's larger screen; and updates over the link, which want the two firmware slots MCUboot gives
-alongside the UF2 bootloader these boards ship with.
+The port is there ([`ports/nrf52/`](../ports/nrf52/)), on Zephyr, with the T114, the RAK4631
+and the Wio Tracker L1, each an overlay. Next:
+
+* **Seeed XIAO nRF52840 with the Wio-SX1262**: Zephyr's `xiao_ble` has no radio, so its overlay
+  adds one, from Seeed's schematics, which come in two revisions with the header in a different
+  order: it waits on knowing which one is sold.
+* **LilyGo T-Echo**, **Heltec Mesh Pocket**, **Elecrow ThinkNode**: e-paper, or boards Zephyr has
+  not got.
+* A layout for the T114's larger screen, and updates over the link, which want the two firmware
+  slots MCUboot gives alongside the UF2 bootloader these boards ship with.
 
 ### Other radios
 

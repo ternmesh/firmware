@@ -1,0 +1,16 @@
+/*
+ * The Seeed Wio Tracker L1 for this port, over Zephyr's board for it (wio_tracker_l1): its radio
+ * is driven by Tern's own SX1262 driver (src/sx126x.c), so Zephyr's LoRa driver is not built.
+ * Everything else the node uses is Zephyr's board as it is, which agrees with Seeed's schematic
+ * (Wio_Tracker_L1_Pro_SCH, v1.3) where that says: the radio's lines; the menu button on P0.08 (sw0);
+ * the LED on P1.01 (led0); the 128x64 screen at 0x3D on I2C (zephyr,display), an SH1106 by
+ * Zephyr's board, which Seeed's documents do not name; and the battery through an even divider
+ * onto AIN7, behind a switch P0.04 turns on (vbatt). The module's RF_SW line, P1.08, has no level
+ * in Seeed's documents; it is driven as Zephyr's board has it, high while receiving.
+ *
+ * The L1 Lite is the same board without a screen, and runs this image without one.
+ */
+
+&lora {
+	status = "disabled";
+};

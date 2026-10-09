@@ -1,13 +1,24 @@
 # The settings a Tern node is built with: those every port shares (../node/Kconfig.tern), and the
-# board, which is the one this port builds for yet.
+# board's names, from the Zephyr board the build is for (release.sh). Everything else about a board
+# is its devicetree (src/board.c, boards/).
 
 menu "Tern demo"
 
     config TERN_BOARD_NAME
         string
-        default "heltec-t114"
+        default "heltec-t114" if BOARD_HELTEC_T114_V2
+        default "rak4631" if BOARD_RAK4631
+        default "wio-tracker-l1" if BOARD_WIO_TRACKER_L1
         help
             The name a client finds an image by: tern-<name>-<region>-<version>.
+
+    config TERN_BOARD_TITLE
+        string
+        default "Heltec Mesh Node T114" if BOARD_HELTEC_T114_V2
+        default "RAKwireless RAK4631" if BOARD_RAK4631
+        default "Seeed Wio Tracker L1" if BOARD_WIO_TRACKER_L1
+        help
+            The board's name, as its maker sells it.
 
     rsource "../node/Kconfig.tern"
 
