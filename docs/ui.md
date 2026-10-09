@@ -83,9 +83,9 @@ be tested on a host and two can live side by side in the simulator. Where it sho
 in the port while there is one board, and probably in the core once a second board needs the same
 thing.
 
-The screen reads from a small first version of this (`ui_node` in `ports/esp32/main/ui.h`),
+The screen reads from a small first version of this (`ui_node` in `ports/node/ui.h`),
 filled from the radio, the router and the companion link. The link keeps the contacts and the
-messages with their delivery states (`ports/esp32/main/link.c`), and whether each received
+messages with their delivery states (`ports/node/link.c`), and whether each received
 message has been read, so a message read on the screen is read on the phone too, and the other
 way round. The bench pages keep their own snapshot (`node_status` in `status.h`).
 

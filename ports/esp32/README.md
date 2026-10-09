@@ -201,7 +201,7 @@ is off only turns it on again, at Home. `screen sleep <seconds>` changes the min
 keeps the change; `menuconfig`, **Seconds before the screen sleeps**, sets what a new board starts
 with. Off, the panel keeps its picture and draws a few microamps instead of several milliamps.
 
-The pages are drawn from one snapshot of the board (`main/ui.h`), not from the demo's own
+The pages are drawn from one snapshot of the board (`../node/ui.h`), not from the demo's own
 variables, and only the parts of the picture that change are sent to it, a strip of eight rows
 at a time between turns of the loop. If it reads upside down, `menuconfig`, **Turn the screen
 upside down**.
@@ -225,7 +225,7 @@ at a press of PRG. It will not start below 3.3 V.
 
 The board has no wire from its charger to the chip, so Home's **Chg** is inferred from the
 voltage: plugging a charger in lifts it at once by 30 mV or more, and unplugging drops it as
-much (`main/power.h`). It is a guess. A full battery plugged in takes no current and shows no
+much (`../node/power.h`). It is a guess. A full battery plugged in takes no current and shows no
 change, and it can take two readings, a minute, to notice.
 
 The link and the short code are the specification's
@@ -251,7 +251,7 @@ ping.
 | **Routes** | Up to six: the board, the neighbour a frame to it goes to, and the route's milliseconds on the air. |
 | **Session** | The peer's first four bytes, messages sent and heard, and the last message heard. |
 
-They are drawn from their own snapshot (`main/status.h`).
+They are drawn from their own snapshot (`../node/status.h`).
 
 ## Identity and first contact
 
@@ -577,15 +577,16 @@ signed: the digest says it arrived whole, not who made it.
 |---|---|
 | `main/boards.c` | Each board's pins and what it has fitted, from its maker's documents, and how much less to ask of the radio on a board with an amplifier. No hardware code; tested on a host by `tests/boards.c`. |
 | `main/board.c` | The chosen board's hardware: the SPI bus, the radio's reset and BUSY line, an amplifier, the button, the LED, the display (an SSD1306 or SSD1315 on its own I2C bus), the battery and the console (UART or USB Serial/JTAG). |
-| `main/demo.c` | The board's identity, first contact, and the saved sessions. It has no hardware code, so `tests/demo.c` tests it on a host, and `tests/relay.c` with the router and the forwarder: boards that make a session through a relay. |
-| `main/ui.c` | The screen's pages, drawn from a snapshot of the node in the user's words. Tested on a host by `tests/ui.c`, which also writes each page it checks as a picture: `build/test_ui <directory>`. |
-| `main/qr.c` | The QR code: version 3, level L, alphanumeric, written from ISO/IEC 18004. `tests/qr.c` checks every mask against another encoder's symbols. |
-| `main/power.c` | Which of the battery's readings to believe, and the charge a voltage is taken for. Tested on a host by `tests/power.c`; `board.c` does the reading. |
-| `main/status.c` | The bench pages, and the snapshot they are drawn from, as lines of text. Tested on a host by `tests/status.c`. |
-| `main/display.c` | The picture of the screen, its font in two sizes, the bar, and which parts of it have changed. |
-| `main/link.c` | The companion link: contacts, messages and what became of them, positions and whom they are shared with, updates, and the answers and news each client gets, on USB and over Bluetooth. No hardware code; tested on a host by `tests/link.c`, and with `tools/companion.py` by `tests/link_script.py`. |
+| `main/platform.c` | What the node needs of ESP-IDF (`../node/platform.h`): NVS for what it saves, the chip's generator, the two firmware slots an update is written to, and FreeRTOS. |
 | `main/ble.c` | The companion link's Bluetooth LE service, pairing and advertising, over NimBLE, which runs in its own task and reports to the loop through a queue. |
-| `main/main.c` | One loop that polls the radio, the serial port, the button and the screen. |
+| `../node/node.c` | The node every port shares: one loop that polls the radio, the console, Bluetooth, the button and the screen. |
+| `../node/demo.c` | The board's identity, first contact, and the saved sessions. It has no hardware code, so `tests/demo.c` tests it on a host, and `tests/relay.c` with the router and the forwarder: boards that make a session through a relay. |
+| `../node/ui.c` | The screen's pages, drawn from a snapshot of the node in the user's words. Tested on a host by `tests/ui.c`, which also writes each page it checks as a picture: `build/test_ui <directory>`. |
+| `../node/qr.c` | The QR code: version 3, level L, alphanumeric, written from ISO/IEC 18004. `tests/qr.c` checks every mask against another encoder's symbols. |
+| `../node/power.c` | Which of the battery's readings to believe, and the charge a voltage is taken for. Tested on a host by `tests/power.c`; `board.c` does the reading. |
+| `../node/status.c` | The bench pages, and the snapshot they are drawn from, as lines of text. Tested on a host by `tests/status.c`. |
+| `../node/display.c` | The picture of the screen, its font in two sizes, the bar, and which parts of it have changed. |
+| `../node/link.c` | The companion link: contacts, messages and what became of them, positions and whom they are shared with, updates, and the answers and news each client gets, on USB and over Bluetooth. No hardware code; tested on a host by `tests/link.c`, and with `tools/companion.py` by `tests/link_script.py`. |
 | `../../src/sx126x.c` | The SX1262 driver, part of the core and shared with every board. |
 
 The core is compiled into the app unchanged, from the repository's `src/`.

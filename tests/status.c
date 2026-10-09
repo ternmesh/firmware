@@ -5,7 +5,7 @@
 #include "check.h"
 #include "display.h"
 
-/* The ESP32 port's bench screen (ports/esp32/main/status.c and display.c), which has no
+/* The node's bench screen (ports/node/status.c and display.c), which has no
  * hardware in it: the pages it draws from a snapshot of the board, and the picture they are drawn
  * into. What matters is that no number, however large, runs a line off the screen, and that a
  * page is sent again only when it changed. */

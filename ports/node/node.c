@@ -1,9 +1,9 @@
-/* The ESP32 port's demo: boards make first contact and send each other secured unicast frames,
+/* The node: boards make first contact and send each other secured unicast frames,
  * which follow routes: each is handed to the forwarder (tern/forward.h), sent to the next hop its
  * route gives, sent again if nothing is heard of it, and acknowledged by the board it is for. A
  * board built as a relay passes other boards' frames on.
  *
- * Over the USB serial port (idf.py monitor, 115200 baud) it takes these commands:
+ * Over the USB serial port (115200 baud where it is a UART) it takes these commands:
  *
  *   contact <address>        make first contact with the board whose address that is (its
  *                            'status' shows it)
@@ -54,19 +54,10 @@
 
 #include "ble.h"
 #include "board.h"
-#include "bootloader_random.h"
 #include "demo.h"
 #include "display.h"
-#include "esp_app_desc.h"
-#include "esp_attr.h"
-#include "esp_ota_ops.h"
-#include "esp_random.h"
-#include "esp_system.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 #include "link.h"
-#include "nvs.h"
-#include "nvs_flash.h"
+#include "platform.h"
 #include "power.h"
 #include "status.h"
 #include "tern/companion.h"
@@ -98,7 +89,7 @@
 #define DESTINATIONS 128
 #define FORWARD_SLOTS 8 /* frames in hand at once, this board's and those it passes on: 2.4 kB */
 #define PENDING 4       /* of them, this board's own messages not yet acknowledged */
-#define TX_MIN_DBM board_min_dbm(board_def()) /* the least this board puts into its antenna */
+#define TX_MIN_DBM board_power_min() /* the least this board puts into its antenna */
 #define POWER_UNSET INT8_MIN
 #define SCREEN_MS 500      /* how often the bench screen is drawn again */
 #define BOOT_MS 2500       /* how long the boot screen stays up once the board has started */
@@ -233,9 +224,7 @@ static unsigned off_shown;       /* while PRG is held to turn off, the seconds l
 static bool phone;               /* a client is connected over Bluetooth, for Home to say */
 static uint32_t pairing_passkey; /* shown on the screen while pairing, or PAIRING_NONE */
 
-/* An update over the companion link: the slot it is written to, and when its last bytes came. */
-static const esp_partition_t *update_slot;
-static esp_ota_handle_t update_handle;
+/* An update over the companion link: whether one is being written, and when its last bytes came. */
 static bool update_open;
 static tern_time update_at;
 #define PAIRING_NONE 0xFFFFFFFFu
@@ -291,63 +280,32 @@ static bool beacon_running;
 static uint32_t bench_ours, bench_others; /* frames received: test frames, and anything else */
 static int32_t bench_rssi, bench_snr_cdb; /* summed over the test frames */
 
-/* --- Storage: one NVS namespace ------------------------------------------------------------ */
+/* --- Storage (platform.h) --------------------------------------------------------------------- */
 
-static bool nvs_load(void *ctx, const char *key, void *buf, size_t len) {
-    nvs_handle_t h;
-    size_t got = len;
+static bool store_load(void *ctx, const char *key, void *buf, size_t len) {
     (void)ctx;
-    if (nvs_open("tern", NVS_READONLY, &h) != ESP_OK) {
-        return false;
-    }
-    bool ok = nvs_get_blob(h, key, buf, &got) == ESP_OK && got == len;
-    nvs_close(h);
-    return ok;
+    return plat_store_load(key, buf, len);
 }
 
-static bool nvs_save(void *ctx, const char *key, const void *buf, size_t len) {
-    nvs_handle_t h;
+static bool store_save(void *ctx, const char *key, const void *buf, size_t len) {
     (void)ctx;
-    if (nvs_open("tern", NVS_READWRITE, &h) != ESP_OK) {
-        return false;
-    }
-    bool ok = nvs_set_blob(h, key, buf, len) == ESP_OK && nvs_commit(h) == ESP_OK;
-    nvs_close(h);
-    return ok;
-}
-
-static bool nvs_has(const char *key) {
-    nvs_handle_t h;
-    size_t len = 0;
-    if (nvs_open("tern", NVS_READONLY, &h) != ESP_OK) {
-        return false;
-    }
-    bool ok = nvs_get_blob(h, key, NULL, &len) == ESP_OK;
-    nvs_close(h);
-    return ok;
+    return plat_store_save(key, buf, len);
 }
 
 /* Whether the board had an identity when it started, or made one (link_load_ids()). */
 static bool had_identity;
 
-/* The ESP32's generator, which is a true one while its entropy source is on (app_main()). */
+/* The platform's generator, a true one (platform.h). */
 static bool board_random(void *ctx, uint8_t *buf, size_t len) {
     (void)ctx;
-    esp_fill_random(buf, len);
-    return true;
+    return plat_random(buf, len);
 }
 
-/* --- Updates ------------------------------------------------------------------------------- */
-
-/* The flash holds two slots for the firmware (partitions.csv), and an update is written to the
- * one not running, as it arrives, erasing as it goes so that no request waits for a whole slot's
- * erase. A board on the old layout, one slot and no otadata, has nowhere to write one: its INFO
- * names no board, and it is updated over USB (README.md). */
-static const esp_partition_t *spare_slot(void) { return esp_ota_get_next_update_partition(NULL); }
+/* --- Updates (platform.h) --------------------------------------------------------------------- */
 
 static void update_abandon(void) {
     if (update_open) {
-        esp_ota_abort(update_handle);
+        plat_update_abandon();
         update_open = false;
     }
 }
@@ -355,9 +313,7 @@ static void update_abandon(void) {
 static bool link_update_begin(void *ctx, uint32_t size) {
     (void)ctx;
     update_abandon();
-    update_slot = spare_slot();
-    if (update_slot == NULL || size > update_slot->size ||
-        esp_ota_begin(update_slot, OTA_WITH_SEQUENTIAL_WRITES, &update_handle) != ESP_OK) {
+    if (!plat_update_begin(size)) {
         return false;
     }
     update_open = true;
@@ -371,7 +327,7 @@ static bool link_update_begin(void *ctx, uint32_t size) {
             next.region =
                 tern_region((enum tern_region_id)id) == region ? (uint8_t)id : next.region;
         }
-        if (!nvs_save(NULL, "settings", &next, sizeof next)) {
+        if (!store_save(NULL, "settings", &next, sizeof next)) {
             update_abandon(); /* the region could not be kept: not now */
             return false;
         }
@@ -384,9 +340,9 @@ static bool link_update_begin(void *ctx, uint32_t size) {
 static bool link_update_write(void *ctx, uint32_t offset, const uint8_t *data, size_t len) {
     (void)ctx;
     (void)offset; /* the link gives the bytes in order */
-    if (!update_open || esp_ota_write(update_handle, data, len) != ESP_OK) {
+    if (!update_open || !plat_update_write(data, len)) {
         printf("the update could not be written to flash; it starts again\n");
-        update_abandon();
+        update_open = false;
         return false;
     }
     update_at = board_now();
@@ -394,39 +350,28 @@ static bool link_update_write(void *ctx, uint32_t offset, const uint8_t *data, s
     return true;
 }
 
-/* The image is whole and its digest right: it runs if ESP-IDF finds it an image for this chip,
- * its own checksum and hash right, and it is this firmware's and not another project's. */
+/* The image is whole and its digest right: it runs if the platform finds it firmware for this
+ * board (plat_update_finish()). */
 static uint8_t link_update_run(void *ctx) {
     (void)ctx;
     if (!update_open) {
         return TERN_C_ERR_NOT_THERE;
     }
     update_open = false;
-    esp_app_desc_t desc;
-    if (esp_ota_end(update_handle) != ESP_OK ||
-        esp_ota_get_partition_description(update_slot, &desc) != ESP_OK ||
-        strncmp(desc.project_name, esp_app_get_description()->project_name,
-                sizeof desc.project_name) != 0) {
+    char version[32];
+    uint8_t err = plat_update_finish(version, sizeof version);
+    if (err == TERN_C_ERR_NOT_AN_IMAGE) {
         printf("the update is not an image this board runs\n");
-        return TERN_C_ERR_NOT_AN_IMAGE;
     }
-    if (esp_ota_set_boot_partition(update_slot) != ESP_OK) {
-        return TERN_C_ERR_NOT_NOW;
+    if (err != 0) {
+        return err;
     }
-    printf("the update is whole: restarting into %s\n", desc.version);
+    printf("the update is whole: restarting into %s\n", version);
     restart_due = true;
     return 0;
 }
 
-/* Whether this is the first start of an image an update gave, not yet known to work: ESP-IDF's
- * bootloader goes back to the one before if it restarts unconfirmed (partitions.csv). */
-static bool on_trial(void) {
-    esp_ota_img_states_t state;
-    return esp_ota_get_state_partition(esp_ota_get_running_partition(), &state) == ESP_OK &&
-           state == ESP_OTA_IMG_PENDING_VERIFY;
-}
-
-/* --- Sending and receiving ------------------------------------------------------------------ */
+/* --- Sending and receiving -------------------------------------------------------------------- */
 
 static void flash_led(void) {
     board_led(true);
@@ -484,7 +429,7 @@ static tern_time transmit_at(const uint8_t *frame, size_t len, int8_t dbm) {
     tern_duty_charge(&duty, board_now(), air);
     if (region->duty_ppm < TERN_DUTY_UNLIMITED) {
         tern_time used = tern_duty_used(&duty, board_now());
-        if (!nvs_save(NULL, "airtime", &used, sizeof used)) {
+        if (!store_save(NULL, "airtime", &used, sizeof used)) {
             printf("not sent: could not save the count of time on air to flash\n");
             return 0;
         }
@@ -799,7 +744,7 @@ static void heard(const struct tern_radio_event *ev) {
         }
         /* The router takes quarters of a decibel, as the radio measures. */
         tern_route_heard(&route, board_now(), ev->data, ev->len, (int16_t)(ev->snr_cdb / 25));
-        if (route.seq != route_seq_saved && nvs_save(NULL, "seq", &route.seq, sizeof route.seq)) {
+        if (route.seq != route_seq_saved && store_save(NULL, "seq", &route.seq, sizeof route.seq)) {
             route_seq_saved = route.seq;
         }
         return;
@@ -1537,7 +1482,7 @@ static bool bench_command(char *line) {
         }
     } else if (is_power) {
         struct tern_radio_config allowed;
-        if (!board_gives(board_def(), (int)dbm) ||
+        if (!board_power_ok((int)dbm) ||
             tern_region_radio(region, (int8_t)dbm, CONFIG_TERN_ANTENNA_DBI, &allowed) != TERN_OK) {
             printf("%ld dBm is not a power this radio gives and %s allows\n", dbm, region->name);
             return true;
@@ -1556,7 +1501,7 @@ static bool bench_command(char *line) {
     return true;
 }
 
-/* --- The companion link --------------------------------------------------------------------- */
+/* --- The companion link ----------------------------------------------------------------------- */
 
 /* One frame to a client: as a notification over Bluetooth, or on the USB port, wrapped, after
  * whatever the console has printed. */
@@ -1686,7 +1631,7 @@ static uint8_t link_set(void *ctx, const struct tern_companion_msg *m) {
         next.role = m->role;
         break;
     case TERN_C_SET_POWER:
-        if (!board_gives(board_def(), m->power) ||
+        if (!board_power_ok(m->power) ||
             tern_region_radio(region, m->power, CONFIG_TERN_ANTENNA_DBI, &check) != TERN_OK) {
             return TERN_C_ERR_REFUSED;
         }
@@ -1705,7 +1650,7 @@ static uint8_t link_set(void *ctx, const struct tern_companion_msg *m) {
     default:
         return TERN_C_ERR_UNKNOWN;
     }
-    if (!nvs_save(NULL, "settings", &next, sizeof next)) {
+    if (!store_save(NULL, "settings", &next, sizeof next)) {
         return TERN_C_ERR_NOT_NOW;
     }
     settings = next;
@@ -1749,26 +1694,26 @@ static uint8_t link_why(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]) {
 }
 
 static bool link_load(void *ctx, void *buf, size_t len) {
-    return nvs_load(ctx, "contacts", buf, len);
+    return store_load(ctx, "contacts", buf, len);
 }
 
 static bool link_save(void *ctx, const void *buf, size_t len) {
-    return nvs_save(ctx, "contacts", buf, len);
+    return store_save(ctx, "contacts", buf, len);
 }
 
 /* A board that had an identity before it kept its message ids ran a build that counted them from
  * 1 at every start. Clients may hold ids of that address, so it goes on from past any such a
  * build is likely to have given, and not from 1 again. */
 static bool link_load_groups(void *ctx, void *buf, size_t len) {
-    return nvs_load(ctx, "groups", buf, len);
+    return store_load(ctx, "groups", buf, len);
 }
 
 static bool link_save_groups(void *ctx, const void *buf, size_t len) {
-    return nvs_save(ctx, "groups", buf, len);
+    return store_save(ctx, "groups", buf, len);
 }
 
 static bool link_load_ids(void *ctx, uint32_t *next) {
-    if (nvs_load(ctx, "ids", next, sizeof *next)) {
+    if (store_load(ctx, "ids", next, sizeof *next)) {
         return true;
     }
     if (had_identity) {
@@ -1779,104 +1724,30 @@ static bool link_load_ids(void *ctx, uint32_t *next) {
 }
 
 static bool link_save_ids(void *ctx, uint32_t next) {
-    return nvs_save(ctx, "ids", &next, sizeof next);
+    return store_save(ctx, "ids", &next, sizeof next);
 }
 
-/* The messages share the flash's storage with the identity, the sessions and everything else
- * the board must be able to save, and must never be why one of those cannot be. The storage has
- * 630 entries of 32 bytes to use. A board with nothing but a session and a contact uses 180; one
- * with all eight sessions, its groups and three phones bonded would use about 420, and writing
- * its largest record again wants 35 more. So the messages have MESSAGE_ENTRIES between them
- * whatever else is there, and one more is saved only if it fits in that, with MESSAGE_SPARE
- * still free besides. One that is not saved is held until the board restarts. */
-#define MESSAGE_ENTRIES 160
-#define MESSAGE_SPARE 40
-
-/* What each place's message takes in flash: an entry for every 32 bytes, two that say what it is,
- * and one for its word. */
-static uint16_t message_entries[LINK_MESSAGES];
-
-static uint16_t entries_for(size_t len) { return len == 0 ? 0 : (uint16_t)((len + 31) / 32 + 3); }
-
 static size_t link_load_message(void *ctx, size_t place, uint8_t *buf, size_t cap) {
-    nvs_handle_t h;
-    char key[8];
-    size_t len = cap;
     (void)ctx;
-    snprintf(key, sizeof key, "m%02u", (unsigned)place);
-    if (nvs_open("tern", NVS_READONLY, &h) != ESP_OK) {
-        return 0;
-    }
-    bool ok = nvs_get_blob(h, key, buf, &len) == ESP_OK;
-    nvs_close(h);
-    message_entries[place] = entries_for(ok ? len : 0);
-    return ok ? len : 0;
+    return plat_message_load(place, buf, cap);
 }
 
 static enum link_saved link_save_message(void *ctx, size_t place, const uint8_t *buf, size_t len) {
-    nvs_handle_t h;
-    nvs_stats_t stats;
-    char key[8];
     (void)ctx;
-    snprintf(key, sizeof key, "m%02u", (unsigned)place);
-    if (nvs_open("tern", NVS_READWRITE, &h) != ESP_OK) {
-        return LINK_NOT_SAVED;
-    }
-    unsigned others = 0;
-    for (size_t i = 0; i < LINK_MESSAGES; i++) {
-        others += i == place ? 0 : message_entries[i];
-    }
-    esp_err_t e;
-    bool full = false; /* by the board's own count, which taking older messages out mends */
-    if (len == 0) {
-        e = nvs_erase_key(h, key);
-        if (e == ESP_ERR_NVS_NOT_FOUND) {
-            e = ESP_OK;
-        }
-    } else if (nvs_get_stats(NULL, &stats) != ESP_OK) {
-        e = ESP_FAIL;
-    } else if (others + entries_for(len) > MESSAGE_ENTRIES ||
-               stats.available_entries < MESSAGE_SPARE + entries_for(len)) {
-        e = ESP_ERR_NVS_NOT_ENOUGH_SPACE;
-        full = true;
-    } else {
-        e = nvs_set_blob(h, key, buf, len);
-    }
-    bool ok = e == ESP_OK && nvs_commit(h) == ESP_OK;
-    nvs_close(h);
-    if (ok) {
-        message_entries[place] = entries_for(len);
-    }
-    return ok ? LINK_SAVED : full ? LINK_NO_ROOM : LINK_NOT_SAVED;
+    return plat_message_save(place, buf, len);
 }
 
 static bool link_load_state(void *ctx, size_t place, uint64_t *state) {
-    nvs_handle_t h;
-    char key[8];
     (void)ctx;
-    snprintf(key, sizeof key, "s%02u", (unsigned)place);
-    if (nvs_open("tern", NVS_READONLY, &h) != ESP_OK) {
-        return false;
-    }
-    bool ok = nvs_get_u64(h, key, state) == ESP_OK;
-    nvs_close(h);
-    return ok;
+    return plat_state_load(place, state);
 }
 
 static bool link_save_state(void *ctx, size_t place, uint64_t state) {
-    nvs_handle_t h;
-    char key[8];
     (void)ctx;
-    snprintf(key, sizeof key, "s%02u", (unsigned)place);
-    if (nvs_open("tern", NVS_READWRITE, &h) != ESP_OK) {
-        return false;
-    }
-    bool ok = nvs_set_u64(h, key, state) == ESP_OK && nvs_commit(h) == ESP_OK;
-    nvs_close(h);
-    return ok;
+    return plat_state_save(place, state);
 }
 
-/* --- The console ---------------------------------------------------------------------------- */
+/* --- The console ------------------------------------------------------------------------------ */
 
 /* The sessions this board holds, by the numbers 'to' and 'drop' take. */
 /* Asks the link for something as a client would, and says so if it is refused. True if it was
@@ -2000,7 +1871,7 @@ static void group_command(const char *line) {
                 return;
             }
             q.type = TERN_C_SEND_GROUP;
-            q.ref = esp_random();
+            q.ref = plat_random32();
             q.text_len = (uint8_t)len;
             memcpy(q.text, rest, len);
             (void)ask(&q);
@@ -2084,12 +1955,11 @@ static void status(void) {
         kept += companion.messages[i].used && companion.messages[i].saved;
         held += companion.messages[i].used && !companion.messages[i].saved;
     }
-    nvs_stats_t stored;
-    if (nvs_get_stats(NULL, &stored) == ESP_OK) {
+    unsigned used, total, spare;
+    if (plat_store_usage(&used, &total, &spare)) {
         printf("messages: %u saved, %u held only until a restart; storage: %u of %u entries used, "
                "%u to spare\n",
-               kept, held, (unsigned)stored.used_entries, (unsigned)stored.total_entries,
-               (unsigned)stored.available_entries);
+               kept, held, used, total, spare);
     }
 }
 
@@ -2123,7 +1993,7 @@ static void routes(void) {
     }
 }
 
-/* --- The self-test: a handshake between two nodes in this board's memory ------------------- */
+/* --- The self-test: a handshake between two nodes in this board's memory ---------------------- */
 
 /* The board has one radio and, on a bench with one board, nobody to talk to. This runs the same
  * code two boards would, handing each node's frames to the other, to show that it works on this
@@ -2210,7 +2080,7 @@ static void selftest(void) {
     }
     printf("selftest: %s, in %lld ms; %u bytes of this task's stack never used\n",
            ok ? "passed" : "FAILED", (long long)((board_now() - t0) / 1000000),
-           (unsigned)uxTaskGetStackHighWaterMark(NULL));
+           (unsigned)plat_stack_unused());
     memset(flash, 0, sizeof flash);
     memset(node, 0, sizeof node);
 }
@@ -2235,7 +2105,7 @@ static void screen_command(const char *rest) {
         return;
     }
     if (rest[0] != '\0') {
-        if (!nvs_save(NULL, "settings", &next, sizeof next)) {
+        if (!store_save(NULL, "settings", &next, sizeof next)) {
             printf("not saved: the flash refused it\n");
             return;
         }
@@ -2372,25 +2242,20 @@ static void restart_if_due(void) {
         printf("restarting to apply a setting\n");
         fflush(stdout);
         board_console_flush(500);
-        vTaskDelay(pdMS_TO_TICKS(200));
-        esp_restart();
+        plat_sleep_ms(200);
+        plat_restart();
     }
 }
 
-/* Bluetooth, and the randomness keys are made from. Espressif's documentation for the chip's
- * generator (ESP-IDF, "Random Number Generation", ESP32-S3) says it gives true random numbers
- * while Wi-Fi or Bluetooth is on, or while the noise source bootloader_random_enable() turns on is
- * on, and that the noise source must be turned off before Bluetooth is used. So the one is turned
- * off as the other starts, nothing is made from the generator between the two, and if Bluetooth
- * does not start, the noise source is turned on again. Either way, every key made after this, a
- * first contact's included, draws on a true source. */
+/* Bluetooth, and the randomness keys are made from: on some chips the one depends on the other
+ * (plat_bluetooth_starting()). */
 _Static_assert(PASSKEY_RANDOM == BLE_PASSKEY_RANDOM, "one spelling of a random passkey");
 _Static_assert(UI_BATTERY_UNKNOWN == POWER_UNKNOWN, "one spelling of a battery not known");
 static void start_bluetooth(void) {
-    bootloader_random_disable();
+    plat_bluetooth_starting(true);
     have_ble = ble_start(settings.passkey, have_screen);
     if (!have_ble) {
-        bootloader_random_enable();
+        plat_bluetooth_starting(false);
         printf("Bluetooth did not start; the USB port is the only companion link\n");
     }
 }
@@ -2781,7 +2646,7 @@ static void poll_screen(void) {
             screen_due = board_now() + (tern_time)SCREEN_MS * 1000000;
         }
     } else if (pairing_passkey == PAIRING_NONE && board_now() < boot_until) {
-        /* the boot screen, drawn by app_main(), until it has been seen */
+        /* the boot screen, drawn by node_main(), until it has been seen */
     } else if (board_now() >= screen_due) {
         if (screen_page >= screen_pages()) {
             screen_page = UI_HOME; /* the bench pages were turned off while one was shown */
@@ -2851,7 +2716,7 @@ __attribute__((noreturn)) static void turn_off(enum ui_off why) {
         }
         ui_off(why, &screen);
         screen_flush();
-        vTaskDelay(pdMS_TO_TICKS(2000));
+        plat_sleep_ms(2000);
     }
     /* The radio, asleep: started now if the board stopped before starting it (halt()), since
      * from power on it would sit in standby. A radio that does not answer is left as it is. */
@@ -2927,21 +2792,15 @@ static void poll_led(void) {
     }
 }
 
-/* Asked for on the Reset page, and done as the board next starts, before anything has opened the
- * flash, so nothing is using it: kept through esp_restart(), and lost with the asking if the power
- * goes first. */
-static RTC_NOINIT_ATTR uint32_t erase_asked;
-#define ERASE_ASKED 0x45524153u /* "ERAS"; anything else, as at power on, is not asking */
-
-/* Restarts the board to be erased (erase_storage()). Nothing is saved first: all of it goes. */
+/* Restarts the board to be erased, as the board next starts (plat_store_start()). Nothing is saved
+ * first: all of it goes. */
 __attribute__((noreturn)) static void erase_and_restart(void) {
     printf("PRG held on Reset: erasing this board and starting again, with a new address\n");
     if (have_screen) {
         ui_erasing(&screen);
         screen_flush();
     }
-    erase_asked = ERASE_ASKED;
-    esp_restart();
+    plat_erase_and_restart();
 }
 
 static void ping(void) {
@@ -3060,11 +2919,11 @@ static void show_start(void) {
  * and PRG lights it again. PRG held turns it off, and an empty battery does, as when it runs.
  * Never returns. */
 __attribute__((noreturn)) static void halt(enum ui_fault why, int code) {
-    if (on_trial()) {
+    if (plat_update_on_trial()) {
         /* An update that cannot start: back to the firmware that could. */
         printf("this firmware, new from an update, cannot start: going back to the one before\n");
         fflush(stdout);
-        esp_ota_mark_app_invalid_rollback_and_reboot();
+        plat_update_reject();
     }
     if (have_screen) {
         ui_fault(why, &start_info, code, &screen);
@@ -3106,35 +2965,11 @@ __attribute__((noreturn)) static void halt(enum ui_fault why, int code) {
         if (!screen_asleep) {
             screen_flush(); /* what changed, and a page the screen did not take before */
         }
-        vTaskDelay(pdMS_TO_TICKS(50));
+        plat_sleep_ms(50);
     }
 }
 
-/* Erases the whole of the flash's NVS partition, as the Reset page asked: the identity, the
- * sessions, contacts, groups, messages, settings and message ids, and the Bluetooth bonds NimBLE
- * keeps there too. Erased, not marked deleted, so the old identity's keys cannot be read back out
- * of the flash. The time on the air is kept: the region's limit on transmitting does not start
- * again because the board did. `e` is what nvs_flash_init() gave; returns what it gives after. */
-static esp_err_t erase_storage(esp_err_t e) {
-    tern_time used = 0;
-    bool had_air = e == ESP_OK && nvs_load(NULL, "airtime", &used, sizeof used);
-    if (e == ESP_OK) {
-        (void)nvs_flash_deinit();
-    }
-    e = nvs_flash_erase();
-    if (e == ESP_OK) {
-        e = nvs_flash_init();
-    }
-    if (e == ESP_OK && had_air && !nvs_save(NULL, "airtime", &used, sizeof used)) {
-        e = ESP_FAIL; /* not starting with the count forgotten */
-    }
-    if (e == ESP_OK) {
-        printf("erased, as the Reset page asked: this board is new\n");
-    }
-    return e;
-}
-
-void app_main(void) {
+void node_main(void) {
     /* Turned off for an empty battery, and woken to look at it again: off again at once, with
      * nothing lit, unless it has been charged a little. The radio is still asleep. */
     bool have_battery = board_battery_init();
@@ -3160,31 +2995,34 @@ void app_main(void) {
     }
     power_watch(&watch, battery_mv);
 
-    bool erasing = erase_asked == ERASE_ASKED;
-    erase_asked = 0; /* once: a board that fails while erasing starts as it is the next time */
-    esp_err_t e = nvs_flash_init();
-    if (erasing) {
-        e = erase_storage(e);
-        if (e != ESP_OK) {
-            printf("could not erase the flash (%s). Not starting.\n", esp_err_to_name(e));
-            halt(UI_FAULT_STORAGE, e);
+    /* Erasing, if the Reset page asked, keeps the time on the air: the region's limit on
+     * transmitting does not start again because the board did. */
+    int code = 0;
+    bool erasing = plat_erase_asked();
+    switch (plat_store_start(erasing, "airtime", &code)) {
+    case PLAT_STORE_OK:
+        if (erasing) {
+            printf("erased, as the Reset page asked: this board is new\n");
         }
-    }
-    if (e == ESP_ERR_NVS_NO_FREE_PAGES || e == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        break;
+    case PLAT_STORE_ERASE_FAILED:
+        printf("could not erase the flash (%s). Not starting.\n", plat_error_name(code));
+        halt(UI_FAULT_STORAGE, code);
+    case PLAT_STORE_NEEDS_ERASE:
         /* Never erased to make room: the saved session is what stops counters repeating, and the
          * identity is the board's address. */
-        printf("NVS needs erasing (%s). Not starting: this board's identity and session would "
-               "be lost. Erase the flash yourself; the board will then have a new address.\n",
-               esp_err_to_name(e));
+        printf("the storage needs erasing (%s). Not starting: this board's identity and session "
+               "would be lost. Erase the flash yourself; the board will then have a new "
+               "address.\n",
+               plat_error_name(code));
         halt(UI_FAULT_STORAGE, 0);
+    case PLAT_STORE_FAILED:
+        printf("the storage did not start (%s). Not starting.\n", plat_error_name(code));
+        halt(UI_FAULT_STORAGE, code);
     }
-    ESP_ERROR_CHECK(e);
-    ESP_ERROR_CHECK(board_console_init() ? ESP_OK : ESP_FAIL);
-
-    /* With Wi-Fi and Bluetooth off, the chip's generator has no entropy of its own until this
-     * turns on its noise source. It stays on until Bluetooth starts (start_bluetooth()), so the
-     * identity and the router's seed made below draw on it. */
-    bootloader_random_enable();
+    if (!board_console_init()) {
+        printf("the console did not start\n");
+    }
 
 #if CONFIG_TERN_REGION_EU868
     region = tern_region(TERN_REGION_EU868);
@@ -3197,9 +3035,9 @@ void app_main(void) {
     struct settings saved;
     saved.screen_sleep = CONFIG_TERN_SCREEN_SLEEP_S;
     saved.screen_flags = SCREEN_FLAGS;
-    if ((nvs_load(NULL, "settings", &saved, sizeof saved) ||
-         nvs_load(NULL, "settings", &saved, offsetof(struct settings, screen_flags)) ||
-         nvs_load(NULL, "settings", &saved, offsetof(struct settings, screen_sleep))) &&
+    if ((store_load(NULL, "settings", &saved, sizeof saved) ||
+         store_load(NULL, "settings", &saved, offsetof(struct settings, screen_flags)) ||
+         store_load(NULL, "settings", &saved, offsetof(struct settings, screen_sleep))) &&
         saved.magic == SETTINGS_MAGIC) {
         settings = saved;
     }
@@ -3209,16 +3047,16 @@ void app_main(void) {
     if (chosen == NULL) {
         chosen = region;
     }
-    if (board_gives(board_def(), chosen_power) &&
+    if (board_power_ok(chosen_power) &&
         tern_region_radio(chosen, chosen_power, CONFIG_TERN_ANTENNA_DBI, &cfg) == TERN_OK) {
         region = chosen;
         power = chosen_power;
     } else {
         printf("the settings a client saved do not fit this antenna; using the build's\n");
     }
-    if (!board_gives(board_def(), power)) {
+    if (!board_power_ok(power)) {
         printf("%d dBm is not a power the %s gives (%d to %d dBm). Not starting.\n", power,
-               board_def()->title, board_min_dbm(board_def()), board_max_dbm(board_def()));
+               board_title(), board_power_min(), board_power_max());
         halt(UI_FAULT_POWER, 0);
     }
     if (tern_region_radio(region, power, CONFIG_TERN_ANTENNA_DBI, &cfg) != TERN_OK) {
@@ -3247,13 +3085,13 @@ void app_main(void) {
      * lost. All of it is counted as sent now, which can only hold the board back longer. */
     tern_duty_init(&duty, region->duty_ppm, region->duty_window_s);
     tern_time before = 0;
-    if (nvs_load(NULL, "airtime", &before, sizeof before)) {
+    if (store_load(NULL, "airtime", &before, sizeof before)) {
         tern_duty_charge(&duty, board_now(), before);
     }
 
     struct demo_store store = {
-        .ctx = NULL, .load = nvs_load, .save = nvs_save, .random = board_random};
-    had_identity = nvs_has("identity");
+        .ctx = NULL, .load = store_load, .save = store_save, .random = board_random};
+    had_identity = plat_store_has("identity");
     if (!demo_start(&demo, &store, DEMO_HOLD)) {
         printf("could not make this board's identity and save it to flash. Not starting.\n");
         halt(UI_FAULT_IDENTITY, 0);
@@ -3279,7 +3117,7 @@ void app_main(void) {
         printf("no random numbers. Not starting.\n");
         halt(UI_FAULT_RANDOM, 0);
     }
-    (void)nvs_load(NULL, "seq", &route_seq_saved, sizeof route_seq_saved);
+    (void)store_load(NULL, "seq", &route_seq_saved, sizeof route_seq_saved);
     tern_route_init(&route, &rc, tern_route_id(demo.id.address), neighbours, NEIGHBOURS,
                     destinations, DESTINATIONS, route_seq_saved, seed, board_now());
     power_now = cfg.tx_power_dbm;
@@ -3327,16 +3165,16 @@ void app_main(void) {
         .update_write = link_update_write,
         .update_run = link_update_run,
     };
-    const esp_partition_t *spare = spare_slot();
-    if (spare != NULL) {
+    uint32_t room = plat_update_room();
+    if (room != 0) {
         host.board = BOARD;
-        host.update_room = spare->size;
+        host.update_room = room;
     }
     host.release = CONFIG_TERN_VERSION;
     link_init(&companion, &host);
-    if (on_trial()) {
+    if (plat_update_on_trial()) {
         /* On the air and listening: an image that gets this far is one to keep. */
-        esp_ota_mark_app_valid_cancel_rollback();
+        plat_update_confirm();
         printf("this firmware, new from an update, started: it is kept\n");
     }
     demo_trust(&demo, link_trusted, NULL);
@@ -3352,11 +3190,11 @@ void app_main(void) {
     if (have_screen) {
         printf("\nTern demo on the %s. Type 'status'. PRG shows the screen's next page; "
                "'screen bench on' adds the bench pages.\n",
-               board_def()->title);
+               board_title());
     } else {
         printf("\nTern demo on the %s, with no screen found. Type 'status', or press PRG "
                "to ping.\n",
-               board_def()->title);
+               board_title());
     }
     pairing_passkey = PAIRING_NONE;
     start_bluetooth();
@@ -3398,6 +3236,6 @@ void app_main(void) {
             tern_radio_receive(&radio);
         }
         poll_led();
-        vTaskDelay(1);
+        plat_yield();
     }
 }
