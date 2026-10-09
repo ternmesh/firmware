@@ -136,6 +136,8 @@ SETTING = {name: (n, kind) for n, (name, kind) in SETTINGS.items()}
 # The version a setting came with, where it was not there from the first: a node refuses it of a
 # client that speaks an earlier one.
 SINCE = {"cards": 6, "card_name": 6}
+# What a node holds with an id and a state, which a sync sends again: one id space for the three.
+HELD = ("MESSAGE", "GROUP_MESSAGE", "INVITE")
 STATES = ["waiting", "sent", "delivered", "not delivered", "received"]
 REASONS = ["", "for a route", "for a session", "for the region's limit", "for its budget",
            "for the radio"]
@@ -300,7 +302,7 @@ class Node:
         if text and self.console:
             sys.stderr.write(text.decode("utf-8", "replace"))
         for m in filter(None, (decode(f, self.speak) for f in frames)):
-            if m["type"] == "MESSAGE":
+            if m["type"] in HELD:
                 self.messages[m["id"]] = dict(m, seq=0)
             elif m["type"] == "STATE" and m["id"] in self.messages:
                 self.messages[m["id"]].update(state=m["state"], reason=m["reason"],
@@ -374,10 +376,11 @@ class Node:
         self.hello()
         self.request("SYNC", after=0)
         self.pending = [m for m in self.pending
-                        if m["type"] != "MESSAGE" or heard.get(m["id"]) != dict(m, seq=0)]
-        same = ("contact", "time", "text")
+                        if m["type"] not in HELD or heard.get(m["id"]) != dict(m, seq=0)]
+        same = ("type", "contact", "group", "time", "text", "name")
+        now = self.messages
         self.lost |= {i for i, m in heard.items()
-                      if [m[k] for k in same] != [self.messages.get(i, {}).get(k) for k in same]}
+                      if [m.get(k) for k in same] != [now.get(i, {}).get(k) for k in same]}
 
     def hello(self):
         self.greeted = False
@@ -514,13 +517,15 @@ def degrees(text, most):
     return v
 
 
-def watch_message(node, q, names, wait):
-    """Prints what becomes of the message, group message or invite the node queued as `q`."""
+def watch_message(node, q, names, wait, ends):
+    """Prints what becomes of the group message or invite the node queued as `q`, until it is in
+    one of the states `ends`: sent, for a group message, which nobody acknowledges; delivered or
+    not, for an invite, which goes as a message to one node does."""
     for m in node.news(wait):
         if m.get("id") != q["id"] or m["type"] not in ("GROUP_MESSAGE", "INVITE", "STATE"):
             continue
         print(describe(m, names))
-        if m["state"] in (1, 2, 3):
+        if m["state"] in ends:
             break
 
 
@@ -623,7 +628,7 @@ def run(args):
         elif args.what == "invite":
             q = node.request("SEND_INVITE", group=group_id(args.group), to=address(args.address))
             print(f"queued as invite #{q['id']}")
-            watch_message(node, q, names, args.wait)
+            watch_message(node, q, names, args.wait, (2, 3))
         elif args.what == "join":
             node.request("JOIN", id=args.id)
             print("joined")
@@ -631,7 +636,7 @@ def run(args):
             q = node.request("SEND_GROUP", ref=random.getrandbits(32), group=group_id(args.group),
                              text=args.text)
             print(f"queued as group message #{q['id']}")
-            watch_message(node, q, names, args.wait)
+            watch_message(node, q, names, args.wait, (1, 2, 3))
     elif args.command == "position":
         node.request("SET_POSITION", lat=degrees(args.lat, 90), lon=degrees(args.lon, 180),
                      altitude=args.altitude, accuracy=args.accuracy, age=args.age)
@@ -653,11 +658,7 @@ def run(args):
         # From the first message, so a sync after a lapse can tell what changed; the old ones
         # are not news, and are not printed.
         node.request("SYNC", after=0)
-        old = ("MESSAGE", "GROUP_MESSAGE", "INVITE")
-        for m in node.pending:
-            if m["type"] in old:
-                describe(m, names)  # not printed, but a group's name is learnt from its frame
-        node.pending = [m for m in node.pending if m["type"] not in old]
+        node.pending = [m for m in node.pending if m["type"] not in HELD]
         end = time.monotonic() + args.seconds if args.seconds else None
         while end is None or time.monotonic() < end:
             for m in node.news(1.0):
