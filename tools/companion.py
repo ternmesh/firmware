@@ -38,7 +38,8 @@ import time
 MAX_FRAME, MAGIC = 180, b"\xf5\x54"
 # The version this script speaks. It has no commands for groups, which came with version 2, so it
 # says 1 and is told of none: the frames of versions 2 to 6 are here only to be checked. `update`
-# says the latest, which it needs.
+# says the latest, which it needs, as does a `set` of a setting a later version brought; `--speak`
+# says another, to be told what that version tells a client, such as the cards a node hears.
 VERSION = 1
 # The latest version the frames below are, which selftest reads the vectors by.
 LATEST = 6
@@ -121,6 +122,9 @@ TYPE = {name: t for t, (name, _) in FRAMES.items()}
 SETTINGS = {1: ("region", "str"), 2: ("role", "B"), 3: ("power", "b"), 4: ("passkey", "I"),
             5: ("cards", "B"), 6: ("card_name", "str")}
 SETTING = {name: (n, kind) for n, (name, kind) in SETTINGS.items()}
+# The version a setting came with, where it was not there from the first: a node refuses it of a
+# client that speaks an earlier one.
+SINCE = {"cards": 6, "card_name": 6}
 STATES = ["waiting", "sent", "delivered", "not delivered", "received"]
 REASONS = ["", "for a route", "for a session", "for the region's limit", "for its budget",
            "for the radio"]
@@ -375,8 +379,11 @@ class Node:
 def describe(m, names):
     t = m["type"]
     if t == "SELF":
+        cards = ""
+        if "cards" in m:
+            cards = f"\n  cards {'on' if m['cards'] else 'off'}, as {m['card_name']!r}"
         return (f"this node: {m['address'].hex()}\n  a {'relay' if m['role'] else 'leaf'} in "
-                f"{m['region'] or 'no region'}, at {m['power']} dBm")
+                f"{m['region'] or 'no region'}, at {m['power']} dBm{cards}")
     if t == "CONTACT":
         names[m["address"]] = m["name"]
         return (f"contact {m['name']!r}: {m['address'].hex()}"
@@ -409,6 +416,10 @@ def describe(m, names):
                2: "there is no room for another session: end one to make room"}
         return (f"refused first contact from {m['address'].hex()}: "
                 f"{why.get(m['why'], 'no reason this script knows')}")
+    if t == "CARD":
+        return f"card {m['name']!r}: {m['address'].hex()}, heard {m['heard']} s ago"
+    if t == "CARD_GONE":
+        return f"card gone: {m['address'].hex()}"
     return str(m)
 
 
@@ -466,6 +477,10 @@ def update(node, info, path):
 
 def run(args):
     speak = LATEST if args.command == "update" else VERSION
+    if args.command == "set":
+        speak = max(speak, SINCE.get(args.setting, VERSION))
+    if args.speak is not None:
+        speak = args.speak
     node = Node(Port(args.port), args.console, args.idle, speak)
     info = node.hello()
     print(f"{info['firmware']}, companion protocol version {info['version']}")
@@ -556,6 +571,9 @@ def main():
     p.add_argument("--console", action="store_true", help="print the node's console on stderr")
     p.add_argument("--idle", type=float, default=IDLE,
                    help=f"seconds between requests while waiting for news (default {IDLE:g})")
+    p.add_argument("--speak", type=int, choices=range(1, LATEST + 1), metavar="VERSION",
+                   help=f"the protocol version to speak, 1 to {LATEST} (default {VERSION}, or what "
+                        "the command needs)")
     sub = p.add_subparsers(dest="command", required=True)
     sub.add_parser("state")
     s = sub.add_parser("send")
