@@ -30,6 +30,15 @@ menu "Tern demo"
         config TERN_BOARD_HELTEC_PAPER
             bool "Heltec Wireless Paper"
             depends on IDF_TARGET_ESP32S3
+        config TERN_BOARD_HELTEC_V2
+            bool "Heltec WiFi LoRa 32 V2"
+            depends on IDF_TARGET_ESP32
+        config TERN_BOARD_HELTEC_V21
+            bool "Heltec WiFi LoRa 32 V2.1"
+            depends on IDF_TARGET_ESP32
+        config TERN_BOARD_LILYGO_T3_V161
+            bool "LilyGo LoRa32 T3 V1.6.1 (SX1276)"
+            depends on IDF_TARGET_ESP32
     endchoice
 
     config TERN_BOARD_NAME
@@ -41,6 +50,9 @@ menu "Tern demo"
         default "heltec-vme290" if TERN_BOARD_HELTEC_VME290
         default "heltec-vme213" if TERN_BOARD_HELTEC_VME213
         default "heltec-paper" if TERN_BOARD_HELTEC_PAPER
+        default "heltec-v2" if TERN_BOARD_HELTEC_V2
+        default "heltec-v21" if TERN_BOARD_HELTEC_V21
+        default "lilygo-t3-v161" if TERN_BOARD_LILYGO_T3_V161
 
     rsource "../../node/Kconfig.tern"
 

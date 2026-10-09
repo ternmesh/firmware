@@ -56,9 +56,12 @@ struct board_def {
         int8_t sda, scl, reset; /* sda BOARD_NO_PIN for none */
     } screen;
 
-    /* The switched supply the screen is on, and whether high turns it on. */
+    /* The switched supply the screen is on, and whether high turns it on. Where it supplies more
+     * than the screen (an antenna switch, the battery's divider), it is on whenever the board is,
+     * with a screen or without: vext_always. */
     int8_t vext;
     bool vext_high_on;
+    bool vext_always;
 
     /* The battery, through a divider onto an ADC pin, behind a switch on `enable` whose sense the
      * board learns (power.h). */
@@ -88,6 +91,9 @@ extern const struct board_def board_heltec_tracker;
 extern const struct board_def board_heltec_vme290;
 extern const struct board_def board_heltec_vme213;
 extern const struct board_def board_heltec_paper;
+extern const struct board_def board_heltec_v2;
+extern const struct board_def board_heltec_v21;
+extern const struct board_def board_lilygo_t3_v161;
 
 /* Every board this port knows, ending with NULL. */
 extern const struct board_def *const board_defs[];

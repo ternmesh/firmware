@@ -31,7 +31,7 @@ static void names_are_file_names_and_unique(void) {
             CHECK(strcmp(board_defs[i]->name, board_defs[j]->name) != 0);
         }
     }
-    CHECK(board_def_named("heltec-v2") == NULL);
+    CHECK(board_def_named("heltec-v1") == NULL);
     CHECK(board_def_named(NULL) == NULL);
 }
 
@@ -183,6 +183,7 @@ static void no_pin_does_two_jobs(void) {
             CHECK(b->lora.busy == BOARD_NO_PIN && !b->lora.dio2_rf_switch);
         }
         CHECK(b->button == BOARD_NO_PIN || rtc_ok(b, b->button));
+        CHECK(!b->vext_always || b->vext != BOARD_NO_PIN);
         CHECK(b->battery.sense == BOARD_NO_PIN || b->battery.bottom_k > 0);
     }
 }
@@ -197,6 +198,21 @@ static void a_board_without_an_amplifier_is_its_chip(void) {
     }
     CHECK(!board_gives(b, -10));
     CHECK(!board_gives(b, 23));
+}
+
+/* An SX1276 on PA_BOOST gives +2 to +17 dBm, and this driver no more (tern/sx127x.h), whatever the
+ * board is rated: the Heltec V2 is rated 19. */
+static void an_sx1276_on_pa_boost_gives_2_to_17(void) {
+    const struct board_def *b = &board_heltec_v2;
+    CHECK_EQ_I64(board_min_dbm(b), 2);
+    CHECK_EQ_I64(board_max_dbm(b), 17);
+    CHECK(!board_gives(b, 1));
+    CHECK(!board_gives(b, 18));
+    CHECK_EQ_I64(board_chip_dbm(b, 10), 10);
+    struct board_def rfo = board_heltec_v2;
+    rfo.lora.pa_boost = false;
+    CHECK_EQ_I64(board_min_dbm(&rfo), 0);
+    CHECK_EQ_I64(board_max_dbm(&rfo), 14);
 }
 
 /* With an amplifier, the chip is asked for the antenna's power less the gain taken, which is the
@@ -247,6 +263,7 @@ int main(int argc, char **argv) {
     RUN(no_pin_does_two_jobs);
     RUN(a_board_without_an_amplifier_is_its_chip);
     RUN(an_amplifier_is_taken_off_what_the_chip_is_asked);
+    RUN(an_sx1276_on_pa_boost_gives_2_to_17);
     RUN(a_full_battery_is_within_the_adcs_reach);
     return CHECK_DONE();
 }

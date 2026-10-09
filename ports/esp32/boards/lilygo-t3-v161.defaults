@@ -1,0 +1,6 @@
+# The LilyGo LoRa32 T3 V1.6.1: an ESP32-PICO-D4, a classic ESP32 with 4 MB of flash, so the smaller
+# slots (partitions-4mb.csv). Its console is UART0, through the board's USB-to-serial chip.
+CONFIG_IDF_TARGET="esp32"
+CONFIG_TERN_BOARD_LILYGO_T3_V161=y
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions-4mb.csv"

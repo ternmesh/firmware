@@ -13,27 +13,35 @@ between the core and a port is [architecture.md](architecture.md); this is about
 | Heltec Wireless Tracker (V1.0, V1.1) | ESP32-S3 | SX1262 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board; no screen yet (an 80x160 TFT) |
 | Heltec Vision Master E290, E213 | ESP32-S3 | SX1262 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board; no screen yet (e-paper) |
 | Heltec Wireless Paper | ESP32-S3 | SX1262 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board; no screen yet (e-paper) |
+| Heltec WiFi LoRa 32 V2, V2.1 | ESP32 | SX1276 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board |
+| LilyGo LoRa32 T3 V1.6.1 (868/915 MHz) | ESP32 | SX1276 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board; no user button, so it turns off only when its battery runs down |
 | Heltec Mesh Node T114 V2 | nRF52840 | SX1262 | [`ports/nrf52/`](../ports/nrf52/) | Built, not yet run on a board |
 
 A board is **Runs** once someone has flashed a release onto one and checked it as
 [below](#bringing-a-board-up), and **Built** until then: CI builds its images, and nothing has
 yet said its pins are right.
 
-## Adding an ESP32 board with an SX1262
+## Adding an ESP32 board
 
-Everything above the pins is the same on every such board, so a new one is a row and a file:
+Everything above the pins is the same on every ESP32 board, an ESP32-S3 or a classic ESP32 with an
+SX1262 or an SX1276, so a new one is a row and a file:
 
 1. **Read its maker's documents**: the pin map, and the schematic for anything the pin map does
    not say, such as which level turns a switch on. Not another mesh project's source for it, even
    where the licence would allow it ([CONTRIBUTING.md](../CONTRIBUTING.md)): its pin tables are
    that project's code. Where the documents leave a question open, say so beside the row.
 2. **Add its row** to `ports/esp32/main/boards.c` (`struct board_def` in `boards.h`): the radio's
-   pins and TCXO, the button, the LED, the screen, Vext, the battery's divider and switch, and an
-   amplifier if it has one. Cite the documents above the row.
+   chip (`soc`), the radio (`lora.chip`) and its pins, its TCXO, and on an SX127x whether its
+   antenna is on PA_BOOST; the button, the LED, the screen, Vext, the battery's divider and
+   switch, and an amplifier if it has one. Cite the documents above the row.
 3. **Let a build choose it**: a `TERN_BOARD_<NAME>` entry in the **Board** choice in
    `main/Kconfig.projbuild` and its `TERN_BOARD_NAME`, and `boards/<name>.defaults` setting it
-   and anything else ESP-IDF needs, such as `CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y` for a board
-   whose USB is the chip's own. `tests/boards.c` fails until all three agree.
+   and anything else ESP-IDF needs: `CONFIG_IDF_TARGET="esp32"` for a classic ESP32, which
+   `build.sh` and `release.sh` build for (the ESP32-S3 where it does not say),
+   `CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y` for a board whose USB is the chip's own, and
+   `CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y` with `partitions-4mb.csv` for one with 4 MB of flash.
+   `tests/boards.c` fails until all three agree, and on a pin the chip has not got, an output on
+   one of the ESP32's inputs, or a button that cannot wake it.
 4. **Build it** in CI: add its name to the `esp32` job's matrix in `.github/workflows/ci.yml`.
    `release.sh` builds every file in `boards/` already.
 5. **List it** in the port's README and the table above, as **Built**.
@@ -50,9 +58,10 @@ What a row cannot say yet, a board needs code for first:
   wants its own layout of the pages.
 * **A power management chip** on I2C (an AXP192 or AXP2101), which switches the radio's and the
   screen's supplies and reads the battery itself.
-* **Another ESP32**: the classic ESP32, the C3, C6 or S2. The port builds for the S3
-  (`CONFIG_IDF_TARGET` in `sdkconfig.defaults`); another target is a `set-target` and a check
-  that every pin it uses exists on that chip and can wake it.
+* **Another ESP32**: the C3, C6 or S2. The port builds for the S3 and the classic ESP32; another
+  target is its entry in `enum board_soc`, its GPIOs in `tests/boards.c`, and its ADC's ranges in
+  `board.c`. The classic ESP32 has the least static RAM of them: its builds have about 9 KB to
+  spare, which `idf.py size` reports.
 
 ## Bringing a board up
 
@@ -86,10 +95,10 @@ goes a family or a radio at a time, and each one brings a crowd of boards with i
 | What | Brings | Needs | Status |
 |---|---|---|---|
 | ESP32-S3 + SX1262 | Heltec V3, V4, Wireless Stick Lite V3, Wireless Tracker, Vision Master, Wireless Paper; LilyGo T3-S3, T-Beam Supreme, T-Deck; Seeed XIAO ESP32S3 kit; B&Q Station G2; RAK3312 | A row each; a power chip for the T-Beam Supreme, other screens for the rest | Port exists: V3 runs; V4, Stick Lite V3, Tracker, Vision Master and Paper built |
+| ESP32 (classic) + SX1276 | Heltec V2, V2.1, Wireless Stick; LilyGo T3 V1.6.1, LoRa32 V1.3, T-Beam to v1.2 | A row each; a power chip for the T-Beam | Port builds for it: V2, V2.1 and T3 V1.6.1 built |
 | nRF52840 + SX1262 | Heltec T114, Mesh Pocket; RAK4631 and the WisMesh devices on it; Seeed Wio Tracker L1, XIAO nRF52840 kit; LilyGo T-Echo; Elecrow ThinkNode | An overlay each, once `board.c` reads its board from the devicetree; e-paper for the T-Echo and others | Port exists: T114 built |
-| SX1276/SX1278 driver | LilyGo T-Beam to v1.2, T3 V1.6; Heltec V2; other boards of before 2022 | A driver in `src/`, beside the SX1262's | Next radio |
-| ESP32 (classic) | The SX1276 boards above, and the T-Beam v1.x with an SX1262 | The ESP32 port for another target | With the SX127x driver |
-| LR1110/LR1121 driver | Seeed SenseCAP T1000-E, Wio Tracker 1110; newer boards | A driver in `src/` | After the SX127x |
+| SX1276/SX1278 driver | The boards above, and other boards of before 2022 | A driver in `src/`, beside the SX1262's | Done (`src/sx127x.c`); the SX1278's 433 MHz waits on a region for it |
+| LR1110/LR1121 driver | Seeed SenseCAP T1000-E, Wio Tracker 1110; newer boards | A driver in `src/` | Next radio |
 | ESP32-C3/C6 | Heltec HT-CT62, and boards built from modules like it | The ESP32 port for another target | Later |
 | RP2040 | RAK11310, Raspberry Pi Pico with a Waveshare SX1262 | A port, on Zephyr as for the nRF52840 | Later |
 | STM32WL | RAK3172, Seeed LoRa-E5 | A port; the radio is in the chip, an SX126x behind registers | Later |
@@ -108,14 +117,22 @@ In the order that reaches the most boards for the work:
 Rows, as above. Those whose makers' documents have been read, and what each still waits on:
 
 * **LilyGo T3-S3** (SX1262, V1.2 and V1.3): its pins are in LilyGo's wiki, schematics and
-  `utilities.h`. It has 4 MB of flash, and the port's flash layout (`partitions.csv`) needs more
-  than that, so it waits on a layout for 4 MB boards. Its TCXO's voltage is not documented.
+  `utilities.h`, and its 4 MB of flash takes `partitions-4mb.csv`. Its TCXO's voltage is not
+  documented.
 * **Seeed XIAO ESP32S3 with the Wio-SX1262**: its pins are in Seeed's two schematics, but the
   module's RF_SW line (GPIO38) has no documented level, and its button (GPIO21) is the XIAO's LED's
   pin too. It waits on a row for a pin that enables the antenna switch, and on a board to try both
   levels on.
-* **RAKwireless RAK3312** (on a RAK19007): no user button, which every row needs today to turn the
-  board on and off, and an antenna switch powered from GPIO4. It waits on a row for both.
+* **RAKwireless RAK3312** (on a RAK19007): an antenna switch powered from GPIO4, which waits on a
+  row for it. It has no user button, which a row may now leave out, as the T3 V1.6.1's does.
+* **Heltec Wireless Stick** (V2, V2.1): Heltec's datasheet and schematic disagree on its flash,
+  4 MB or 8 MB, and its screen is 64x32, which `display.c` does not lay out. Its Lite (V2.1) has a
+  schematic stamped as restricted, which is not used as a source.
+* **LilyGo LoRa32 V1.3**: its schematic gives a button on GPIO36, which LilyGo's own pin table
+  does not list, and which has no pull-up of its own in the chip: it waits on a board to see
+  whether it is fitted.
+* **LilyGo T-Beam to v1.2**: waits on a driver for its power chip (an AXP192, or an AXP2101 from
+  v1.2), which powers its radio.
 * **LilyGo T-Beam Supreme**: waits on a power management chip, and its maker's documents.
 * **B&Q Station G2**: waits on its maker's documents.
 
@@ -132,9 +149,6 @@ alongside the UF2 bootloader these boards ship with.
 
 ### Other radios
 
-* **The SX1276 and SX1278**, in the T-Beam before the Supreme, the LilyGo T3 V1.6 and the Heltec
-  V2: many of the boards in drawers. A driver beside `src/sx126x.c` that implements
-  `tern/radio.h`; the frames on the air are the same.
 * **The LR1110 and LR1121**, in Seeed's SenseCAP T1000-E and Wio Tracker 1110 and in newer
   boards: another driver, for a chip that also carries GNSS and Wi-Fi scanning.
 

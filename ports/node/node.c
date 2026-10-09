@@ -2191,9 +2191,20 @@ static bool memory_save(void *ctx, const char *key, const void *buf, size_t len)
 }
 
 static void selftest(void) {
-    static struct memory_store flash[2];
-    static struct demo node[2];
-    static uint8_t msg[TERN_UNICAST_MAX_PLAINTEXT];
+    /* Two whole nodes, borrowed from the heap while the test runs rather than kept for it: the
+     * classic ESP32 has too little static RAM to hold them besides the node's own. */
+    struct selftest_memory {
+        struct memory_store flash[2];
+        struct demo node[2];
+        uint8_t msg[TERN_UNICAST_MAX_PLAINTEXT];
+    } *m = calloc(1, sizeof *m);
+    if (m == NULL) {
+        printf("selftest: no memory for it\n");
+        return;
+    }
+    struct memory_store *flash = m->flash;
+    struct demo *node = m->node;
+    uint8_t *msg = m->msg;
     static const char *const step[] = {"respond to message_1", "message_2 to message_3",
                                        "message_3 to message_4", "accept message_4"};
     struct demo_received got;
@@ -2202,7 +2213,6 @@ static void selftest(void) {
     bool ok = true;
     tern_time t0 = board_now(), t;
 
-    memset(flash, 0, sizeof flash);
     for (int i = 0; i < 2; i++) {
         struct demo_store st = {&flash[i], memory_load, memory_save, board_random};
         ok = demo_start(&node[i], &st, 1000000000LL) && ok;
@@ -2234,8 +2244,8 @@ static void selftest(void) {
     printf("selftest: %s, in %lld ms; %u bytes of this task's stack never used\n",
            ok ? "passed" : "FAILED", (long long)((board_now() - t0) / 1000000),
            (unsigned)plat_stack_unused());
-    memset(flash, 0, sizeof flash);
-    memset(node, 0, sizeof node);
+    memset(m, 0, sizeof *m); /* the keys, gone before the memory is given back */
+    free(m);
 }
 
 /* 'screen' says how long the screen stays on and whether it shows the bench pages; 'screen sleep

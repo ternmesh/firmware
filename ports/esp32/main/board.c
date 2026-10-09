@@ -74,8 +74,24 @@ static void release(int pin) {
     }
 }
 
+static const struct board_def *board_def(void);
 static bool amp_init(void);
 static void amp_off(void);
+
+/* Vext, on: let go of if deep sleep held it off (board_off()). */
+static bool vext_on(void) {
+    if (B->vext == BOARD_NO_PIN) {
+        return true;
+    }
+    gpio_config_t out = {.pin_bit_mask = bit(B->vext), .mode = GPIO_MODE_OUTPUT};
+    if (gpio_config(&out) != ESP_OK) {
+        return false;
+    }
+    gpio_hold_dis(B->vext);
+    gpio_deep_sleep_hold_dis();
+    set(B->vext, VEXT_ON);
+    return true;
+}
 
 static const struct board_def *board_def(void) {
     static const struct board_def *chosen;
@@ -121,6 +137,9 @@ int board_init(void) {
         return TERN_EIO;
     }
     board_led(false);
+    if (B->vext_always && !vext_on()) {
+        return TERN_EIO;
+    }
 
     spi_bus_config_t bus = {.sclk_io_num = B->lora.sck,
                             .mosi_io_num = B->lora.mosi,
@@ -354,18 +373,12 @@ bool board_screen_init(void) {
     if (B->screen.sda == BOARD_NO_PIN) {
         return false;
     }
-    gpio_config_t out = {.pin_bit_mask = bit(B->vext) | bit(B->screen.reset),
-                         .mode = GPIO_MODE_OUTPUT};
-    if (gpio_config(&out) != ESP_OK) {
+    gpio_config_t out = {.pin_bit_mask = bit(B->screen.reset), .mode = GPIO_MODE_OUTPUT};
+    if (!vext_on() || (out.pin_bit_mask != 0 && gpio_config(&out) != ESP_OK)) {
         return false;
     }
-    /* Power, then hold RES# low for more than the 3 us the datasheet asks (section 8.9). Vext was
-     * held off through deep sleep if the board turned itself off (board_off()). */
-    if (B->vext != BOARD_NO_PIN) {
-        gpio_hold_dis(B->vext);
-    }
-    gpio_deep_sleep_hold_dis();
-    set(B->vext, VEXT_ON);
+    /* Power, then hold RES# low for more than the 3 us the datasheet asks (section 8.9). A panel
+     * without a RES# pin resets itself as its supply comes up. */
     set(B->screen.reset, 0);
     esp_rom_delay_us(20000);
     set(B->screen.reset, 1);
@@ -467,7 +480,8 @@ bool board_battery_init(void) {
     gpio_config_t ctrl = {.pin_bit_mask = bit(B->battery.enable), .mode = GPIO_MODE_OUTPUT};
     if (B->battery.sense == BOARD_NO_PIN ||
         (B->battery.enable != BOARD_NO_PIN && gpio_config(&ctrl) != ESP_OK) ||
-        adc_oneshot_io_to_channel(B->battery.sense, &unit, &battery_channel) != ESP_OK) {
+        adc_oneshot_io_to_channel(B->battery.sense, &unit, &battery_channel) != ESP_OK ||
+        (B->vext_always && !vext_on())) {
         return false;
     }
     size_t r = 0;
@@ -525,6 +539,11 @@ static uint16_t battery_at(int level) {
 uint16_t board_battery_mv(void) {
     if (!have_adc) {
         return 0;
+    }
+    if (B->battery.enable == BOARD_NO_PIN) {
+        /* A divider always connected, or on Vext with everything else. */
+        uint16_t mv = battery_at(0);
+        return mv < POWER_NONE_MV ? 0 : mv;
     }
     uint16_t low = 0, high = 0;
     if (!sense.known || !sense.high_enables) {

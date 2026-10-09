@@ -202,9 +202,97 @@ const struct board_def board_heltec_paper = {
     .max_dbm = SX1262_MAX_DBM,
 };
 
-const struct board_def *const board_defs[] = {
-    &board_heltec_v3,     &board_heltec_v4,     &board_heltec_wsl_v3, &board_heltec_tracker,
-    &board_heltec_vme290, &board_heltec_vme213, &board_heltec_paper,  NULL};
+/* The classic ESP32's boards, with an SX1276. Each drives the radio over the same pins, NSS 18,
+ * SCK 5, MOSI 27, MISO 19, from a 32 MHz crystal, its antenna on PA_BOOST: +2 to +17 dBm, the most
+ * this driver offers (tern/sx127x.h). An SX1278 board is for 433 MHz, which no region here uses
+ * yet. */
+#define SX1276_ON(rst)                                                                             \
+    {                                                                                              \
+        .chip = BOARD_SX1276, .nss = 18, .sck = 5, .mosi = 27, .miso = 19, .reset = rst,           \
+        .busy = BOARD_NO_PIN, .pa_boost = true                                                     \
+    }
+
+/* The Heltec WiFi LoRa 32 V2, from its schematic (WIFI_LoRa_32_V2(868-915)), pin map and manual
+ * (Rev 1.1): an ESP32 with the SX1276 on the board, its RESET on GPIO14. Its schematic joins both
+ * PA_BOOST and RFO_HF to the antenna's network, through resistors whose values it does not give;
+ * Heltec's own driver for it (HelTecAutomation/Heltec_ESP32, SX1276GetPaSelect()) always selects
+ * PA_BOOST, which is taken. PRG on GPIO0, the LED on GPIO25, lit when high, and a 128x64 SSD1306
+ * on SDA 4, SCL 15, RES# 16, powered from Vext: 3.3 V through a P-channel FET GPIO21 turns on when
+ * low. Vext also powers the PE4259 antenna switch, so the radio does not work without it, and
+ * switches the battery's divider, 220k over 100k onto GPIO13, so it is on whenever the board is.
+ * GPIO13 is on ADC2, which Wi-Fi would take; this firmware does not use Wi-Fi. 8 MB of flash, USB
+ * through a CP2102. Rated 19 dBm, give or take one, more than PA_BOOST gives here. */
+const struct board_def board_heltec_v2 = {
+    .name = "heltec-v2",
+    .title = "Heltec WiFi LoRa 32 V2",
+    .soc = BOARD_ESP32,
+    .lora = SX1276_ON(14),
+    .button = 0,
+    .led = 25,
+    .screen = {.sda = 4, .scl = 15, .reset = 16},
+    .vext = 21,
+    .vext_high_on = false,
+    .vext_always = true,
+    .battery = {.sense = 13, .enable = BOARD_NO_PIN, .top_k = 220, .bottom_k = 100},
+    .amp = NO_AMP,
+    .max_dbm = PA_BOOST_MAX_DBM,
+};
+
+/* The Heltec WiFi LoRa 32 V2.1, from its schematic (WIFI_LoRa_32_V2.1(868-915)): a V2 whose
+ * battery is read on GPIO37, on ADC1, through the same divider behind the same switch on Vext, and
+ * whose antenna switch, a UPG2179, is powered whether Vext is on or not. An image for the one does
+ * not read the other's battery. */
+const struct board_def board_heltec_v21 = {
+    .name = "heltec-v21",
+    .title = "Heltec WiFi LoRa 32 V2.1",
+    .soc = BOARD_ESP32,
+    .lora = SX1276_ON(14),
+    .button = 0,
+    .led = 25,
+    .screen = {.sda = 4, .scl = 15, .reset = 16},
+    .vext = 21,
+    .vext_high_on = false,
+    .vext_always = true,
+    .battery = {.sense = 37, .enable = BOARD_NO_PIN, .top_k = 220, .bottom_k = 100},
+    .amp = NO_AMP,
+    .max_dbm = PA_BOOST_MAX_DBM,
+};
+
+/* The LilyGo LoRa32 T3 V1.6.1, from its schematic (T3_V1.6.1, in Xinyuan-LilyGO/LilyGo-LoRa-Series)
+ * and the pin table beside it: an ESP32-PICO-D4 with 4 MB of flash and the radio on a module, its
+ * RESET on GPIO23. The schematic shows only the module's pins; LilyGo's own examples drive it on
+ * PA_BOOST from a crystal, which is taken. Its only button is RESET, so the board turns off only
+ * when its battery runs down, and a press of RESET turns it on again. The LED on GPIO25, lit when
+ * high; a 128x64 SSD1306 on SDA 21, SCL 22, reset and powered by its own circuit; the battery
+ * through 100k over 100k onto GPIO35, always connected. USB through a CP2104 or a CH9102, as the
+ * board was made: UART0 either way. LilyGo rates no power. Sold with an SX1278 for 433 MHz too,
+ * which this image is not for. */
+const struct board_def board_lilygo_t3_v161 = {
+    .name = "lilygo-t3-v161",
+    .title = "LilyGo LoRa32 T3 V1.6.1",
+    .soc = BOARD_ESP32,
+    .lora = SX1276_ON(23),
+    .button = BOARD_NO_PIN,
+    .led = 25,
+    .screen = {.sda = 21, .scl = 22, .reset = BOARD_NO_PIN},
+    .vext = BOARD_NO_PIN,
+    .vext_high_on = false,
+    .battery = {.sense = 35, .enable = BOARD_NO_PIN, .top_k = 100, .bottom_k = 100},
+    .amp = NO_AMP,
+    .max_dbm = PA_BOOST_MAX_DBM,
+};
+
+const struct board_def *const board_defs[] = {&board_heltec_v3,
+                                              &board_heltec_v4,
+                                              &board_heltec_wsl_v3,
+                                              &board_heltec_tracker,
+                                              &board_heltec_vme290,
+                                              &board_heltec_vme213,
+                                              &board_heltec_paper,
+                                              &board_heltec_v2,
+                                              &board_heltec_v21,
+                                              &board_lilygo_t3_v161,
+                                              NULL};
 
 const struct board_def *board_def_named(const char *name) {
     for (size_t i = 0; name != NULL && board_defs[i] != NULL; i++) {
