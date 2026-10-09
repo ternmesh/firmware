@@ -75,6 +75,11 @@ void tern_flood_bucket_init(struct tern_flood_bucket *b, uint32_t ppm, tern_time
 /* Whether the bucket holds `airtime` at `now`; if it does, that much is taken. */
 bool tern_flood_bucket_pays(struct tern_flood_bucket *b, tern_time now, tern_time airtime);
 
+/* How often in a million a relay drops a frame it would pass on, its radio having spent `busy_ppm`
+ * millionths of its time sending or receiving and `at_ppm` being the share it may without
+ * dropping any: none up to that, every one when the radio is never idle, and evenly between. */
+uint32_t tern_flood_busy_drops(uint32_t busy_ppm, uint32_t at_ppm);
+
 /* --- The flooder --- */
 
 struct tern_flood_config {
@@ -86,6 +91,8 @@ struct tern_flood_config {
     tern_time own_window;
     uint32_t relay_ppm;
     tern_time relay_window;
+    uint32_t busy_ppm;   /* the busy share past which a relay passes fewer on; 1000000 for never */
+    tern_time busy_span; /* the share is over this long at least, and twice it at most */
 };
 
 /* The specification's parameters. */
@@ -116,6 +123,7 @@ struct tern_flood_counts {
     uint32_t passed_on; /* frames taken to pass on */
     uint32_t cancelled; /* of them, dropped on hearing enough copies */
     uint32_t unpaid;    /* and dropped because the allowance could not pay */
+    uint32_t busy;      /* and dropped because the radio was busy */
     uint32_t hop_limit; /* frames that had come as far as they may */
     uint32_t no_room;   /* and those there was no slot for */
 };
@@ -132,6 +140,12 @@ struct tern_flood {
     struct tern_flood_bucket own;
     struct tern_flood_bucket relay;
     uint64_t rng;
+    /* The radio's time sending and receiving as it was told at two times past, the older of them
+     * busy_span to twice that ago, and the share that makes of the time since. */
+    tern_time busy_at[2];
+    tern_time busy_air[2];
+    uint32_t busy;
+    bool busy_told;
     struct tern_flood_counts counts;
 };
 
@@ -156,6 +170,14 @@ bool tern_flood_cancel(struct tern_flood *f, tern_time now, const uint8_t id[TER
 /* A frame of this layer's was received. True if the node had not seen it: the caller then hands
  * it on to whatever opens its kind. A relay passes it on by itself. */
 bool tern_flood_heard(struct tern_flood *f, tern_time now, const uint8_t *frame, size_t len);
+
+/* Tells the flooder how long the radio has spent sending and receiving, in all, up to `now`:
+ * receiving as tern/listen.h has it. A relay is to say so before every tern_flood_poll(), and
+ * every busy_span at least: the share is over the time since a telling busy_span to twice that
+ * ago, so tellings further apart make it longer by as much. Not told for twice busy_span, the
+ * flooder keeps count afresh, as if it had just started. Never told, it takes its radio as
+ * idle. */
+void tern_flood_radio(struct tern_flood *f, tern_time now, tern_time on_air);
 
 /* When tern_flood_poll() next has something to do, or INT64_MAX. */
 tern_time tern_flood_due(const struct tern_flood *f);

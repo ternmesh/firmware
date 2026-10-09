@@ -178,6 +178,7 @@ static tern_time led_until;
 /* What the bench screen shows that nothing else keeps. */
 static uint32_t frames_out, frames_in;
 static tern_time air_total;
+static tern_time heard_total; /* the airtime of every frame received whole */
 static char last_text[STATUS_TEXT];
 static tern_time last_at; /* when last_text was heard, or 0 for nothing yet */
 static struct display screen;
@@ -832,6 +833,7 @@ static void poll_radio(void) {
         break;
     case TERN_RADIO_RX_DONE:
         frames_in++;
+        heard_total += tern_lora_airtime(&cfg.mod, ev.len);
         if (bench) {
             if (ev.len == BEACON_LEN && memcmp(ev.data, beacon_text, sizeof beacon_text) == 0) {
                 bench_ours++;
@@ -1067,6 +1069,10 @@ static void poll_flood(void) {
             }
         }
     }
+    /* How busy the radio has been, for a relay to pass fewer on by: what it sent and what it
+     * received whole. A frame it lost part-way is not counted, the radio not saying how long it
+     * was. */
+    tern_flood_radio(&flood, now, air_total + heard_total);
     tern_time due = tern_flood_due(&flood);
     if (due != INT64_MAX && due > now + 1000000000LL) {
         for (int i = 0; i < FLOODING; i++) {

@@ -47,6 +47,8 @@ header for `tests/companion.c`, and its two exchanges alone into one for `tests/
 `flooding_to_c.py` and `groups_to_c.py` turn them into headers for `tests/flood.c` and
 `tests/group.c`. The same pull request gives a unicast message the node flag, so
 `unicast-security.json` and `forwarding.json` are as of it too.
+`flooding.json` is since as of
+[ternmesh/spec#25](https://github.com/ternmesh/spec/pull/25), which adds a busy relay.
 
 `sharing.json` is a copy of
 [`vectors/sharing.json`](https://github.com/ternmesh/spec/blob/main/vectors/sharing.json), as of

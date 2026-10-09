@@ -40,6 +40,32 @@ struct pass_case {
     uint8_t hops;
     int sends;
 };
+struct busy_case {
+    uint32_t busy_ppm, drops_ppm;
+};
+
+struct draw_case {
+    uint32_t busy_ppm, draw;
+    bool drops;
+};
+
+struct radio_span {
+    int64_t from, to;
+};
+
+struct share_ask {
+    int64_t at;
+    uint32_t least, most;
+};
+
+struct share_case {
+    const char *name;
+    const struct radio_span *radio;
+    size_t radios;
+    const struct share_ask *asks;
+    size_t n;
+};
+
 struct copy_case {
     unsigned received;
     bool drops;
@@ -395,6 +421,136 @@ static void test_unpaid(void) {
     CHECK(tern_flood_due(&x.f) == INT64_MAX);
 }
 
+/* A busy relay passes fewer on: as often as the vectors say, over many frames. */
+static void test_busy(void) {
+    enum { FRAMES = 2000 };
+    uint8_t frame[TERN_FLOOD_FRAME_MAX], out[TERN_FLOOD_FRAME_MAX];
+    int8_t dbm;
+    enum tern_flood_kind kind;
+    uint8_t h;
+    for (size_t i = 0; i < COUNT(busy_cases); i++) {
+        const struct busy_case *c = &busy_cases[i];
+        CHECK_EQ_U64(tern_flood_busy_drops(c->busy_ppm, 200000), c->drops_ppm);
+        CHECK_EQ_U64(tern_flood_busy_drops(c->busy_ppm, 1000000), 0);
+
+        /* With an allowance that always pays, so that only being busy drops a frame. */
+        struct node x;
+        start(&x, true, 11 + i);
+        struct tern_flood_config fc = tern_flood_defaults();
+        fc.relay_ppm = 1000000;
+        tern_flood_init(&x.f, &fc, &x.r, x.slot, SLOTS, x.seen, TERN_FLOOD_SEEN, 11 + i, 0);
+        unsigned sent = 0;
+        for (unsigned k = 1; k <= FRAMES; k++) {
+            /* A second apart, the radio on the air that share of all the time gone by. */
+            tern_time now = TERN_S(k);
+            tern_flood_radio(&x.f, now, now / 1000000 * c->busy_ppm);
+            CHECK(tern_flood_heard(&x.f, now, frame, make(frame, 40, 5, k)));
+            tern_time due = tern_flood_due(&x.f);
+            CHECK(due < now + TERN_S(1));
+            tern_flood_radio(&x.f, due, due / 1000000 * c->busy_ppm);
+            if (tern_flood_poll(&x.f, due, out, &dbm, &kind, &h) != 0) {
+                tern_flood_sent(&x.f, due, h);
+                sent++;
+            }
+        }
+        unsigned dropped = FRAMES - sent,
+                 should = (unsigned)((uint64_t)FRAMES * c->drops_ppm / 1000000);
+        CHECK_EQ_U64(x.f.counts.busy, dropped);
+        CHECK_EQ_U64(x.f.counts.unpaid, 0);
+        if (c->drops_ppm == 0 || c->drops_ppm == 1000000) {
+            CHECK_EQ_U64(dropped, should);
+        } else {
+            CHECK(dropped + FRAMES / 20 >= should && dropped <= should + FRAMES / 20);
+        }
+    }
+}
+
+/* A draw below how often it drops, and the frame is dropped. */
+static void test_draws(void) {
+    for (size_t i = 0; i < COUNT(draw_cases); i++) {
+        const struct draw_case *c = &draw_cases[i];
+        CHECK((c->draw < tern_flood_busy_drops(c->busy_ppm, 200000)) == c->drops);
+    }
+}
+
+/* The radio's time on, in all, up to `now`. */
+static tern_time on_air(const struct share_case *c, tern_time now) {
+    tern_time sum = 0;
+    for (size_t i = 0; i < c->radios; i++) {
+        tern_time to = c->radio[i].to < now ? c->radio[i].to : now;
+        sum += to > c->radio[i].from ? to - c->radio[i].from : 0;
+    }
+    return sum;
+}
+
+/* The busy share, told of the radio every second: within what any span the draft allows finds. */
+static void test_shares(void) {
+    for (size_t i = 0; i < COUNT(share_cases); i++) {
+        const struct share_case *c = &share_cases[i];
+        for (size_t k = 0; k < c->n; k++) {
+            struct node x;
+            start(&x, true, 3);
+            for (tern_time t = 0; t <= c->asks[k].at; t += TERN_S(1)) {
+                tern_flood_radio(&x.f, t, on_air(c, t));
+            }
+            CHECK(x.f.busy >= c->asks[k].least && x.f.busy <= c->asks[k].most);
+        }
+    }
+
+    /* Not told for more than a minute, it keeps count afresh: the half minute never idle that
+     * went before is not spread over the gap, nor counted. */
+    struct node x;
+    start(&x, true, 3);
+    tern_flood_radio(&x.f, 0, 0);
+    tern_flood_radio(&x.f, TERN_S(30), TERN_S(30));
+    CHECK_EQ_U64(x.f.busy, 1000000);
+    tern_flood_radio(&x.f, TERN_S(300), TERN_S(30));
+    CHECK_EQ_U64(x.f.busy, 0);
+    tern_flood_radio(&x.f, TERN_S(310), TERN_S(35));
+    CHECK_EQ_U64(x.f.busy, 500000);
+}
+
+/* Being busy drops nothing of a node's own, and what it drops is not charged to the allowance. */
+static void test_busy_own(void) {
+    struct node x;
+    uint8_t frame[TERN_FLOOD_FRAME_MAX], out[TERN_FLOOD_FRAME_MAX];
+    int8_t dbm;
+    enum tern_flood_kind kind;
+    uint8_t h;
+    start(&x, true, 5);
+    tern_flood_radio(&x.f, 0, 0);
+    tern_flood_radio(&x.f, TERN_S(40), TERN_S(40)); /* never idle */
+    for (unsigned k = 0; k < 6; k++) {
+        CHECK(tern_flood_heard(&x.f, TERN_S(40), frame, make(frame, 255, 5, k)));
+    }
+    CHECK(tern_flood_send(&x.f, TERN_S(40), frame, make(frame, 60, 0, 99)));
+    tern_time late = TERN_S(40) + 8 * tern_lora_airtime(&x.lora, 255);
+    tern_flood_radio(&x.f, late, late);
+    CHECK(tern_flood_poll(&x.f, late, out, &dbm, &kind, &h) == 60 && kind == TERN_FLOOD_OWN);
+    tern_flood_sent(&x.f, late, h);
+    CHECK(tern_flood_poll(&x.f, late, out, &dbm, &kind, &h) == 0);
+    CHECK_EQ_U64(x.f.counts.busy, 6);
+    CHECK_EQ_U64(x.f.counts.unpaid, 0);
+
+    /* Idle for the next minute and more, it passes on as many as the allowance ever paid for. */
+    tern_time t = late + TERN_S(70);
+    tern_flood_radio(&x.f, t, late);
+    tern_flood_radio(&x.f, t + TERN_S(31), late);
+    t += TERN_S(31);
+    unsigned sent = 0;
+    for (unsigned k = 0; k < 8; k++) {
+        CHECK(tern_flood_heard(&x.f, t, frame, make(frame, 255, 5, 100 + k)));
+    }
+    late = t + 8 * tern_lora_airtime(&x.lora, 255);
+    tern_flood_radio(&x.f, late, TERN_S(40) + 8 * tern_lora_airtime(&x.lora, 255));
+    while (tern_flood_poll(&x.f, late, out, &dbm, &kind, &h) != 0) {
+        tern_flood_sent(&x.f, late, h);
+        sent++;
+    }
+    CHECK_EQ_U64(sent, 5);
+    CHECK_EQ_U64(x.f.counts.busy, 6);
+}
+
 /* How loud: as a frame for every neighbour, and for every relay a selected route goes through. */
 static void test_power(void) {
     struct node x;
@@ -522,6 +678,10 @@ int main(void) {
     RUN(test_seen);
     RUN(test_own);
     RUN(test_unpaid);
+    RUN(test_busy);
+    RUN(test_draws);
+    RUN(test_shares);
+    RUN(test_busy_own);
     RUN(test_cancel);
     RUN(test_power);
     RUN(test_reach);

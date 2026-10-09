@@ -46,6 +46,14 @@ int8_t tern_flood_power(int8_t every, const int32_t *floors, size_t n, uint8_t m
     return (int8_t)(need < lowest ? lowest : need > full ? full : need);
 }
 
+uint32_t tern_flood_busy_drops(uint32_t busy_ppm, uint32_t at_ppm) {
+    if (busy_ppm <= at_ppm || at_ppm >= MILLION) {
+        return 0;
+    }
+    busy_ppm = busy_ppm > MILLION ? MILLION : busy_ppm;
+    return (uint32_t)((uint64_t)(busy_ppm - at_ppm) * MILLION / (MILLION - at_ppm));
+}
+
 void tern_flood_bucket_init(struct tern_flood_bucket *b, uint32_t ppm, tern_time window,
                             tern_time frame, tern_time now) {
     b->ppm = ppm ? ppm : 1;
@@ -88,6 +96,8 @@ struct tern_flood_config tern_flood_defaults(void) {
         .own_window = TERN_S(600),
         .relay_ppm = 30000,
         .relay_window = TERN_S(60),
+        .busy_ppm = 200000,
+        .busy_span = TERN_S(30),
     };
 }
 
@@ -262,6 +272,29 @@ bool tern_flood_heard(struct tern_flood *f, tern_time now, const uint8_t *frame,
     return true;
 }
 
+void tern_flood_radio(struct tern_flood *f, tern_time now, tern_time on_air) {
+    if (!f->busy_told) {
+        f->busy_told = true;
+        f->busy_at[0] = f->busy_at[1] = now;
+        f->busy_air[0] = f->busy_air[1] = on_air;
+    }
+    if (now - f->busy_at[1] >= f->config.busy_span) {
+        f->busy_at[0] = f->busy_at[1];
+        f->busy_air[0] = f->busy_air[1];
+        f->busy_at[1] = now;
+        f->busy_air[1] = on_air;
+    }
+    if (now - f->busy_at[0] > 2 * f->config.busy_span && f->busy_at[1] == now) {
+        /* Not told for longer than a share may be over: it keeps count afresh from here. */
+        f->busy_at[0] = now;
+        f->busy_air[0] = on_air;
+    }
+    /* In thousandths of a second, so that a share of a long time is still within 64 bits. */
+    tern_time span = (now - f->busy_at[0]) / MILLION, air = on_air - f->busy_air[0];
+    int64_t share = span > 0 && air > 0 ? air / span : 0;
+    f->busy = share > MILLION ? MILLION : (uint32_t)share;
+}
+
 tern_time tern_flood_due(const struct tern_flood *f) {
     tern_time due = INT64_MAX;
     for (size_t i = 0; i < f->cap; i++) {
@@ -289,6 +322,12 @@ size_t tern_flood_poll(struct tern_flood *f, tern_time now, uint8_t frame[TERN_F
             }
             if (s == NULL) {
                 break;
+            }
+            uint32_t drops = own ? 0 : tern_flood_busy_drops(f->busy, f->config.busy_ppm);
+            if (drops != 0 && rand_below(f, MILLION) < drops) {
+                s->state = TERN_FLOOD_FREE;
+                f->counts.busy++;
+                continue;
             }
             struct tern_flood_bucket *b = own ? &f->own : &f->relay;
             if (!tern_flood_bucket_pays(b, now, airtime(f, s->len))) {

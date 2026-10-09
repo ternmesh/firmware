@@ -360,6 +360,10 @@ What to know before trusting one with anything:
 * **A board writes only so much.** Its own group messages take at most 0.5% of its time, about
   two dozen short ones at once and one every 25 seconds after; it tells a client when one waits
   for that. It spends up to 3% of its time passing on other boards'.
+* **A busy board passes fewer on.** Once its radio has spent more than a fifth of the last half
+  minute to minute sending or receiving, it drops some of the group frames it would pass on,
+  more of them the busier it is, and its own never. It counts what it sent and what it received
+  whole: a frame lost part-way is not counted, so it takes itself for less busy than it is.
 * **An old message can be sent again by anyone who recorded it, and is read as new.** The board
   knows a group frame it has had only by the last 64 it read in that group, and forgets those
   when it restarts. A frame older than that, recorded off the air and sent again, shows as a new
