@@ -36,4 +36,4 @@ idf_component_register(
         ${root}/src/unicast.c
         ${root}/src/x25519.c
     INCLUDE_DIRS . ${root}/include
-    PRIV_REQUIRES bootloader_support bt esp_adc esp_driver_gpio esp_driver_i2c esp_hw_support esp_driver_spi esp_driver_uart esp_timer nvs_flash)
+    PRIV_REQUIRES bootloader_support bt esp_adc esp_driver_gpio esp_driver_i2c esp_hw_support esp_driver_spi esp_driver_uart esp_timer app_update nvs_flash)

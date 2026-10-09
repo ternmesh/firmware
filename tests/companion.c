@@ -231,6 +231,9 @@ static void each_connection_is_read_by_its_version(void) {
         {older_0, COUNT(older_0), 0},
         {older_1, COUNT(older_1), 1},
         {older_2, COUNT(older_2), 2},
+        {update_0, COUNT(update_0), TERN_COMPANION_VERSION},
+        {update_1, COUNT(update_1), TERN_COMPANION_VERSION},
+        {refusals, COUNT(refusals), TERN_COMPANION_VERSION},
     };
     for (size_t r = 0; r < COUNT(runs); r++) {
         for (size_t i = 0; i < runs[r].n; i++) {

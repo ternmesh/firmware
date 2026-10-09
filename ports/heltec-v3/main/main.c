@@ -58,7 +58,9 @@
 #include "demo.h"
 #include "display.h"
 #include "driver/uart.h"
+#include "esp_app_desc.h"
 #include "esp_attr.h"
+#include "esp_ota_ops.h"
 #include "esp_random.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
@@ -109,6 +111,9 @@
 #define EMPTY_CHECK_S 1800 /* turned off for an empty battery, how often it wakes to look again */
 #define SCREEN_TRIES 5     /* writes failed in a row before the screen is given up */
 #define FIRMWARE "tern " CONFIG_TERN_VERSION " heltec-v3"
+#define BOARD "heltec-v3" /* the name a client finds an image by: tern-heltec-v3-<region>-... */
+/* An update with nothing new for this long is no longer shown on the screen. */
+#define UPDATE_SHOWN_S 30
 _Static_assert(sizeof FIRMWARE - 1 <= TERN_COMPANION_FIRMWARE_MAX, "the version fits in INFO");
 #define SETTINGS_MAGIC 0x54530001u
 #define IDS_EARLIER 0x10000u /* past the message ids of a build that did not keep them */
@@ -212,6 +217,12 @@ static struct power_watch watch; /* whether the battery charges, or is empty (po
 static unsigned off_shown;       /* while PRG is held to turn off, the seconds left shown, or 0 */
 static bool phone;               /* a client is connected over Bluetooth, for Home to say */
 static uint32_t pairing_passkey; /* shown on the screen while pairing, or PAIRING_NONE */
+
+/* An update over the companion link: the slot it is written to, and when its last bytes came. */
+static const esp_partition_t *update_slot;
+static esp_ota_handle_t update_handle;
+static bool update_open;
+static tern_time update_at;
 #define PAIRING_NONE 0xFFFFFFFFu
 /* A message sealed and not yet with the forwarder: sealing takes a counter and saves the session,
  * so a frame the forwarder had no room for, or the flash refused, is kept and tried again, a
@@ -309,6 +320,93 @@ static bool board_random(void *ctx, uint8_t *buf, size_t len) {
     (void)ctx;
     esp_fill_random(buf, len);
     return true;
+}
+
+/* --- Updates ------------------------------------------------------------------------------- */
+
+/* The flash holds two slots for the firmware (partitions.csv), and an update is written to the
+ * one not running, as it arrives, erasing as it goes so that no request waits for a whole slot's
+ * erase. A board on the old layout, one slot and no otadata, has nowhere to write one: its INFO
+ * names no board, and it is updated over USB (README.md). */
+static const esp_partition_t *spare_slot(void) { return esp_ota_get_next_update_partition(NULL); }
+
+static void update_abandon(void) {
+    if (update_open) {
+        esp_ota_abort(update_handle);
+        update_open = false;
+    }
+}
+
+static bool link_update_begin(void *ctx, uint32_t size) {
+    (void)ctx;
+    update_abandon();
+    update_slot = spare_slot();
+    if (update_slot == NULL || size > update_slot->size ||
+        esp_ota_begin(update_slot, OTA_WITH_SEQUENTIAL_WRITES, &update_handle) != ESP_OK) {
+        return false;
+    }
+    update_open = true;
+    update_at = board_now();
+    /* The region is the build's until a client sets one, and an image of another region's build
+     * would start on that region's frequency: the one this board is on is kept, whatever the
+     * image. */
+    if (settings.region == 0) {
+        struct settings next = settings;
+        for (int id = TERN_REGION_US915; id < TERN_REGION_END; id++) {
+            next.region =
+                tern_region((enum tern_region_id)id) == region ? (uint8_t)id : next.region;
+        }
+        if (nvs_save(NULL, "settings", &next, sizeof next)) {
+            settings = next;
+        }
+    }
+    printf("an update of %lu bytes begins\n", (unsigned long)size);
+    return true;
+}
+
+static bool link_update_write(void *ctx, uint32_t offset, const uint8_t *data, size_t len) {
+    (void)ctx;
+    (void)offset; /* the link gives the bytes in order */
+    if (!update_open || esp_ota_write(update_handle, data, len) != ESP_OK) {
+        printf("the update could not be written to flash; it starts again\n");
+        update_abandon();
+        return false;
+    }
+    update_at = board_now();
+    screen_wake();
+    return true;
+}
+
+/* The image is whole and its digest right: it runs if ESP-IDF finds it an image for this chip,
+ * its own checksum and hash right, and it is this firmware's and not another project's. */
+static uint8_t link_update_run(void *ctx) {
+    (void)ctx;
+    if (!update_open) {
+        return TERN_C_ERR_NOT_THERE;
+    }
+    update_open = false;
+    esp_app_desc_t desc;
+    if (esp_ota_end(update_handle) != ESP_OK ||
+        esp_ota_get_partition_description(update_slot, &desc) != ESP_OK ||
+        strncmp(desc.project_name, esp_app_get_description()->project_name,
+                sizeof desc.project_name) != 0) {
+        printf("the update is not an image this board runs\n");
+        return TERN_C_ERR_NOT_AN_IMAGE;
+    }
+    if (esp_ota_set_boot_partition(update_slot) != ESP_OK) {
+        return TERN_C_ERR_NOT_NOW;
+    }
+    printf("the update is whole: restarting into %s\n", desc.version);
+    restart_due = true;
+    return 0;
+}
+
+/* Whether this is the first start of an image an update gave, not yet known to work: ESP-IDF's
+ * bootloader goes back to the one before if it restarts unconfirmed (partitions.csv). */
+static bool on_trial(void) {
+    esp_ota_img_states_t state;
+    return esp_ota_get_state_partition(esp_ota_get_running_partition(), &state) == ESP_OK &&
+           state == ESP_OTA_IMG_PENDING_VERIFY;
 }
 
 /* --- Sending and receiving ------------------------------------------------------------------ */
@@ -2554,6 +2652,9 @@ static void poll_screen(void) {
         if (pairing_passkey != PAIRING_NONE) {
             /* A client is pairing: the passkey to type into it, over whatever page was shown. */
             ui_pairing(pairing_passkey, &screen);
+        } else if (companion.update.on &&
+                   board_now() - update_at < (tern_time)UPDATE_SHOWN_S * 1000000000LL) {
+            ui_updating(companion.update.held, companion.update.size, &screen);
         } else if (screen_page < UI_PAGES) {
             static struct ui_node u;
             if (screen_looked) {
@@ -2822,6 +2923,12 @@ static void show_start(void) {
  * and PRG lights it again. PRG held turns it off, and an empty battery does, as when it runs.
  * Never returns. */
 __attribute__((noreturn)) static void halt(enum ui_fault why, int code) {
+    if (on_trial()) {
+        /* An update that cannot start: back to the firmware that could. */
+        printf("this firmware, new from an update, cannot start: going back to the one before\n");
+        fflush(stdout);
+        esp_ota_mark_app_invalid_rollback_and_reboot();
+    }
     if (have_screen) {
         ui_fault(why, &start_info, code, &screen);
         screen_flush();
@@ -3073,8 +3180,22 @@ void app_main(void) {
         .save_message = link_save_message,
         .load_state = link_load_state,
         .save_state = link_save_state,
+        .update_begin = link_update_begin,
+        .update_write = link_update_write,
+        .update_run = link_update_run,
     };
+    const esp_partition_t *spare = spare_slot();
+    if (spare != NULL) {
+        host.board = BOARD;
+        host.update_room = spare->size;
+    }
+    host.release = CONFIG_TERN_VERSION;
     link_init(&companion, &host);
+    if (on_trial()) {
+        /* On the air and listening: an image that gets this far is one to keep. */
+        esp_ota_mark_app_valid_cancel_rollback();
+        printf("this firmware, new from an update, started: it is kept\n");
+    }
     demo_trust(&demo, link_trusted, NULL);
     link_open(&companion, LINK_SERIAL, LINK_LAPSE, 0);
     /* The board's own connection, for what is typed at its console. */

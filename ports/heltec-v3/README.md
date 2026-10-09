@@ -35,8 +35,16 @@ Flashing replaces whatever is on the board, Meshtastic included, along with its 
 Flashing the full image this way also erases the board's identity and its session. It starts
 again with a new address, and the other board has to make contact with that one.
 
-To move a board that already runs Tern to a newer release and keep its address, sessions and
-contacts, write the release's `-app.bin` image at `0x10000` instead.
+To move a board that already runs Tern to a newer release and keep its address, sessions,
+contacts and paired phones, write two of the release's images instead, in the same **Program**:
+`-boot.bin` at `0x0` and `-update.bin` at `0xF000`. They are the full image with the part where
+the board keeps those cut out. The [flash page](https://ternmesh.org/flash) does this when you
+choose to update. Releases before 0.2.0 had one slot for the firmware and no `-update.bin`; a
+board on one of those is moved to the [two slots](#updating-over-the-link) this way, once, and
+from then on a phone can update it.
+
+The release's `-app.bin` is the firmware alone, which a phone sends over the link. Do not write
+it at `0x10000` as the first releases said: there is no firmware there any more.
 
 Every CI run also keeps the same images of its commit, under **Artifacts** as `tern-heltec-v3`.
 
@@ -376,7 +384,8 @@ byte, and a terminal that has not said `HELLO` is never sent one.
 
 `tools/companion.py`, at the top of the repository, is an example client. It speaks version 1
 of the protocol, from before groups, so the board tells it of none. A client that says version
-2 is told of groups, their messages and invites, and can make, join and write to them.
+2 is told of groups, their messages and invites, and can make, join and write to them. Its
+`update` command says version 4, and [updates the firmware](#updating-over-the-link).
 
 ```bash
 pip install pyserial                       # on Linux and macOS, optional
@@ -384,6 +393,7 @@ python3 tools/companion.py --port /dev/ttyUSB0 state
 python3 tools/companion.py --port /dev/ttyUSB0 contact <address> Bob
 python3 tools/companion.py --port /dev/ttyUSB0 send <address> "On the ridge by six"
 python3 tools/companion.py --port /dev/ttyUSB0 watch
+python3 tools/companion.py --port /dev/ttyUSB0 update tern-heltec-v3-eu868-<version>-app.bin
 ```
 
 `state` sets the board's clock from the computer's and prints what it holds: itself, its
@@ -410,8 +420,8 @@ What the board offers is what the demo is:
   full 128. The newest are the ones saved: when there is no room for another, the oldest
   leave flash for it, and are held in memory until a restart; `status` says how many are saved
   and how many are not. More
-  wants a part of the flash for messages alone, which a board updated by its application only
-  would not get.
+  wants a part of the flash for messages alone, which the layout leaves room for past its two
+  slots for the firmware (`partitions.csv`).
   Nothing in flash is encrypted: whoever holds the board can read them, as they can its keys.
   A message's id is greater than every one before it, across restarts too, so a client that asks
   for what is new since the last id it holds is never answered with nothing. A `SEND` repeated
@@ -461,6 +471,30 @@ forgets every bonded client.
 
 Bluetooth is always on. What it costs a battery is not measured yet.
 
+### Updating over the link
+
+A client can give the board new firmware over the link, as the draft's
+[updates](https://github.com/ternmesh/spec/blob/main/draft/companion.md#updating-the-firmware)
+have it: the Tern phone apps over Bluetooth, or `tools/companion.py update` over USB. The image
+is the release's `-app.bin` for the board's region, about 700 KB, which takes a few minutes over
+Bluetooth; the screen shows how much has arrived. Everything the board saves stays: its
+address, sessions, contacts, groups, messages, settings and paired phones. A board whose region
+was the build's keeps the one it is on, whichever region's image it is sent.
+
+The flash holds two slots for the firmware (`partitions.csv`), and the image is written into the
+one not running as it arrives, while the board goes on as before, on the air. A link that drops
+goes on from where it stopped. Once the image is whole, its SHA-256 the one the client gave, and
+ESP-IDF finds it a Tern image for this chip, the board restarts into it. If the new firmware
+cannot start, as **Did not start** would say, or the board restarts before it is on the air, the
+bootloader goes back to the firmware it ran before.
+
+`INFO` names the board `heltec-v3`, and the firmware's release, so a client can find the image.
+A board flashed with a release from before 0.2.0 has one slot and cannot be updated this way; it
+names no board, and is moved to two slots [over USB](#without-installing-anything) once.
+
+Anyone who has paired can update the board, as they can change its region. The image is not
+signed: the digest says it arrived whole, not who made it.
+
 ## How it is put together
 
 | File | |
@@ -472,7 +506,7 @@ Bluetooth is always on. What it costs a battery is not measured yet.
 | `main/power.c` | Which of the battery's readings to believe, and the charge a voltage is taken for. Tested on a host by `tests/power.c`; `board.c` does the reading. |
 | `main/status.c` | The bench pages, and the snapshot they are drawn from, as lines of text. Tested on a host by `tests/status.c`. |
 | `main/display.c` | The picture of the screen, its font in two sizes, the bar, and which parts of it have changed. |
-| `main/link.c` | The companion link: contacts, messages and what became of them, and the answers and news each client gets, on USB and over Bluetooth. No hardware code; tested on a host by `tests/link.c`, and with `tools/companion.py` by `tests/link_script.py`. |
+| `main/link.c` | The companion link: contacts, messages and what became of them, updates, and the answers and news each client gets, on USB and over Bluetooth. No hardware code; tested on a host by `tests/link.c`, and with `tools/companion.py` by `tests/link_script.py`. |
 | `main/ble.c` | The companion link's Bluetooth LE service, pairing and advertising, over NimBLE, which runs in its own task and reports to the loop through a queue. |
 | `main/main.c` | One loop that polls the radio, the serial port, the button and the screen. |
 | `../../src/sx126x.c` | The SX1262 driver, part of the core and shared with future boards. |

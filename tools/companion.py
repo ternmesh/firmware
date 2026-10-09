@@ -7,11 +7,14 @@
     python3 tools/companion.py --port /dev/ttyUSB0 end <address>
     python3 tools/companion.py --port /dev/ttyUSB0 set power 10
     python3 tools/companion.py --port /dev/ttyUSB0 watch
+    python3 tools/companion.py --port /dev/ttyUSB0 update tern-heltec-v3-eu868-0.2.0-app.bin
     python3 tools/companion.py selftest tests/vectors/companion.json
 
 `contact` saves an address under a name, which also lets that node make first contact; `end` ends
 the session with one. `state` says hello, sets the node's clock from this computer's, and prints everything the node
 holds. `send` sends a message and prints what becomes of it. `watch` prints news as it comes.
+`update` gives the node a new image of its firmware, going on from where the node's bytes end if
+it was given part of the same image before, and the node restarts into it.
 While it waits for news it sends PING every IDLE seconds, as the specification asks, and if the
 node took it for gone anyway, it says HELLO again and syncs what it missed.
 The node's console text, which shares the port, is printed on stderr with --console.
@@ -34,14 +37,17 @@ import time
 
 MAX_FRAME, MAGIC = 180, b"\xf5\x54"
 # The version this script speaks. It has no commands for groups, which came with version 2, so it
-# says 1 and is told of none: the frames of versions 2 and 3 are here only to be checked.
+# says 1 and is told of none: the frames of versions 2 and 3 are here only to be checked. `update`
+# says the latest, which it needs.
 VERSION = 1
 # The latest version the frames below are, which selftest reads the vectors by.
-LATEST = 3
+LATEST = 4
+UPDATE_CHUNK = 172
 ANSWER_WAIT = 5.0
 IDLE = 20.0  # the most a client lets pass after an answer before it asks again
 
-# type: (name, fields). A field is (name, kind) with kind one of B b H I addr gid str.
+# type: (name, fields). A field is (name, kind) with kind one of B b H I addr gid digest str raw
+# (bytes of anything, after a length).
 FRAMES = {
     0x01: ("HELLO", [("version", "B")]),
     0x02: ("SYNC", [("after", "I")]),
@@ -59,12 +65,16 @@ FRAMES = {
     0x23: ("SEND_GROUP", [("ref", "I"), ("group", "gid"), ("text", "str")]),
     0x24: ("SEND_INVITE", [("group", "gid"), ("to", "addr")]),
     0x25: ("JOIN", [("id", "I")]),
+    0x30: ("UPDATE_BEGIN", [("size", "I"), ("digest", "digest")]),
+    0x31: ("UPDATE_DATA", [("offset", "I"), ("data", "raw")]),
+    0x32: ("UPDATE_END", []),
     0x40: ("OK", []),
     0x41: ("ERROR", [("code", "B")]),
-    0x42: ("INFO", [("version", "B"), ("firmware", "str")]),
+    0x42: ("INFO", [("version", "B"), ("firmware", "str"), ("board", "str"), ("release", "str")]),
     0x43: ("SYNCED", [("news", "B")]),
     0x44: ("QUEUED", [("id", "I")]),
     0x45: ("MADE", [("group", "gid")]),
+    0x46: ("UPDATING", [("offset", "I")]),
     0x80: ("SELF", [("address", "addr"), ("role", "B"), ("region", "str"), ("power", "b"),
                     ("time", "I")]),
     0x81: ("CONTACT", [("address", "addr"), ("session", "B"), ("name", "str")]),
@@ -88,8 +98,8 @@ FRAMES = {
                       ("name", "str")]),
 }
 # Fields a later version added at the end of a frame: an earlier version's frame stops before them.
-LATER = {(0x43, "news"): 3}
-BYTES = {"addr": 32, "gid": 8}
+LATER = {(0x43, "news"): 3, (0x42, "board"): 4, (0x42, "release"): 4}
+BYTES = {"addr": 32, "gid": 8, "digest": 32}
 TYPE = {name: t for t, (name, _) in FRAMES.items()}
 SETTINGS = {1: ("region", "str"), 2: ("role", "B"), 3: ("power", "b"), 4: ("passkey", "I")}
 SETTING = {name: (n, kind) for n, (name, kind) in SETTINGS.items()}
@@ -98,7 +108,8 @@ REASONS = ["", "for a route", "for a session", "for the region's limit", "for it
            "for the radio"]
 ERRORS = {1: "not something this node knows", 2: "malformed", 3: "refused",
           4: "not a valid address, or the node's own", 5: "no room", 6: "HELLO first",
-          7: "the Bluetooth MTU is too small", 8: "not now"}
+          7: "the Bluetooth MTU is too small", 8: "not now", 9: "not held",
+          10: "not where the update is", 11: "not an image this node runs"}
 
 
 def crc16(data):
@@ -128,6 +139,8 @@ def encode(kind_name, seq, /, *, speak=VERSION, **values):
         elif kind == "str":
             raw = v.encode("utf-8")
             out += bytes([len(raw)]) + raw
+        elif kind == "raw":
+            out += bytes([len(v)]) + v
         else:
             out += struct.pack(">" + kind, v)
     return out
@@ -137,6 +150,8 @@ def decode(frame, speak=VERSION):
     """A frame's fields as version `speak` has them, or None for one this script cannot read."""
     if len(frame) < 2 or frame[0] not in FRAMES:
         return None
+    if frame[0] == 0x42 and len(frame) > 2:
+        speak = min(speak, frame[2])  # INFO, from a node older than this script: as it has it
     name, fields = FRAMES[frame[0]][0], fields_of(frame[0], speak)
     values, at = {"type": name, "seq": frame[1]}, 2
     for field, kind in fields:
@@ -144,10 +159,11 @@ def decode(frame, speak=VERSION):
             if at + BYTES[kind] > len(frame):
                 return None
             values[field], at = frame[at:at + BYTES[kind]], at + BYTES[kind]
-        elif kind == "str":
+        elif kind in ("str", "raw"):
             if at >= len(frame) or at + 1 + frame[at] > len(frame):
                 return None
-            values[field] = frame[at + 1:at + 1 + frame[at]].decode("utf-8", "replace")
+            raw = frame[at + 1:at + 1 + frame[at]]
+            values[field] = raw.decode("utf-8", "replace") if kind == "str" else raw
             at += 1 + frame[at]
         else:
             size = struct.calcsize(">" + kind)
@@ -237,8 +253,9 @@ class Lapsed(Exception):
 class Node:
     """One connection: requests one at a time, news as it comes."""
 
-    def __init__(self, port, console=False, idle=IDLE):
+    def __init__(self, port, console=False, idle=IDLE, speak=VERSION):
         self.port, self.parser, self.console, self.idle = port, Parser(), console, idle
+        self.speak = speak
         self.seq, self.pending, self.inbox = 0, [], []
         self.greeted, self.answered = False, time.monotonic()
         self.messages = {}  # message id: the MESSAGE last heard, with any STATE since
@@ -248,7 +265,7 @@ class Node:
         frames, text = self.parser.push(self.port.read())
         if text and self.console:
             sys.stderr.write(text.decode("utf-8", "replace"))
-        for m in filter(None, map(decode, frames)):
+        for m in filter(None, (decode(f, self.speak) for f in frames)):
             if m["type"] == "MESSAGE":
                 self.messages[m["id"]] = dict(m, seq=0)
             elif m["type"] == "STATE" and m["id"] in self.messages:
@@ -268,10 +285,11 @@ class Node:
                 return
             self._read()
 
-    def request(self, kind, /, **values):
-        """Sends a request and returns its answer, keeping any news that came first."""
+    def request(self, kind, /, refusable=False, **values):
+        """Sends a request and returns its answer, keeping any news that came first. An ERROR
+        ends the script, unless the caller takes refusals."""
         self.seq = self.seq % 255 + 1
-        self.port.write(wrap(encode(kind, self.seq, **values)))
+        self.port.write(wrap(encode(kind, self.seq, speak=self.speak, **values)))
         for m in self._frames(ANSWER_WAIT):
             if TYPE[m["type"]] >= 0x80:
                 self.pending.append(m)
@@ -279,7 +297,7 @@ class Node:
                 self.answered = time.monotonic()
                 if m["type"] == "ERROR" and m["code"] == 6 and self.greeted:
                     raise Lapsed()
-                if m["type"] == "ERROR":
+                if m["type"] == "ERROR" and not refusable:
                     raise SystemExit(f"{kind}: {ERRORS.get(m['code'], m['code'])}")
                 return m
         raise SystemExit(f"{kind}: no answer. Is the node on this port, and running Tern?")
@@ -321,7 +339,7 @@ class Node:
 
     def hello(self):
         self.greeted = False
-        info = self.request("HELLO", version=VERSION)
+        info = self.request("HELLO", version=self.speak)
         self.greeted = True
         self.pending.clear()
         return info
@@ -383,8 +401,45 @@ def address(text):
     return raw
 
 
+def update(node, info, path):
+    """Sends the image a chunk at a time, from where the node's bytes end, and asks it to run it.
+    A chunk not answered is sent again; one the node had already is answered without being taken
+    twice. UPDATE_END is not sent again: the node may be restarting into the image."""
+    if info["version"] < 4:
+        raise SystemExit("this node's firmware is too old to be updated over this link")
+    if not info["board"]:
+        raise SystemExit("this node cannot be updated over this link: flash it over USB")
+    image = open(path, "rb").read()
+    import hashlib  # noqa: PLC0415
+
+    digest = hashlib.sha256(image).digest()
+    print(f"updating {info['board']} from {info['release'] or 'an unknown release'}: "
+          f"{len(image)} bytes, SHA-256 {digest.hex()}")
+    at = node.request("UPDATE_BEGIN", size=len(image), digest=digest)["offset"]
+    if at:
+        print(f"going on from byte {at}")
+    shown = -1
+    while at < len(image):
+        chunk = image[at:at + UPDATE_CHUNK]
+        a = node.request("UPDATE_DATA", refusable=True, offset=at, data=chunk)
+        if a["type"] == "ERROR" and a["code"] == 10:
+            at = node.request("UPDATE_BEGIN", size=len(image), digest=digest)["offset"]
+            continue
+        if a["type"] == "ERROR":
+            raise SystemExit(f"UPDATE_DATA: {ERRORS.get(a['code'], a['code'])}")
+        at += len(chunk)
+        percent = at * 100 // len(image)
+        if percent != shown:
+            print(f"\r{percent}%", end="", flush=True)
+            shown = percent
+    print()
+    node.request("UPDATE_END")
+    print("the node has the image, and restarts into it")
+
+
 def run(args):
-    node = Node(Port(args.port), args.console, args.idle)
+    speak = LATEST if args.command == "update" else VERSION
+    node = Node(Port(args.port), args.console, args.idle, speak)
     info = node.hello()
     print(f"{info['firmware']}, companion protocol version {info['version']}")
     names = {}
@@ -425,6 +480,8 @@ def run(args):
         value = args.value if kind == "str" else int(args.value, 0)
         node.request("SET", setting=n, value=value)
         print("set")
+    elif args.command == "update":
+        update(node, info, args.image)
     elif args.command == "watch":
         # From the first message, so a sync after a lapse can tell what changed; the old ones
         # are not news, and are not printed.
@@ -442,7 +499,7 @@ def selftest(path):
     failed = 0
     for f in v["frames"]:
         fields = dict(f["fields"])
-        for k in ("to", "address", "contact", "group"):
+        for k in ("to", "address", "contact", "group", "digest", "data"):
             if k in fields:
                 fields[k] = bytes.fromhex(fields[k])
         frame = bytes.fromhex(f["frame"])
@@ -452,7 +509,8 @@ def selftest(path):
         ok = ok and got is not None and got["type"] == f["type"]
         failed += not ok
     # Each connection read by the version its client speaks: an older one's SYNCED is two bytes.
-    for c in [{"version": LATEST, "frames": v["exchange"]}] + v["older"]:
+    runs = [v["exchange"], *v["update"], v["refusals"]]
+    for c in [{"version": LATEST, "frames": f} for f in runs] + v["older"]:
         for f in c["frames"]:
             got = decode(bytes.fromhex(f["frame"]), c["version"])
             failed += got is None or got["type"] != f["type"]
@@ -487,6 +545,8 @@ def main():
     t.add_argument("value")
     w = sub.add_parser("watch")
     w.add_argument("--seconds", type=float, help="stop after this long (default: never)")
+    u = sub.add_parser("update")
+    u.add_argument("image", help="the firmware's -app.bin image for this node's board and region")
     x = sub.add_parser("selftest")
     x.add_argument("vectors")
     args = p.parse_args()

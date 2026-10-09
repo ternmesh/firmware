@@ -6,9 +6,17 @@
 #
 # Run it in an ESP-IDF 5.5 shell. It leaves in release/, for each region:
 #
-#   tern-heltec-v3-<region>-<version>.bin       the whole flash, written at 0x0
-#   tern-heltec-v3-<region>-<version>-app.bin   the application alone, written at 0x10000, which
-#                                               leaves the board's identity and sessions alone
+#   tern-heltec-v3-<region>-<version>.bin         the whole flash, written at 0x0: a new node
+#   tern-heltec-v3-<region>-<version>-boot.bin    the bootloader and the partition table, written
+#                                                 at 0x0, ending where NVS begins (0x9000)
+#   tern-heltec-v3-<region>-<version>-update.bin  otadata, blank, and the firmware in the first
+#                                                 slot, written at 0xF000, just past NVS
+#   tern-heltec-v3-<region>-<version>-app.bin     the firmware alone: what a phone sends over the
+#                                                 companion link to update a node
+#
+# -boot.bin and -update.bin, written together over USB, update a board and leave NVS, and with it
+# its identity, sessions, contacts and bonds, alone. They are the whole image cut either side of
+# NVS (partitions.csv), so they are the same bytes as the whole flash, wherever they fall.
 #
 # and SHA256SUMS over them all.
 set -eu
@@ -32,6 +40,8 @@ for region in us915 eu868; do
     name=tern-heltec-v3-$region-$version
     idf.py -B "$build" merge-bin -o "$name.bin"
     cp "$build/$name.bin" "release/$name.bin"
+    head -c $((0x9000)) "$build/$name.bin" >"release/$name-boot.bin"
+    tail -c +$((0xF000 + 1)) "$build/$name.bin" >"release/$name-update.bin"
     cp "$build/tern-heltec-v3.bin" "release/$name-app.bin"
 done
 

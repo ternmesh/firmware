@@ -59,6 +59,12 @@ struct board {
     bool no_room;  /* for another message, whatever is taken out */
     unsigned most; /* messages the flash has room for, or 0 for all of them */
     unsigned message_saves, state_saves;
+    /* The image an update writes, and what the board does with it. */
+    uint8_t image[1024];
+    uint32_t image_size;
+    unsigned begun, runs;
+    bool write_fails;
+    uint8_t run_answer;
     uint8_t out[96][TERN_COMPANION_MAX_FRAME];
     size_t out_len[96];
     unsigned out_conn[96];
@@ -218,6 +224,32 @@ static bool board_save_state(void *ctx, size_t place, uint64_t state) {
     return true;
 }
 
+static bool board_update_begin(void *ctx, uint32_t size) {
+    struct board *b = ctx;
+    if (size > sizeof b->image) {
+        return false;
+    }
+    memset(b->image, 0, sizeof b->image);
+    b->image_size = size;
+    b->begun++;
+    return true;
+}
+
+static bool board_update_write(void *ctx, uint32_t offset, const uint8_t *data, size_t len) {
+    struct board *b = ctx;
+    if (b->write_fails || offset + len > b->image_size) {
+        return false;
+    }
+    memcpy(b->image + offset, data, len);
+    return true;
+}
+
+static uint8_t board_update_run(void *ctx) {
+    struct board *b = ctx;
+    b->runs++;
+    return b->run_answer;
+}
+
 static struct board board;
 static struct link companion;
 
@@ -241,7 +273,10 @@ static void start(void) {
     board.why = TERN_C_WAIT_ROUTE;
     struct link_host host = {
         .ctx = &board,
-        .firmware = "tern 0.1.0 heltec-v3",
+        .firmware = "tern 0.2.0 heltec-v3",
+        .board = "heltec-v3",
+        .release = "0.2.0",
+        .update_room = sizeof board.image,
         .out = board_out,
         .view = board_view,
         .set = board_set,
@@ -260,6 +295,9 @@ static void start(void) {
         .save_message = board_save_message,
         .load_state = board_load_state,
         .save_state = board_save_state,
+        .update_begin = board_update_begin,
+        .update_write = board_update_write,
+        .update_run = board_update_run,
     };
     board.random = made_secret;
     link_init(&companion, &host);
@@ -430,6 +468,102 @@ static void a_client_before_groups_is_not_told_of_them(void) {
     board.clock = read_step(&older_1[first_of(older_1, COUNT(older_1), TERN_C_SELF)]).time;
     follow("older 1", older_1, COUNT(older_1), first_of(older_1, COUNT(older_1), TERN_C_SEND),
            bob_writes_and_invites);
+}
+
+/* The specification's update: two connections, the link lost between them, the second going on
+ * from where the node's bytes end. The node holds only itself. */
+static void an_update_goes_on_from_where_the_link_was_lost(void) {
+    start();
+    board.view.n_neighbours = 0;
+    follow("update 0", update_0, COUNT(update_0), COUNT(update_0), NULL);
+    link_close(&companion, LINK_SERIAL);
+    link_open(&companion, LINK_SERIAL, 0, 0);
+    follow("update 1", update_1, COUNT(update_1), COUNT(update_1), NULL);
+    CHECK_EQ_U64(board.begun, 1);
+    CHECK_EQ_U64(board.runs, 1);
+    CHECK_EQ_U64(board.image_size, sizeof update_image);
+    CHECK(memcmp(board.image, update_image, sizeof update_image) == 0);
+    CHECK(!companion.update.on);
+}
+
+/* And what a node refuses: data out of place, past the image's end or empty, an end before the
+ * whole image, and an image whose digest is not the one begun with, which is never run. */
+static void an_update_refuses_what_it_should(void) {
+    start();
+    follow("refusals", refusals, COUNT(refusals), COUNT(refusals), NULL);
+    CHECK_EQ_U64(board.runs, 0);
+}
+
+static struct tern_companion_msg begin_update(uint8_t seq, uint32_t size) {
+    struct tern_companion_msg q = {.type = TERN_C_UPDATE_BEGIN, .seq = seq, .size = size};
+    memcpy(q.digest, update_digest, sizeof q.digest);
+    return q;
+}
+
+/* A node with no board to name, or no room for the image, has none for an update. */
+static void an_update_needs_a_board_and_room(void) {
+    start();
+    hello();
+    struct tern_companion_msg q = begin_update(2, sizeof board.image + 1);
+    request(&q);
+    CHECK_EQ_U64(sent(0).code, TERN_C_ERR_FULL);
+    companion.host.board = "";
+    q = begin_update(3, sizeof update_image);
+    request(&q);
+    CHECK_EQ_U64(sent(0).type, TERN_C_ERROR);
+    CHECK_EQ_U64(sent(0).code, TERN_C_ERR_FULL);
+    CHECK_EQ_U64(board.begun, 0);
+}
+
+/* A write the flash refused abandons the update: the client is told it is not where it thinks,
+ * and beginning again starts from nothing. A board that will not run a whole image, its digest
+ * right, says why. */
+static void an_update_the_board_cannot_take_starts_again(void) {
+    start();
+    hello();
+    struct tern_companion_msg q = begin_update(2, sizeof update_image);
+    request(&q);
+    CHECK_EQ_U64(sent(0).type, TERN_C_UPDATING);
+    CHECK_EQ_U64(sent(0).offset, 0);
+    struct tern_companion_msg d = {.type = TERN_C_UPDATE_DATA, .seq = 3, .data_len = 100};
+    memcpy(d.data, update_image, 100);
+    request(&d);
+    CHECK_EQ_U64(sent(0).type, TERN_C_OK);
+    request(&q);
+    CHECK_EQ_U64(sent(0).offset, 100);
+    board.write_fails = true;
+    d.offset = 100;
+    request(&d);
+    CHECK_EQ_U64(sent(0).code, TERN_C_ERR_NOT_THERE);
+    board.write_fails = false;
+    request(&q);
+    CHECK_EQ_U64(sent(0).offset, 0);
+    CHECK_EQ_U64(board.begun, 2);
+    for (uint32_t at = 0; at < sizeof update_image; at += TERN_COMPANION_UPDATE_CHUNK) {
+        d.offset = at;
+        d.data_len = (uint8_t)(sizeof update_image - at < TERN_COMPANION_UPDATE_CHUNK
+                                   ? sizeof update_image - at
+                                   : TERN_COMPANION_UPDATE_CHUNK);
+        memcpy(d.data, update_image + at, d.data_len);
+        request(&d);
+        CHECK_EQ_U64(sent(0).type, TERN_C_OK);
+    }
+    board.run_answer = TERN_C_ERR_NOT_AN_IMAGE;
+    request(&(struct tern_companion_msg){.type = TERN_C_UPDATE_END, .seq = 9});
+    CHECK_EQ_U64(sent(0).code, TERN_C_ERR_NOT_AN_IMAGE);
+    CHECK_EQ_U64(board.runs, 1);
+    request(&(struct tern_companion_msg){.type = TERN_C_UPDATE_END, .seq = 10});
+    CHECK_EQ_U64(sent(0).code, TERN_C_ERR_NOT_THERE);
+}
+
+/* A client of version 3 is told no board and no release, and may not begin an update. */
+static void a_client_of_version_3_cannot_update(void) {
+    start();
+    request(&(struct tern_companion_msg){.type = TERN_C_HELLO, .seq = 1, .version = 3});
+    CHECK_EQ_U64(board.out_len[0], 4 + sizeof "tern 0.2.0 heltec-v3" - 1);
+    struct tern_companion_msg q = begin_update(2, sizeof update_image);
+    request(&q);
+    CHECK_EQ_U64(sent(0).code, TERN_C_ERR_UNKNOWN);
 }
 
 /* A client of version 2 is answered SYNCED as version 2 has it, without the count. */
@@ -1145,7 +1279,9 @@ static void a_silent_serial_client_is_taken_for_gone(void) {
 
     /* A client that starts again is a client again, its news counted from 0. Until it syncs,
      * nothing is told twice: the sync tells it all. */
-    request_at(t += TERN_S(1), &(struct tern_companion_msg){.type = TERN_C_HELLO, .seq = 5});
+    request_at(t += TERN_S(1), &(struct tern_companion_msg){.type = TERN_C_HELLO,
+                                                            .seq = 5,
+                                                            .version = TERN_COMPANION_VERSION});
     CHECK_EQ_I64(sent(0).type, TERN_C_INFO);
     board.n_out = 0;
     link_tick(&companion, t += LINK_LOOK);
@@ -1187,7 +1323,8 @@ static void two_clients_drive_one_node(void) {
     CHECK(all_on(LINK_BLE));
     CHECK_EQ_I64(sent(0).code, TERN_C_ERR_MTU);
     link_mtu(&companion, LINK_BLE, 185);
-    request_on(LINK_BLE, &(struct tern_companion_msg){.type = TERN_C_HELLO, .seq = 2});
+    request_on(LINK_BLE, &(struct tern_companion_msg){
+                             .type = TERN_C_HELLO, .seq = 2, .version = TERN_COMPANION_VERSION});
     CHECK(all_on(LINK_BLE));
     CHECK_EQ_I64(sent(0).type, TERN_C_INFO);
 
@@ -1511,6 +1648,11 @@ static void what_flash_holds_that_is_no_message_is_not_loaded(void) {
 int main(void) {
     RUN(the_exchange_is_followed_frame_for_frame);
     RUN(an_older_client_is_not_told_who_asked);
+    RUN(an_update_goes_on_from_where_the_link_was_lost);
+    RUN(an_update_refuses_what_it_should);
+    RUN(an_update_needs_a_board_and_room);
+    RUN(an_update_the_board_cannot_take_starts_again);
+    RUN(a_client_of_version_3_cannot_update);
     RUN(a_client_of_version_2_is_answered_without_the_count);
     RUN(a_client_before_groups_is_not_told_of_them);
     RUN(a_group_is_made_with_the_boards_randomness_and_kept);

@@ -937,6 +937,77 @@ static void send_invite(struct link *l, const struct tern_companion_msg *q) {
 }
 
 /* A serial client that has asked nothing for the lapse is taken for gone. */
+/* --- Updates -------------------------------------------------------------------------------- */
+
+/* The same image as the update under way goes on from where the node's bytes end, so a client
+ * whose link dropped need not send it all again; any other begins afresh. */
+static void update_begin(struct link *l, const struct tern_companion_msg *q) {
+    struct link_update *u = &l->update;
+    if (q->size == 0) {
+        error(l, q->seq, TERN_C_ERR_REFUSED);
+        return;
+    }
+    bool board = l->host.board != NULL && l->host.board[0] != '\0';
+    if (!board || q->size > l->host.update_room) {
+        error(l, q->seq, TERN_C_ERR_FULL);
+        return;
+    }
+    if (!(u->on && u->size == q->size && memcmp(u->digest, q->digest, sizeof u->digest) == 0)) {
+        u->on = false;
+        if (!l->host.update_begin(l->host.ctx, q->size)) {
+            error(l, q->seq, TERN_C_ERR_NOT_NOW);
+            return;
+        }
+        *u = (struct link_update){.on = true, .size = q->size};
+        memcpy(u->digest, q->digest, sizeof u->digest);
+        tern_sha256_init(&u->sha);
+    }
+    struct tern_companion_msg a = {.type = TERN_C_UPDATING, .seq = q->seq, .offset = u->held};
+    send_msg(l, l->asker, &a);
+}
+
+static void update_data(struct link *l, const struct tern_companion_msg *q) {
+    struct link_update *u = &l->update;
+    uint32_t end = q->offset + q->data_len;
+    if (q->data_len == 0 || (u->on && (end < q->offset || end > u->size))) {
+        error(l, q->seq, TERN_C_ERR_REFUSED);
+        return;
+    }
+    if (u->on && q->offset == u->held) {
+        if (!l->host.update_write(l->host.ctx, q->offset, q->data, q->data_len)) {
+            u->on = false;
+            error(l, q->seq, TERN_C_ERR_NOT_THERE);
+            return;
+        }
+        tern_sha256_update(&u->sha, q->data, q->data_len);
+        u->held = end;
+        answer(l, TERN_C_OK, q->seq);
+    } else if (u->on && end == u->held) {
+        answer(l, TERN_C_OK, q->seq); /* the last again, its answer lost: held once already */
+    } else {
+        error(l, q->seq, TERN_C_ERR_NOT_THERE);
+    }
+}
+
+static void update_end(struct link *l, const struct tern_companion_msg *q) {
+    struct link_update *u = &l->update;
+    if (!u->on || u->held < u->size) {
+        error(l, q->seq, TERN_C_ERR_NOT_THERE);
+        return;
+    }
+    uint8_t got[TERN_SHA256_LEN];
+    struct tern_sha256 sha = u->sha;
+    tern_sha256_final(&sha, got);
+    u->on = false;
+    uint8_t code = memcmp(got, u->digest, sizeof got) == 0 ? l->host.update_run(l->host.ctx)
+                                                           : TERN_C_ERR_NOT_AN_IMAGE;
+    if (code != 0) {
+        error(l, q->seq, code);
+    } else {
+        answer(l, TERN_C_OK, q->seq);
+    }
+}
+
 static void lapse(struct link_conn *c, tern_time now) {
     if (c->hello && c->lapse != 0 && now - c->answered_at >= c->lapse) {
         c->hello = c->synced = false; /* whoever opens the port next says HELLO */
@@ -996,9 +1067,13 @@ void link_receive(struct link *l, unsigned conn, tern_time now, const uint8_t *f
             .type = TERN_C_INFO, .seq = q.seq, .version = TERN_COMPANION_VERSION};
         put_text(&a, (const uint8_t *)l->host.firmware,
                  cstr_len(l->host.firmware, TERN_COMPANION_FIRMWARE_MAX));
+        a.board_len = (uint8_t)cstr_len(l->host.board, TERN_COMPANION_BOARD_MAX);
+        memcpy(a.board, l->host.board == NULL ? "" : l->host.board, a.board_len);
+        a.release_len = (uint8_t)cstr_len(l->host.release, TERN_COMPANION_RELEASE_MAX);
+        memcpy(a.release, l->host.release == NULL ? "" : l->host.release, a.release_len);
+        c->version = q.version; /* INFO too is as the client's version has it */
         send_msg(l, c, &a);
         c->hello = true;
-        c->version = q.version;
         c->synced = false;
         c->news = 0;
         break;
@@ -1052,6 +1127,15 @@ void link_receive(struct link *l, unsigned conn, tern_time now, const uint8_t *f
         break;
     case TERN_C_END_SESSION:
         end_session(l, &q);
+        break;
+    case TERN_C_UPDATE_BEGIN:
+        update_begin(l, &q);
+        break;
+    case TERN_C_UPDATE_DATA:
+        update_data(l, &q);
+        break;
+    case TERN_C_UPDATE_END:
+        update_end(l, &q);
         break;
     default:
         error(l, q.seq, TERN_C_ERR_UNKNOWN);

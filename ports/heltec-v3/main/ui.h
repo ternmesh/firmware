@@ -110,6 +110,9 @@ void ui_erasing(struct display *d);
 /* Draws what a Bluetooth client that is pairing needs: the passkey to type into it. */
 void ui_pairing(uint32_t passkey, struct display *d);
 
+/* Draws an update being taken over the companion link: how much of the image has arrived. */
+void ui_updating(uint32_t held, uint32_t size, struct display *d);
+
 /* What the board knows of itself while it starts: shown at once, before anything else, and filled
  * in as it is learned. */
 struct ui_start {
