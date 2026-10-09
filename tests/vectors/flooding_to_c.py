@@ -47,6 +47,11 @@ def main():
           f"{-1 if c['sends'] is None else c['sends']}}}," for c in v["passes"]]
     L.append("};")
 
+    L.append("static const struct pass_case card_pass_cases[] = {")
+    L += [f"    {{{b(c['role'] == 'relay')}, {c['relay_neighbours']}, {c['hops']}, "
+          f"{-1 if c['sends'] is None else c['sends']}}}," for c in v["card_passes"]]
+    L.append("};")
+
     L.append("static const struct copy_case copy_cases[] = {")
     L += [f"    {{{c['received']}, {b(c['drops'])}}}," for c in v["copies"]]
     L.append("};")

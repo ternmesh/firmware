@@ -1,5 +1,5 @@
 {
-  "description": "Frames for every node, draft 0 (draft/flooding.md). Frames, ids and what follows a head (rest) are hex; power is signed. A frame's id is the first eight bytes of the SHA-256 of its hdr and everything after its three-byte head. In passes, a node of that role with that many relay neighbours receives a frame it has not seen with those hops, and sends it on with sends as its hops, or does not, for null. In copies, received counts every copy a relay waiting to pass a frame on has received, the first included. In waits, airtime_ns is the frame's time on the air with the profiles' preamble and coding rate (vectors/phy.json) and longest_ns the longest a relay waits before passing it on. In powers, every is what Routes gives for a frame for every neighbour, in dBm, and floors_sixteenths the floors, in sixteenths of a dBm, of the neighbours the node's selected routes go through that are relays, null for one not known. In seen, ids are names, taken as seen at the times given, and each ask is true where the node must still hold the id as seen; an id never taken is not seen. In allowances, a bucket that fills at share_ppm millionths of the node's time and holds window_s seconds of that, or one 255-byte frame if that is more, is full at time 0; each frame is offered at at_ns, and is sent and charged if the bucket pays.",
+  "description": "Frames for every node, draft 0 (draft/flooding.md). Frames, ids and what follows a head (rest) are hex; power is signed. A frame's id is the first eight bytes of the SHA-256 of its hdr and everything after its three-byte head. In passes, a node of that role with that many relay neighbours receives a frame it has not seen with those hops, and sends it on with sends as its hops, or does not, for null; card_passes is the same for a card, whose hops are read as no more than CARD_HOPS. In copies, received counts every copy a relay waiting to pass a frame on has received, the first included. In waits, airtime_ns is the frame's time on the air with the profiles' preamble and coding rate (vectors/phy.json) and longest_ns the longest a relay waits before passing it on. In powers, every is what Routes gives for a frame for every neighbour, in dBm, and floors_sixteenths the floors, in sixteenths of a dBm, of the neighbours the node's selected routes go through that are relays, null for one not known. In seen, ids are names, taken as seen at the times given, and each ask is true where the node must still hold the id as seen; an id never taken is not seen. In allowances, a bucket that fills at share_ppm millionths of the node's time and holds window_s seconds of that, or one 255-byte frame if that is more, is full at time 0; each frame is offered at at_ns, and is sent and charged if the bucket pays.",
   "generator": "vectors/tools/flooding.py",
   "heads": [
     {
@@ -67,6 +67,14 @@
     {
       "name": "empty",
       "frame": ""
+    },
+    {
+      "name": "a-card-too-short",
+      "frame": "680000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "name": "a-card-too-long",
+      "frame": "680000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
     }
   ],
   "same": [
@@ -105,6 +113,18 @@
       "a": "60050e303132333435363738393a3b3c3d3e3f404142434445464748494a4b",
       "b": "60050e303132333435363738393a3b3c3d3e3f404142434445464748494a4b00",
       "same": false
+    },
+    {
+      "name": "relabelled-as-a-card",
+      "a": "600516000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d",
+      "b": "680516000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d",
+      "same": false
+    },
+    {
+      "name": "a-card-passed-on",
+      "a": "680216000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d",
+      "b": "6801f7000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d",
+      "same": true
     }
   ],
   "passes": [
@@ -310,6 +330,116 @@
       "role": "leaf",
       "relay_neighbours": 3,
       "hops": 6,
+      "sends": null
+    },
+    {
+      "role": "leaf",
+      "relay_neighbours": 3,
+      "hops": 255,
+      "sends": null
+    }
+  ],
+  "card_passes": [
+    {
+      "role": "relay",
+      "relay_neighbours": 9,
+      "hops": 5,
+      "sends": 1
+    },
+    {
+      "role": "relay",
+      "relay_neighbours": 9,
+      "hops": 3,
+      "sends": 1
+    },
+    {
+      "role": "relay",
+      "relay_neighbours": 9,
+      "hops": 2,
+      "sends": 1
+    },
+    {
+      "role": "relay",
+      "relay_neighbours": 9,
+      "hops": 1,
+      "sends": null
+    },
+    {
+      "role": "relay",
+      "relay_neighbours": 9,
+      "hops": 0,
+      "sends": null
+    },
+    {
+      "role": "relay",
+      "relay_neighbours": 9,
+      "hops": 255,
+      "sends": 1
+    },
+    {
+      "role": "relay",
+      "relay_neighbours": 8,
+      "hops": 5,
+      "sends": 2
+    },
+    {
+      "role": "relay",
+      "relay_neighbours": 8,
+      "hops": 3,
+      "sends": 2
+    },
+    {
+      "role": "relay",
+      "relay_neighbours": 8,
+      "hops": 2,
+      "sends": 2
+    },
+    {
+      "role": "relay",
+      "relay_neighbours": 8,
+      "hops": 1,
+      "sends": 1
+    },
+    {
+      "role": "relay",
+      "relay_neighbours": 8,
+      "hops": 0,
+      "sends": null
+    },
+    {
+      "role": "relay",
+      "relay_neighbours": 8,
+      "hops": 255,
+      "sends": 2
+    },
+    {
+      "role": "leaf",
+      "relay_neighbours": 3,
+      "hops": 5,
+      "sends": null
+    },
+    {
+      "role": "leaf",
+      "relay_neighbours": 3,
+      "hops": 3,
+      "sends": null
+    },
+    {
+      "role": "leaf",
+      "relay_neighbours": 3,
+      "hops": 2,
+      "sends": null
+    },
+    {
+      "role": "leaf",
+      "relay_neighbours": 3,
+      "hops": 1,
+      "sends": null
+    },
+    {
+      "role": "leaf",
+      "relay_neighbours": 3,
+      "hops": 0,
       "sends": null
     },
     {

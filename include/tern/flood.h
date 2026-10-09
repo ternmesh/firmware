@@ -29,19 +29,38 @@
 
 #define TERN_HDR_GROUP 0x60      /* a group's frame */
 #define TERN_HDR_GROUP_NODE 0x61 /* a group's frame for the node: flooded as the other is */
+#define TERN_HDR_CARD 0x68       /* a presence card (tern/card.h) */
 
 #define TERN_FLOOD_HEAD 3 /* hdr, hops and power */
 #define TERN_FLOOD_ID 8
 #define TERN_FLOOD_FRAME_MAX 255
 #define TERN_FLOOD_GROUP_MIN 31 /* a group frame with nothing to say */
+#define TERN_FLOOD_CARD_MIN 103 /* a card with no name */
+#define TERN_FLOOD_CARD_MAX 134 /* and one with the longest */
+#define TERN_FLOOD_CARD_HOPS 2  /* CARD_HOPS: what a card's flood starts with, at most */
 #define TERN_FLOOD_SEEN 128     /* frames a node must be able to hold as seen */
 #define TERN_FLOOD_SLOTS_MAX 255
 #define TERN_FLOOD_FLOOR_UNKNOWN INT32_MAX
 
-/* Whether a frame is one of this layer's: by its first byte, and long enough to be one. */
+/* Whether a frame is one of this layer's: by its first byte, and of a length its kind can be. */
 static inline bool tern_flood_frame(const uint8_t *frame, size_t len) {
-    return len >= TERN_FLOOD_GROUP_MIN && len <= TERN_FLOOD_FRAME_MAX &&
-           (frame[0] == TERN_HDR_GROUP || frame[0] == TERN_HDR_GROUP_NODE);
+    if (len < TERN_FLOOD_HEAD || len > TERN_FLOOD_FRAME_MAX) {
+        return false;
+    }
+    switch (frame[0]) {
+    case TERN_HDR_GROUP:
+    case TERN_HDR_GROUP_NODE:
+        return len >= TERN_FLOOD_GROUP_MIN;
+    case TERN_HDR_CARD:
+        return len >= TERN_FLOOD_CARD_MIN && len <= TERN_FLOOD_CARD_MAX;
+    default:
+        return false;
+    }
+}
+
+/* The hops a flood of this kind starts with, at most: a card's are fewer (draft/cards.md). */
+static inline uint8_t tern_flood_most(uint8_t hdr, uint8_t hops) {
+    return hdr == TERN_HDR_CARD && hops > TERN_FLOOD_CARD_HOPS ? TERN_FLOOD_CARD_HOPS : hops;
 }
 
 /* --- Rules, each as the specification states it, checked against its vectors. --- */
@@ -130,6 +149,7 @@ struct tern_flood_counts {
     uint32_t busy;      /* and dropped because the radio was busy */
     uint32_t hop_limit; /* frames that had come as far as they may */
     uint32_t no_room;   /* and those there was no slot for */
+    uint32_t refused;   /* of those taken, let go of as their kind's checks said */
 };
 
 struct tern_flood {
@@ -161,8 +181,9 @@ void tern_flood_init(struct tern_flood *f, const struct tern_flood_config *confi
                      uint8_t (*seen)[TERN_FLOOD_ID], size_t seen_cap, uint64_t seed, tern_time now);
 
 /* Floods a frame of this node's. `frame` is whole but for hops and power, which are filled in
- * here. It goes when the allowance for the node's own frames can pay for it. False if it is not a
- * frame of this layer's, or there is no slot for it. */
+ * here: hops as the config says, or CARD_HOPS for a card if that is fewer. It goes when the
+ * allowance for the node's own frames can pay for it. False if it is not a frame of this layer's,
+ * or there is no slot for it. */
 bool tern_flood_send(struct tern_flood *f, tern_time now, const uint8_t *frame, size_t len);
 
 /* Whether the allowance for the node's own frames, once those of its own still waiting and one
@@ -178,8 +199,14 @@ bool tern_flood_own_room(const struct tern_flood *f, tern_time now, size_t len);
 bool tern_flood_cancel(struct tern_flood *f, tern_time now, const uint8_t id[TERN_FLOOD_ID]);
 
 /* A frame of this layer's was received. True if the node had not seen it: the caller then hands
- * it on to whatever opens its kind. A relay passes it on by itself. */
+ * it on to whatever opens its kind. A relay passes it on by itself, unless the caller, having
+ * opened it, says it is not to go (tern_flood_refuse()). */
 bool tern_flood_heard(struct tern_flood *f, tern_time now, const uint8_t *frame, size_t len);
+
+/* A frame tern_flood_heard() took to pass on is not to go after all: one whose kind this node
+ * checks, as a card's signature, and which failed. It stays seen. True if one was let go of, or
+ * will be once the caller says what became of it; false if none was being passed on. */
+bool tern_flood_refuse(struct tern_flood *f, const uint8_t id[TERN_FLOOD_ID]);
 
 /* Tells the flooder how long the radio has spent sending and receiving, in all, up to `now`:
  * receiving as tern/listen.h has it. A relay is to say so before every tern_flood_poll(), and
