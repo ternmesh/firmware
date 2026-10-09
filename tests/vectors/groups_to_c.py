@@ -33,7 +33,8 @@ def main():
     for c in v["accepted"]:
         i = c["intermediate"]
         L.append(f"    {{\"{c['name']}\", {c['hdr']}, {b(c['node'])}, {hexbytes(c['group_secret'])}, "
-                 f"{hexbytes(c['nonce'])}, {c['from']}u, {blob(c['content'])}, {c['hops']}, {c['power']}, {c['self']}u, "
+                 f"{hexbytes(c['nonce'])}, {c['from']}u, {c['count']}u, {blob(c['content'])}, {c['hops']}, "
+                 f"{c['power']}, {c['self']}u, "
                  f"{hexbytes(i['group_key'])}, {hexbytes(i['gtag'])}, {blob(c['frame'])}}},")
     L.append("};")
 
@@ -47,21 +48,21 @@ def main():
         L.append(f"static const uint8_t member_groups_{i}[][16] = {{{secrets}}};")
         ds = ", ".join(
             f"{{{blob(d['frame'])}, {b(d['accept'])}, {d.get('group', 0)}, {d.get('from', 0)}u, "
-            f"{blob(d.get('content', ''))}}}" for d in c["deliveries"])
+            f"{d.get('count', 0)}u, {blob(d.get('content', ''))}}}" for d in c["deliveries"])
         L.append(f"static const struct delivery member_deliveries_{i}[] = {{{ds}}};")
     L.append("static const struct member_case member_cases[] = {")
     L += [f"    {{\"{c['name']}\", {c['self']}u, member_groups_{i}, {len(c['groups'])}, "
           f"member_deliveries_{i}, {len(c['deliveries'])}}}," for i, c in enumerate(v["members"])]
     L.append("};")
 
-    for i, c in enumerate(v["recent"]):
-        again = ", ".join(f"{{{hexbytes(a['nonce'])}, {blob(a['frame'])}, {b(a['accept'])}}}"
-                          for a in c["again"])
-        L.append(f"static const struct recent_again recent_again_{i}[] = {{{again}}};")
-    L.append("static const struct recent_case recent_cases[] = {")
-    L += [f"    {{{hexbytes(c['group_secret'])}, {c['self']}u, {c['from']}u, {blob(c['content'])}, "
-          f"{c['first']}ULL, {c['count']}, recent_again_{i}, {len(c['again'])}}},"
-          for i, c in enumerate(v["recent"])]
+    for i, c in enumerate(v["counts"]):
+        ds = ", ".join(f"{{{d['from']}u, {d['count']}u, {blob(d['frame'])}, {b(d['accept'])}}}"
+                       for d in c["deliveries"])
+        L.append(f"static const struct counted count_deliveries_{i}[] = {{{ds}}};")
+    L.append("static const struct count_case count_cases[] = {")
+    L += [f"    {{\"{c['name']}\", {hexbytes(c['group_secret'])}, {c['self']}u, "
+          f"{blob(c['content'])}, count_deliveries_{i}, {len(c['deliveries'])}}},"
+          for i, c in enumerate(v["counts"])]
     L.append("};")
 
     L.append("static const struct invite_case invites[] = {")

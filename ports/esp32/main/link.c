@@ -303,6 +303,64 @@ static bool save_groups(struct link *l) {
     return ok;
 }
 
+bool link_group_count(struct link *l, uint32_t *count) {
+    if (l->next_count == UINT32_MAX) {
+        return false;
+    }
+    if (l->next_count >= l->counts_saved) {
+        uint32_t to = l->next_count > UINT32_MAX - LINK_COUNT_STEP
+                          ? UINT32_MAX
+                          : l->next_count + LINK_COUNT_STEP;
+        if (!l->host.save_count(l->host.ctx, to)) {
+            return false;
+        }
+        l->counts_saved = to;
+    }
+    *count = l->next_count++;
+    return true;
+}
+
+void link_group_heard(struct link *l) { l->writers_changed = true; }
+
+bool link_keep_writers(struct link *l) {
+    if (!l->writers_changed) {
+        return false;
+    }
+    uint8_t kept[LINK_WRITERS_MAX];
+    size_t len = 0;
+    for (size_t i = 0; i < LINK_GROUPS; i++) {
+        const struct link_group *g = &l->groups[i];
+        size_t n = g->used ? tern_group_keep(&g->g, kept + len + TERN_COMPANION_GROUP + 1) : 0;
+        if (n != 0) {
+            memcpy(kept + len, g->id, TERN_COMPANION_GROUP);
+            kept[len + TERN_COMPANION_GROUP] = (uint8_t)(n / 8);
+            len += TERN_COMPANION_GROUP + 1 + n;
+        }
+    }
+    (void)l->host.save_writers(l->host.ctx, kept, len);
+    l->writers_changed = false;
+    return true;
+}
+
+/* Gives each group held the writers flash kept for it. What is not as link_keep_writers() wrote
+ * it is passed over from there on. */
+static void load_writers(struct link *l) {
+    uint8_t kept[LINK_WRITERS_MAX];
+    size_t len = l->host.load_writers(l->host.ctx, kept, sizeof kept), at = 0;
+    while (len <= sizeof kept && at + TERN_COMPANION_GROUP + 1 <= len) {
+        size_t n = (size_t)kept[at + TERN_COMPANION_GROUP] * 8;
+        const uint8_t *writers = kept + at + TERN_COMPANION_GROUP + 1;
+        if (n == 0 || n > TERN_GROUP_KEPT || n > len - (size_t)(writers - kept)) {
+            return;
+        }
+        struct link_group *g = find_group(l, kept + at);
+        if (g != NULL) {
+            tern_group_restore(&g->g, writers, n);
+        }
+        at += TERN_COMPANION_GROUP + 1 + n;
+    }
+}
+
 void link_groups(struct link *l, struct tern_group *out[LINK_GROUPS]) {
     for (size_t i = 0; i < LINK_GROUPS; i++) {
         out[i] = l->groups[i].used ? &l->groups[i].g : NULL;
@@ -489,6 +547,11 @@ void link_init(struct link *l, const struct link_host *host) {
         }
     }
     tern_wipe(kept, sizeof kept);
+    load_writers(l);
+    if (l->host.load_count(l->host.ctx, &saved)) {
+        l->next_count = saved;
+        l->counts_saved = saved;
+    }
     for (size_t i = 0; i < LINK_MESSAGES; i++) {
         load_message(l, i);
     }
@@ -987,6 +1050,9 @@ static void leave_group(struct link *l, const struct tern_companion_msg *q) {
         }
         tern_wipe(&was, sizeof was);
         tern_wipe(g, sizeof *g);
+        /* Its writers go with it, from flash too. */
+        l->writers_changed = true;
+        (void)link_keep_writers(l);
     }
     answer(l, TERN_C_OK, q->seq);
     if (g == NULL) {

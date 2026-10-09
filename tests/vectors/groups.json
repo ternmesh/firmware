@@ -1,72 +1,75 @@
 {
-  "description": "Groups, draft 0 (draft/groups.md). Secrets, nonces, frames and content are hex; routing ids (from, self) and hops are numbers, and power is signed. hops and power are the flood's (draft/flooding.md), and are 5 and 14 where a case does not give them. self is the routing id of the node receiving. In members, group is the index in groups of the group a frame is accepted for. hdr is 0x60 for a frame of words and 0x61 for one for the node, as node says. In recent, the frames with nonces first to first + count - 1, each as eight bytes most significant first, are from, content, hops and power sealed under group_secret. In invites and bad_invites, plaintext is that of a unicast message whose hdr has the node flag set (draft/unicast-security.md).",
+  "description": "Groups, draft 0 (draft/groups.md). Secrets, nonces, frames and content are hex; routing ids (from, self) and hops are numbers, and power is signed. hops and power are the flood's (draft/flooding.md), and are 5 and 14 where a case does not give them. self is the routing id of the node receiving. In members, group is the index in groups of the group a frame is accepted for. hdr is 0x60 for a frame of words and 0x61 for one for the node, as node says. count is a number. In counts, each delivery's frame is content from its from, with its count, sealed under group_secret with hops and power, and with a nonce of its place in deliveries, from 0, as eight bytes most significant first; frame gives it. In invites and bad_invites, plaintext is that of a unicast message whose hdr has the node flag set (draft/unicast-security.md).",
   "generator": "vectors/tools/groups.py",
   "accepted": [
     {
       "name": "first",
-      "note": "a short message",
+      "note": "a short message, the writer's first",
       "hdr": 96,
       "node": false,
       "group_secret": "000102030405060708090a0b0c0d0e0f",
       "nonce": "0001020304050607",
       "from": 489570112,
+      "count": 0,
       "content": "68656c6c6f",
       "hops": 5,
       "power": 14,
       "self": 168496141,
       "intermediate": {
-        "group_key": "9daacaa012ecf2799e55a29684426266",
+        "group_key": "1fc898d1f2c898e4b9e5bf4da8aa608e",
         "tag_key": "c3c54d8483bfc1815fb62f17102fbc54",
         "gtag": "f4be0374",
         "ccm_nonce": "00000000000001020304050607",
         "associated_data": "600001020304050607f4be0374",
-        "plaintext": "1d2e3f4068656c6c6f"
+        "plaintext": "1d2e3f400000000068656c6c6f"
       },
-      "frame": "60050e0001020304050607f4be03745408b7a32f0c17de0d16b4391091e572fb"
+      "frame": "60050e0001020304050607f4be0374806aed28e157d0f4eac88f9d06a89fd21b6efcda1d"
     },
     {
       "name": "another-nonce",
-      "note": "the same words again: nothing in the frame is as before",
+      "note": "the same words again, as the writer's next frame: nothing in the frame is as before",
       "hdr": 96,
       "node": false,
       "group_secret": "000102030405060708090a0b0c0d0e0f",
       "nonce": "f0e1d2c3b4a59687",
       "from": 489570112,
+      "count": 1,
       "content": "68656c6c6f",
       "hops": 5,
       "power": 14,
       "self": 168496141,
       "intermediate": {
-        "group_key": "9daacaa012ecf2799e55a29684426266",
+        "group_key": "1fc898d1f2c898e4b9e5bf4da8aa608e",
         "tag_key": "c3c54d8483bfc1815fb62f17102fbc54",
         "gtag": "b3d807fb",
         "ccm_nonce": "0000000000f0e1d2c3b4a59687",
         "associated_data": "60f0e1d2c3b4a59687b3d807fb",
-        "plaintext": "1d2e3f4068656c6c6f"
+        "plaintext": "1d2e3f400000000168656c6c6f"
       },
-      "frame": "60050ef0e1d2c3b4a59687b3d807fbe321008e6b38fc57406792038d484db23a"
+      "frame": "60050ef0e1d2c3b4a59687b3d807fb5c92cf45f9ea6fa8e89ee3fb197f0ff1dc0e7f369e"
     },
     {
       "name": "another-group",
-      "note": "the same nonce under another secret",
+      "note": "the same nonce and count under another secret",
       "hdr": 96,
       "node": false,
       "group_secret": "c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4",
       "nonce": "0001020304050607",
       "from": 489570112,
+      "count": 0,
       "content": "68656c6c6f",
       "hops": 5,
       "power": 14,
       "self": 168496141,
       "intermediate": {
-        "group_key": "34338867a09cadaee31e095781e938f3",
+        "group_key": "0628f5622760c0a0565366947f2ca519",
         "tag_key": "3bbf27eec613b6ac620a2f16cedef8cd",
         "gtag": "d77c24f0",
         "ccm_nonce": "00000000000001020304050607",
         "associated_data": "600001020304050607d77c24f0",
-        "plaintext": "1d2e3f4068656c6c6f"
+        "plaintext": "1d2e3f400000000068656c6c6f"
       },
-      "frame": "60050e0001020304050607d77c24f0ca61d1b6f245987864c30573605422f2dc"
+      "frame": "60050e0001020304050607d77c24f0e0762656529bea47f69b239685935a8ea1537e3664"
     },
     {
       "name": "passed-on",
@@ -76,41 +79,43 @@
       "group_secret": "000102030405060708090a0b0c0d0e0f",
       "nonce": "0001020304050607",
       "from": 489570112,
+      "count": 0,
       "content": "68656c6c6f",
       "hops": 2,
       "power": -4,
       "self": 168496141,
       "intermediate": {
-        "group_key": "9daacaa012ecf2799e55a29684426266",
+        "group_key": "1fc898d1f2c898e4b9e5bf4da8aa608e",
         "tag_key": "c3c54d8483bfc1815fb62f17102fbc54",
         "gtag": "f4be0374",
         "ccm_nonce": "00000000000001020304050607",
         "associated_data": "600001020304050607f4be0374",
-        "plaintext": "1d2e3f4068656c6c6f"
+        "plaintext": "1d2e3f400000000068656c6c6f"
       },
-      "frame": "6002fc0001020304050607f4be03745408b7a32f0c17de0d16b4391091e572fb"
+      "frame": "6002fc0001020304050607f4be0374806aed28e157d0f4eac88f9d06a89fd21b6efcda1d"
     },
     {
       "name": "empty",
-      "note": "no content: the 27-byte minimum frame",
+      "note": "no content: the 31-byte minimum frame",
       "hdr": 96,
       "node": false,
       "group_secret": "000102030405060708090a0b0c0d0e0f",
       "nonce": "1111111111111111",
       "from": 489570112,
+      "count": 16909060,
       "content": "",
       "hops": 5,
       "power": 14,
       "self": 168496141,
       "intermediate": {
-        "group_key": "9daacaa012ecf2799e55a29684426266",
+        "group_key": "1fc898d1f2c898e4b9e5bf4da8aa608e",
         "tag_key": "c3c54d8483bfc1815fb62f17102fbc54",
         "gtag": "951f56c6",
         "ccm_nonce": "00000000001111111111111111",
         "associated_data": "601111111111111111951f56c6",
-        "plaintext": "1d2e3f40"
+        "plaintext": "1d2e3f4001020304"
       },
-      "frame": "60050e1111111111111111951f56c6781e97ebbf3bef5fd2a2c199"
+      "frame": "60050e1111111111111111951f56c629b496ebad8bb1025efde6ef2ef83119"
     },
     {
       "name": "non-latin",
@@ -120,41 +125,43 @@
       "group_secret": "c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4",
       "nonce": "2222222222222222",
       "from": 4294967294,
+      "count": 70000,
       "content": "ce9aceb1cebbceb7cebcceadcf81ceb1",
       "hops": 5,
       "power": 14,
       "self": 168496141,
       "intermediate": {
-        "group_key": "34338867a09cadaee31e095781e938f3",
+        "group_key": "0628f5622760c0a0565366947f2ca519",
         "tag_key": "3bbf27eec613b6ac620a2f16cedef8cd",
         "gtag": "82153384",
         "ccm_nonce": "00000000002222222222222222",
         "associated_data": "60222222222222222282153384",
-        "plaintext": "fffffffece9aceb1cebbceb7cebcceadcf81ceb1"
+        "plaintext": "fffffffe00011170ce9aceb1cebbceb7cebcceadcf81ceb1"
       },
-      "frame": "60050e222222222222222282153384765f2e1c6c2bdae70109dc3678660cbccf4df58f3c5fc9b6f050015f"
+      "frame": "60050e22222222222222228215338424ba415b28ecc2dd56c366606e653962260b5a056157f2b4ffa2bf41edf2b065"
     },
     {
       "name": "largest",
-      "note": "228 bytes of content: a 255-byte frame",
+      "note": "224 bytes of content: a 255-byte frame, with the last count there is",
       "hdr": 96,
       "node": false,
       "group_secret": "c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4",
       "nonce": "3333333333333333",
       "from": 1,
-      "content": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3",
+      "count": 4294967295,
+      "content": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedf",
       "hops": 5,
       "power": 14,
       "self": 168496141,
       "intermediate": {
-        "group_key": "34338867a09cadaee31e095781e938f3",
+        "group_key": "0628f5622760c0a0565366947f2ca519",
         "tag_key": "3bbf27eec613b6ac620a2f16cedef8cd",
         "gtag": "b598656d",
         "ccm_nonce": "00000000003333333333333333",
         "associated_data": "603333333333333333b598656d",
-        "plaintext": "00000001000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3"
+        "plaintext": "00000001ffffffff000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedf"
       },
-      "frame": "60050e3333333333333333b598656d7dda635a11fd1b321fe196a4128fcad771c114133af21dcb0c0e5ec39b5464db18aaa166e78be5c372a383a3e27bfc9c2eaded30e706fb622a727b4127116863afac1dd1c9ec6ee9f7017e75401cce5f86efe8ac68770ef3d92c67fa7743f5f7d29614b77569cb64a4ddb47537b2f394feaeffa46c9e5b0998652dd3a31268d5a6affe2461cf3f148d725354ec8d11661741e2a5f5380c7635830adbea32b1edc5cab08c65fb033fc03ec47ca8b913af85f36562d9edf5eb540971d3167bc5a609dafc94bd15747676752e0b520f591ab5412327f915179fa668fb4be9acb04188fc60593e755115eeeddebe37b1aced"
+      "frame": "60050e3333333333333333b598656df5b7f1274b9080927af8db156456ce3cb5aeb213cba8f04e67794afb45661584245b3bf12fa7bc23bf0414eabc3311abff6e09c99abad86be036f323461cda15f05917acac607cbf94d4141fb76b6e3a56438cb9c995c8af8836aad87865f84174fd3608a32dbcb49184c141192121280ebc422f00b07162067edd65b0b307e45530a288d6f223dd2834fe817e599cef2e7544506d706da81ac7bf845ef5b99c6ae84a4a03156b576800bdff1d6d762e0933a3dfde1f1587f49a38e391c2a7868a8ea6d4f7d2ecdcc6f283e1f1efb83c9cf128dd23293c426d427c4f3e5882767dc20b1ed2002f384ee9d8be644040f3"
     },
     {
       "name": "for-the-node",
@@ -164,19 +171,20 @@
       "group_secret": "000102030405060708090a0b0c0d0e0f",
       "nonce": "4444444444444444",
       "from": 489570112,
+      "count": 2,
       "content": "02608a6b80",
       "hops": 5,
       "power": 14,
       "self": 168496141,
       "intermediate": {
-        "group_key": "9daacaa012ecf2799e55a29684426266",
+        "group_key": "1fc898d1f2c898e4b9e5bf4da8aa608e",
         "tag_key": "c3c54d8483bfc1815fb62f17102fbc54",
         "gtag": "fcba748f",
         "ccm_nonce": "00000000004444444444444444",
         "associated_data": "614444444444444444fcba748f",
-        "plaintext": "1d2e3f4002608a6b80"
+        "plaintext": "1d2e3f400000000202608a6b80"
       },
-      "frame": "61050e4444444444444444fcba748f362fe62ec3a7461c31ac8152c337045c16"
+      "frame": "61050e4444444444444444fcba748f6d69907173f2f764d750b3a202368f5b0d6e8fe377"
     },
     {
       "name": "for-the-node-unknown-kind",
@@ -186,19 +194,20 @@
       "group_secret": "000102030405060708090a0b0c0d0e0f",
       "nonce": "5555555555555555",
       "from": 489570112,
+      "count": 3,
       "content": "7f",
       "hops": 5,
       "power": 14,
       "self": 168496141,
       "intermediate": {
-        "group_key": "9daacaa012ecf2799e55a29684426266",
+        "group_key": "1fc898d1f2c898e4b9e5bf4da8aa608e",
         "tag_key": "c3c54d8483bfc1815fb62f17102fbc54",
         "gtag": "363f40a5",
         "ccm_nonce": "00000000005555555555555555",
         "associated_data": "615555555555555555363f40a5",
-        "plaintext": "1d2e3f407f"
+        "plaintext": "1d2e3f40000000037f"
       },
-      "frame": "61050e5555555555555555363f40a533d9375999c92faacbe36c5cbd"
+      "frame": "61050e5555555555555555363f40a54a6fdf64867252c0f7c3564aec3d42c156"
     }
   ],
   "rejected": [
@@ -207,112 +216,133 @@
       "note": "last bit of the AEAD tag changed",
       "group_secret": "000102030405060708090a0b0c0d0e0f",
       "self": 168496141,
-      "frame": "60050e0001020304050607f4be03745408b7a32f0c17de0d16b4391091e572fa"
+      "frame": "60050e0001020304050607f4be0374806aed28e157d0f4eac88f9d06a89fd21b6efcda1c"
     },
     {
       "name": "ciphertext-flipped",
       "note": "first ciphertext bit changed",
       "group_secret": "000102030405060708090a0b0c0d0e0f",
       "self": 168496141,
-      "frame": "60050e0001020304050607f4be0374d408b7a32f0c17de0d16b4391091e572fb"
+      "frame": "60050e0001020304050607f4be0374006aed28e157d0f4eac88f9d06a89fd21b6efcda1d"
+    },
+    {
+      "name": "count-flipped",
+      "note": "a bit of the sealed count changed",
+      "group_secret": "000102030405060708090a0b0c0d0e0f",
+      "self": 168496141,
+      "frame": "60050e0001020304050607f4be0374806aed28e157d0f5eac88f9d06a89fd21b6efcda1d"
     },
     {
       "name": "nonce-flipped",
       "note": "a bit of the nonce changed: the tag no longer matches it",
       "group_secret": "000102030405060708090a0b0c0d0e0f",
       "self": 168496141,
-      "frame": "60050e0101020304050607f4be03745408b7a32f0c17de0d16b4391091e572fb"
+      "frame": "60050e0101020304050607f4be0374806aed28e157d0f4eac88f9d06a89fd21b6efcda1d"
     },
     {
       "name": "nonce-changed",
       "note": "another nonce, with the tag that goes with it: the check fails",
       "group_secret": "000102030405060708090a0b0c0d0e0f",
       "self": 168496141,
-      "frame": "60050e010102030405060734f9865a5408b7a32f0c17de0d16b4391091e572fb"
+      "frame": "60050e010102030405060734f9865a806aed28e157d0f4eac88f9d06a89fd21b6efcda1d"
     },
     {
       "name": "tag-flipped",
       "note": "a bit of the group tag changed",
       "group_secret": "000102030405060708090a0b0c0d0e0f",
       "self": 168496141,
-      "frame": "60050e0001020304050607f5be03745408b7a32f0c17de0d16b4391091e572fb"
+      "frame": "60050e0001020304050607f5be0374806aed28e157d0f4eac88f9d06a89fd21b6efcda1d"
     },
     {
       "name": "node-flag-set",
       "note": "the node flag set on a frame sealed without it: the header is authenticated",
       "group_secret": "000102030405060708090a0b0c0d0e0f",
       "self": 168496141,
-      "frame": "61050e0001020304050607f4be03745408b7a32f0c17de0d16b4391091e572fb"
+      "frame": "61050e0001020304050607f4be0374806aed28e157d0f4eac88f9d06a89fd21b6efcda1d"
     },
     {
       "name": "node-flag-cleared",
       "note": "the node flag cleared on a frame sealed with it",
       "group_secret": "000102030405060708090a0b0c0d0e0f",
       "self": 168496141,
-      "frame": "60050e4444444444444444fcba748f362fe62ec3a7461c31ac8152c337045c16"
+      "frame": "60050e4444444444444444fcba748f6d69907173f2f764d750b3a202368f5b0d6e8fe377"
     },
     {
       "name": "reserved-flag",
       "note": "a reserved flag set",
       "group_secret": "000102030405060708090a0b0c0d0e0f",
       "self": 168496141,
-      "frame": "62050e0001020304050607f4be03745408b7a32f0c17de0d16b4391091e572fb"
+      "frame": "62050e0001020304050607f4be0374806aed28e157d0f4eac88f9d06a89fd21b6efcda1d"
     },
     {
       "name": "reserved-flag-sealed",
       "note": "a reserved flag set, and sealed with it rightly: not a group frame of this draft",
       "group_secret": "000102030405060708090a0b0c0d0e0f",
       "self": 168496141,
-      "frame": "64050e0001020304050607f4be03745408b7a32f0c17de0d394e9ba6350668a1"
+      "frame": "64050e0001020304050607f4be0374806aed28e157d0f4eac88f9d06d58d2b32e6967a55"
     },
     {
       "name": "a-message",
       "note": "a unicast message's header on it",
       "group_secret": "000102030405060708090a0b0c0d0e0f",
       "self": 168496141,
-      "frame": "48050e0001020304050607f4be03745408b7a32f0c17de0d16b4391091e572fb"
+      "frame": "48050e0001020304050607f4be0374806aed28e157d0f4eac88f9d06a89fd21b6efcda1d"
     },
     {
       "name": "truncated",
-      "note": "26 bytes: shorter than any frame",
+      "note": "30 bytes: shorter than any frame",
       "group_secret": "000102030405060708090a0b0c0d0e0f",
       "self": 168496141,
-      "frame": "60050e0001020304050607f4be03745408b7a32f0c17de0d16b4"
+      "frame": "60050e0001020304050607f4be0374806aed28e157d0f4eac88f9d06a89f"
     },
     {
       "name": "another-group",
       "note": "a frame of a group this node does not hold",
       "group_secret": "000102030405060708090a0b0c0d0e0f",
       "self": 168496141,
-      "frame": "60050e0001020304050607d77c24f0ca61d1b6f245987864c30573605422f2dc"
+      "frame": "60050e0001020304050607d77c24f0e0762656529bea47f69b239685935a8ea1537e3664"
     },
     {
       "name": "from-nobody",
       "note": "from is 0x00000000: sealed rightly, and refused",
       "group_secret": "000102030405060708090a0b0c0d0e0f",
       "self": 168496141,
-      "frame": "60050e0001020304050607f4be0374492688e32f0c17de0d1e7b0b900a65b391"
+      "frame": "60050e0001020304050607f4be03749d44d268e157d0f4eac88f9d06751f948e8ec85458"
     },
     {
       "name": "from-everyone",
       "note": "from is 0xFFFFFFFF",
       "group_secret": "000102030405060708090a0b0c0d0e0f",
       "self": 168496141,
-      "frame": "60050e0001020304050607f4be0374b6d9771c2f0c17de0d764609d8a0c9d55e"
+      "frame": "60050e0001020304050607f4be037462bb2d97e157d0f4eac88f9d0686b45a8b9e72b0cb"
     },
     {
       "name": "from-itself",
       "note": "from is the receiver's own routing id: another member writing as it",
       "group_secret": "000102030405060708090a0b0c0d0e0f",
       "self": 168496141,
-      "frame": "60050e0001020304050607f4be0374432d84ee2f0c17de0d24a860f882b64e30"
+      "frame": "60050e0001020304050607f4be0374974fde65e157d0f4eac88f9d069b1ab5f13ceec190"
     },
     {
       "name": "no-from",
       "note": "three bytes of plaintext, sealed rightly: 26 bytes",
       "group_secret": "000102030405060708090a0b0c0d0e0f",
       "self": 168496141,
-      "frame": "60050e0001020304050607f4be037448248b6a97a7470e05727c"
+      "frame": "60050e0001020304050607f4be03749c46d1f8c326e380d4a93c"
+    },
+    {
+      "name": "no-count",
+      "note": "from and three bytes more, sealed rightly: 30 bytes",
+      "group_secret": "000102030405060708090a0b0c0d0e0f",
+      "self": 168496141,
+      "frame": "60050e0001020304050607f4be0374806aed28e157d0e810feb5a8c2180c"
+    },
+    {
+      "name": "first-draft",
+      "note": "a frame as this section was first drafted, with no count and under the key of the label \"tern v0 group key\": the tag is the group's, and the check fails",
+      "group_secret": "000102030405060708090a0b0c0d0e0f",
+      "self": 168496141,
+      "frame": "60050e0001020304050607f4be03745408b7a32f0c17de0d16b4391091e572fb"
     }
   ],
   "members": [
@@ -326,32 +356,35 @@
       ],
       "deliveries": [
         {
-          "frame": "60050e0001020304050607f4be03745408b7a32f0c17de0d16b4391091e572fb",
+          "frame": "60050e0001020304050607f4be0374806aed28e157d0f3eac88f9d06b7e8bb9473e1c345",
           "accept": true,
           "group": 0,
           "from": 489570112,
+          "count": 7,
           "content": "68656c6c6f"
         },
         {
-          "frame": "60050e0001020304050607d77c24f0ca61d1b6ee579b52421d1a54e1eae8",
+          "frame": "60050e0001020304050607d77c24f0e0762656529bea40ea892066a5efb0f5e8f138",
           "accept": true,
           "group": 1,
           "from": 489570112,
+          "count": 7,
           "content": "74776f"
         },
         {
-          "frame": "60050e0001020304050607b0b08e9bde621e7779d401c4f98d2854fb8b5a1e78",
+          "frame": "60050e0001020304050607b0b08e9bf8084f0d1ed5a41036f889c0f2fd2cd89e9f991f3f",
           "accept": false
         },
         {
-          "frame": "60050e0001020304050607f4be03745408b7a32f0c17de0d16b4391091e572fb",
+          "frame": "60050e0001020304050607f4be0374806aed28e157d0f3eac88f9d06b7e8bb9473e1c345",
           "accept": false
         },
         {
-          "frame": "60050e0001020304050608deb2db8795a90f823e588b408c8c66cc6986b7d9e8",
+          "frame": "60050e0001020304050608deb2db87d3db7e430a269d004ca1670666485cb76648a42da4",
           "accept": true,
           "group": 0,
           "from": 489570112,
+          "count": 8,
           "content": "68656c6c6f"
         }
       ]
@@ -365,14 +398,15 @@
       ],
       "deliveries": [
         {
-          "frame": "60050e0001020304050607f4be03745408b7a32f0c17de0d16b4391091e572fb",
+          "frame": "60050e0001020304050607f4be0374806aed28e157d0f3eac88f9d06b7e8bb9473e1c345",
           "accept": true,
           "group": 0,
           "from": 489570112,
+          "count": 7,
           "content": "68656c6c6f"
         },
         {
-          "frame": "6001030001020304050607f4be03745408b7a32f0c17de0d16b4391091e572fb",
+          "frame": "6001030001020304050607f4be0374806aed28e157d0f3eac88f9d06b7e8bb9473e1c345",
           "accept": false
         }
       ]
@@ -387,52 +421,56 @@
       ],
       "deliveries": [
         {
-          "frame": "60050e0000000000000000910b60ecc0cc202a432b0417687bfbc2674a0c7902b5",
+          "frame": "60050e0000000000000000910b60ecc6976c2bbfbf39fcb070735aa6bbc5e767e76333d162",
           "accept": true,
           "group": 1,
           "from": 489570112,
+          "count": 0,
           "content": "7365636f6e64"
         },
         {
-          "frame": "60050e0000000000000000910b60ece5be38e55cf511dd636dfe90a9d9a02046",
+          "frame": "60050e0000000000000000910b60ecac1eecb2303fdbf59830813d4442b08079178c0deb",
           "accept": true,
           "group": 0,
           "from": 489570112,
+          "count": 0,
           "content": "6669727374"
         }
       ]
     },
     {
-      "name": "node-and-words-one-nonce",
-      "note": "a frame for the node and one of words share a group's nonces: the second with a nonce the first had is refused, whichever kind it is",
+      "name": "node-and-words-one-count",
+      "note": "a frame for the node and one of words take their counts from one: words with the count a frame for the node had are refused, and the next are not",
       "self": 168496141,
       "groups": [
         "000102030405060708090a0b0c0d0e0f"
       ],
       "deliveries": [
         {
-          "frame": "61050e666666666666666634abfdda4f9ac2f3dc217184498629747493",
+          "frame": "61050e666666666666666634abfdda16dccb1d3d4cb8f9a9810526f4a3743e33b8",
           "accept": true,
           "group": 0,
           "from": 489570112,
+          "count": 5,
           "content": "0200"
         },
         {
-          "frame": "60050e666666666666666634abfdda4f9ac2f3b64447625c76d1adb9f72701f6",
+          "frame": "60050e66666666666666674ea8f272e8e4476c5b53291445f409b35165886bb07030cdd3",
           "accept": false
         },
         {
-          "frame": "60050e66666666666666674ea8f27284cda96ddedfa7341ded1d910f3c13fc0a",
+          "frame": "60050e6666666666666668c1e12e01ac72484e937c3b7f67d5fa659593eb869396e02810",
           "accept": true,
           "group": 0,
           "from": 489570112,
+          "count": 6,
           "content": "68656c6c6f"
         }
       ]
     },
     {
-      "name": "same-nonce-two-groups",
-      "note": "a nonce accepted for one group does not stand against another's",
+      "name": "same-count-two-groups",
+      "note": "a count accepted for one group does not stand against another's, from the same writer",
       "self": 168496141,
       "groups": [
         "000102030405060708090a0b0c0d0e0f",
@@ -440,53 +478,491 @@
       ],
       "deliveries": [
         {
-          "frame": "60050e0001020304050607f4be03745408b7a32f0c17de0d16b4391091e572fb",
+          "frame": "60050e0001020304050607f4be0374806aed28e157d0f3eac88f9d06b7e8bb9473e1c345",
           "accept": true,
           "group": 0,
           "from": 489570112,
+          "count": 7,
           "content": "68656c6c6f"
         },
         {
-          "frame": "60050e0001020304050607d77c24f0ca61d1b6ee579b52421d1a54e1eae8",
+          "frame": "60050e0001020304050607d77c24f0e0762656529bea40ea892066a5efb0f5e8f138",
           "accept": true,
           "group": 1,
           "from": 489570112,
+          "count": 7,
           "content": "74776f"
+        }
+      ]
+    },
+    {
+      "name": "same-count-two-writers",
+      "note": "nor one writer's against another's, in one group",
+      "self": 168496141,
+      "groups": [
+        "000102030405060708090a0b0c0d0e0f"
+      ],
+      "deliveries": [
+        {
+          "frame": "60050e0001020304050607f4be0374806aed28e157d0f3eac88f9d06b7e8bb9473e1c345",
+          "accept": true,
+          "group": 0,
+          "from": 489570112,
+          "count": 7,
+          "content": "68656c6c6f"
+        },
+        {
+          "frame": "60050e0001020304050608deb2db87e5c90c5d0a269d0f4ca16706661e58bf8aadb66f5f",
+          "accept": true,
+          "group": 0,
+          "from": 725372254,
+          "count": 7,
+          "content": "68656c6c6f"
         }
       ]
     }
   ],
-  "recent": [
+  "counts": [
     {
-      "name": "edge",
-      "note": "65 frames accepted: the first's nonce has been dropped and the second's has not. Accepting the first again drops the second's.",
+      "name": "window",
+      "note": "the highest accepted is 100, then 132: a count is accepted once, down to 31 below the highest and no further",
       "group_secret": "000102030405060708090a0b0c0d0e0f",
       "self": 168496141,
-      "from": 489570112,
       "content": "68656c6c6f",
       "hops": 5,
       "power": 14,
-      "first": 1000,
-      "count": 65,
-      "again": [
+      "deliveries": [
         {
-          "nonce": "0000000000000428",
-          "frame": "60050e0000000000000428b7221d65d493a4a13da2a2c92eae8b0c50e075c2c6",
-          "accept": false
-        },
-        {
-          "nonce": "00000000000003e9",
-          "frame": "60050e00000000000003e90b3407dbe27ae764ad08d6cef3e58b4ed719b4ab50",
-          "accept": false
-        },
-        {
-          "nonce": "00000000000003e8",
-          "frame": "60050e00000000000003e88b0e1ef94277a2d4b2bc77736099d714024138919a",
+          "from": 489570112,
+          "count": 100,
+          "frame": "60050e0000000000000000e4205580c68969e512892fcca863f1a90479b41e70705fa4d1",
           "accept": true
         },
         {
-          "nonce": "00000000000003e9",
-          "frame": "60050e00000000000003e90b3407dbe27ae764ad08d6cef3e58b4ed719b4ab50",
+          "from": 489570112,
+          "count": 100,
+          "frame": "60050e0000000000000001bd538cc8f75dabdbb3e10ef957f82312219132e7b13b242460",
+          "accept": false
+        },
+        {
+          "from": 489570112,
+          "count": 99,
+          "frame": "60050e0000000000000002f6c79d8c770238fc52fd26d43f437a1a16a9d17d369913b3c7",
+          "accept": true
+        },
+        {
+          "from": 489570112,
+          "count": 99,
+          "frame": "60050e00000000000000034fb5cc22778882ca5d5b1848ebaeec19953e82948fac455829",
+          "accept": false
+        },
+        {
+          "from": 489570112,
+          "count": 69,
+          "frame": "60050e00000000000000046b27815ebb702584dd4882c82771a7199c4991ad53a5d5d704",
+          "accept": true
+        },
+        {
+          "from": 489570112,
+          "count": 68,
+          "frame": "60050e0000000000000005038f048fea52022fafae9638da1329776711b3542715c16733",
+          "accept": false
+        },
+        {
+          "from": 489570112,
+          "count": 132,
+          "frame": "60050e0000000000000006ff9cf29ee9129bbc73bfa46969f1407beded36c1cdce0d102a",
+          "accept": true
+        },
+        {
+          "from": 489570112,
+          "count": 101,
+          "frame": "60050e0000000000000007e8a1fe98024c254e8f32720596a2b5916ee7f42fe3060c054c",
+          "accept": true
+        },
+        {
+          "from": 489570112,
+          "count": 100,
+          "frame": "60050e00000000000000087c70dcadce5c38d68d9f34505af9f3c83183a68d6344eda4ac",
+          "accept": false
+        },
+        {
+          "from": 489570112,
+          "count": 69,
+          "frame": "60050e0000000000000009bec11280deff7eb66888cb6c959ca6d2b6507f9c65d51bb45f",
+          "accept": false
+        },
+        {
+          "from": 489570112,
+          "count": 131,
+          "frame": "60050e000000000000000a6777ecf29214f8475140d4146995f168605c01cfc524e81ffc",
+          "accept": true
+        },
+        {
+          "from": 489570112,
+          "count": 131,
+          "frame": "60050e000000000000000bc75a4ec5977e2fa1153e3d0dae081b99b771ea6aae24589216",
+          "accept": false
+        },
+        {
+          "from": 489570112,
+          "count": 133,
+          "frame": "60050e000000000000000c12161970ef5e1afdb05f3e3391e520ea114d290bdcedba35fd",
+          "accept": true
+        },
+        {
+          "from": 489570112,
+          "count": 102,
+          "frame": "60050e000000000000000db87351678fee66c644e1214a102041f8f37327f9f2fa711bc7",
+          "accept": true
+        },
+        {
+          "from": 489570112,
+          "count": 101,
+          "frame": "60050e000000000000000e44de64cfbfcb8ad9eec569b0a8bc3888b94a7971ff6440c447",
+          "accept": false
+        }
+      ]
+    },
+    {
+      "name": "first-count",
+      "note": "a writer's first frame is accepted whatever its count, and the window is counted from it",
+      "group_secret": "000102030405060708090a0b0c0d0e0f",
+      "self": 168496141,
+      "content": "68656c6c6f",
+      "hops": 5,
+      "power": 14,
+      "deliveries": [
+        {
+          "from": 489570112,
+          "count": 5000,
+          "frame": "60050e0000000000000000e4205580c68969e512893c20a863f1a904e86d15412541ab7e",
+          "accept": true
+        },
+        {
+          "from": 489570112,
+          "count": 4969,
+          "frame": "60050e0000000000000001bd538cc8f75dabdbb3e11df457f8231221556d4e26db16343b",
+          "accept": true
+        },
+        {
+          "from": 489570112,
+          "count": 4968,
+          "frame": "60050e0000000000000002f6c79d8c770238fc52fd35df3f437a1a16545cc597594c16d0",
+          "accept": false
+        },
+        {
+          "from": 489570112,
+          "count": 0,
+          "frame": "60050e00000000000000034fb5cc22778882ca5d5b182bebaeec19955e89595b2f929255",
+          "accept": false
+        },
+        {
+          "from": 489570112,
+          "count": 5001,
+          "frame": "60050e00000000000000046b27815ebb702584dd4891042771a7199c0596f24b3ac683cb",
+          "accept": true
+        }
+      ]
+    },
+    {
+      "name": "from-nought",
+      "note": "counts below 31: the window stops at 0",
+      "group_secret": "000102030405060708090a0b0c0d0e0f",
+      "self": 168496141,
+      "content": "68656c6c6f",
+      "hops": 5,
+      "power": 14,
+      "deliveries": [
+        {
+          "from": 489570112,
+          "count": 5,
+          "frame": "60050e0000000000000000e4205580c68969e512892fada863f1a904c542b7a435c03300",
+          "accept": true
+        },
+        {
+          "from": 489570112,
+          "count": 0,
+          "frame": "60050e0000000000000001bd538cc8f75dabdbb3e10e9d57f82312213247c504a5b57e28",
+          "accept": true
+        },
+        {
+          "from": 489570112,
+          "count": 0,
+          "frame": "60050e0000000000000002f6c79d8c770238fc52fd26b73f437a1a16988f3a12401ab157",
+          "accept": false
+        },
+        {
+          "from": 489570112,
+          "count": 4,
+          "frame": "60050e00000000000000034fb5cc22778882ca5d5b182febaeec1995a87b12dfdcdfecc5",
+          "accept": true
+        },
+        {
+          "from": 489570112,
+          "count": 6,
+          "frame": "60050e00000000000000046b27815ebb702584dd48828b2771a7199ca33693ab8f5c1ba9",
+          "accept": true
+        }
+      ]
+    },
+    {
+      "name": "skipped",
+      "note": "a writer may skip, however far: to the last count there is",
+      "group_secret": "000102030405060708090a0b0c0d0e0f",
+      "self": 168496141,
+      "content": "68656c6c6f",
+      "hops": 5,
+      "power": 14,
+      "deliveries": [
+        {
+          "from": 489570112,
+          "count": 0,
+          "frame": "60050e0000000000000000e4205580c68969e512892fa8a863f1a90422776d1b93aa6cee",
+          "accept": true
+        },
+        {
+          "from": 489570112,
+          "count": 4294967295,
+          "frame": "60050e0000000000000001bd538cc8f75dabdb4c1ef16257f823122147e86d126ed2bbf9",
+          "accept": true
+        },
+        {
+          "from": 489570112,
+          "count": 4294967295,
+          "frame": "60050e0000000000000002f6c79d8c770238fcad02d9483f437a1a166027624e0ac42026",
+          "accept": false
+        },
+        {
+          "from": 489570112,
+          "count": 4294967264,
+          "frame": "60050e00000000000000034fb5cc22778882caa2a4e7cbebaeec19957d7cbad9d10e9cb5",
+          "accept": true
+        },
+        {
+          "from": 489570112,
+          "count": 4294967263,
+          "frame": "60050e00000000000000046b27815ebb70258422b77d522771a7199c1c25a6841fe3603c",
+          "accept": false
+        },
+        {
+          "from": 489570112,
+          "count": 0,
+          "frame": "60050e0000000000000005038f048fea52022fafae967cda13297767a5ef39af93298a86",
+          "accept": false
+        },
+        {
+          "from": 489570112,
+          "count": 1,
+          "frame": "60050e0000000000000006ff9cf29ee9129bbc73bfa4ec69f1407beddbe03207722fcbeb",
+          "accept": false
+        }
+      ]
+    },
+    {
+      "name": "two-writers",
+      "note": "each writer's counts are its own",
+      "group_secret": "000102030405060708090a0b0c0d0e0f",
+      "self": 168496141,
+      "content": "68656c6c6f",
+      "hops": 5,
+      "power": 14,
+      "deliveries": [
+        {
+          "from": 489570112,
+          "count": 10,
+          "frame": "60050e0000000000000000e4205580c68969e512892fa2a863f1a904a93d307f55faecea",
+          "accept": true
+        },
+        {
+          "from": 725372254,
+          "count": 10,
+          "frame": "60050e0000000000000001bd538cc8c14fd9c5b3e10e9757f8231221a5229cc99308914f",
+          "accept": true
+        },
+        {
+          "from": 489570112,
+          "count": 10,
+          "frame": "60050e0000000000000002f6c79d8c770238fc52fd26bd3f437a1a16a5cf4200ceb56f79",
+          "accept": false
+        },
+        {
+          "from": 725372254,
+          "count": 9,
+          "frame": "60050e00000000000000034fb5cc22419af0d45d5b1822ebaeec1995fe6f62afbf5b7b9a",
+          "accept": true
+        },
+        {
+          "from": 725372254,
+          "count": 200,
+          "frame": "60050e00000000000000046b27815e8d62579add4882452771a7199c1d8aff3c8f1fec69",
+          "accept": true
+        },
+        {
+          "from": 489570112,
+          "count": 11,
+          "frame": "60050e0000000000000005038f048fea52022fafae9677da132977672b888e9294cc9426",
+          "accept": true
+        },
+        {
+          "from": 725372254,
+          "count": 10,
+          "frame": "60050e0000000000000006ff9cf29edf00e9a273bfa4e769f1407bed059b1c37702111f3",
+          "accept": false
+        }
+      ]
+    },
+    {
+      "name": "writers",
+      "note": "16 writers held, then one more. The one forgotten is the one a frame was accepted from longest ago: the second, since the first wrote again, and a frame that is refused does not count. Its old frame is then accepted again, which forgets the third, whose own is accepted again in turn",
+      "group_secret": "000102030405060708090a0b0c0d0e0f",
+      "self": 168496141,
+      "content": "68656c6c6f",
+      "hops": 5,
+      "power": 14,
+      "deliveries": [
+        {
+          "from": 1879048192,
+          "count": 50,
+          "frame": "60050e0000000000000000e4205580aba756a512892f9aa863f1a904ba755cdf47f6ad92",
+          "accept": true
+        },
+        {
+          "from": 1879048193,
+          "count": 50,
+          "frame": "60050e0000000000000001bd538cc89a73949ab3e10eaf57f8231221f065009de7a461e2",
+          "accept": true
+        },
+        {
+          "from": 1879048194,
+          "count": 50,
+          "frame": "60050e0000000000000002f6c79d8c1a2c07be52fd26853f437a1a16d0a3ba85ddaa7456",
+          "accept": true
+        },
+        {
+          "from": 1879048195,
+          "count": 50,
+          "frame": "60050e00000000000000034fb5cc221aa6bd895d5b1819ebaeec19954fd17dcb56cacc91",
+          "accept": true
+        },
+        {
+          "from": 1879048196,
+          "count": 50,
+          "frame": "60050e00000000000000046b27815ed65e1ac0dd4882bf2771a7199c377aa105cf5d3060",
+          "accept": true
+        },
+        {
+          "from": 1879048197,
+          "count": 50,
+          "frame": "60050e0000000000000005038f048f877c3d6aafae964eda132977675624197deb97e3b1",
+          "accept": true
+        },
+        {
+          "from": 1879048198,
+          "count": 50,
+          "frame": "60050e0000000000000006ff9cf29e843ca4fa73bfa4df69f1407bed30b2156fdfc8ed25",
+          "accept": true
+        },
+        {
+          "from": 1879048199,
+          "count": 50,
+          "frame": "60050e0000000000000007e8a1fe986f621a098f32725296a2b5916e21e5e5d023d55775",
+          "accept": true
+        },
+        {
+          "from": 1879048200,
+          "count": 50,
+          "frame": "60050e00000000000000087c70dcada372079e8d9f34065af9f3c83177cc58a9973a8c71",
+          "accept": true
+        },
+        {
+          "from": 1879048201,
+          "count": 50,
+          "frame": "60050e0000000000000009bec11280b3d141ff6888cb1b959ca6d2b68922be695de5fa97",
+          "accept": true
+        },
+        {
+          "from": 1879048202,
+          "count": 50,
+          "frame": "60050e000000000000000a6777ecf2ff3ac70d5140d4a56995f1686020278f81ce3a5b76",
+          "accept": true
+        },
+        {
+          "from": 1879048203,
+          "count": 50,
+          "frame": "60050e000000000000000bc75a4ec5fa5010ea153e3dbcae081b99b7dbaa5f3df1a4e679",
+          "accept": true
+        },
+        {
+          "from": 1879048204,
+          "count": 50,
+          "frame": "60050e000000000000000c12161970827025b1b05f3e8491e520ea1196762a25ff2d638b",
+          "accept": true
+        },
+        {
+          "from": 1879048205,
+          "count": 50,
+          "frame": "60050e000000000000000db8735167e2c0598b44e1211e102041f8f3a94d994bfa9b6324",
+          "accept": true
+        },
+        {
+          "from": 1879048206,
+          "count": 50,
+          "frame": "60050e000000000000000e44de64cfd2e5b597eec569e7a8bc3888b9973d2c29778fcd54",
+          "accept": true
+        },
+        {
+          "from": 1879048207,
+          "count": 50,
+          "frame": "60050e000000000000000f785012fcd978ed4771d780ad599f4a4362e194dd4cc74e599a",
+          "accept": true
+        },
+        {
+          "from": 1879048193,
+          "count": 50,
+          "frame": "60050e0000000000000010bb944769b309b2f1632eeb7ed011c62d7e343b61ff997071c8",
+          "accept": false
+        },
+        {
+          "from": 1879048192,
+          "count": 51,
+          "frame": "60050e000000000000001164005f51e969fcc797c4ba57a2feb57979532017b20e97b5b0",
+          "accept": true
+        },
+        {
+          "from": 1879048208,
+          "count": 1,
+          "frame": "60050e00000000000000125214dba826cdc5659ad77d76c5ffe2e7cdbd5b78bf16047378",
+          "accept": true
+        },
+        {
+          "from": 1879048192,
+          "count": 50,
+          "frame": "60050e0000000000000013d0b4031b43b62b1abbf7d861117ddf9448d2a83e228b7f6008",
+          "accept": false
+        },
+        {
+          "from": 1879048193,
+          "count": 50,
+          "frame": "60050e00000000000000143d889bbe197883ab643e0f946d7c03c5cc0fceb151b4cb2fd5",
+          "accept": true
+        },
+        {
+          "from": 1879048195,
+          "count": 50,
+          "frame": "60050e0000000000000015264fef26ea675f3c33a293d3146122d9ebfb7bde335dd93668",
+          "accept": false
+        },
+        {
+          "from": 1879048194,
+          "count": 50,
+          "frame": "60050e0000000000000016f7a54ef4f92b9a43558d0013c3194927c2a173e0a1e42ffae5",
+          "accept": true
+        },
+        {
+          "from": 1879048195,
+          "count": 50,
+          "frame": "60050e0000000000000017a92beb0d471d7c54631d45dc571e643ceed03028de7b06fdc5",
           "accept": true
         }
       ]

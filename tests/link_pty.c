@@ -166,6 +166,32 @@ static bool save_ids(void *ctx, uint32_t next) {
     return true;
 }
 
+static bool load_count(void *ctx, uint32_t *next) {
+    (void)ctx;
+    (void)next;
+    return false;
+}
+
+static bool save_count(void *ctx, uint32_t next) {
+    (void)ctx;
+    (void)next;
+    return true;
+}
+
+static size_t load_writers(void *ctx, uint8_t *buf, size_t cap) {
+    (void)ctx;
+    (void)buf;
+    (void)cap;
+    return 0;
+}
+
+static bool save_writers(void *ctx, const uint8_t *buf, size_t len) {
+    (void)ctx;
+    (void)buf;
+    (void)len;
+    return true;
+}
+
 /* This node saves no messages: it is the one whose flash had no room for them. */
 static size_t load_message(void *ctx, size_t place, uint8_t *buf, size_t cap) {
     (void)ctx;
@@ -255,6 +281,10 @@ int main(int argc, char **argv) {
                              .random = no_random,
                              .load_ids = load_ids,
                              .save_ids = save_ids,
+                             .load_count = load_count,
+                             .save_count = save_count,
+                             .load_writers = load_writers,
+                             .save_writers = save_writers,
                              .load_message = load_message,
                              .save_message = save_message,
                              .load_state = load_state,
