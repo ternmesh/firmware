@@ -4,10 +4,14 @@ How the firmware is laid out, and the rules that keep it portable. What the prot
 the specification's business ([ternmesh/spec](https://github.com/ternmesh/spec)); this is only
 about the code.
 
-## Three layers of code
+## Layers of code
 
 ```
- board ports            ports/<board>/   startup, clocks, SPI, interrupts, the radio driver
+ the node               ports/node/      the loop, the companion link, the screen: every port's
+ ──────────────────────────────────────────────────────────────────────────────────────────
+ the platform seam      ports/node/platform.h, board.h, ble.h, implemented by each port
+ ──────────────────────────────────────────────────────────────────────────────────────────
+ ports                  ports/<chip>/    startup, storage, Bluetooth, each board's pins
  ──────────────────────────────────────────────────────────────────────────────────────────
  the seam               include/tern/radio.h   struct tern_radio_ops, implemented by each port
  ──────────────────────────────────────────────────────────────────────────────────────────
@@ -18,11 +22,19 @@ about the code.
 routing. It is one library, `libtern`, and it is the same code on a microcontroller, on a
 single-board computer and in the host tests.
 
-**A port** is everything specific to one board: how it boots, how it talks to its radio over SPI,
-what its interrupts are. Ports live under `ports/`, each built with its platform's own tools
-(`ports/esp32/` with ESP-IDF). A port implements the radio operations in `tern/radio.h`, or
-uses a driver from the core that does (`tern/sx126x.h`, given the board's SPI bus), and calls
-into the core.
+**The node** is what a board runs on top of the core: the loop that drives the radio, the
+companion link a phone or computer uses, the screen's pages, the console. It is the same on every
+chip, in `ports/node/`, and has no hardware code: the parts of it that need none are tested on a
+host. It asks its platform for what it cannot do itself through three headers: `platform.h`
+(storage, random numbers, firmware updates, restarting), `board.h` (the radio's bus, the button,
+the screen, the battery) and `ble.h` (the companion link over Bluetooth).
+
+**A port** is everything specific to one family of chips: how it boots, where it keeps what it
+saves, its Bluetooth stack, how it talks to its radio over SPI, and each board's pins. Ports live
+under `ports/`, each built with its platform's own tools (`ports/esp32/` with ESP-IDF), and
+implement the node's three headers. A port uses a driver from the core for its radio
+(`tern/sx126x.h`, given the board's SPI bus), or implements the radio operations in
+`tern/radio.h` itself. Which boards each port runs is [boards.md](boards.md).
 
 **The seam** between them is deliberately narrow. The core asks a port to configure the radio,
 transmit a frame, listen, stand by, and report what happened. Anything it can check about those

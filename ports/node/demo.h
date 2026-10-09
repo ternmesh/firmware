@@ -52,7 +52,7 @@
 #define DEMO_PEERS 8         /* sessions a board holds */
 #define DEMO_HOLD TERN_S(60) /* the specification's CONTACT_HOLD */
 
-/* What the board provides: whole records saved and loaded by name (on the board, NVS), and
+/* What the board provides: whole records saved and loaded by name (platform.h), and
  * random bytes fit for keys. */
 struct demo_store {
     void *ctx;

@@ -1,20 +1,26 @@
-#ifndef ESP32_BOARD_H
-#define ESP32_BOARD_H
+#ifndef NODE_BOARD_H
+#define NODE_BOARD_H
 
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
-#include "boards.h"
 #include "tern/radio.h"
 #include "tern/sx126x.h"
 #include "tern/time.h"
 
-/* The board the build was made for (Kconfig, "Board"), an ESP32 wired to an SX1262: its pins and
- * what it has fitted are its entry in boards.c. */
+/* The board the node runs on: what each port implements for each board it supports, an SX1262 and
+ * whatever the board has besides (on an ESP32, ports/esp32/main/board.c, its pins from boards.c).
+ * Where a board has no screen, LED or battery, those say so and the node goes on without. */
 
-/* Which board this is. */
-const struct board_def *board_def(void);
+/* The board's name, as its maker sells it. */
+const char *board_title(void);
+
+/* The power the board puts into its antenna, in dBm: the least and the most it gives, and whether
+ * it gives dbm. Every power the node asks of the radio is the antenna's. */
+int8_t board_power_min(void);
+int8_t board_power_max(void);
+bool board_power_ok(int dbm);
 
 /* Sets up the pins and the SPI bus, resets the radio and starts its driver, and powers the board's
  * amplifier if it has one. */

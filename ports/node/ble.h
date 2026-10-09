@@ -1,5 +1,5 @@
-#ifndef HELTEC_V3_BLE_H
-#define HELTEC_V3_BLE_H
+#ifndef NODE_BLE_H
+#define NODE_BLE_H
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -11,7 +11,8 @@
  * a characteristic a client writes frames to and one the node notifies them on, behind LE Secure
  * Connections passkey pairing.
  *
- * NimBLE runs in a task of its own. Everything it reports comes to main.c's loop through
+ * Each port implements it over its platform's Bluetooth stack (on an ESP32, NimBLE, in a task of
+ * its own: ports/esp32/main/ble.c). Everything it reports comes to node.c's loop through
  * ble_poll(), so link.c is only ever called from that loop, as it is for the USB port. A client
  * is a connection for the link once its link is encrypted by a pairing with a passkey, never
  * before: until then nothing is read from it or sent to it. */
@@ -44,12 +45,12 @@ bool ble_start(uint32_t passkey, bool screen);
 /* The passkey for pairings from now: 0 to 999999, or BLE_PASSKEY_RANDOM. */
 void ble_passkey(uint32_t passkey);
 
-/* The next thing NimBLE reported about the present connection, if there is one. It also sends
- * what ble_send() queued, as far as NimBLE has room, so call it often. */
+/* The next thing the stack reported about the present connection, if there is one. It also sends
+ * what ble_send() queued, as far as the stack has room, so call it often. */
 bool ble_poll(struct ble_event *e);
 
-/* One frame to the client, as one notification: queued, in order, until NimBLE has a buffer for
- * it, since a sync sends far more frames at once than NimBLE has buffers. */
+/* One frame to the client, as one notification: queued, in order, until the stack has a buffer
+ * for it, since a sync sends far more frames at once than a stack has buffers. */
 void ble_send(const uint8_t *frame, size_t len);
 
 /* Forgets every bonded client, and drops the one connected. */

@@ -8,7 +8,7 @@
 #include "qr.h"
 #include "tern/share.h"
 
-/* The ESP32 port's screen for the person carrying the board (ports/esp32/main/ui.c),
+/* The node's screen for the person carrying the board (ports/node/ui.c),
  * which has no hardware in it. Each page is drawn into a picture and read back from it, a line at
  * a time, by matching the font's glyphs: so what is checked is what the panel would show.
  *

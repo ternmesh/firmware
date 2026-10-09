@@ -4,6 +4,7 @@
 
 #include "sdkconfig.h"
 
+#include "boards.h"
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
 #include "driver/rtc_io.h"
@@ -72,13 +73,18 @@ static void release(int pin) {
 static bool amp_init(void);
 static void amp_off(void);
 
-const struct board_def *board_def(void) {
+static const struct board_def *board_def(void) {
     static const struct board_def *chosen;
     if (chosen == NULL) {
         chosen = board_def_named(CONFIG_TERN_BOARD_NAME);
     }
     return chosen;
 }
+
+const char *board_title(void) { return B->title; }
+int8_t board_power_min(void) { return board_min_dbm(B); }
+int8_t board_power_max(void) { return board_max_dbm(B); }
+bool board_power_ok(int dbm) { return board_gives(B, dbm); }
 
 tern_time board_now(void) { return (tern_time)esp_timer_get_time() * 1000; }
 
