@@ -2,7 +2,7 @@
 
 #include "check.h"
 
-/* The Heltec V3 port's battery (ports/heltec-v3/main/power.c): which reading is the battery's,
+/* The ESP32 port's battery (ports/esp32/main/power.c): which reading is the battery's,
  * whichever board revision it is, and the charge a voltage is shown as. */
 
 /* A V3.2: GPIO37 high turns the circuit on, and low leaves only the divider's pull to ground. */

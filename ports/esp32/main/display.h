@@ -7,7 +7,7 @@
 /* A picture of a 128x64 monochrome screen, kept in the controller's own layout, and lines of text
  * drawn into it.
  *
- * The SSD1306 the Heltec V3 has, like most small OLED controllers, divides its 64 rows into eight
+ * The SSD1306 the Heltecs have, like most small OLED controllers, divides its 64 rows into eight
  * pages of eight, and takes a page as 128 bytes: one per column, its lowest bit at the top. Text
  * here is drawn a page at a time, six pixels a character, so each line of text is one page, and
  * only the pages that changed need sending. Sending a page is the board's (board_screen_page());

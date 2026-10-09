@@ -5,7 +5,7 @@
 #include "check.h"
 #include "tern/route.h"
 
-/* The Heltec V3 port's half of the companion link (ports/heltec-v3/main/link.c), on a host with a
+/* The ESP32 port's half of the companion link (ports/esp32/main/link.c), on a host with a
  * fake board: what it answers, the news it sends, and the specification's exchange, a whole
  * connection, frame for frame. */
 

@@ -6,7 +6,7 @@ specification's. But most of what a user needs to see is something the specifica
 drafted yet, so each part below says which draft it waits on.
 
 This document is about the interface someone uses when they carry a Tern node about, as they
-would a Meshtastic or MeshCore one. The Heltec V3 port draws [a first version](../ports/heltec-v3/README.md#the-screen)
+would a Meshtastic or MeshCore one. The ESP32 port draws [a first version](../ports/esp32/README.md#the-screen)
 of [the node's own screen](#the-nodes-own-screen): Home, Messages, Air, Share and This node. The bench
 screen it had before, the serial console drawn on the display for developers, is now a developer
 setting.
@@ -83,9 +83,9 @@ be tested on a host and two can live side by side in the simulator. Where it sho
 in the port while there is one board, and probably in the core once a second board needs the same
 thing.
 
-The screen reads from a small first version of this (`ui_node` in `ports/heltec-v3/main/ui.h`),
+The screen reads from a small first version of this (`ui_node` in `ports/esp32/main/ui.h`),
 filled from the radio, the router and the companion link. The link keeps the contacts and the
-messages with their delivery states (`ports/heltec-v3/main/link.c`), and whether each received
+messages with their delivery states (`ports/esp32/main/link.c`), and whether each received
 message has been read, so a message read on the screen is read on the phone too, and the other
 way round. The bench pages keep their own snapshot (`node_status` in `status.h`).
 

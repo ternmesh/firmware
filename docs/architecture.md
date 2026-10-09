@@ -20,7 +20,7 @@ single-board computer and in the host tests.
 
 **A port** is everything specific to one board: how it boots, how it talks to its radio over SPI,
 what its interrupts are. Ports live under `ports/`, each built with its platform's own tools
-(`ports/heltec-v3/` with ESP-IDF). A port implements the radio operations in `tern/radio.h`, or
+(`ports/esp32/` with ESP-IDF). A port implements the radio operations in `tern/radio.h`, or
 uses a driver from the core that does (`tern/sx126x.h`, given the board's SPI bus), and calls
 into the core.
 

@@ -1,7 +1,7 @@
 name: Release
 
-# A tag v<version> makes a release: the Heltec V3 images for each region, built from the tag, with
-# their checksums and the notes in docs/releases/v<version>.md. A version with a hyphen in it
+# A tag v<version> makes a release: every ESP32 board's images for each region, built from the
+# tag, with their checksums and the notes in docs/releases/v<version>.md. A version with a hyphen in it
 # (0.1.0-alpha.1) is marked a pre-release.
 on:
   push:
@@ -25,7 +25,7 @@ jobs:
         with:
           esp_idf_version: v5.5.5
           target: esp32s3
-          path: ports/heltec-v3
+          path: ports/esp32
           command: ./release.sh ${{ steps.tag.outputs.version }}
       - name: Publish
         env:
@@ -34,4 +34,4 @@ jobs:
           case "$GITHUB_REF_NAME" in *-*) pre=--prerelease ;; *) pre= ;; esac
           gh release create "$GITHUB_REF_NAME" $pre --verify-tag --title "$GITHUB_REF_NAME" \
             --notes-file "docs/releases/$GITHUB_REF_NAME.md" \
-            ports/heltec-v3/release/*.bin ports/heltec-v3/release/SHA256SUMS
+            ports/esp32/release/*.bin ports/esp32/release/SHA256SUMS
