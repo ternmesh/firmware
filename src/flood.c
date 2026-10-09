@@ -11,6 +11,9 @@ void tern_flood_id(const uint8_t *frame, size_t len, uint8_t id[TERN_FLOOD_ID]) 
     struct tern_sha256 c;
     uint8_t h[TERN_SHA256_LEN];
     tern_sha256_init(&c);
+    if (len > 0) {
+        tern_sha256_update(&c, frame, 1); /* hdr: the rest of the head changes at every node */
+    }
     if (len > TERN_FLOOD_HEAD) {
         tern_sha256_update(&c, frame + TERN_FLOOD_HEAD, len - TERN_FLOOD_HEAD);
     }
@@ -188,6 +191,19 @@ static int8_t power(const struct tern_flood *f) {
         need = p > need ? p : need;
     }
     return (int8_t)need;
+}
+
+bool tern_flood_own_room(const struct tern_flood *f, tern_time now, size_t len) {
+    struct tern_flood_bucket b = f->own; /* a copy: asking spends nothing */
+    refill(&b, now);
+    int64_t need = airtime(f, len) + airtime(f, TERN_FLOOD_FRAME_MAX);
+    for (size_t i = 0; i < f->cap; i++) {
+        const struct tern_flood_slot *s = &f->slot[i];
+        if (s->own && s->state == TERN_FLOOD_WAITING) {
+            need += airtime(f, s->len);
+        }
+    }
+    return b.have >= need * MILLION;
 }
 
 bool tern_flood_send(struct tern_flood *f, tern_time now, const uint8_t *frame, size_t len) {

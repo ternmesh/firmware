@@ -26,6 +26,7 @@
  * it makes keys with. */
 
 #define TERN_GROUP_HDR 0x60
+#define TERN_GROUP_HDR_NODE 0x61 /* the flag `node` set: content is for the node, not words */
 #define TERN_GROUP_SECRET 16
 #define TERN_GROUP_NONCE 8
 #define TERN_GROUP_TAG 4
@@ -57,6 +58,12 @@ int tern_group_seal(const struct tern_group *g, const uint8_t nonce[TERN_GROUP_N
                     uint32_t from, const uint8_t *content, size_t len, uint8_t *frame,
                     size_t frame_cap);
 
+/* The same, with the flag `node` set: content is for the members' nodes, and its first byte says
+ * what it is, as a unicast message for the node's does (TERN_POSITION_KIND, tern/position.h). */
+int tern_group_seal_node(const struct tern_group *g, const uint8_t nonce[TERN_GROUP_NONCE],
+                         uint32_t from, const uint8_t *content, size_t len, uint8_t *frame,
+                         size_t frame_cap);
+
 /* What became of a received frame. */
 enum tern_group_verdict {
     TERN_GROUP_ACCEPTED = 1,
@@ -73,6 +80,7 @@ struct tern_group_received {
     size_t group;  /* index into the array of groups given */
     uint32_t from; /* the routing id the frame says wrote it: a member's claim, not a proof */
     size_t len;    /* content bytes written */
+    bool node;     /* the flag `node` was set: content is for the node, never words to show */
 };
 
 /* Receives a frame on behalf of every group the node holds; a NULL entry is a place with no

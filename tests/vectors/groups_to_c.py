@@ -32,8 +32,8 @@ def main():
     L.append("static const struct accepted_case accepted[] = {")
     for c in v["accepted"]:
         i = c["intermediate"]
-        L.append(f"    {{\"{c['name']}\", {hexbytes(c['group_secret'])}, {hexbytes(c['nonce'])}, "
-                 f"{c['from']}u, {blob(c['content'])}, {c['hops']}, {c['power']}, {c['self']}u, "
+        L.append(f"    {{\"{c['name']}\", {c['hdr']}, {b(c['node'])}, {hexbytes(c['group_secret'])}, "
+                 f"{hexbytes(c['nonce'])}, {c['from']}u, {blob(c['content'])}, {c['hops']}, {c['power']}, {c['self']}u, "
                  f"{hexbytes(i['group_key'])}, {hexbytes(i['gtag'])}, {blob(c['frame'])}}},")
     L.append("};")
 
