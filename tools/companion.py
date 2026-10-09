@@ -285,9 +285,17 @@ class Node:
                 return
             self._read()
 
-    def request(self, kind, /, refusable=False, **values):
+    def request(self, kind, /, refusable=False, retry=False, **values):
         """Sends a request and returns its answer, keeping any news that came first. An ERROR
-        ends the script, unless the caller takes refusals."""
+        ends the script, unless the caller takes refusals. With `retry`, a request not answered is
+        sent once more: for one the node takes twice without harm."""
+        for _ in range(2 if retry else 1):
+            answer = self._ask(kind, refusable, values)
+            if answer is not None:
+                return answer
+        raise SystemExit(f"{kind}: no answer. Is the node on this port, and running Tern?")
+
+    def _ask(self, kind, refusable, values):
         self.seq = self.seq % 255 + 1
         self.port.write(wrap(encode(kind, self.seq, speak=self.speak, **values)))
         for m in self._frames(ANSWER_WAIT):
@@ -300,7 +308,7 @@ class Node:
                 if m["type"] == "ERROR" and not refusable:
                     raise SystemExit(f"{kind}: {ERRORS.get(m['code'], m['code'])}")
                 return m
-        raise SystemExit(f"{kind}: no answer. Is the node on this port, and running Tern?")
+        return None
 
     def news(self, wait):
         """News kept, then news for `wait` seconds. A PING goes whenever `idle` has passed since
@@ -421,7 +429,7 @@ def update(node, info, path):
     shown = -1
     while at < len(image):
         chunk = image[at:at + UPDATE_CHUNK]
-        a = node.request("UPDATE_DATA", refusable=True, offset=at, data=chunk)
+        a = node.request("UPDATE_DATA", refusable=True, retry=True, offset=at, data=chunk)
         if a["type"] == "ERROR" and a["code"] == 10:
             at = node.request("UPDATE_BEGIN", size=len(image), digest=digest)["offset"]
             continue

@@ -356,9 +356,11 @@ static bool link_update_begin(void *ctx, uint32_t size) {
             next.region =
                 tern_region((enum tern_region_id)id) == region ? (uint8_t)id : next.region;
         }
-        if (nvs_save(NULL, "settings", &next, sizeof next)) {
-            settings = next;
+        if (!nvs_save(NULL, "settings", &next, sizeof next)) {
+            update_abandon(); /* the region could not be kept: not now */
+            return false;
         }
+        settings = next;
     }
     printf("an update of %lu bytes begins\n", (unsigned long)size);
     return true;
