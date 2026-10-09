@@ -9,6 +9,10 @@ between the core and a port is [architecture.md](architecture.md); this is about
 |---|---|---|---|---|
 | Heltec WiFi LoRa 32 V3 | ESP32-S3 | SX1262 | [`ports/esp32/`](../ports/esp32/) | Runs |
 | Heltec WiFi LoRa 32 V4 (V4.2, V4.3) | ESP32-S3 | SX1262, 28 dBm amplifier | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board |
+| Heltec Wireless Stick Lite V3 | ESP32-S3 | SX1262 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board |
+| Heltec Wireless Tracker (V1.0, V1.1) | ESP32-S3 | SX1262 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board; no screen yet (an 80x160 TFT) |
+| Heltec Vision Master E290, E213 | ESP32-S3 | SX1262 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board; no screen yet (e-paper) |
+| Heltec Wireless Paper | ESP32-S3 | SX1262 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board; no screen yet (e-paper) |
 | Heltec Mesh Node T114 V2 | nRF52840 | SX1262 | [`ports/nrf52/`](../ports/nrf52/) | Built, not yet run on a board |
 
 A board is **Runs** once someone has flashed a release onto one and checked it as
@@ -81,7 +85,7 @@ goes a family or a radio at a time, and each one brings a crowd of boards with i
 
 | What | Brings | Needs | Status |
 |---|---|---|---|
-| ESP32-S3 + SX1262 | Heltec V3, V4, Wireless Stick Lite V3, Wireless Tracker, Vision Master; LilyGo T3-S3, T-Beam Supreme, T-Deck; Seeed XIAO ESP32S3 kit; B&Q Station G2; RAK3312 | A row each; a power chip for the T-Beam Supreme, other screens for the rest | Port exists: V3 runs, V4 built |
+| ESP32-S3 + SX1262 | Heltec V3, V4, Wireless Stick Lite V3, Wireless Tracker, Vision Master, Wireless Paper; LilyGo T3-S3, T-Beam Supreme, T-Deck; Seeed XIAO ESP32S3 kit; B&Q Station G2; RAK3312 | A row each; a power chip for the T-Beam Supreme, other screens for the rest | Port exists: V3 runs; V4, Stick Lite V3, Tracker, Vision Master and Paper built |
 | nRF52840 + SX1262 | Heltec T114, Mesh Pocket; RAK4631 and the WisMesh devices on it; Seeed Wio Tracker L1, XIAO nRF52840 kit; LilyGo T-Echo; Elecrow ThinkNode | An overlay each, once `board.c` reads its board from the devicetree; e-paper for the T-Echo and others | Port exists: T114 built |
 | SX1276/SX1278 driver | LilyGo T-Beam to v1.2, T3 V1.6; Heltec V2; other boards of before 2022 | A driver in `src/`, beside the SX1262's | Next radio |
 | ESP32 (classic) | The SX1276 boards above, and the T-Beam v1.x with an SX1262 | The ESP32 port for another target | With the SX127x driver |
@@ -101,10 +105,22 @@ In the order that reaches the most boards for the work:
 
 ### More ESP32 boards
 
-Rows, as above: among others, the Heltec Wireless Stick Lite V3 (no screen), the LilyGo T3-S3
-(its SX1262 version) and T-Beam Supreme, Seeed's XIAO ESP32S3 with the Wio-SX1262, and the B&Q
-Station G2. Each waits on its maker's documents, and the T-Beam Supreme on a power management
-chip.
+Rows, as above. Those whose makers' documents have been read, and what each still waits on:
+
+* **LilyGo T3-S3** (SX1262, V1.2 and V1.3): its pins are in LilyGo's wiki, schematics and
+  `utilities.h`. It has 4 MB of flash, and the port's flash layout (`partitions.csv`) needs more
+  than that, so it waits on a layout for 4 MB boards. Its TCXO's voltage is not documented.
+* **Seeed XIAO ESP32S3 with the Wio-SX1262**: its pins are in Seeed's two schematics, but the
+  module's RF_SW line (GPIO38) has no documented level, and its button (GPIO21) is the XIAO's LED's
+  pin too. It waits on a row for a pin that enables the antenna switch, and on a board to try both
+  levels on.
+* **RAKwireless RAK3312** (on a RAK19007): no user button, which every row needs today to turn the
+  board on and off, and an antenna switch powered from GPIO4. It waits on a row for both.
+* **LilyGo T-Beam Supreme**: waits on a power management chip, and its maker's documents.
+* **B&Q Station G2**: waits on its maker's documents.
+
+And the screens these boards have, which the port does not drive yet: the Wireless Tracker's
+80x160 TFT, and the Vision Masters' and Wireless Paper's e-paper. Each runs without one today.
 
 ### More nRF52840 boards
 

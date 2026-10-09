@@ -61,6 +61,11 @@ struct board_def {
 
 extern const struct board_def board_heltec_v3;
 extern const struct board_def board_heltec_v4;
+extern const struct board_def board_heltec_wsl_v3;
+extern const struct board_def board_heltec_tracker;
+extern const struct board_def board_heltec_vme290;
+extern const struct board_def board_heltec_vme213;
+extern const struct board_def board_heltec_paper;
 
 /* Every board this port knows, ending with NULL. */
 extern const struct board_def *const board_defs[];

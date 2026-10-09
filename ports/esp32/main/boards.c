@@ -77,7 +77,122 @@ const struct board_def board_heltec_v4 = {
     .max_dbm = 28,
 };
 
-const struct board_def *const board_defs[] = {&board_heltec_v3, &board_heltec_v4, NULL};
+/* Heltec's other ESP32-S3 boards with an SX1262 are wired as the V3 is where they share a part, and
+ * each wires the SX1262 the same way: NSS 8, SCK 9, MOSI 10, MISO 11, RESET 12, BUSY 13, a 32 MHz
+ * TCXO powered from DIO3 and a UPG2179 antenna switch on DIO2, with no amplifier. Their schematics
+ * do not give the TCXO's voltage; the V3's 1.8 V is taken, and a board whose radio does not start
+ * says so (docs/boards.md, bringing a board up). None of their screens is an SSD1306, so each runs
+ * without one until the port has a driver for it. */
+#define HELTEC_SX1262                                                                              \
+    {                                                                                              \
+        .nss = 8, .sck = 9, .mosi = 10, .miso = 11, .reset = 12, .busy = 13, .tcxo_mv = 1800,      \
+        .dio2_rf_switch = true                                                                     \
+    }
+#define NO_AMP                                                                                     \
+    {                                                                                              \
+        .power = BOARD_NO_PIN, .enable = BOARD_NO_PIN, .tx = { BOARD_NO_PIN, BOARD_NO_PIN }        \
+    }
+#define NO_SCREEN                                                                                  \
+    { .sda = BOARD_NO_PIN, .scl = BOARD_NO_PIN, .reset = BOARD_NO_PIN }
+
+/* The Heltec Wireless Stick Lite V3, from its schematic (HTIT-WSL_V3_Schematic_Diagram), datasheet
+ * (HTIT-WSL_V3 Rev1.1) and pin map: a V3 without its screen. PRG on GPIO0, the LED on GPIO35, and
+ * the battery through 390k over 100k onto GPIO1 behind a P-channel switch GPIO37 turns on when low.
+ * USB through a CP2102, so its console is UART0. Rated 21 dBm, give or take a decibel. */
+const struct board_def board_heltec_wsl_v3 = {
+    .name = "heltec-wsl-v3",
+    .title = "Heltec Wireless Stick Lite V3",
+    .lora = HELTEC_SX1262,
+    .button = 0,
+    .led = 35,
+    .screen = NO_SCREEN,
+    .vext = BOARD_NO_PIN, /* GPIO36, which only the header's 3.3 V is on */
+    .vext_high_on = false,
+    .battery = {.sense = 1, .enable = 37, .top_k = 390, .bottom_k = 100},
+    .amp = NO_AMP,
+    .max_dbm = CHIP_MAX_DBM,
+};
+
+/* The Heltec Wireless Tracker V1.1, from its datasheet (Wireless Tracker1.1), schematic
+ * (HTIT-Tracker_V0.5), pin map and hardware update log. PRG on GPIO0, the LED on GPIO18, and the
+ * battery through 390k over 100k onto GPIO1, behind a switch GPIO2 turns on when high. Its 80x160
+ * colour TFT and its GNSS are on a supply GPIO3 turns on (high on the V1.1, low on the V1.0), left
+ * off. USB from the ESP32-S3's own port (boards/heltec-tracker.defaults). Rated 21 dBm, give or
+ * take a decibel. The V1.0's radio, button, LED and battery are on the same pins
+ * (HTIT-Tracker_V0.3), so the image runs on it too. */
+const struct board_def board_heltec_tracker = {
+    .name = "heltec-tracker",
+    .title = "Heltec Wireless Tracker",
+    .lora = HELTEC_SX1262,
+    .button = 0,
+    .led = 18,
+    .screen = NO_SCREEN,
+    .vext = BOARD_NO_PIN,
+    .vext_high_on = true,
+    .battery = {.sense = 1, .enable = 2, .top_k = 390, .bottom_k = 100},
+    .amp = NO_AMP,
+    .max_dbm = CHIP_MAX_DBM,
+};
+
+/* The Heltec Vision Master E290 and E213, from their schematics (HT-VME290, HT-VME213) and
+ * datasheets, and the HT-RA62 module's, which carries their SX1262. The two are wired alike but
+ * for their e-paper panels (128x296 and 122x250), which this port does not drive yet. The user
+ * button on GPIO21 (BOOT, GPIO0, is the other), the LED on GPIO45, and the battery through 390k
+ * over 100k onto GPIO7, behind a switch GPIO46 turns on when high. The E213's datasheet names
+ * GPIO17 for that switch, but both its schematics wire GPIO46, as the E290's do; the schematics are
+ * taken, and the switch's sense is learnt either way (power.h). USB from the ESP32-S3's own port.
+ * Rated 21 dBm, give or take a decibel. */
+const struct board_def board_heltec_vme290 = {
+    .name = "heltec-vme290",
+    .title = "Heltec Vision Master E290",
+    .lora = HELTEC_SX1262,
+    .button = 21,
+    .led = 45,
+    .screen = NO_SCREEN,
+    .vext = BOARD_NO_PIN, /* GPIO18, the panel's supply, high on */
+    .vext_high_on = true,
+    .battery = {.sense = 7, .enable = 46, .top_k = 390, .bottom_k = 100},
+    .amp = NO_AMP,
+    .max_dbm = CHIP_MAX_DBM,
+};
+
+const struct board_def board_heltec_vme213 = {
+    .name = "heltec-vme213",
+    .title = "Heltec Vision Master E213",
+    .lora = HELTEC_SX1262,
+    .button = 21,
+    .led = 45,
+    .screen = NO_SCREEN,
+    .vext = BOARD_NO_PIN, /* GPIO18, the panel's supply, high on */
+    .vext_high_on = true,
+    .battery = {.sense = 7, .enable = 46, .top_k = 390, .bottom_k = 100},
+    .amp = NO_AMP,
+    .max_dbm = CHIP_MAX_DBM,
+};
+
+/* The Heltec Wireless Paper, from its schematic (Wireless_Paper_V0.4) and datasheet (Rev1.0); its
+ * update log changes only the panel after it. A button on GPIO0, the LED on GPIO18, and the battery
+ * through 10k over 10k onto GPIO20, behind a P-channel switch GPIO19 turns on when low: the even
+ * divider puts a full cell at 2.1 V, which board.c reads in the ADC's widest range. Its 2.13-inch
+ * e-paper is not driven yet. USB through a CP2102, so its console is UART0. Heltec rates no
+ * power at the antenna, so the chip's most is taken. */
+const struct board_def board_heltec_paper = {
+    .name = "heltec-paper",
+    .title = "Heltec Wireless Paper",
+    .lora = HELTEC_SX1262,
+    .button = 0,
+    .led = 18,
+    .screen = NO_SCREEN,
+    .vext = BOARD_NO_PIN, /* GPIO45, the panel's supply, low on */
+    .vext_high_on = false,
+    .battery = {.sense = 20, .enable = 19, .top_k = 10, .bottom_k = 10},
+    .amp = NO_AMP,
+    .max_dbm = CHIP_MAX_DBM,
+};
+
+const struct board_def *const board_defs[] = {
+    &board_heltec_v3,     &board_heltec_v4,     &board_heltec_wsl_v3, &board_heltec_tracker,
+    &board_heltec_vme290, &board_heltec_vme213, &board_heltec_paper,  NULL};
 
 const struct board_def *board_def_named(const char *name) {
     for (size_t i = 0; name != NULL && board_defs[i] != NULL; i++) {
