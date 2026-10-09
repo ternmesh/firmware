@@ -319,12 +319,12 @@ static void test_seen(void) {
             const struct seen_ask *a = &c->asks[k];
             while (taken < c->n_takes && c->takes[taken].at <= a->at) {
                 CHECK(tern_flood_heard(&x.f, c->takes[taken].at, frame,
-                                       make(frame, 30, 5, c->takes[taken].id)));
+                                       make(frame, 40, 5, c->takes[taken].id)));
                 taken++;
             }
             /* A frame not seen is taken as seen by the asking, which the cases allow for: each
              * such id is asked after once, and last. */
-            if (tern_flood_heard(&x.f, a->at, frame, make(frame, 30, 5, a->id)) == a->seen) {
+            if (tern_flood_heard(&x.f, a->at, frame, make(frame, 40, 5, a->id)) == a->seen) {
                 fprintf(stderr, "seen %s: ask %zu\n", c->name, k);
                 check_failures++;
             }
@@ -336,10 +336,10 @@ static void test_seen(void) {
     uint8_t frame[TERN_FLOOD_FRAME_MAX];
     start(&x, false, 6);
     for (unsigned k = 0; k <= TERN_FLOOD_SEEN; k++) {
-        CHECK(tern_flood_heard(&x.f, 0, frame, make(frame, 30, 5, k)));
+        CHECK(tern_flood_heard(&x.f, 0, frame, make(frame, 40, 5, k)));
     }
-    CHECK(!tern_flood_heard(&x.f, 0, frame, make(frame, 30, 5, 1)));
-    CHECK(tern_flood_heard(&x.f, 0, frame, make(frame, 30, 5, 0)));
+    CHECK(!tern_flood_heard(&x.f, 0, frame, make(frame, 40, 5, 1)));
+    CHECK(tern_flood_heard(&x.f, 0, frame, make(frame, 40, 5, 0)));
 }
 
 /* A node's own frames: with the hops a flood starts with, at once while the allowance lasts, and
@@ -351,7 +351,7 @@ static void test_own(void) {
     enum tern_flood_kind kind;
     uint8_t h;
     start(&x, false, 8);
-    CHECK(!tern_flood_send(&x.f, 0, frame, make(frame, 26, 0, 0))); /* shorter than any */
+    CHECK(!tern_flood_send(&x.f, 0, frame, make(frame, 30, 0, 0))); /* shorter than any */
     for (unsigned k = 0; k < 10; k++) {
         CHECK(tern_flood_send(&x.f, 0, frame, make(frame, 255, 0, k)));
         size_t len = tern_flood_poll(&x.f, 0, out, &dbm, &kind, &h);

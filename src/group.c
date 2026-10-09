@@ -8,17 +8,24 @@
 #define AT_NONCE 3
 #define AT_TAG (AT_NONCE + TERN_GROUP_NONCE)
 #define AT_BODY (AT_TAG + TERN_GROUP_TAG)
-#define FROM 4
+#define INSIDE 8 /* from and count, before the content */
 #define AAD (1 + TERN_GROUP_NONCE + TERN_GROUP_TAG)
 
 static uint32_t get32(const uint8_t *b) {
     return (uint32_t)b[0] << 24 | (uint32_t)b[1] << 16 | (uint32_t)b[2] << 8 | b[3];
 }
 
+static void put32(uint8_t *b, uint32_t v) {
+    b[0] = (uint8_t)(v >> 24);
+    b[1] = (uint8_t)(v >> 16);
+    b[2] = (uint8_t)(v >> 8);
+    b[3] = (uint8_t)v;
+}
+
 static bool an_id(uint32_t id) { return id != 0 && id != 0xFFFFFFFFu; }
 
 void tern_group_init(struct tern_group *g, const uint8_t secret[TERN_GROUP_SECRET]) {
-    static const uint8_t key_info[] = "tern v0 group key", tag_info[] = "tern v0 group tag";
+    static const uint8_t key_info[] = "tern v0 group frame", tag_info[] = "tern v0 group tag";
     uint8_t tk[TERN_AES128_KEY];
     memset(g, 0, sizeof *g);
     memcpy(g->secret, secret, TERN_GROUP_SECRET);
@@ -45,13 +52,13 @@ static void ccm_nonce(const uint8_t *nonce, uint8_t out[TERN_CCM_NONCE]) {
 }
 
 static int seal(const struct tern_group *g, uint8_t hdr, const uint8_t nonce[TERN_GROUP_NONCE],
-                uint32_t from, const uint8_t *content, size_t len, uint8_t *frame,
+                uint32_t from, uint32_t count, const uint8_t *content, size_t len, uint8_t *frame,
                 size_t frame_cap) {
     if (len > TERN_GROUP_MAX_CONTENT || frame == NULL || frame_cap < len + TERN_GROUP_OVERHEAD ||
         (content == NULL && len > 0) || !an_id(from)) {
         return TERN_EINVAL;
     }
-    uint8_t nc[TERN_CCM_NONCE], aad[AAD], plain[FROM + TERN_GROUP_MAX_CONTENT];
+    uint8_t nc[TERN_CCM_NONCE], aad[AAD], plain[INSIDE + TERN_GROUP_MAX_CONTENT];
     frame[0] = hdr;
     frame[1] = 0;
     frame[2] = 0;
@@ -59,45 +66,58 @@ static int seal(const struct tern_group *g, uint8_t hdr, const uint8_t nonce[TER
     gtag(g, nonce, frame + AT_TAG);
     aad[0] = hdr;
     memcpy(aad + 1, frame + AT_NONCE, TERN_GROUP_NONCE + TERN_GROUP_TAG);
-    plain[0] = (uint8_t)(from >> 24);
-    plain[1] = (uint8_t)(from >> 16);
-    plain[2] = (uint8_t)(from >> 8);
-    plain[3] = (uint8_t)from;
+    put32(plain, from);
+    put32(plain + 4, count);
     if (len > 0) {
-        memcpy(plain + FROM, content, len);
+        memcpy(plain + INSIDE, content, len);
     }
     ccm_nonce(nonce, nc);
-    (void)tern_ccm_seal(g->key, nc, aad, sizeof aad, plain, FROM + len, frame + AT_BODY,
-                        frame + AT_BODY + FROM + len);
+    (void)tern_ccm_seal(g->key, nc, aad, sizeof aad, plain, INSIDE + len, frame + AT_BODY,
+                        frame + AT_BODY + INSIDE + len);
     tern_wipe(plain, sizeof plain);
     return TERN_OK;
 }
 
 int tern_group_seal(const struct tern_group *g, const uint8_t nonce[TERN_GROUP_NONCE],
-                    uint32_t from, const uint8_t *content, size_t len, uint8_t *frame,
-                    size_t frame_cap) {
-    return seal(g, TERN_GROUP_HDR, nonce, from, content, len, frame, frame_cap);
+                    uint32_t from, uint32_t count, const uint8_t *content, size_t len,
+                    uint8_t *frame, size_t frame_cap) {
+    return seal(g, TERN_GROUP_HDR, nonce, from, count, content, len, frame, frame_cap);
 }
 
 int tern_group_seal_node(const struct tern_group *g, const uint8_t nonce[TERN_GROUP_NONCE],
-                         uint32_t from, const uint8_t *content, size_t len, uint8_t *frame,
-                         size_t frame_cap) {
-    return seal(g, TERN_GROUP_HDR_NODE, nonce, from, content, len, frame, frame_cap);
+                         uint32_t from, uint32_t count, const uint8_t *content, size_t len,
+                         uint8_t *frame, size_t frame_cap) {
+    return seal(g, TERN_GROUP_HDR_NODE, nonce, from, count, content, len, frame, frame_cap);
 }
 
-static bool held(const struct tern_group *g, const uint8_t *nonce) {
-    for (size_t i = 0; i < g->count; i++) {
-        if (memcmp(g->recent[i], nonce, TERN_GROUP_NONCE) == 0) {
-            return true;
+/* Whether a frame from this writer with this count is one to accept, keeping the count if so. A
+ * writer not held takes a free place, or that of the one a frame was accepted from longest ago. */
+static bool fresh(struct tern_group *g, uint32_t from, uint32_t count) {
+    struct tern_group_writer *w = NULL, *spare = &g->writers[0];
+    for (size_t i = 0; i < TERN_GROUP_WRITERS && w == NULL; i++) {
+        struct tern_group_writer *x = &g->writers[i];
+        if (x->from == from) {
+            w = x;
+        } else if (spare->from != 0 && (x->from == 0 || x->heard < spare->heard)) {
+            spare = x;
         }
     }
-    return false;
-}
-
-static void keep(struct tern_group *g, const uint8_t *nonce) {
-    memcpy(g->recent[g->next], nonce, TERN_GROUP_NONCE);
-    g->next = (uint8_t)((g->next + 1) % TERN_GROUP_RECENT);
-    g->count = (uint8_t)(g->count + (g->count < TERN_GROUP_RECENT));
+    if (w == NULL) {
+        *spare = (struct tern_group_writer){.from = from, .top = count, .had = 1};
+        w = spare;
+    } else if (count > w->top) {
+        uint32_t by = count - w->top;
+        w->had = by >= TERN_GROUP_WINDOW ? 1 : w->had << by | 1;
+        w->top = count;
+    } else {
+        uint32_t back = w->top - count;
+        if (back >= TERN_GROUP_WINDOW || (w->had >> back & 1) != 0) {
+            return false;
+        }
+        w->had |= (uint32_t)1 << back;
+    }
+    w->heard = ++g->heard;
+    return true;
 }
 
 int tern_group_open(struct tern_group *const *g, size_t count, uint32_t self, const uint8_t *frame,
@@ -112,13 +132,13 @@ int tern_group_open(struct tern_group *const *g, size_t count, uint32_t self, co
         out->verdict = TERN_GROUP_MALFORMED;
         return TERN_OK;
     }
-    size_t content_len = len - TERN_GROUP_OVERHEAD, plain_len = FROM + content_len;
+    size_t content_len = len - TERN_GROUP_OVERHEAD, plain_len = INSIDE + content_len;
     if (content_len > content_cap || (content == NULL && content_len > 0)) {
         return TERN_EINVAL;
     }
     const uint8_t *nonce = frame + AT_NONCE;
     uint8_t nc[TERN_CCM_NONCE], aad[AAD], tag[TERN_GROUP_TAG];
-    uint8_t plain[FROM + TERN_GROUP_MAX_CONTENT];
+    uint8_t plain[INSIDE + TERN_GROUP_MAX_CONTENT];
     aad[0] = frame[0];
     memcpy(aad + 1, nonce, TERN_GROUP_NONCE + TERN_GROUP_TAG);
     ccm_nonce(nonce, nc);
@@ -141,19 +161,19 @@ int tern_group_open(struct tern_group *const *g, size_t count, uint32_t self, co
             }
             continue;
         }
-        uint32_t from = get32(plain);
+        uint32_t from = get32(plain), nth = get32(plain + 4);
         if (!an_id(from) || from == self) {
             out->verdict = TERN_GROUP_REFUSED;
-        } else if (held(g[i], nonce)) {
+        } else if (!fresh(g[i], from, nth)) {
             out->verdict = TERN_GROUP_AGAIN;
         } else {
-            keep(g[i], nonce);
             if (content_len > 0) {
-                memcpy(content, plain + FROM, content_len);
+                memcpy(content, plain + INSIDE, content_len);
             }
             out->verdict = TERN_GROUP_ACCEPTED;
             out->group = i;
             out->from = from;
+            out->count = nth;
             out->len = content_len;
             out->node = frame[0] == TERN_GROUP_HDR_NODE;
             tern_wipe(plain, sizeof plain);
@@ -162,6 +182,49 @@ int tern_group_open(struct tern_group *const *g, size_t count, uint32_t self, co
         tern_wipe(plain, sizeof plain);
     }
     return TERN_OK;
+}
+
+size_t tern_group_keep(const struct tern_group *g, uint8_t out[TERN_GROUP_KEPT]) {
+    size_t n = 0;
+    uint32_t after = 0; /* the `heard` of the writer written last */
+    for (;;) {
+        const struct tern_group_writer *next = NULL;
+        for (size_t i = 0; i < TERN_GROUP_WRITERS; i++) {
+            const struct tern_group_writer *w = &g->writers[i];
+            if (w->from != 0 && w->heard > after && (next == NULL || w->heard < next->heard)) {
+                next = w;
+            }
+        }
+        if (next == NULL) {
+            return n;
+        }
+        put32(out + n, next->from);
+        put32(out + n + 4, next->top);
+        n += 8;
+        after = next->heard;
+    }
+}
+
+void tern_group_restore(struct tern_group *g, const uint8_t *kept, size_t len) {
+    memset(g->writers, 0, sizeof g->writers);
+    g->heard = 0;
+    if (len > TERN_GROUP_KEPT) {
+        len = TERN_GROUP_KEPT;
+    }
+    for (size_t at = 0; kept != NULL && at + 8 <= len; at += 8) {
+        uint32_t from = get32(kept + at);
+        bool twice = false;
+        for (size_t i = 0; i < g->heard; i++) {
+            twice = twice || g->writers[i].from == from;
+        }
+        if (an_id(from) && !twice) {
+            /* Every count in the window is taken as accepted: which were is not kept. */
+            g->writers[g->heard] = (struct tern_group_writer){
+                .from = from, .top = get32(kept + at + 4), .had = 0xFFFFFFFFu};
+            g->writers[g->heard].heard = g->heard + 1;
+            g->heard++;
+        }
+    }
 }
 
 size_t tern_group_invite_write(const uint8_t secret[TERN_GROUP_SECRET], const uint8_t *name,

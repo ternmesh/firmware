@@ -46,6 +46,14 @@ bool plat_store_load(const char *key, void *buf, size_t len); /* only a record o
 bool plat_store_save(const char *key, const void *buf, size_t len);
 bool plat_store_has(const char *key);
 
+/* A record whose length varies: its length, with as much of it as fits in buf, or 0 for none. */
+size_t plat_store_read(const char *key, void *buf, size_t cap);
+
+/* Saves a record the board can do without, such as its groups' writers, only if the store keeps
+ * room to spare after it for what the board must always be able to save, as messages are
+ * (plat_message_save()). False if it did not. len 0 takes the record out. */
+bool plat_store_save_if_room(const char *key, const void *buf, size_t len);
+
 /* The link's messages, place by place (link.h): a store shares its room with the records above,
  * and a message must never be why one of those cannot be saved, so the platform, which knows how
  * its store counts room, decides whether one fits. len 0 takes the place's message out. */

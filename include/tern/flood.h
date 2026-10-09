@@ -33,7 +33,7 @@
 #define TERN_FLOOD_HEAD 3 /* hdr, hops and power */
 #define TERN_FLOOD_ID 8
 #define TERN_FLOOD_FRAME_MAX 255
-#define TERN_FLOOD_GROUP_MIN 27 /* a group frame with nothing to say */
+#define TERN_FLOOD_GROUP_MIN 31 /* a group frame with nothing to say */
 #define TERN_FLOOD_SEEN 128     /* frames a node must be able to hold as seen */
 #define TERN_FLOOD_SLOTS_MAX 255
 #define TERN_FLOOD_FLOOR_UNKNOWN INT32_MAX

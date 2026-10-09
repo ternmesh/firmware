@@ -15,5 +15,5 @@ if [ ! -f "boards/$board.defaults" ]; then
     exit 1
 fi
 shift
-idf.py -B "build-$board" -D SDKCONFIG="build-$board/sdkconfig" \
+idf.py -B "build-$board" -D TERN_BOARD="$board" -D SDKCONFIG="build-$board/sdkconfig" \
     -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;boards/$board.defaults" build "$@"

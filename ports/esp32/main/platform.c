@@ -60,6 +60,17 @@ bool plat_store_has(const char *key) {
     return ok;
 }
 
+size_t plat_store_read(const char *key, void *buf, size_t cap) {
+    nvs_handle_t h;
+    size_t len = cap;
+    if (nvs_open(NAMESPACE, NVS_READONLY, &h) != ESP_OK) {
+        return 0;
+    }
+    bool ok = nvs_get_blob(h, key, buf, &len) == ESP_OK;
+    nvs_close(h);
+    return ok ? len : 0;
+}
+
 /* Erases the whole of the flash's NVS partition, as the Reset page asked: the identity, the
  * sessions, contacts, groups, messages, settings and message ids, and the Bluetooth bonds NimBLE
  * keeps there too. Erased, not marked deleted, so the old identity's keys cannot be read back out
@@ -170,6 +181,30 @@ enum link_saved plat_message_save(size_t place, const uint8_t *buf, size_t len) 
         message_entries[place] = entries_for(len);
     }
     return ok ? LINK_SAVED : full ? LINK_NO_ROOM : LINK_NOT_SAVED;
+}
+
+/* Only with MESSAGE_SPARE entries still free besides. */
+bool plat_store_save_if_room(const char *key, const void *buf, size_t len) {
+    nvs_handle_t h;
+    nvs_stats_t stats;
+    if (nvs_open(NAMESPACE, NVS_READWRITE, &h) != ESP_OK) {
+        return false;
+    }
+    esp_err_t e;
+    if (len == 0) {
+        e = nvs_erase_key(h, key);
+        if (e == ESP_ERR_NVS_NOT_FOUND) {
+            e = ESP_OK;
+        }
+    } else if (nvs_get_stats(NULL, &stats) != ESP_OK ||
+               stats.available_entries < MESSAGE_SPARE + entries_for(len)) {
+        e = ESP_ERR_NVS_NOT_ENOUGH_SPACE;
+    } else {
+        e = nvs_set_blob(h, key, buf, len);
+    }
+    bool ok = e == ESP_OK && nvs_commit(h) == ESP_OK;
+    nvs_close(h);
+    return ok;
 }
 
 bool plat_state_load(size_t place, uint64_t *state) {
