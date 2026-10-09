@@ -1,6 +1,7 @@
 #include "ui.h"
 
 #include "qr.h"
+#include "tern/crypto.h"
 #include "tern/share.h"
 
 #include <stdarg.h>
@@ -369,8 +370,8 @@ static void code_page(const char *link, const char *const words[DISPLAY_PAGES], 
         }
     }
     display_copy(d, &canvas);
-    memset(&code, 0, sizeof code);
-    display_init(&canvas);
+    tern_wipe(&code, sizeof code);
+    tern_wipe(&canvas, sizeof canvas);
 }
 
 static void share(const struct ui_node *n, struct display *d) {

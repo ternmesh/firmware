@@ -14,6 +14,16 @@ static int value_of(char c) {
     return at != NULL ? (int)(at - alphanumeric) : -1;
 }
 
+/* Zeroes `len` bytes in a way the compiler keeps: the text may be a group's join code, its
+ * secret, and the copies made of it on the way to a symbol are wiped before qr_encode() returns.
+ * The core's tern_wipe(), here so that this file stands alone, as tests/qr.c builds it. */
+static void wipe(void *p, size_t len) {
+    volatile uint8_t *v = p;
+    for (size_t i = 0; i < len; i++) {
+        v[i] = 0;
+    }
+}
+
 /* --- The codewords -----------------------------------------------------------------------------
  */
 
@@ -355,5 +365,8 @@ bool qr_encode(struct qr *q, const char *text, int mask) {
     apply(&g, best);
     format(&g, best);
     memcpy(q->rows, g.dark, sizeof q->rows);
+    wipe(cw, sizeof cw);
+    wipe(&base, sizeof base);
+    wipe(&g, sizeof g);
     return true;
 }
