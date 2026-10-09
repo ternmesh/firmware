@@ -120,7 +120,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        board: [heltec-t114, wio-tracker-l1]
+        board: [heltec-t114, rak4631, wio-tracker-l1]
     steps:
       - uses: actions/checkout@v4
         with:

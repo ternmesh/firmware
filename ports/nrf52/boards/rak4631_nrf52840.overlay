@@ -1,0 +1,72 @@
+/*
+ * The RAKwireless RAK4631, on a RAK19007 or RAK19003 base board, for this port. Zephyr's board for
+ * it is laid out for MCUboot over SWD; the RAK4631 ships with Adafruit's UF2 bootloader over
+ * SoftDevice S140 6.1.1 (RAKWireless/WisBlock, bootloader/RAK4630), so this lays the image out
+ * for that, at 0x26000, with its console on USB. Where RAK's documents and Zephyr's board differ,
+ * RAK's are taken:
+ *
+ *  - The antenna switch is powered from P1.05 (RAK4631 datasheet, "ANT_SW P1.05 - SX1262 RF switch
+ *    power"; RAK's own Zephyr overlay drives it high), and DIO2 switches it between sending and
+ *    receiving: on while the radio is, rather than Zephyr's rx-enable, low.
+ *  - Its TCXO is set to 1.8 V from DIO3, as RAK's own patch for the board sets it
+ *    (RAK4630-Amazon-Sidewalk-Example); the SX1262 runs from 3.3 V, below which DIO3 must be.
+ *  - Its LEDs, green on P1.03 and blue on P1.04, light when high (RAK's bootloader, board.h,
+ *    LED_STATE_ON 1).
+ *
+ * The base boards have no user button, only RESET. The battery is on WisBlock's AIN0, P0.05/AIN3,
+ * through 1M over 1.5M with no switch (RAK4631 datasheet's schematic; Zephyr's RAK19007 shield).
+ * Its radio is driven by Tern's own SX1262 driver (src/sx126x.c), so Zephyr's LoRa driver is not
+ * built.
+ */
+
+/* Zephyr's board's MCUboot layout, out, and the UF2 bootloader's in. */
+&flash0 {
+	/delete-node/ partitions;
+};
+
+#include <nordic/nrf52840_partition_uf2_sdv6.dtsi>
+#include <../boards/common/usb/cdc_acm_serial.dtsi>
+
+&lora {
+	status = "disabled";
+	/delete-property/ rx-enable-gpios;
+	antenna-enable-gpios = <&gpio1 5 GPIO_ACTIVE_HIGH>;
+	dio3-tcxo-voltage = <SX126X_DIO3_TCXO_1V8>;
+};
+
+&green_led {
+	gpios = <&gpio1 3 GPIO_ACTIVE_HIGH>;
+};
+
+&blue_led {
+	gpios = <&gpio1 4 GPIO_ACTIVE_HIGH>;
+};
+
+/ {
+	aliases {
+		led0 = &green_led;
+	};
+
+	vbatt: vbatt {
+		compatible = "voltage-divider";
+		io-channels = <&adc 3>;
+		output-ohms = <1500000>;
+		full-ohms = <2500000>;
+	};
+};
+
+&adc {
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	channel@3 {
+		reg = <3>;
+		zephyr,gain = "ADC_GAIN_1_6";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		/* The divider is megohms: the longest acquisition the SAADC has, for its sampling
+		 * capacitor to charge through them. */
+		zephyr,acquisition-time = <ADC_ACQ_TIME(ADC_ACQ_TIME_MICROSECONDS, 40)>;
+		zephyr,input-positive = <NRF_SAADC_AIN3>;
+		zephyr,resolution = <12>;
+	};
+};

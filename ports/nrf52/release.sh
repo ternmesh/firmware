@@ -14,7 +14,7 @@ set -eu
 
 # Each board's name, and the Zephyr board it is built for: its devicetree, with this port's overlay
 # on it in boards/, is everything about it (src/board.c).
-targets="heltec-t114:heltec_t114_v2/nrf52840/uf2 wio-tracker-l1:wio_tracker_l1/nrf52840"
+targets="heltec-t114:heltec_t114_v2/nrf52840/uf2 rak4631:rak4631/nrf52840 wio-tracker-l1:wio_tracker_l1/nrf52840"
 
 version=${1:?usage: release.sh <version> [board...]}
 shift
