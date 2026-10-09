@@ -101,7 +101,7 @@ On the boards Tern starts with, a 128×64 monochrome display and one button. Its
 | Nearby | the nodes heard directly, with how well and how long ago | most recently heard first, seven to a screen; a long press shows the next. A node by a contact's name, else its routing id |
 | Air | the airtime account: used, allowed, and when more is free | the region's limit; the budget is not drafted |
 | Mesh | routes and frame counts, for whoever is curious; the bench screen's pages, more or less | the bench pages, behind `screen bench on` |
-| Phones | the phones paired, and forgetting them | how many are bonded and whether one is connected; forgetting asks first |
+| Phones | the phones paired, and forgetting them | the name it is seen as, "Tern" and a random tag, so a phone's list tells nodes apart; how many are bonded and whether one is connected; forgetting asks first |
 | Reset | erasing the node for a new owner | the whole of its storage, and a new address; asks first, and keeps the time on the air |
 
 Controls on one button: a short press moves to the next page, a long press acts on the page shown

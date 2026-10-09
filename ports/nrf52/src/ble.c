@@ -103,9 +103,11 @@ static const struct bt_data ad[] = {
     BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
     BT_DATA(BT_DATA_UUID128_ALL, service_uuid.val, sizeof service_uuid.val),
 };
-/* What the scan response names the node: nothing of its address or its user's name for it. */
-static const struct bt_data sd[] = {
-    BT_DATA(BT_DATA_NAME_COMPLETE, CONFIG_BT_DEVICE_NAME, sizeof CONFIG_BT_DEVICE_NAME - 1),
+/* What the scan response names the node: nothing of its address or its user's name for it. Set
+ * by ble_start(). */
+static char name[BLE_NAME_LEN + 1];
+static struct bt_data sd[] = {
+    {.type = BT_DATA_NAME_COMPLETE, .data = (const uint8_t *)name},
 };
 
 static void advertise(void) {
@@ -231,13 +233,20 @@ static const struct bt_conn_auth_cb auth_callbacks = {
     .cancel = auth_cancel,
 };
 
-bool ble_start(uint32_t passkey, bool screen) {
+bool ble_start(const char *node_name, uint32_t passkey, bool screen) {
+    snprintf(name, sizeof name, "%s", node_name);
+    sd[0].data_len = (uint8_t)strlen(name);
     passkey_setting = passkey;
     have_screen = screen;
     if (bt_enable(NULL) != 0) {
         return false;
     }
     (void)settings_load_subtree("bt");
+    /* After the settings, which keep the name the last start set: the GAP service's, for a client
+     * that reads it once connected. */
+    if (bt_set_name(name) != 0) {
+        printf("bluetooth: could not set the name\n");
+    }
     if (bt_conn_auth_cb_register(&auth_callbacks) != 0) {
         bt_disable();
         return false;
