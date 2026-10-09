@@ -462,6 +462,27 @@ contact is told to every client as a `POSITION`, and from a group member as a
   written it. The board keeps the last from each of up to eight members of each group.
 * **Leaving a group** sends no stopped position: the group's keys go with it.
 
+## Presence cards
+
+A client can turn the board's
+[presence card](https://github.com/ternmesh/spec/blob/main/draft/cards.md) on, and give it a name,
+with `SET` 5 and 6 (companion protocol version 6). Cards are off until a client turns them on.
+
+* **What it says.** The board's address, in clear, and the name, signed with the board's key, so
+  anyone in earshot can tell it is the same board every time. That is what turning cards on is.
+* **How often.** The first when cards are turned on, then one every one to three hours, two on
+  average, flooded two hops. Turning cards off and on again, or renaming the card, sends none
+  sooner than an hour after the last. Each card's number is one more than the last, kept in
+  flash before the card goes.
+* **Who is about.** Every board holds the cards it hears, on or off, up to 32: the newest from
+  each address, forgotten a day after it was last heard, the oldest first when there is no room.
+  A client is told of each as a `CARD`, and of one forgotten as a `CARD_GONE`; none is saved
+  across a restart. A relay passes on a card only once its signature is checked and it is newer
+  than the one held.
+* **Checking a card takes time.** Two scalar multiplications in portable C: tens of
+  milliseconds on an ESP32, longer on an nRF52840. A card held already is refused before its
+  signature is checked.
+
 ## The companion link
 
 The same USB port speaks the
