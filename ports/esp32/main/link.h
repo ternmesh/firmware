@@ -431,6 +431,13 @@ bool link_position_next(struct link *l, tern_time now, bool groups, struct link_
 /* A position from link_position_next() went to the forwarder or the flooder at `now`. */
 void link_position_sent(struct link *l, const struct link_position_out *out, tern_time now);
 
+/* Whether a position to a group, handed to the flooder and not yet on the air, is still to go:
+ * the group in that place is still the one with that id, and sharing with it is still on, or
+ * the position is the stopped one. A position that is not is let go of, so that leaving a group,
+ * or no longer sharing with it, sends it nothing more. */
+bool link_group_position_wanted(const struct link *l, size_t place,
+                                const uint8_t id[TERN_COMPANION_GROUP], bool stopped);
+
 /* The last position to a contact was acknowledged, or given up: the next may go. */
 void link_position_done(struct link *l, const uint8_t address[TERN_ADDRESS_LEN]);
 

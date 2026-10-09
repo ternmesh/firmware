@@ -27,7 +27,8 @@
  *     sleep until tern_flood_due(&f), or a frame arrives
  */
 
-#define TERN_HDR_GROUP 0x60 /* a group's frame */
+#define TERN_HDR_GROUP 0x60      /* a group's frame */
+#define TERN_HDR_GROUP_NODE 0x61 /* a group's frame for the node: flooded as the other is */
 
 #define TERN_FLOOD_HEAD 3 /* hdr, hops and power */
 #define TERN_FLOOD_ID 8
@@ -39,12 +40,15 @@
 
 /* Whether a frame is one of this layer's: by its first byte, and long enough to be one. */
 static inline bool tern_flood_frame(const uint8_t *frame, size_t len) {
-    return len >= TERN_FLOOD_GROUP_MIN && len <= TERN_FLOOD_FRAME_MAX && frame[0] == TERN_HDR_GROUP;
+    return len >= TERN_FLOOD_GROUP_MIN && len <= TERN_FLOOD_FRAME_MAX &&
+           (frame[0] == TERN_HDR_GROUP || frame[0] == TERN_HDR_GROUP_NODE);
 }
 
 /* --- Rules, each as the specification states it, checked against its vectors. --- */
 
-/* A frame's id: the same for every copy of it, wherever it was heard. */
+/* A frame's id: the same for every copy of it, wherever it was heard. Its hdr and everything after
+ * the head, so a copy with its hdr changed on the way is another frame and cannot stand in for
+ * this one. */
 void tern_flood_id(const uint8_t *frame, size_t len, uint8_t id[TERN_FLOOD_ID]);
 
 /* The hops a node that had not seen a frame sends it on with, or -1 for not at all. `relay` is
@@ -160,6 +164,12 @@ void tern_flood_init(struct tern_flood *f, const struct tern_flood_config *confi
  * here. It goes when the allowance for the node's own frames can pay for it. False if it is not a
  * frame of this layer's, or there is no slot for it. */
 bool tern_flood_send(struct tern_flood *f, tern_time now, const uint8_t *frame, size_t len);
+
+/* Whether the allowance for the node's own frames, once those of its own still waiting and one
+ * more of `len` bytes are paid for, would still hold the airtime of a 255-byte frame: what a
+ * position to a group must leave for words (draft/positions.md, "Words first"). Changes
+ * nothing. */
+bool tern_flood_own_room(const struct tern_flood *f, tern_time now, size_t len);
 
 /* A frame of this node's is no longer to go: its id is as tern_flood_id() gives for it. True if it
  * was still waiting and has been let go of, and what it had been charged, if anything, given

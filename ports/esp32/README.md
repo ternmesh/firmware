@@ -422,29 +422,32 @@ What to know before trusting one with anything:
 
 A client can give the board its position and have it shared, as
 [positions](https://github.com/ternmesh/spec/blob/main/draft/positions.md) says, with the contacts
-the user chooses, at the precision the user chooses: `SET_POSITION`, then `SHARE` (companion
-protocol version 5). The board has no receiver of its own, so it shares nothing until a client has
-given it a position. It works out the cell, decides when one is due, and sends it to the contact
-as a message for its node, sealed and acknowledged as a message is. What it receives from a
-contact is told to every client as a `POSITION`.
+and groups the user chooses, at the precision the user chooses: `SET_POSITION`, then `SHARE` or
+`SHARE_GROUP` (companion protocol version 5). The board has no receiver of its own, so it shares
+nothing until a client has given it a position. It works out the cell, decides when one is due,
+and sends it to a contact as a message for its node, sealed and acknowledged as a message is. What it receives from a
+contact is told to every client as a `POSITION`, and from a group member as a
+`GROUP_POSITION`.
 
-* **Only to contacts, and only over a session.** A position never makes first contact: to a
-  contact the board shares no session with, nothing goes.
+* **To a contact, only over a session.** A position never makes first contact: to a contact the
+  board shares no session with, nothing goes.
 * **Seldom.** One goes when the board has moved to another cell, no sooner than the interval the
   user chose (a minute at least), and again after an hour if it has not. One at a time to each
   contact: the next waits until the last is acknowledged or given up. A fix more than an hour old
   is not sent. Messages go first.
 * **A cell's edge.** Once a cell has gone, the board takes itself to be in it until it is more
   than a quarter of a cell outside it.
-* **Turning sharing off** sends the contact a stopped position, once, if a position had gone. A
-  contact that receives one forgets the last: a node that keeps it anyway cannot be stopped.
+* **Turning sharing off** sends the contact or group a stopped position, once, if a position had
+  gone. A node that receives one forgets the last: one that keeps it anyway cannot be stopped.
 * **Not across a restart.** Sharing is not saved: after a restart the board shares with nobody
   until a client turns it on again, and a client's next sync says so. Received positions are not
   saved either, and are forgotten a day after they came.
-* **Not to groups yet.** The board holds what `SHARE_GROUP` sets, and tells clients of it, but a
-  position to a group needs the group frame's `node` flag, which
-  [ternmesh/spec#28](https://github.com/ternmesh/spec/pull/28) adds. Until the board has it, it
-  sends no position to a group and reads none from one.
+* **To groups**, by `SHARE_GROUP`, in a group frame with its `node` flag set, flooded as a
+  group's message is: no more often than every five minutes, and only while the board's
+  allowance for its own floods would still hold a full frame of words after it. Nothing answers
+  it, and a position from a group member is what that member claimed: any member could have
+  written it. The board keeps the last from each of up to eight members of each group.
+* **Leaving a group** sends no stopped position: the group's keys go with it.
 
 ## The companion link
 
