@@ -31,7 +31,10 @@ static const struct bt_uuid_128 from_node_uuid = TERN_UUID(0x03);
 
 K_MSGQ_DEFINE(events, sizeof(struct ble_event), EVENTS, 4);
 
-static struct bt_conn *volatile conn;
+/* The client's connection, taken and let go of in Zephyr's threads; the loop takes a reference of
+ * its own under `conn_lock` before using it (connection()). */
+static struct bt_conn *conn;
+static struct k_spinlock conn_lock;
 static volatile uint32_t gen;    /* counts connections; the present one's */
 static volatile bool paired;     /* the client on `conn` paired with a passkey */
 static volatile bool subscribed; /* and asked for notifications */
@@ -116,7 +119,9 @@ static void on_connected(struct bt_conn *c, uint8_t err) {
     if (err != 0) {
         return;
     }
+    k_spinlock_key_t key = k_spin_lock(&conn_lock);
     conn = bt_conn_ref(c);
+    k_spin_unlock(&conn_lock, key);
     paired = subscribed = false;
     gen++;
     /* Ask for the pairing at once; a client that has a bond restores it instead. */
@@ -134,8 +139,11 @@ static void on_disconnected(struct bt_conn *c, uint8_t reason) {
         post_kind(BLE_CLOSE, 0, 0);
     }
     paired = subscribed = false;
-    bt_conn_unref(conn);
+    k_spinlock_key_t key = k_spin_lock(&conn_lock);
+    struct bt_conn *gone = conn;
     conn = NULL;
+    k_spin_unlock(&conn_lock, key);
+    bt_conn_unref(gone);
 }
 
 /* The controller frees its connection after the disconnection is reported: advertising again then,
@@ -241,6 +249,15 @@ bool ble_start(uint32_t passkey, bool screen) {
 
 void ble_passkey(uint32_t passkey) { passkey_setting = passkey; }
 
+/* The client's connection with a reference the caller holds and lets go of (bt_conn_unref()), so
+ * that a disconnection in Zephyr's thread cannot free it while the loop uses it; or NULL. */
+static struct bt_conn *connection(void) {
+    k_spinlock_key_t key = k_spin_lock(&conn_lock);
+    struct bt_conn *c = conn != NULL ? bt_conn_ref(conn) : NULL;
+    k_spin_unlock(&conn_lock, key);
+    return c;
+}
+
 /* Sends what is waiting, oldest first, until Zephyr is out of buffers; the rest goes on a later
  * call. What was queued for a connection that has since gone is dropped. */
 static void pump(void) {
@@ -248,11 +265,14 @@ static void pump(void) {
         n_waiting = 0;
         return;
     }
-    struct bt_conn *c = conn;
-    while (n_waiting > 0 && c != NULL && paired && subscribed) {
+    struct bt_conn *c = connection();
+    if (c == NULL) {
+        return;
+    }
+    while (n_waiting > 0 && paired && subscribed) {
         int err = bt_gatt_notify(c, FROM_NODE_ATTR, waiting[first].frame, waiting[first].len);
         if (err == -ENOMEM || err == -EAGAIN || err == -ENOBUFS) {
-            return;
+            break;
         }
         if (err != 0) {
             printf("bluetooth: a frame to the client was lost (%d)\n", err);
@@ -260,6 +280,7 @@ static void pump(void) {
         first = (first + 1) % WAITING;
         n_waiting--;
     }
+    bt_conn_unref(c);
 }
 
 bool ble_poll(struct ble_event *e) {

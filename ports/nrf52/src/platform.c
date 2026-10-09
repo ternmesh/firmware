@@ -153,44 +153,70 @@ static int store_ready = 1; /* 0 once started, or settings_subsys_init()'s error
 static __noinit uint32_t wiped;
 #define WIPED 0x57495045u /* "WIPE" */
 
-/* The storage partition holds what NVS cannot read: on a board that ran other firmware before,
- * Meshtastic's among them, that firmware's files. Nothing in it is this firmware's, since anything
- * this firmware wrote would read, so it is wiped and the board starts again with it new. */
-static int wipe_foreign(int err) {
+/* Whether the storage partition holds a LittleFS volume, which is how Meshtastic and MeshCore keep
+ * their files on these boards: its superblock has the name "littlefs" eight bytes into a block. */
+static bool holds_littlefs(void) {
     const struct flash_area *fa;
-    if (wiped == WIPED) {
-        wiped = 0;
-        return err; /* wiped once already: not again */
+    bool found = false;
+    if (flash_area_open(PARTITION_ID(storage_partition), &fa) != 0) {
+        return false;
     }
-    printf("the storage holds what this firmware cannot read (%s), as after other firmware: "
-           "wiping it, and starting again as a new board\n",
-           plat_error_name(err));
-    if (flash_area_open(PARTITION_ID(storage_partition), &fa) != 0 ||
-        flash_area_erase(fa, 0, fa->fa_size) != 0) {
-        return err;
+    for (off_t at = 0; !found && at + 16 <= (off_t)fa->fa_size; at += 4096) {
+        char name[8];
+        found = flash_area_read(fa, at + 8, name, sizeof name) == 0 &&
+                memcmp(name, "littlefs", sizeof name) == 0;
     }
     flash_area_close(fa);
-    wiped = WIPED;
-    k_msleep(100);
-    sys_reboot(SYS_REBOOT_WARM);
-    return err;
+    return found;
+}
+
+/* On a board that ran Meshtastic or MeshCore before, the storage partition holds that firmware's
+ * files: wiped, and the board started again with it new. Only then, and only if the storage would
+ * not start or holds no identity of this firmware's, so that nothing of Tern's is ever wiped for an
+ * error; and only once, so a board whose storage still will not start says so. Returns only if it
+ * did not wipe. */
+static void wipe_foreign(int err) {
+    const struct flash_area *fa;
+    if (wiped == WIPED) {
+        return; /* wiped once already: not again */
+    }
+    printf("the storage holds another firmware's files (%s): wiping them, and starting again as a "
+           "new board\n",
+           err != 0 ? plat_error_name(err) : "no identity of this firmware's");
+    if (flash_area_open(PARTITION_ID(storage_partition), &fa) != 0) {
+        return;
+    }
+    err = flash_area_erase(fa, 0, fa->fa_size);
+    flash_area_close(fa);
+    if (err == 0) {
+        wiped = WIPED;
+        k_msleep(100);
+        sys_reboot(SYS_REBOOT_WARM);
+    }
 }
 
 static int store_open(void) {
-    if (store_ready == 1) {
-        store_ready = settings_subsys_init();
-        if (store_ready != 0) {
-            store_ready = wipe_foreign(store_ready);
-        }
-        wiped = 0;
-        /* What an erase carried across its restart, put back. */
-        if (store_ready == 0 && carried.magic == CARRIED && carried.check == carried_check() &&
-            carried.len <= sizeof carried.data) {
-            carried.key[sizeof carried.key - 1] = '\0';
-            (void)plat_store_save(carried.key, carried.data, carried.len);
-        }
-        carried.magic = 0;
+    if (store_ready != 1) {
+        return store_ready;
     }
+    bool foreign = holds_littlefs();
+    store_ready = settings_subsys_init();
+    if (foreign && (store_ready != 0 || find("identity", NULL, 0) < 0)) {
+        wipe_foreign(store_ready);
+    }
+    wiped = 0;
+    /* What an erase carried across its restart, put back. If it cannot be, the board does not
+     * start: the time on the air is what holds it to the region's limit, so it is not started
+     * without it. The record stays in RAM for the next start to try again. */
+    if (store_ready == 0 && carried.magic == CARRIED && carried.check == carried_check() &&
+        carried.len <= sizeof carried.data) {
+        carried.key[sizeof carried.key - 1] = '\0';
+        if (!plat_store_save(carried.key, carried.data, carried.len)) {
+            store_ready = -EIO;
+            return store_ready;
+        }
+    }
+    carried.magic = 0;
     return store_ready;
 }
 
