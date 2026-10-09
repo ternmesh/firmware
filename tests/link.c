@@ -34,6 +34,12 @@ static const uint8_t carol[TERN_ADDRESS_LEN] = {
     0xfc, 0x51, 0xcd, 0x8e, 0x62, 0x18, 0xa1, 0xa3, 0x8d, 0xa4, 0x7e, 0xd0, 0x02, 0x30, 0xf0, 0x58,
     0x08, 0x16, 0xed, 0x13, 0xba, 0x33, 0x03, 0xac, 0x5d, 0xeb, 0x91, 0x15, 0x48, 0x90, 0x80, 0x25};
 
+/* RFC 8032's TEST 1024 seed: Dave, whose cards the exchange has the node hold. */
+static const uint8_t dave_seed[TERN_SEED_LEN] = {
+    0xf5, 0xe5, 0x76, 0x7c, 0xf1, 0x53, 0x31, 0x95, 0x17, 0x63, 0x0f, 0x22, 0x68, 0x76, 0xb8, 0x6c,
+    0x81, 0x60, 0xcc, 0x58, 0x3b, 0xc0, 0x13, 0x74, 0x4c, 0x6b, 0xf2, 0x55, 0xf5, 0xcc, 0x0e, 0xe5};
+static const char dave_says[] = "Trail crew \xc2\xb7 ask me";
+
 /* The fake board: what it shows the link, and every frame the link sent. */
 struct board {
     struct link_view view;
@@ -100,6 +106,17 @@ static uint8_t board_set(void *ctx, const struct tern_companion_msg *m) {
     struct board *b = ctx;
     if (b->set_answer == 0 && m->setting == TERN_C_SET_POWER) {
         b->view.power = m->power;
+    }
+    /* Cards are on or off at once, and a value but those two is refused, as the board's are. */
+    if (b->set_answer == 0 && m->setting == TERN_C_SET_CARDS) {
+        if (m->cards > 1) {
+            return TERN_C_ERR_REFUSED;
+        }
+        b->view.cards = m->cards;
+    }
+    if (b->set_answer == 0 && m->setting == TERN_C_SET_CARD_NAME) {
+        memcpy(b->view.card_name, m->text, m->text_len);
+        b->view.card_name_len = m->text_len;
     }
     return b->set_answer;
 }
@@ -405,6 +422,8 @@ static void set_clock_for(const struct step *steps, size_t n, size_t i) {
     }
 }
 
+static enum tern_card_verdict dave_card(uint32_t number, tern_time now);
+
 /* What the node holds when a connection begins: Bob, his first message, and the ids from 17. */
 static void begin(void) {
     start();
@@ -416,6 +435,19 @@ static void begin(void) {
                           sizeof where - 1),
                  17);
     board.clock = 1790000000; /* the time it keeps, with or without a SET_TIME */
+    /* And Dave's card, accepted 21 minutes before the connection's requests. */
+    CHECK(dave_card(1, TERN_S(100 - 1260)) == TERN_CARD_ACCEPTED);
+}
+
+/* Dave's card number `number`, as the flood hands one over at `now`. */
+static enum tern_card_verdict dave_card(uint32_t number, tern_time now) {
+    struct tern_identity dave;
+    uint8_t frame[TERN_CARD_MAX];
+    tern_identity_init(&dave, dave_seed);
+    size_t len =
+        tern_card_write(&dave, number, (const uint8_t *)dave_says, sizeof dave_says - 1, frame);
+    tern_identity_wipe(&dave);
+    return link_card_received(&companion, now, frame, len);
 }
 
 /* Bob writes to the first group the node holds, and then invites it to another: what the
@@ -459,6 +491,10 @@ static void follow(const char *name, const struct step *steps, size_t n, size_t 
             if (t == TERN_C_SEND || t == TERN_C_SEND_GROUP || t == TERN_C_SEND_INVITE) {
                 set_clock_for(steps, n, i);
             }
+            /* A setting SELF tells of at once carries the time as the node has it then. */
+            if (t == TERN_C_SET && i + 2 < n && steps[i + 2].frame[0] == TERN_C_SELF) {
+                board.clock = read_step(&steps[i + 2]).time;
+            }
             link_receive(&companion, LINK_SERIAL, TERN_S(100), s->frame, s->len);
             continue;
         }
@@ -474,12 +510,24 @@ static void follow(const char *name, const struct step *steps, size_t n, size_t 
                 bob_writes_and_invites();
             } else if (m.type == TERN_C_POSITION && m.precision != 0) {
                 bob_is_at(&m, TERN_S(100));
+            } else if (m.type == TERN_C_CARD) {
+                CHECK(dave_card(2, TERN_S(100)) == TERN_CARD_ACCEPTED);
+            } else if (m.type == TERN_C_CARD_GONE) {
+                /* Not heard again for CARD_KEPT: as if it had been accepted that long ago. */
+                for (size_t k = 0; k < LINK_CARDS; k++) {
+                    companion.card_places[k].heard -= TERN_CARD_KEPT;
+                }
+                link_tick(&companion, TERN_S(100));
             }
         }
         bool ok = expected < board.n_out && board.out_len[expected] == s->len &&
                   memcmp(board.out[expected], s->frame, s->len) == 0;
         if (!ok) {
-            fprintf(stderr, "%s: step %zu differs\n", name, i);
+            fprintf(stderr, "%s: step %zu differs:", name, i);
+            for (size_t k = 0; expected < board.n_out && k < board.out_len[expected]; k++) {
+                fprintf(stderr, "%02x", board.out[expected][k]);
+            }
+            fprintf(stderr, "\n");
         }
         CHECK(ok);
         expected++;
@@ -519,6 +567,43 @@ static void an_older_client_is_told_no_positions(void) {
         CHECK(companion.contact_positions[0].holds);
         follow(r == 0 ? "older 3" : "older 4", runs[r], lengths[r], lengths[r], NULL);
     }
+}
+
+/* A client of version 5, to a node that holds Dave's card: it is told of no card, its SELF has no
+ * cards or card name, and it is refused SET 5 as a setting it does not have. A card the node
+ * accepts afterwards is no news to it either. */
+static void an_older_client_is_told_no_cards(void) {
+    begin();
+    follow("older 5", older_5, COUNT(older_5), COUNT(older_5), NULL);
+    board.n_out = 0;
+    CHECK(dave_card(5, TERN_S(101)) == TERN_CARD_ACCEPTED);
+    CHECK_EQ_U64(board.n_out, 0);
+}
+
+/* What the board's flood brings: Dave's newer card replaces his older, which is not taken again,
+ * and a card that is this node's own is refused. */
+static void cards_are_the_newest_from_each(void) {
+    begin();
+    hello();
+    request(&(struct tern_companion_msg){.type = TERN_C_SYNC, .seq = 2});
+    board.n_out = 0;
+    CHECK(dave_card(1, TERN_S(200)) == TERN_CARD_OLD);
+    CHECK(dave_card(3, TERN_S(200)) == TERN_CARD_ACCEPTED);
+    CHECK_EQ_I64(sent(0).type, TERN_C_CARD);
+    CHECK_EQ_U64(sent(0).heard, 0);
+    CHECK(dave_card(3, TERN_S(201)) == TERN_CARD_OLD);
+    size_t held = 0;
+    for (size_t k = 0; k < LINK_CARDS; k++) {
+        held += companion.card_places[k].held;
+    }
+    CHECK_EQ_U64(held, 1);
+
+    /* A node never holds its own card: as Dave's node, his are refused. */
+    struct tern_identity dave;
+    tern_identity_init(&dave, dave_seed);
+    memcpy(board.view.address, dave.address, TERN_ADDRESS_LEN);
+    tern_identity_wipe(&dave);
+    CHECK(dave_card(9, TERN_S(202)) == TERN_CARD_REFUSED);
 }
 
 /* --- Positions -------------------------------------------------------------------------------- */
@@ -927,7 +1012,11 @@ static void a_client_before_groups_is_not_told_of_them(void) {
     follow("exchange, as far as Bob", exchange, stop, stop, NULL);
     link_close(&companion, LINK_SERIAL);
     link_open(&companion, LINK_SERIAL, 0, 0);
-    board.clock = read_step(&older_1[first_of(older_1, COUNT(older_1), TERN_C_SELF)]).time;
+    const struct step *self = &older_1[first_of(older_1, COUNT(older_1), TERN_C_SELF)];
+    struct tern_companion_msg m = {0};
+    CHECK_EQ_I64(tern_companion_read_as(&m, self->frame, self->len, 1),
+                 0); /* as version 1 has it */
+    board.clock = m.time;
     follow("older 1", older_1, COUNT(older_1), first_of(older_1, COUNT(older_1), TERN_C_SEND),
            bob_writes_and_invites);
 }
@@ -1653,11 +1742,12 @@ static void settings_are_the_boards_to_refuse(void) {
     request(&(struct tern_companion_msg){
         .type = TERN_C_SET, .seq = 6, .setting = TERN_C_SET_POWER, .power = 10});
     CHECK_EQ_I64(sent(0).type, TERN_C_OK);
-    /* The node changed: SELF says so at the next look. */
+    /* The node changed: SELF says so at once, and not again at the next look. */
+    CHECK_EQ_I64(sent(1).type, TERN_C_SELF);
+    CHECK_EQ_I64(sent(1).power, 10);
     board.n_out = 0;
     link_tick(&companion, TERN_S(200));
-    CHECK_EQ_I64(sent(0).type, TERN_C_SELF);
-    CHECK_EQ_I64(sent(0).power, 10);
+    CHECK_EQ_U64(board.n_out, 0);
 }
 
 static void neighbours_are_news_when_they_change(void) {
@@ -2206,6 +2296,8 @@ static void what_flash_holds_that_is_no_message_is_not_loaded(void) {
 
 int main(void) {
     RUN(the_exchange_is_followed_frame_for_frame);
+    RUN(an_older_client_is_told_no_cards);
+    RUN(cards_are_the_newest_from_each);
     RUN(an_older_client_is_not_told_who_asked);
     RUN(an_older_client_is_told_no_positions);
     RUN(a_position_goes_when_due_and_one_at_a_time);

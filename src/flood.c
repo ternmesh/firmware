@@ -214,7 +214,7 @@ bool tern_flood_send(struct tern_flood *f, tern_time now, const uint8_t *frame, 
     *s = (struct tern_flood_slot){
         .state = TERN_FLOOD_WAITING, .own = true, .len = (uint8_t)len, .at = now};
     memcpy(s->frame, frame, len);
-    s->frame[1] = f->config.hops;
+    s->frame[1] = tern_flood_most(frame[0], f->config.hops);
     tern_flood_id(frame, len, s->id);
     take(f, s->id);
     return true;
@@ -268,7 +268,7 @@ bool tern_flood_heard(struct tern_flood *f, tern_time now, const uint8_t *frame,
     f->counts.heard++;
 
     int hops = tern_flood_passes(f->route->config.relay, relay_neighbours(f->route), frame[1],
-                                 f->config.hops, f->config.sparse);
+                                 tern_flood_most(frame[0], f->config.hops), f->config.sparse);
     if (hops < 0 || (f->config.copies && f->config.copies <= 1)) {
         f->counts.hop_limit += f->route->config.relay && hops < 0;
         return true;
@@ -286,6 +286,23 @@ bool tern_flood_heard(struct tern_flood *f, tern_time now, const uint8_t *frame,
         now + (tern_time)rand_below(f, (uint64_t)f->config.wait * (uint64_t)airtime(f, len) + 1);
     f->counts.passed_on++;
     return true;
+}
+
+bool tern_flood_refuse(struct tern_flood *f, const uint8_t id[TERN_FLOOD_ID]) {
+    for (size_t i = 0; i < f->cap; i++) {
+        struct tern_flood_slot *s = &f->slot[i];
+        if (s->state == TERN_FLOOD_FREE || s->own || memcmp(s->id, id, TERN_FLOOD_ID) != 0) {
+            continue;
+        }
+        if (s->state == TERN_FLOOD_OUT) {
+            s->dropped = true; /* freed once the caller lets go of it */
+        } else {
+            s->state = TERN_FLOOD_FREE;
+        }
+        f->counts.refused++;
+        return true;
+    }
+    return false;
 }
 
 void tern_flood_radio(struct tern_flood *f, tern_time now, tern_time on_air) {

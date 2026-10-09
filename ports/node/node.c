@@ -61,6 +61,7 @@
 #include "platform.h"
 #include "power.h"
 #include "status.h"
+#include "tern/card.h"
 #include "tern/companion.h"
 #include "tern/duty.h"
 #include "tern/err.h"
@@ -261,6 +262,10 @@ struct settings {
     /* Later still. Four bytes, so that the struct grows: one would sit in what was padding, and
      * read whatever an earlier build left there. */
     uint32_t screen_flags;
+    /* Later again: presence cards (draft/cards.md), off on a board that saved none. */
+    uint8_t cards; /* 1 to send them */
+    uint8_t card_name_len;
+    uint8_t card_name[TERN_CARD_NAME_MAX];
 };
 #define SCREEN_BENCH 0x01u /* screen_flags: the bench screen's pages follow the user's */
 #if CONFIG_TERN_SCREEN_BENCH
@@ -269,7 +274,8 @@ struct settings {
 #define SCREEN_FLAGS 0u
 #endif
 static struct settings settings = {
-    SETTINGS_MAGIC, 0, 0xFF, POWER_UNSET, PASSKEY_RANDOM, CONFIG_TERN_SCREEN_SLEEP_S, SCREEN_FLAGS};
+    SETTINGS_MAGIC, 0, 0xFF, POWER_UNSET, PASSKEY_RANDOM, CONFIG_TERN_SCREEN_SLEEP_S,
+    SCREEN_FLAGS,   0, 0,    {0}};
 
 /* The bench: test frames sent on a timer, and counts of what was received. */
 #define BEACON_LEN 24
@@ -678,6 +684,16 @@ static void heard_flood(const struct tern_radio_event *ev) {
     static uint8_t text[TERN_GROUP_MAX_CONTENT + 1];
     struct tern_group_received got;
     if (!tern_flood_heard(&flood, board_now(), ev->data, ev->len)) {
+        return;
+    }
+    if (ev->data[0] == TERN_HDR_CARD) {
+        /* Who is about. One the link did not accept, forged or no newer than the one held among
+         * them, is not passed on either (draft/cards.md, "Receiving"). */
+        if (link_card_received(&companion, board_now(), ev->data, ev->len) != TERN_CARD_ACCEPTED) {
+            uint8_t id[TERN_FLOOD_ID];
+            tern_flood_id(ev->data, ev->len, id);
+            (void)tern_flood_refuse(&flood, id);
+        }
         return;
     }
     link_groups(&companion, groups);
@@ -1222,6 +1238,14 @@ static void poll_forward(void) {
 /* Sends what the flooder has to send: this board's group messages, and frames for every node
  * that it passes on. A frame of its own waits for the board's allowance, and the client is told
  * so; one to pass on that the allowance cannot pay for is dropped by the flooder. */
+/* The board's presence card: what poll_card() keeps, and poll_flood() tells it when one goes. */
+static bool card_sent;                 /* one has gone since the board started */
+static tern_time card_last;            /* when */
+static tern_time card_next;            /* when the next is due, or 0 for not yet drawn */
+static bool card_pending;              /* one is with the flooder, not yet on the air */
+static uint8_t card_id[TERN_FLOOD_ID]; /* and its id */
+static void card_went(tern_time now);
+
 static void poll_flood(void) {
     static uint8_t frame[TERN_FLOOD_FRAME_MAX];
     tern_time now = board_now();
@@ -1284,6 +1308,9 @@ static void poll_flood(void) {
     }
     uint8_t id[TERN_FLOOD_ID];
     tern_flood_id(frame, len, id);
+    if (card_pending && memcmp(card_id, id, TERN_FLOOD_ID) == 0) {
+        card_went(now);
+    }
     for (int i = 0; i < FLOODING; i++) {
         if (positioning[i].on && memcmp(positioning[i].frame_id, id, TERN_FLOOD_ID) == 0) {
             positioning[i].on = false; /* on the air: nothing more to let go of */
@@ -1297,6 +1324,68 @@ static void poll_flood(void) {
             flood_own = i; /* said to be sent once the radio says it has gone */
         }
     }
+}
+
+/* --- The board's presence card (draft/cards.md, "Sending") -------------------------------------
+ *
+ * None until a client turns cards on; the first then, and each next between CARD_EVERY / 2 and
+ * 3 CARD_EVERY / 2 after the last, drawn afresh each time. Turning cards off and on again, or
+ * changing the name, sends one no sooner than CARD_EVERY / 2 after the last, so that no client
+ * makes the board send them more often. A card's number is one more than the last, kept in flash
+ * before the card goes, so a restart never sends one again. */
+
+#define CARD_RETRY TERN_S(60) /* after flash or the flooder said no */
+
+/* Cards were turned off, or renamed: a card still waiting for the air is let go of, so that none
+ * goes with cards off or with the old name, and the next is drawn again. */
+static void card_changed(void) {
+    if (card_pending) {
+        (void)tern_flood_cancel(&flood, board_now(), card_id);
+        card_pending = false;
+    }
+    card_next = 0;
+}
+
+/* The board's card went on the air: the next is drawn from now. */
+static void card_went(tern_time now) {
+    uint32_t r = 0;
+    (void)board_random(NULL, (uint8_t *)&r, sizeof r);
+    card_pending = false;
+    card_sent = true;
+    card_last = now;
+    card_next = now + TERN_CARD_EVERY / 2 + (tern_time)(r % 1000001u) * (TERN_CARD_EVERY / 1000000);
+}
+
+static void poll_card(void) {
+    static uint8_t frame[TERN_CARD_MAX];
+    tern_time now = board_now();
+    if (!settings.cards) {
+        card_next = 0;
+        return;
+    }
+    if (card_pending) {
+        return; /* one at a time: the next is drawn when this one goes */
+    }
+    if (card_next == 0) {
+        tern_time soonest = card_sent ? card_last + TERN_CARD_EVERY / 2 : now;
+        card_next = soonest > now ? soonest : now;
+    }
+    if (now < card_next) {
+        return;
+    }
+    uint32_t number = 0;
+    (void)store_load(NULL, "card", &number, sizeof number);
+    number++;
+    size_t len =
+        tern_card_write(&demo.id, number, settings.card_name, settings.card_name_len, frame);
+    if (len == 0 || !store_save(NULL, "card", &number, sizeof number) ||
+        !tern_flood_send(&flood, now, frame, len)) {
+        card_next = now + CARD_RETRY;
+        return;
+    }
+    card_pending = true;
+    tern_flood_id(frame, len, card_id);
+    printf("card %lu waits for the air: %u bytes\n", (unsigned long)number, (unsigned)len);
 }
 
 /* Sends what the router has to send: its announces, and its requests for routes. A frame the
@@ -1572,6 +1661,9 @@ static void link_view(void *ctx, struct link_view *v) {
     v->region = region->name;
     v->power = cfg.tx_power_dbm;
     v->time = clock_now();
+    v->cards = settings.cards;
+    v->card_name_len = settings.card_name_len;
+    memcpy(v->card_name, settings.card_name, settings.card_name_len);
     for (int i = 0; i < NEIGHBOURS && v->n_neighbours < LINK_NEIGHBOURS; i++) {
         const struct tern_route_neighbour *n = &neighbours[i];
         if (!n->used) {
@@ -1654,15 +1746,33 @@ static uint8_t link_set(void *ctx, const struct tern_companion_msg *m) {
         next.passkey = m->passkey;
         restart = false;
         break;
+    case TERN_C_SET_CARDS:
+        if (m->cards > 1) {
+            return TERN_C_ERR_REFUSED;
+        }
+        next.cards = m->cards;
+        restart = false;
+        break;
+    case TERN_C_SET_CARD_NAME: /* UTF-8 and short enough: the link read it so */
+        memcpy(next.card_name, m->text, m->text_len);
+        next.card_name_len = m->text_len;
+        restart = false;
+        break;
     default:
         return TERN_C_ERR_UNKNOWN;
     }
     if (!store_save(NULL, "settings", &next, sizeof next)) {
         return TERN_C_ERR_NOT_NOW;
     }
+    bool renamed = next.card_name_len != settings.card_name_len ||
+                   memcmp(next.card_name, settings.card_name, next.card_name_len) != 0;
+    bool off = settings.cards && !next.cards;
     settings = next;
     restart_due = restart_due || restart;
     ble_passkey(settings.passkey);
+    if (renamed || off) {
+        card_changed();
+    }
     return 0;
 }
 
@@ -3085,7 +3195,10 @@ void node_main(void) {
     struct settings saved;
     saved.screen_sleep = CONFIG_TERN_SCREEN_SLEEP_S;
     saved.screen_flags = SCREEN_FLAGS;
+    saved.cards = 0;
+    saved.card_name_len = 0;
     if ((store_load(NULL, "settings", &saved, sizeof saved) ||
+         store_load(NULL, "settings", &saved, offsetof(struct settings, cards)) ||
          store_load(NULL, "settings", &saved, offsetof(struct settings, screen_flags)) ||
          store_load(NULL, "settings", &saved, offsetof(struct settings, screen_sleep))) &&
         saved.magic == SETTINGS_MAGIC) {
@@ -3263,6 +3376,7 @@ void node_main(void) {
             poll_contact();
             poll_outgoing();
             poll_forward();
+            poll_card();
             poll_flood();
             poll_route();
             poll_writers();

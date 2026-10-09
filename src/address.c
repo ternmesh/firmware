@@ -1,5 +1,7 @@
 #include "tern/address.h"
 
+#include <stddef.h>
+
 #include "fe25519.h"
 #include "tern/crypto.h"
 
@@ -211,4 +213,153 @@ bool tern_address_x25519(uint8_t u[32], const uint8_t address[TERN_ADDRESS_LEN])
     fe_mul(&num, &num, &den);
     fe_tobytes(u, &num);
     return true;
+}
+
+/* --- Signatures (RFC 8032, sections 5.1.6 and 5.1.7) --- */
+
+/* Arithmetic shift right of a value that may be negative, without relying on how the compiler
+ * shifts one: the bias makes it positive, and is a multiple of 2^n, so it comes off whole. Every
+ * value shifted here is far below it. */
+static int64_t asr(int64_t x, unsigned n) {
+    const int64_t bias = (int64_t)1 << 62;
+    return ((x + bias) >> n) - (bias >> n);
+}
+
+/* r = x mod L, for x of 64 limbs of a byte's weight each, any of them up to about 2^40 or down
+ * to -2^40: each limb from the top down is folded into the ones 32 below it, as 2^256 is
+ * -16 (L - 2^252) mod L, and what is left is brought below L. The same work for every x. */
+static void sc_reduce(uint8_t r[32], int64_t x[64]) {
+    int64_t carry;
+    for (int i = 63; i >= 32; i--) {
+        int j;
+        carry = 0;
+        for (j = i - 32; j < i - 12; j++) {
+            x[j] += carry - 16 * x[i] * order[j - (i - 32)];
+            carry = asr(x[j] + 128, 8);
+            x[j] -= carry * 256;
+        }
+        x[j] += carry;
+        x[i] = 0;
+    }
+    carry = 0;
+    for (int j = 0; j < 32; j++) {
+        x[j] += carry - asr(x[31], 4) * order[j];
+        carry = asr(x[j], 8);
+        x[j] -= carry * 256;
+    }
+    for (int j = 0; j < 32; j++) {
+        x[j] -= carry * order[j];
+    }
+    for (int i = 0; i < 32; i++) {
+        x[i + 1] += asr(x[i], 8);
+        r[i] = (uint8_t)(x[i] & 255);
+    }
+}
+
+/* A SHA-512 digest, read as a little-endian number, mod L. */
+static void sc_from_digest(uint8_t r[32], const uint8_t h[TERN_SHA512_LEN]) {
+    int64_t x[64];
+    for (int i = 0; i < 64; i++) {
+        x[i] = h[i];
+    }
+    sc_reduce(r, x);
+    tern_wipe(x, sizeof x);
+}
+
+/* s = (a + b c) mod L. */
+static void sc_muladd(uint8_t s[32], const uint8_t a[32], const uint8_t b[32],
+                      const uint8_t c[32]) {
+    int64_t x[64] = {0};
+    for (int i = 0; i < 32; i++) {
+        x[i] = a[i];
+    }
+    for (int i = 0; i < 32; i++) {
+        for (int j = 0; j < 32; j++) {
+            x[i + j] += (int64_t)b[i] * c[j];
+        }
+    }
+    sc_reduce(s, x);
+    tern_wipe(x, sizeof x);
+}
+
+/* Whether a little-endian s is below L. Vartime: s is public. */
+static bool sc_canonical(const uint8_t s[32]) {
+    for (int i = 31; i >= 0; i--) {
+        if (s[i] != order[i]) {
+            return s[i] < order[i];
+        }
+    }
+    return false;
+}
+
+/* k = SHA-512(R || A || M) mod L. */
+static void challenge(uint8_t k[32], const uint8_t r[32], const uint8_t a[TERN_ADDRESS_LEN],
+                      const uint8_t *m, size_t len) {
+    struct tern_sha512 c;
+    uint8_t h[TERN_SHA512_LEN];
+    tern_sha512_init(&c);
+    tern_sha512_update(&c, r, 32);
+    tern_sha512_update(&c, a, TERN_ADDRESS_LEN);
+    tern_sha512_update(&c, m, len);
+    tern_sha512_final(&c, h);
+    sc_from_digest(k, h);
+}
+
+void tern_identity_sign(const struct tern_identity *id, const uint8_t *m, size_t len,
+                        uint8_t sig[TERN_SIGNATURE_LEN]) {
+    uint8_t h[TERN_SHA512_LEN], r[TERN_SHA512_LEN], rs[32], k[32];
+    struct tern_sha512 c;
+    ge p;
+
+    secret_scalar(id->seed, h);
+    h[0] &= 248;
+    h[31] &= 127;
+    h[31] |= 64;
+
+    /* r = SHA-512(prefix || M) mod L, the prefix being the digest's second half. */
+    tern_sha512_init(&c);
+    tern_sha512_update(&c, h + 32, 32);
+    tern_sha512_update(&c, m, len);
+    tern_sha512_final(&c, r);
+    sc_from_digest(rs, r);
+
+    (void)ge_frombytes(&p, base_bytes);
+    ge_scalarmult(&p, rs, &p);
+    ge_tobytes(sig, &p);
+
+    challenge(k, sig, id->address, m, len);
+    sc_muladd(sig + 32, rs, k, h); /* S = r + k s */
+
+    tern_wipe(h, sizeof h);
+    tern_wipe(r, sizeof r);
+    tern_wipe(rs, sizeof rs);
+    tern_wipe(&p, sizeof p);
+}
+
+bool tern_address_verify(const uint8_t address[TERN_ADDRESS_LEN], const uint8_t *m, size_t len,
+                         const uint8_t sig[TERN_SIGNATURE_LEN]) {
+    uint8_t k[32], check[32];
+    ge a, sb;
+
+    if (!sc_canonical(sig + 32) || !ge_frombytes(&a, address)) {
+        return false;
+    }
+    challenge(k, sig, address, m, len);
+
+    /* [S]B - [k]A, which is R for a signature made with A's key. */
+    fe zero;
+    fe_0(&zero);
+    fe_sub(&a.x, &zero, &a.x);
+    fe_sub(&a.t, &zero, &a.t);
+    ge_scalarmult(&a, k, &a);
+    (void)ge_frombytes(&sb, base_bytes);
+    ge_scalarmult(&sb, sig + 32, &sb);
+    ge_add(&sb, &sb, &a);
+    ge_tobytes(check, &sb);
+
+    uint8_t differ = 0;
+    for (int i = 0; i < 32; i++) {
+        differ |= (uint8_t)(check[i] ^ sig[i]);
+    }
+    return differ == 0;
 }

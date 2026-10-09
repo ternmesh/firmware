@@ -702,6 +702,78 @@ static void test_reach(void) {
     CHECK_EQ_U64(sent, 2);
 }
 
+/* A card's hops are read as no more than CARD_HOPS, by the rule and by the flooder; a card of the
+ * node's own starts with them; and one its checks refuse is not passed on. */
+static void test_cards(void) {
+    struct tern_flood_config d = tern_flood_defaults();
+    for (size_t i = 0; i < COUNT(card_pass_cases); i++) {
+        const struct pass_case *c = &card_pass_cases[i];
+        CHECK_EQ_I64(tern_flood_passes(c->relay, c->neighbours, c->hops,
+                                       tern_flood_most(TERN_HDR_CARD, d.hops), d.sparse),
+                     c->sends);
+        if (c->neighbours > NB) {
+            continue;
+        }
+        struct node x;
+        uint8_t frame[TERN_FLOOD_FRAME_MAX], out[TERN_FLOOD_FRAME_MAX];
+        int8_t dbm;
+        enum tern_flood_kind kind;
+        uint8_t h;
+        start(&x, c->relay, i + 1);
+        neighbours(&x, c->neighbours, -160);
+        size_t len = make(frame, TERN_FLOOD_CARD_MIN, c->hops, 1);
+        frame[0] = TERN_HDR_CARD;
+        CHECK(tern_flood_heard(&x.f, 0, frame, len));
+        tern_time due = tern_flood_due(&x.f);
+        if (c->sends < 0) {
+            CHECK(due == INT64_MAX);
+            continue;
+        }
+        CHECK(tern_flood_poll(&x.f, due, out, &dbm, &kind, &h) == len);
+        CHECK(kind == TERN_FLOOD_RELAY && out[1] == c->sends);
+        tern_flood_sent(&x.f, due, h);
+    }
+
+    struct node x;
+    uint8_t frame[TERN_FLOOD_FRAME_MAX], out[TERN_FLOOD_FRAME_MAX], id[TERN_FLOOD_ID];
+    int8_t dbm;
+    enum tern_flood_kind kind;
+    uint8_t h;
+    start(&x, false, 3);
+    size_t len = make(frame, TERN_FLOOD_CARD_MAX, 0, 2);
+    frame[0] = TERN_HDR_CARD;
+    CHECK(!tern_flood_send(&x.f, 0, frame, TERN_FLOOD_CARD_MAX + 1)); /* longer than a card */
+    CHECK(tern_flood_send(&x.f, 0, frame, len));
+    CHECK(tern_flood_poll(&x.f, 0, out, &dbm, &kind, &h) == len);
+    CHECK(kind == TERN_FLOOD_OWN && out[1] == TERN_FLOOD_CARD_HOPS);
+    tern_flood_sent(&x.f, 0, h);
+
+    /* A relay told a card failed its checks lets it go, waiting or with the caller, and it stays
+     * seen. */
+    for (int out_first = 0; out_first < 2; out_first++) {
+        start(&x, true, 4);
+        neighbours(&x, 9, -160);
+        len = make(frame, TERN_FLOOD_CARD_MIN, 2, 3);
+        frame[0] = TERN_HDR_CARD;
+        tern_flood_id(frame, len, id);
+        CHECK(!tern_flood_refuse(&x.f, id));
+        CHECK(tern_flood_heard(&x.f, 0, frame, len));
+        tern_time due = tern_flood_due(&x.f);
+        CHECK(due != INT64_MAX);
+        if (out_first) {
+            CHECK(tern_flood_poll(&x.f, due, out, &dbm, &kind, &h) == len);
+            CHECK(tern_flood_refuse(&x.f, id));
+            CHECK(!tern_flood_wanted(&x.f, h));
+            tern_flood_withdrawn(&x.f, due, h);
+        } else {
+            CHECK(tern_flood_refuse(&x.f, id));
+        }
+        CHECK(tern_flood_due(&x.f) == INT64_MAX);
+        CHECK(!tern_flood_heard(&x.f, due + 1, frame, len));
+        CHECK_EQ_U64(x.f.counts.refused, 1);
+    }
+}
+
 int main(void) {
     RUN(test_heads);
     RUN(test_rules);
@@ -719,5 +791,6 @@ int main(void) {
     RUN(test_cancel);
     RUN(test_power);
     RUN(test_reach);
+    RUN(test_cards);
     return CHECK_DONE();
 }

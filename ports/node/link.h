@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "tern/address.h"
+#include "tern/card.h"
 #include "tern/companion.h"
 #include "tern/crypto.h"
 #include "tern/group.h"
@@ -37,6 +38,11 @@
  * main.c seals it, hands it over and says what became of it. None of this is saved: after a
  * restart the node shares with nobody until a client turns sharing on again, and a sync says so.
  *
+ * The cards the node holds from others are here too (draft/cards.md): main.c hands over each card
+ * the flood brings (link_card_received()), and the link keeps the newest from each address for
+ * CARD_KEPT and tells clients of them as who is about. Its own card, and whether it sends one, are
+ * main.c's: they are settings, and SELF says them (struct link_view).
+ *
  * Several clients may drive the node at once, one on each connection: the USB port and a
  * Bluetooth central. Each has its own HELLO, sync and news count, and is answered alone; the
  * contacts and messages are the node's, and news of a change to them goes to every client.
@@ -65,6 +71,7 @@
 #define LINK_SNR_STEP 4        /* quarter-dB: a neighbour's SNR moved this much is news */
 #define LINK_LAPSE TERN_S(60)  /* a serial client silent this long since its last answer is gone */
 #define LINK_GROUP_POSITIONS 8 /* members' positions held for each group */
+#define LINK_CARDS 32          /* cards held from others: who is about */
 
 /* The connections: where a frame came from, and where one goes. The third is the board's own:
  * what is typed at its console is asked of the link as a client would ask it, so that a group
@@ -86,6 +93,9 @@ struct link_view {
     const char *region;
     int8_t power;
     uint32_t time; /* seconds since 1970, or 0 */
+    uint8_t cards; /* 1 if the node sends cards, 0 if not */
+    uint8_t card_name_len;
+    uint8_t card_name[TERN_COMPANION_NAME_MAX];
     size_t n_neighbours;
     struct link_neighbour neighbours[LINK_NEIGHBOURS];
     uint32_t period_s, allowed_ms, used_ms, wait_ms;
@@ -296,6 +306,9 @@ struct link_conn {
     uint8_t self_role;
     int8_t self_power;
     const char *self_region;
+    uint8_t self_cards;
+    uint8_t self_card_name_len;
+    uint8_t self_card_name[TERN_COMPANION_NAME_MAX];
     struct tern_companion_msg air, power;
     tern_time air_at, power_at, look_at;
 };
@@ -326,6 +339,9 @@ struct link {
     struct tern_position_held contact_positions[LINK_CONTACTS];
     struct link_share group_shares[LINK_GROUPS];
     struct link_member_position group_positions[LINK_GROUPS][LINK_GROUP_POSITIONS];
+
+    struct tern_card card_places[LINK_CARDS];
+    struct tern_cards cards;
 
     struct link_view view; /* scratch, filled by the host */
 };
@@ -484,5 +500,13 @@ void link_position_received(struct link *l, tern_time now, const uint8_t from[TE
  * `from` the routing id the frame gave. */
 void link_group_position_received(struct link *l, tern_time now, size_t place, uint32_t from,
                                   const uint8_t *plaintext, size_t len);
+
+/* --- Cards ---------------------------------------------------------------------------------- */
+
+/* A card the flood brought, new to this node. It is checked and, if accepted, held in place of
+ * any from its address, and news; a card it makes room by forgetting is news too. The verdict says
+ * whether a relay should pass it on: not one that is anything but accepted, or this node's own. */
+enum tern_card_verdict link_card_received(struct link *l, tern_time now, const uint8_t *frame,
+                                          size_t len);
 
 #endif
