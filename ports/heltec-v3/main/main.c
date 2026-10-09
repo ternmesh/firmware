@@ -156,6 +156,15 @@ static struct {
     uint8_t nonce[TERN_GROUP_NONCE];
     uint8_t frame_id[TERN_FLOOD_ID]; /* the flooder's name for its frame */
 } flooding[FLOODING];
+/* A position handed to the flooder for a group, by the group's place and id: let go of if the
+ * group is left, or no longer shared with, before it goes (link_group_position_wanted()). */
+static struct {
+    bool on;
+    bool stopped; /* the stopped position, which goes though sharing is off */
+    size_t place;
+    uint8_t group[TERN_COMPANION_GROUP];
+    uint8_t frame_id[TERN_FLOOD_ID];
+} positioning[FLOODING];
 static int flood_own = -1;     /* which of them the frame on the air is, or -1 */
 static bool forward_out;       /* the frame on the air is the forwarder's */
 static uint8_t forward_handle; /* and this is the forwarder's name for it */
@@ -1046,7 +1055,11 @@ static void send_group_position(const struct link_position_out *out) {
     static uint8_t frame[TERN_GROUP_MAX_FRAME];
     size_t len = out->len + TERN_GROUP_OVERHEAD;
     uint8_t nonce[TERN_GROUP_NONCE];
-    if (!tern_flood_own_room(&flood, board_now(), len)) {
+    int place = -1;
+    for (int i = 0; i < FLOODING; i++) {
+        place = !positioning[i].on && place < 0 ? i : place;
+    }
+    if (place < 0 || !tern_flood_own_room(&flood, board_now(), len)) {
         return; /* asked again on the next poll: the allowance fills as time goes */
     }
     if (!board_random(NULL, nonce, sizeof nonce) ||
@@ -1056,6 +1069,11 @@ static void send_group_position(const struct link_position_out *out) {
         outgoing_retry = board_now() + 1000000000LL; /* the flooder's room */
         return;
     }
+    positioning[place].on = true;
+    positioning[place].stopped = out->cell.precision == 0;
+    positioning[place].place = out->place;
+    memcpy(positioning[place].group, companion.groups[out->place].id, TERN_COMPANION_GROUP);
+    tern_flood_id(frame, len, positioning[place].frame_id);
     link_position_sent(&companion, out, board_now());
     printf("position to the group \"%.*s\": %u bytes, precision %u\n",
            (int)companion.groups[out->place].name_len,
@@ -1265,6 +1283,15 @@ static void poll_flood(void) {
             }
         }
     }
+    /* A position whose group was left, or is no longer shared with, is not to go. */
+    for (int i = 0; i < FLOODING; i++) {
+        if (positioning[i].on &&
+            !link_group_position_wanted(&companion, positioning[i].place, positioning[i].group,
+                                        positioning[i].stopped)) {
+            (void)tern_flood_cancel(&flood, now, positioning[i].frame_id);
+            positioning[i].on = false;
+        }
+    }
     /* How busy the radio has been, for a relay to pass fewer on by: what it sent and what it
      * received whole. A frame it lost part-way is not counted, the radio not saying how long it
      * was. */
@@ -1303,6 +1330,13 @@ static void poll_flood(void) {
     if (kind == TERN_FLOOD_RELAY) {
         printf("passed on a %u-byte frame for every node, at %d dBm\n", (unsigned)len, dbm);
         return;
+    }
+    uint8_t id[TERN_FLOOD_ID];
+    tern_flood_id(frame, len, id);
+    for (int i = 0; i < FLOODING; i++) {
+        if (positioning[i].on && memcmp(positioning[i].frame_id, id, TERN_FLOOD_ID) == 0) {
+            positioning[i].on = false; /* on the air: nothing more to let go of */
+        }
     }
     for (int i = 0; i < FLOODING; i++) {
         if (flooding[i].id != 0 &&
