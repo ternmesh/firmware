@@ -98,7 +98,7 @@ const struct board_def board_heltec_v4 = {
 /* The Heltec Wireless Stick Lite V3, from its schematic (HTIT-WSL_V3_Schematic_Diagram), datasheet
  * (HTIT-WSL_V3 Rev1.1) and pin map: a V3 without its screen. PRG on GPIO0, the LED on GPIO35, and
  * the battery through 390k over 100k onto GPIO1 behind a P-channel switch GPIO37 turns on when low.
- * USB through a CP2102, so its console is UART0. Rated 21 dBm, give or take 1. */
+ * USB through a CP2102, so its console is UART0. Rated 21 dBm, give or take a decibel. */
 const struct board_def board_heltec_wsl_v3 = {
     .name = "heltec-wsl-v3",
     .title = "Heltec Wireless Stick Lite V3",
@@ -118,9 +118,8 @@ const struct board_def board_heltec_wsl_v3 = {
  * battery through 390k over 100k onto GPIO1, behind a switch GPIO2 turns on when high. Its 80x160
  * colour TFT and its GNSS are on a supply GPIO3 turns on (high on the V1.1, low on the V1.0), left
  * off. USB from the ESP32-S3's own port (boards/heltec-tracker.defaults). Rated 21 dBm, give or
- * take
- * 1. The V1.0's radio, button, LED and battery are on the same pins (HTIT-Tracker_V0.3), so the
- * image runs on it too. */
+ * take a decibel. The V1.0's radio, button, LED and battery are on the same pins
+ * (HTIT-Tracker_V0.3), so the image runs on it too. */
 const struct board_def board_heltec_tracker = {
     .name = "heltec-tracker",
     .title = "Heltec Wireless Tracker",
@@ -142,7 +141,7 @@ const struct board_def board_heltec_tracker = {
  * over 100k onto GPIO7, behind a switch GPIO46 turns on when high. The E213's datasheet names
  * GPIO17 for that switch, but both its schematics wire GPIO46, as the E290's do; the schematics are
  * taken, and the switch's sense is learnt either way (power.h). USB from the ESP32-S3's own port.
- * Rated 21 dBm, give or take 1. */
+ * Rated 21 dBm, give or take a decibel. */
 const struct board_def board_heltec_vme290 = {
     .name = "heltec-vme290",
     .title = "Heltec Vision Master E290",
