@@ -31,6 +31,7 @@ endif()
 add_library(tern
     src/address.c
     src/aes.c
+    src/card.c
     src/ccm.c
     src/companion.c
     src/contact.c
@@ -58,7 +59,7 @@ target_compile_options(tern PRIVATE ${TERN_WARNINGS})
 
 include(CTest)
 if(BUILD_TESTING)
-    foreach(t address companion contact crypto duty flood forward group listen lora mesh position radio region route share sx126x unicast)
+    foreach(t address card companion contact crypto duty flood forward group listen lora mesh position radio region route share sx126x unicast)
         add_executable(test_${t} tests/${t}.c)
         target_link_libraries(test_${t} PRIVATE tern)
         # The test files define their cases as static functions, so the prototype warning is
@@ -156,6 +157,17 @@ if(BUILD_TESTING)
         VERBATIM)
     target_sources(test_group PRIVATE ${groups_h})
     target_include_directories(test_group PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/vectors)
+
+    set(cards_h ${CMAKE_CURRENT_BINARY_DIR}/vectors/cards.h)
+    add_custom_command(
+        OUTPUT ${cards_h}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/vectors
+        COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tests/vectors/cards_to_c.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/vectors/cards.json ${cards_h}
+        DEPENDS tests/vectors/cards_to_c.py tests/vectors/cards.json
+        VERBATIM)
+    target_sources(test_card PRIVATE ${cards_h})
+    target_include_directories(test_card PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/vectors)
 
     set(positions_h ${CMAKE_CURRENT_BINARY_DIR}/vectors/positions.h)
     add_custom_command(
