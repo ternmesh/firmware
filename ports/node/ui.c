@@ -418,6 +418,9 @@ static void phones(const struct ui_node *n, struct frame *f) {
         return;
     }
     ends(f->rows[0], "Phones", n->phone ? DISPLAY_BLUETOOTH_S : "");
+    if (n->ble_name != NULL) {
+        line(f->rows[1], "Seen as %s", n->ble_name);
+    }
     if (n->paired == 0) {
         line(f->rows[2], "None paired");
         line(f->rows[4], "A phone pairs with");

@@ -68,7 +68,8 @@ struct ui_node {
     bool charging;   /* as far as the board can tell (power.h): it has no wire from its charger */
     bool phone;      /* a client is connected over Bluetooth */
     bool bluetooth;  /* Bluetooth started, so phones can pair */
-    uint8_t paired;  /* phones that have paired and are remembered */
+    const char *ble_name; /* what it advertises the node as, which a phone lists it by */
+    uint8_t paired;       /* phones that have paired and are remembered */
     /* Holding PRG on the Phones or Reset page asks first: held once, the page asks to be sure,
      * for `confirm_s` more seconds, and held again in that time, it acts. 0 when it is not
      * asking. */

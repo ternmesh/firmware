@@ -220,8 +220,9 @@ static uint32_t clock_base; /* seconds since 1970 as a client last set them, or 
 static tern_time clock_at;
 static bool restart_due; /* a setting saved that takes a restart, once its answer has gone */
 static bool have_ble;
-static uint16_t battery_mv;      /* 0 for none, or not read */
-static struct power_watch watch; /* whether the battery charges, or is empty (power.h) */
+static char ble_name[BLE_NAME_LEN + 1]; /* what Bluetooth advertises the node as (ble.h) */
+static uint16_t battery_mv;             /* 0 for none, or not read */
+static struct power_watch watch;        /* whether the battery charges, or is empty (power.h) */
 static unsigned off_shown;       /* while PRG is held to turn off, the seconds left shown, or 0 */
 static bool phone;               /* a client is connected over Bluetooth, for Home to say */
 static uint32_t pairing_passkey; /* shown on the screen while pairing, or PAIRING_NONE */
@@ -2406,13 +2407,38 @@ static void restart_if_due(void) {
  * (plat_bluetooth_starting()). */
 _Static_assert(PASSKEY_RANDOM == BLE_PASSKEY_RANDOM, "one spelling of a random passkey");
 _Static_assert(UI_BATTERY_UNKNOWN == POWER_UNKNOWN, "one spelling of a battery not known");
+/* The name Bluetooth advertises: "Tern" and a tag from bytes drawn at random the first time and
+ * kept until the board is erased, so that it reads the same from one start to the next. Each byte
+ * gives one of 32 characters, with no I, L, O or U to be taken for another. */
+static void make_ble_name(void) {
+    static const char digits[] = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+    uint8_t tag[BLE_TAG_LEN];
+    if (!plat_store_load("btag", tag, sizeof tag)) {
+        if (!plat_random(tag, sizeof tag)) {
+            snprintf(ble_name, sizeof ble_name, "Tern");
+            return;
+        }
+        if (!plat_store_save("btag", tag, sizeof tag)) {
+            printf("bluetooth: the name's tag was not saved; the next start draws another\n");
+        }
+    }
+    char *p = ble_name + snprintf(ble_name, sizeof ble_name, "Tern ");
+    for (size_t i = 0; i < BLE_TAG_LEN; i++) {
+        *p++ = digits[tag[i] % (sizeof digits - 1)];
+    }
+    *p = '\0';
+}
+
 static void start_bluetooth(void) {
+    make_ble_name();
     plat_bluetooth_starting(true);
-    have_ble = ble_start(settings.passkey, have_screen);
+    have_ble = ble_start(ble_name, settings.passkey, have_screen);
     if (!have_ble) {
         plat_bluetooth_starting(false);
         printf("Bluetooth did not start; the USB port is the only companion link\n");
+        return;
     }
+    printf("bluetooth: seen by phones as \"%s\"\n", ble_name);
 }
 
 /* A companion frame on the USB port. */
@@ -2650,6 +2676,7 @@ static void fill_ui(struct ui_node *u) {
     u->charging = watch.charging;
     u->phone = phone;
     u->bluetooth = have_ble;
+    u->ble_name = ble_name;
     unsigned paired = have_ble ? ble_paired() : 0;
     u->paired = (uint8_t)(paired > UINT8_MAX ? UINT8_MAX : paired);
     u->confirm_s = (uint8_t)confirm_left();

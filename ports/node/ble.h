@@ -19,6 +19,12 @@
 
 #define BLE_PASSKEY_RANDOM 0xFFFFFFFFu /* a new passkey for each pairing, shown on the screen */
 
+/* The name the node advertises: "Tern", a space and a tag of BLE_TAG_LEN characters drawn at
+ * random, so that a user with several nodes can tell them apart (draft/companion.md, "Bluetooth
+ * LE"). Nothing of it comes from the address. */
+#define BLE_TAG_LEN 4
+#define BLE_NAME_LEN (sizeof "Tern " - 1 + BLE_TAG_LEN)
+
 enum ble_event_kind {
     BLE_OPEN,    /* a paired client: `mtu` is its ATT MTU */
     BLE_MTU,     /* its ATT MTU changed to `mtu` */
@@ -37,10 +43,11 @@ struct ble_event {
     uint8_t frame[TERN_COMPANION_MAX_FRAME];
 };
 
-/* Starts the controller and the host, and advertises. `passkey` is as for ble_passkey(); a
- * passkey that is random needs `screen`, or the node does not pair. False if Bluetooth did not
- * start, and then the controller, and the radio with it, is off. */
-bool ble_start(uint32_t passkey, bool screen);
+/* Starts the controller and the host, and advertises as `name`, at most BLE_NAME_LEN characters.
+ * `passkey` is as for ble_passkey(); a passkey that is random needs `screen`, or the node does not
+ * pair. False if Bluetooth did not start, and then the controller, and the radio with it, is
+ * off. */
+bool ble_start(const char *name, uint32_t passkey, bool screen);
 
 /* The passkey for pairings from now: 0 to 999999, or BLE_PASSKEY_RANDOM. */
 void ble_passkey(uint32_t passkey);

@@ -436,14 +436,17 @@ static void the_share_page_is_the_address_as_a_code(void) {
 static void the_phones_page_says_who_is_paired(void) {
     struct ui_node n = alone();
     n.bluetooth = true;
+    n.ble_name = "Tern 7KQ3";
     draw(&n, UI_PHONES, "phones-none");
     CHECK_ROW(0, "Phones");
+    CHECK_ROW(1, "Seen as Tern 7KQ3");
     CHECK_ROW(2, "None paired");
     CHECK_ROW(5, "the passkey shown");
     n.paired = 2;
     n.phone = true;
     draw(&n, UI_PHONES, "phones");
     CHECK_ROW(0, "Phones              " DISPLAY_BLUETOOTH_S);
+    CHECK_ROW(1, "Seen as Tern 7KQ3");
     CHECK(big(2, "2 paired"));
     CHECK_ROW(4, "One is connected");
     CHECK_ROW(6, "Hold PRG to forget");

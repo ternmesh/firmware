@@ -24,8 +24,6 @@ static const ble_uuid128_t service_uuid = TERN_UUID(0x01);
 static const ble_uuid128_t to_node_uuid = TERN_UUID(0x02);
 static const ble_uuid128_t from_node_uuid = TERN_UUID(0x03);
 
-/* What the advertisement names the node: nothing of its address or its user's name for it. */
-#define NAME "Tern"
 #define EVENTS 8
 /* Frames waiting for a NimBLE buffer: more than the largest sync, which is SELF, every contact,
  * message and neighbour, AIRTIME, POWER and SYNCED (link.h). */
@@ -39,6 +37,8 @@ static volatile bool paired;     /* the client on `conn` paired with a passkey *
 static volatile bool subscribed; /* and asked for notifications */
 static volatile uint32_t passkey_setting;
 static bool have_screen;
+/* What the scan response names the node: nothing of its address or its user's name for it. */
+static char name[BLE_NAME_LEN + 1];
 static uint8_t own_addr_type;
 
 static void post(const struct ble_event *e) {
@@ -229,10 +229,13 @@ static void advertise(void) {
     fields.uuids128 = (ble_uuid128_t *)&service_uuid;
     fields.num_uuids128 = 1;
     fields.uuids128_is_complete = 1;
-    fields.name = (const uint8_t *)NAME;
-    fields.name_len = sizeof NAME - 1;
-    fields.name_is_complete = 1;
-    if (ble_gap_adv_set_fields(&fields) != 0) {
+    /* The name goes in the scan response: with the flags and the UUID, the advertisement has no
+     * room left for it within its 31 bytes. */
+    struct ble_hs_adv_fields rsp = {0};
+    rsp.name = (const uint8_t *)name;
+    rsp.name_len = (uint8_t)strlen(name);
+    rsp.name_is_complete = 1;
+    if (ble_gap_adv_set_fields(&fields) != 0 || ble_gap_adv_rsp_set_fields(&rsp) != 0) {
         printf("bluetooth: could not set the advertisement\n");
         return;
     }
@@ -260,7 +263,8 @@ static void host_task(void *param) {
     nimble_port_freertos_deinit();
 }
 
-bool ble_start(uint32_t passkey, bool screen) {
+bool ble_start(const char *node_name, uint32_t passkey, bool screen) {
+    snprintf(name, sizeof name, "%s", node_name);
     passkey_setting = passkey;
     have_screen = screen;
     events = xQueueCreate(EVENTS, sizeof(struct ble_event));
@@ -283,7 +287,7 @@ bool ble_start(uint32_t passkey, bool screen) {
     ble_svc_gap_init();
     ble_svc_gatt_init();
     if (ble_gatts_count_cfg(services) != 0 || ble_gatts_add_svcs(services) != 0 ||
-        ble_svc_gap_device_name_set(NAME) != 0) {
+        ble_svc_gap_device_name_set(name) != 0) {
         nimble_port_deinit(); /* the controller off again, as ble_start() promises */
         return false;
     }
