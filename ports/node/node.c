@@ -3024,6 +3024,11 @@ void node_main(void) {
         printf("the console did not start\n");
     }
 
+    /* The battery has been read: the platform's generator may now take what it needs to be a true
+     * one (on the ESP32, the ADC's noise source), before the identity and the router's seed are
+     * made below. */
+    plat_entropy_start();
+
 #if CONFIG_TERN_REGION_EU868
     region = tern_region(TERN_REGION_EU868);
 #else

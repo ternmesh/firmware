@@ -20,13 +20,7 @@
 /* The node's platform on an ESP32 (../../node/platform.h): NVS for what it saves, the chip's
  * generator, ESP-IDF's two firmware slots, and FreeRTOS. */
 
-/* With Wi-Fi and Bluetooth off, the chip's generator has no entropy of its own until its noise
- * source is on (plat_random()). It stays on until Bluetooth starts, so the identity and the
- * router's seed node_main() makes draw on it. */
-void app_main(void) {
-    bootloader_random_enable();
-    node_main();
-}
+void app_main(void) { node_main(); }
 
 /* --- Storage: one NVS namespace --------------------------------------------------------------- */
 
@@ -235,10 +229,12 @@ bool plat_erase_asked(void) {
 /* The ESP32's generator, which is a true one while its entropy source is on. Espressif's
  * documentation for it (ESP-IDF, "Random Number Generation", ESP32-S3) says it gives true random
  * numbers while Wi-Fi or Bluetooth is on, or while the noise source bootloader_random_enable()
- * turns on is on, and that the noise source must be turned off before Bluetooth is used. So the
- * noise source is on from the start (app_main()) until Bluetooth starts, nothing is made from the
- * generator between the two, and it is on again if Bluetooth does not start. Either way, every key
- * made after this, a first contact's included, draws on a true source. */
+ * turns on is on; that the noise source must be turned off before Bluetooth is used; and that it
+ * shares the SAR ADC, which nothing else may use while it is on. So it is turned on once the node's
+ * first readings of the battery are done (plat_entropy_start()), before the identity and the
+ * router's seed are made from it, and off as Bluetooth starts; nothing is made from the generator
+ * between the two, and it is on again if Bluetooth does not start. Either way, every key made after
+ * this, a first contact's included, draws on a true source. */
 bool plat_random(uint8_t *buf, size_t len) {
     esp_fill_random(buf, len);
     return true;
@@ -249,6 +245,8 @@ uint32_t plat_random32(void) {
     (void)plat_random((uint8_t *)&r, sizeof r);
     return r;
 }
+
+void plat_entropy_start(void) { bootloader_random_enable(); }
 
 void plat_bluetooth_starting(bool starting) {
     if (starting) {

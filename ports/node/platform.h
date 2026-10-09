@@ -72,6 +72,11 @@ bool plat_erase_asked(void);
 bool plat_random(uint8_t *buf, size_t len);
 uint32_t plat_random32(void);
 
+/* The node is about to make keys: called once, after its first readings of the battery and before
+ * the identity is made. On the ESP32 this turns on the noise source its generator needs while
+ * Bluetooth is off, which shares the ADC the battery is read through; elsewhere it does nothing. */
+void plat_entropy_start(void);
+
 /* Bluetooth is starting (true) or did not (false). On a chip whose generator draws on its radio
  * while Bluetooth is on, and on a noise source otherwise, as the ESP32's does, the noise source is
  * turned off and on again here; elsewhere this does nothing. */
