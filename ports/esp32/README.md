@@ -41,9 +41,10 @@ about it:
   on the V4.2 and GPIO5 on the V4.3, both at once, since on each the other goes only to the header.
   One image runs on either. Do not wire anything to GPIO5 or GPIO46.
 * **Power.** Every power here, the build's, `power` and a client's, is what goes into the antenna,
-  from +1 to +28 dBm. Neither amplifier's datasheet is published, so the radio is asked for 10 dB
-  less than the power set: the most the amplifier is thought to add. The power at the antenna is
-  that or less, never more, until someone measures it with a meter. The region's limit is checked
+  from +4 to +28 dBm; a V4 starts at +4, the least it gives. The radio is asked for 13 dB less than
+  the power set: the most the V4.2's amplifier adds after its attenuator, by the GC1109's
+  datasheet (the V4.3's KCT8103L has none published). The power at the antenna is that or less,
+  never more, until someone measures it with a meter. The region's limit is checked
   against the power set, as on the V3; with a 3 dBi antenna, EU868's limit stops at +26 dBm.
 * **USB.** The V4 has no USB-to-serial chip. Its console and the companion link are the ESP32-S3's
   own USB Serial/JTAG, which shows as `/dev/ttyACM0` (`/dev/cu.usbmodem…` on a Mac). It needs no
@@ -349,8 +350,8 @@ Meshtastic's (`0x2B`), MeshCore's (`0x12`) or LoRaWAN's (`0x34`), so these board
 those networks' frames, nor they these. They do hear each other as energy on the channel, as any
 radio would. Two boards built before this change and after it do not hear each other either.
 
-* **Power.** The default is +2 dBm, plenty for a bench: two boards in the same house hear each
-  other easily. The V3 gives up to +22 dBm, the V4 [up to +28](#the-heltec-v4). The board refuses
+* **Power.** The default is +2 dBm (+4 on a V4), plenty for a bench: two boards in the same house
+  hear each other easily. The V3 gives up to +22 dBm, the V4 [up to +28](#the-heltec-v4). The board refuses
   to start if the power set, with the antenna's gain, is more than the region allows, which a V3
   cannot reach with an ordinary antenna and a V4 can.
 * **EU868's 10%.** The board counts the time on air of every frame it sends and refuses to send

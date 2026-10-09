@@ -48,7 +48,7 @@ menu "Tern demo"
         default 2
         help
             What the board puts into the antenna. The default is for a bench. A board refuses
-            to start with a power it does not give (-9 to 22 dBm on the V3, +1 to 28 on the
+            to start with a power it does not give (-9 to 22 dBm on the V3, +4 to 28 on the
             V4, whose amplifier adds to the radio's) or one that, with the antenna's gain, is
             more than the region allows.
 

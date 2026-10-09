@@ -49,10 +49,13 @@ const struct board_def board_heltec_v3 = {
  * each revision the other one goes only to the header. So one image raises both GPIO5 and GPIO46
  * while it sends, and runs on either.
  *
- * Neither amplifier's datasheet is published. Heltec rates the pair at 28 dBm with the SX1262 at
- * its 22, which puts their gain at 6 dB at full power; an amplifier gives more gain below its
- * limit, so 10 dB is taken, and a power asked for is reached or undershot, never exceeded. Until a
- * meter says better, the board's figures for its power are that estimate. */
+ * The GC1109's datasheet (GC1109_EN_V0.9.2, which Heltec publishes beside the V4's) gives it 30 dB
+ * of small-signal gain, so with the V4.2's 17 dB attenuator the radio's power gains up to 13 dB on
+ * the way to the antenna, less as the amplifier nears its limit: Heltec rates the board at 28 dBm
+ * with the SX1262 at its 22. The KCT8103L's datasheet is not published, and the V4.3's attenuator
+ * is about 21 dB (its 59, 280 and 59 ohms), so 13 dB holds for it unless its gain passes 34 dB. 13
+ * dB is taken, and a power asked for is reached or undershot, never exceeded: the least the V4
+ * gives is +4 dBm. Until a meter says better, the board's figures for its power are that bound. */
 const struct board_def board_heltec_v4 = {
     .name = "heltec-v4",
     .title = "Heltec WiFi LoRa 32 V4",
@@ -70,7 +73,7 @@ const struct board_def board_heltec_v4 = {
     .vext = 36,
     .vext_high_on = false, /* a P-channel FET held off by a pull-up (the schematic's Q2) */
     .battery = {.sense = 1, .enable = 37, .top_k = 390, .bottom_k = 100},
-    .amp = {.power = 7, .enable = 2, .tx = {5, 46}, .gain_db = 10},
+    .amp = {.power = 7, .enable = 2, .tx = {5, 46}, .gain_db = 13},
     .max_dbm = 28,
 };
 

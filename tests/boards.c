@@ -145,11 +145,11 @@ static void a_board_without_an_amplifier_is_its_chip(void) {
  * most the amplifier might give: so a power asked for is never exceeded. */
 static void an_amplifier_is_taken_off_what_the_chip_is_asked(void) {
     const struct board_def *b = &board_heltec_v4;
-    CHECK_EQ_I64(board_min_dbm(b), 1);
+    CHECK_EQ_I64(board_min_dbm(b), 4);
     CHECK_EQ_I64(board_max_dbm(b), 28);     /* Heltec's rating, not the chip's 22 and the gain */
-    CHECK_EQ_I64(board_chip_dbm(b, 2), -8); /* the default, on a bench */
-    CHECK_EQ_I64(board_chip_dbm(b, 28), 18);
-    CHECK(!board_gives(b, 0));
+    CHECK_EQ_I64(board_chip_dbm(b, 4), -9); /* its least, the default on a bench */
+    CHECK_EQ_I64(board_chip_dbm(b, 28), 15);
+    CHECK(!board_gives(b, 3));
     CHECK(!board_gives(b, 29));
     for (size_t i = 0; board_defs[i] != NULL; i++) {
         const struct board_def *d = board_defs[i];
