@@ -7,12 +7,23 @@
     python3 tools/companion.py --port /dev/ttyUSB0 end <address>
     python3 tools/companion.py --port /dev/ttyUSB0 set power 10
     python3 tools/companion.py --port /dev/ttyUSB0 watch
+    python3 tools/companion.py --port /dev/ttyUSB0 group new <name>
+    python3 tools/companion.py --port /dev/ttyUSB0 group invite <group> <address>
+    python3 tools/companion.py --port /dev/ttyUSB0 group join <invite>
+    python3 tools/companion.py --port /dev/ttyUSB0 group send <group> <text>
+    python3 tools/companion.py --port /dev/ttyUSB0 position <lat> <lon>
+    python3 tools/companion.py --port /dev/ttyUSB0 share <address or group> <precision>
     python3 tools/companion.py --port /dev/ttyUSB0 update tern-heltec-v3-eu868-0.2.0-app.bin
     python3 tools/companion.py selftest tests/vectors/companion.json
 
 `contact` saves an address under a name, which also lets that node make first contact; `end` ends
 the session with one. `state` says hello, sets the node's clock from this computer's, and prints everything the node
 holds. `send` sends a message and prints what becomes of it. `watch` prints news as it comes.
+`group` makes a group, invites a contact to one, takes the group an invite was to, writes to one
+or leaves it; a group is named by the sixteen digits `state` lists it with. `position` tells the
+node where it is, in degrees, and `share` has the node send that to a contact or a group, as a
+cell of a grid as coarse as `precision` says, 1 to 24, until `share ... 0` stops it. `watch`
+speaks version 1 and is told of messages only: `--speak 6 watch` is told of all of it.
 `update` gives the node a new image of its firmware, going on from where the node's bytes end if
 it was given part of the same image before, and the node restarts into it.
 While it waits for news it sends PING every IDLE seconds, as the specification asks, and if the
@@ -36,10 +47,10 @@ import sys
 import time
 
 MAX_FRAME, MAGIC = 180, b"\xf5\x54"
-# The version this script speaks. It has no commands for groups, which came with version 2, so it
-# says 1 and is told of none: the frames of versions 2 to 6 are here only to be checked. `update`
-# says the latest, which it needs, as does a `set` of a setting a later version brought; `--speak`
-# says another, to be told what that version tells a client, such as the cards a node hears.
+# The version `send` and `watch` speak, and the commands that were there from the first: 1, at
+# which a node tells them of messages and nothing a later version brought. `state`, `update`,
+# `group`, `position` and `share` say the latest, as does a `set` of a setting a later version
+# brought; `--speak` says another, so that `watch` is told of groups, positions or cards.
 VERSION = 1
 # The latest version the frames below are, which selftest reads the vectors by.
 LATEST = 6
@@ -419,11 +430,57 @@ def describe(m, names):
                2: "there is no room for another session: end one to make room"}
         return (f"refused first contact from {m['address'].hex()}: "
                 f"{why.get(m['why'], 'no reason this script knows')}")
+    if t == "GROUP":
+        groups[m["group"]] = m["name"]
+        return f"group {m['name']!r}: {m['group'].hex()}"
+    if t == "GROUP_GONE":
+        return f"group left: {m['group'].hex()}"
+    if t == "GROUP_MESSAGE":
+        way = "from" if m["state"] == 4 else "to"
+        who = f" by {m['from']:08x}" if m["state"] == 4 else ""
+        read = ", read" if m["flags"] & 1 else ""
+        return (f"group message #{m['id']} {way} {group_name(m['group'])}{who}: {m['text']!r} "
+                f"({state(m)}{read})")
+    if t == "INVITE":
+        who = names.get(m["contact"], m["contact"].hex()[:16])
+        way = "from" if m["state"] == 4 else "to"
+        return (f"invite #{m['id']} {way} {who} to group {m['name']!r} ({m['group'].hex()}): "
+                f"{state(m)}")
+    if t in ("POSITION", "GROUP_POSITION"):
+        if t == "POSITION":
+            who = names.get(m["contact"], m["contact"].hex()[:16])
+        else:
+            who = f"{m['from']:08x} in {group_name(m['group'])}"
+        if not m["precision"]:
+            return f"position from {who}: none held"
+        more = "" if m["altitude"] == -32768 else f", {m['altitude']} m up"
+        more += f", within {m['accuracy']} m" if m["accuracy"] else ""
+        return (f"position from {who}: {m['lat'] / 1e7:.7f}, {m['lon'] / 1e7:.7f} "
+                f"(the centre of a cell of precision {m['precision']}){more}, "
+                f"{m['age']} s old")
+    if t in ("SHARING", "GROUP_SHARING"):
+        if t == "SHARING":
+            who = names.get(m["contact"], m["contact"].hex()[:16])
+        else:
+            who = group_name(m["group"])
+        if not m["precision"]:
+            return f"sharing position with {who}: off"
+        with_ = [w for bit, w in ((1, "altitude"), (2, "accuracy")) if m["fields"] & bit]
+        return (f"sharing position with {who}: precision {m['precision']}"
+                f"{''.join(', with ' + w for w in with_)}, every {m['interval']} s at most, "
+                + (f"for {m['minutes']} more minutes" if m["minutes"] else "until turned off"))
     if t == "CARD":
         return f"card {m['name']!r}: {m['address'].hex()}, heard {m['heard']} s ago"
     if t == "CARD_GONE":
         return f"card gone: {m['address'].hex()}"
     return str(m)
+
+
+groups = {}  # a group's id: the name the node holds it under, as GROUP said
+
+
+def group_name(gid):
+    return repr(groups[gid]) if gid in groups else gid.hex()
 
 
 def state(m):
@@ -440,6 +497,37 @@ def address(text):
     if len(raw) != 32:
         raise SystemExit("an address is sixty-four hex digits")
     return raw
+
+
+def group_id(text):
+    raw = bytes.fromhex(text)
+    if len(raw) != 8:
+        raise SystemExit("a group's id is sixteen hex digits: `state` lists them")
+    return raw
+
+
+def degrees(text, most):
+    """A latitude or longitude in degrees as the protocol carries it, in 1e-7 degree."""
+    v = round(float(text) * 1e7)
+    if abs(v) > most * 10_000_000:
+        raise SystemExit(f"{text} is beyond {most} degrees")
+    return v
+
+
+def watch_message(node, q, names, wait):
+    """Prints what becomes of the message, group message or invite the node queued as `q`."""
+    for m in node.news(wait):
+        if m.get("id") != q["id"] or m["type"] not in ("GROUP_MESSAGE", "INVITE", "STATE"):
+            continue
+        print(describe(m, names))
+        if m["state"] in (1, 2, 3):
+            break
+
+
+def sharing(args):
+    """SHARE's and SHARE_GROUP's fields, from the command line's."""
+    return {"precision": args.precision, "fields": args.altitude | args.accuracy << 1,
+            "interval": args.interval, "minutes": args.minutes}
 
 
 def update(node, info, path):
@@ -479,7 +567,8 @@ def update(node, info, path):
 
 
 def run(args):
-    speak = LATEST if args.command == "update" else VERSION
+    latest = ("state", "update", "group", "position", "share")
+    speak = LATEST if args.command in latest else VERSION
     if args.command == "set":
         speak = max(speak, SINCE.get(args.setting, VERSION))
     if args.speak is not None:
@@ -520,6 +609,39 @@ def run(args):
             raise SystemExit("this node's firmware is too old to end a session from here")
         node.request("END_SESSION", address=address(args.address))
         print("ended")
+    elif args.command == "group":
+        node.request("SYNC", after=0)  # for the names of contacts and groups
+        for m in node.pending:
+            describe(m, names)
+        node.pending.clear()
+        if args.what == "new":
+            made = node.request("MAKE_GROUP", name=args.name)
+            print(f"made group {args.name!r}: {made['group'].hex()}")
+        elif args.what == "leave":
+            node.request("LEAVE_GROUP", group=group_id(args.group))
+            print("left")
+        elif args.what == "invite":
+            q = node.request("SEND_INVITE", group=group_id(args.group), to=address(args.address))
+            print(f"queued as invite #{q['id']}")
+            watch_message(node, q, names, args.wait)
+        elif args.what == "join":
+            node.request("JOIN", id=args.id)
+            print("joined")
+        elif args.what == "send":
+            q = node.request("SEND_GROUP", ref=random.getrandbits(32), group=group_id(args.group),
+                             text=args.text)
+            print(f"queued as group message #{q['id']}")
+            watch_message(node, q, names, args.wait)
+    elif args.command == "position":
+        node.request("SET_POSITION", lat=degrees(args.lat, 90), lon=degrees(args.lon, 180),
+                     altitude=args.altitude, accuracy=args.accuracy, age=args.age)
+        print("the node has the position, and sends it only where sharing is on")
+    elif args.command == "share":
+        if len(args.to) == 64:
+            node.request("SHARE", contact=address(args.to), **sharing(args))
+        else:
+            node.request("SHARE_GROUP", group=group_id(args.to), **sharing(args))
+        print("sharing is off" if not args.precision else "sharing")
     elif args.command == "set":
         n, kind = SETTING[args.setting]
         value = args.value if kind == "str" else int(args.value, 0)
@@ -531,7 +653,11 @@ def run(args):
         # From the first message, so a sync after a lapse can tell what changed; the old ones
         # are not news, and are not printed.
         node.request("SYNC", after=0)
-        node.pending = [m for m in node.pending if m["type"] != "MESSAGE"]
+        old = ("MESSAGE", "GROUP_MESSAGE", "INVITE")
+        for m in node.pending:
+            if m["type"] in old:
+                describe(m, names)  # not printed, but a group's name is learnt from its frame
+        node.pending = [m for m in node.pending if m["type"] not in old]
         end = time.monotonic() + args.seconds if args.seconds else None
         while end is None or time.monotonic() < end:
             for m in node.news(1.0):
@@ -591,6 +717,35 @@ def main():
     t = sub.add_parser("set")
     t.add_argument("setting", choices=list(SETTING))
     t.add_argument("value")
+    g = sub.add_parser("group", help="make, leave, invite to, join or write to a group")
+    gs = g.add_subparsers(dest="what", required=True)
+    gs.add_parser("new").add_argument("name")
+    gs.add_parser("leave").add_argument("group", help="the group's id, as `state` lists it")
+    gi = gs.add_parser("invite")
+    gi.add_argument("group")
+    gi.add_argument("address")
+    gj = gs.add_parser("join")
+    gj.add_argument("id", type=int, help="the invite's number, as `state` lists it")
+    gw = gs.add_parser("send")
+    gw.add_argument("group")
+    gw.add_argument("text")
+    for x in (gi, gw):
+        x.add_argument("--wait", type=float, default=30, help="seconds to watch it for")
+    pos = sub.add_parser("position", help="tell the node where it is")
+    pos.add_argument("lat", help="degrees north, as -33.8568")
+    pos.add_argument("lon", help="degrees east")
+    pos.add_argument("--altitude", type=int, default=-32768, help="metres above the ellipsoid")
+    pos.add_argument("--accuracy", type=int, default=0, help="metres")
+    pos.add_argument("--age", type=int, default=0, help="how many seconds old the fix is")
+    sh = sub.add_parser("share", help="share the node's position with a contact or a group")
+    sh.add_argument("to", help="a contact's address, or a group's id")
+    sh.add_argument("precision", type=int, help="1 (coarsest) to 24, or 0 to stop sharing")
+    sh.add_argument("--interval", type=int, default=300,
+                    help="the least seconds between two positions (default 300; a contact takes "
+                         "60 or more, a group 300 or more)")
+    sh.add_argument("--minutes", type=int, default=0, help="for how long (default: until off)")
+    sh.add_argument("--altitude", action="store_true", help="send the altitude too")
+    sh.add_argument("--accuracy", action="store_true", help="send the accuracy too")
     w = sub.add_parser("watch")
     w.add_argument("--seconds", type=float, help="stop after this long (default: never)")
     u = sub.add_parser("update")
