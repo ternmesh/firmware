@@ -284,6 +284,11 @@ void tern_flood_radio(struct tern_flood *f, tern_time now, tern_time on_air) {
         f->busy_at[1] = now;
         f->busy_air[1] = on_air;
     }
+    if (now - f->busy_at[0] > 2 * f->config.busy_span && f->busy_at[1] == now) {
+        /* Not told for longer than a share may be over: it keeps count afresh from here. */
+        f->busy_at[0] = now;
+        f->busy_air[0] = on_air;
+    }
     /* In thousandths of a second, so that a share of a long time is still within 64 bits. */
     tern_time span = (now - f->busy_at[0]) / MILLION, air = on_air - f->busy_air[0];
     int64_t share = span > 0 && air > 0 ? air / span : 0;

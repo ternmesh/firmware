@@ -54,6 +54,21 @@ def main():
     L.append("static const struct busy_case busy_cases[] = {")
     L += [f"    {{{c['busy_ppm']}u, {c['drops_ppm']}u}}," for c in v["busies"]]
     L.append("};")
+    L.append("static const struct draw_case draw_cases[] = {")
+    L += [f"    {{{c['busy_ppm']}u, {d['draw']}u, {b(d['drops'])}}},"
+          for c in v["busies"] for d in c["draws"]]
+    L.append("};")
+    for i, c in enumerate(v["shares"]):
+        L.append(f"static const struct radio_span share_{i}_radio[] = {{")
+        L += [f"    {{{r['from_ns']}LL, {r['to_ns']}LL}}," for r in c["radio"]]
+        L.append("};")
+        L.append(f"static const struct share_ask share_{i}_asks[] = {{")
+        L += [f"    {{{a['at_ns']}LL, {a['least_ppm']}u, {a['most_ppm']}u}}," for a in c["asks"]]
+        L.append("};")
+    L.append("static const struct share_case share_cases[] = {")
+    L += [f"    {{\"{c['name']}\", share_{i}_radio, {len(c['radio'])}, share_{i}_asks, "
+          f"{len(c['asks'])}}}," for i, c in enumerate(v["shares"])]
+    L.append("};")
 
     L.append("static const struct wait_case wait_cases[] = {")
     L += [f"    {{{c['spreading_factor']}, {c['bandwidth_hz']}u, {c['length']}, {c['airtime_ns']}LL, "

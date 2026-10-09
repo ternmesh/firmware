@@ -172,8 +172,11 @@ bool tern_flood_cancel(struct tern_flood *f, tern_time now, const uint8_t id[TER
 bool tern_flood_heard(struct tern_flood *f, tern_time now, const uint8_t *frame, size_t len);
 
 /* Tells the flooder how long the radio has spent sending and receiving, in all, up to `now`:
- * receiving as tern/listen.h has it. A relay is to say so before every tern_flood_poll(), and may
- * say so more often. Never told, a flooder takes its radio as idle. */
+ * receiving as tern/listen.h has it. A relay is to say so before every tern_flood_poll(), and
+ * every busy_span at least: the share is over the time since a telling busy_span to twice that
+ * ago, so tellings further apart make it longer by as much. Not told for twice busy_span, the
+ * flooder keeps count afresh, as if it had just started. Never told, it takes its radio as
+ * idle. */
 void tern_flood_radio(struct tern_flood *f, tern_time now, tern_time on_air);
 
 /* When tern_flood_poll() next has something to do, or INT64_MAX. */

@@ -44,6 +44,28 @@ struct busy_case {
     uint32_t busy_ppm, drops_ppm;
 };
 
+struct draw_case {
+    uint32_t busy_ppm, draw;
+    bool drops;
+};
+
+struct radio_span {
+    int64_t from, to;
+};
+
+struct share_ask {
+    int64_t at;
+    uint32_t least, most;
+};
+
+struct share_case {
+    const char *name;
+    const struct radio_span *radio;
+    size_t radios;
+    const struct share_ask *asks;
+    size_t n;
+};
+
 struct copy_case {
     unsigned received;
     bool drops;
@@ -443,6 +465,51 @@ static void test_busy(void) {
     }
 }
 
+/* A draw below how often it drops, and the frame is dropped. */
+static void test_draws(void) {
+    for (size_t i = 0; i < COUNT(draw_cases); i++) {
+        const struct draw_case *c = &draw_cases[i];
+        CHECK((c->draw < tern_flood_busy_drops(c->busy_ppm, 200000)) == c->drops);
+    }
+}
+
+/* The radio's time on, in all, up to `now`. */
+static tern_time on_air(const struct share_case *c, tern_time now) {
+    tern_time sum = 0;
+    for (size_t i = 0; i < c->radios; i++) {
+        tern_time to = c->radio[i].to < now ? c->radio[i].to : now;
+        sum += to > c->radio[i].from ? to - c->radio[i].from : 0;
+    }
+    return sum;
+}
+
+/* The busy share, told of the radio every second: within what any span the draft allows finds. */
+static void test_shares(void) {
+    for (size_t i = 0; i < COUNT(share_cases); i++) {
+        const struct share_case *c = &share_cases[i];
+        for (size_t k = 0; k < c->n; k++) {
+            struct node x;
+            start(&x, true, 3);
+            for (tern_time t = 0; t <= c->asks[k].at; t += TERN_S(1)) {
+                tern_flood_radio(&x.f, t, on_air(c, t));
+            }
+            CHECK(x.f.busy >= c->asks[k].least && x.f.busy <= c->asks[k].most);
+        }
+    }
+
+    /* Not told for more than a minute, it keeps count afresh: the half minute never idle that
+     * went before is not spread over the gap, nor counted. */
+    struct node x;
+    start(&x, true, 3);
+    tern_flood_radio(&x.f, 0, 0);
+    tern_flood_radio(&x.f, TERN_S(30), TERN_S(30));
+    CHECK_EQ_U64(x.f.busy, 1000000);
+    tern_flood_radio(&x.f, TERN_S(300), TERN_S(30));
+    CHECK_EQ_U64(x.f.busy, 0);
+    tern_flood_radio(&x.f, TERN_S(310), TERN_S(35));
+    CHECK_EQ_U64(x.f.busy, 500000);
+}
+
 /* Being busy drops nothing of a node's own, and what it drops is not charged to the allowance. */
 static void test_busy_own(void) {
     struct node x;
@@ -612,6 +679,8 @@ int main(void) {
     RUN(test_own);
     RUN(test_unpaid);
     RUN(test_busy);
+    RUN(test_draws);
+    RUN(test_shares);
     RUN(test_busy_own);
     RUN(test_cancel);
     RUN(test_power);

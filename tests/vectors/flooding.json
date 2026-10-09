@@ -311,38 +311,560 @@
       "drops": true
     }
   ],
+  "shares": [
+    {
+      "name": "starting: the whole time it has kept count",
+      "radio": [
+        {
+          "does": "sending",
+          "from_ns": 0,
+          "to_ns": 2000000000
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 10000000000,
+          "least_ppm": 200000,
+          "most_ppm": 200000
+        },
+        {
+          "at_ns": 30000000000,
+          "least_ppm": 66666,
+          "most_ppm": 66667
+        }
+      ]
+    },
+    {
+      "name": "receiving counts as sending does",
+      "radio": [
+        {
+          "does": "sending",
+          "from_ns": 0,
+          "to_ns": 1000000000
+        },
+        {
+          "does": "receiving",
+          "from_ns": 4000000000,
+          "to_ns": 5000000000
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 10000000000,
+          "least_ppm": 200000,
+          "most_ppm": 200000
+        }
+      ]
+    },
+    {
+      "name": "between one span and two: no longer than it has kept count",
+      "radio": [
+        {
+          "does": "sending",
+          "from_ns": 0,
+          "to_ns": 15000000000
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 45000000000,
+          "least_ppm": 0,
+          "most_ppm": 333334
+        }
+      ]
+    },
+    {
+      "name": "half a minute never idle: all of a short span, half of a long one",
+      "radio": [
+        {
+          "does": "sending",
+          "from_ns": 70000000000,
+          "to_ns": 100000000000
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 100000000000,
+          "least_ppm": 500000,
+          "most_ppm": 1000000
+        }
+      ]
+    },
+    {
+      "name": "what was long ago is forgotten",
+      "radio": [
+        {
+          "does": "sending",
+          "from_ns": 0,
+          "to_ns": 40000000000
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 100000000000,
+          "least_ppm": 0,
+          "most_ppm": 0
+        },
+        {
+          "at_ns": 69000000000,
+          "least_ppm": 33333,
+          "most_ppm": 516667
+        }
+      ]
+    },
+    {
+      "name": "a second in every two",
+      "radio": [
+        {
+          "does": "sending",
+          "from_ns": 0,
+          "to_ns": 1000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 2000000000,
+          "to_ns": 3000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 4000000000,
+          "to_ns": 5000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 6000000000,
+          "to_ns": 7000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 8000000000,
+          "to_ns": 9000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 10000000000,
+          "to_ns": 11000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 12000000000,
+          "to_ns": 13000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 14000000000,
+          "to_ns": 15000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 16000000000,
+          "to_ns": 17000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 18000000000,
+          "to_ns": 19000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 20000000000,
+          "to_ns": 21000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 22000000000,
+          "to_ns": 23000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 24000000000,
+          "to_ns": 25000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 26000000000,
+          "to_ns": 27000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 28000000000,
+          "to_ns": 29000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 30000000000,
+          "to_ns": 31000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 32000000000,
+          "to_ns": 33000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 34000000000,
+          "to_ns": 35000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 36000000000,
+          "to_ns": 37000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 38000000000,
+          "to_ns": 39000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 40000000000,
+          "to_ns": 41000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 42000000000,
+          "to_ns": 43000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 44000000000,
+          "to_ns": 45000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 46000000000,
+          "to_ns": 47000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 48000000000,
+          "to_ns": 49000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 50000000000,
+          "to_ns": 51000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 52000000000,
+          "to_ns": 53000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 54000000000,
+          "to_ns": 55000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 56000000000,
+          "to_ns": 57000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 58000000000,
+          "to_ns": 59000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 60000000000,
+          "to_ns": 61000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 62000000000,
+          "to_ns": 63000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 64000000000,
+          "to_ns": 65000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 66000000000,
+          "to_ns": 67000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 68000000000,
+          "to_ns": 69000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 70000000000,
+          "to_ns": 71000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 72000000000,
+          "to_ns": 73000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 74000000000,
+          "to_ns": 75000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 76000000000,
+          "to_ns": 77000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 78000000000,
+          "to_ns": 79000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 80000000000,
+          "to_ns": 81000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 82000000000,
+          "to_ns": 83000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 84000000000,
+          "to_ns": 85000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 86000000000,
+          "to_ns": 87000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 88000000000,
+          "to_ns": 89000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 90000000000,
+          "to_ns": 91000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 92000000000,
+          "to_ns": 93000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 94000000000,
+          "to_ns": 95000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 96000000000,
+          "to_ns": 97000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 98000000000,
+          "to_ns": 99000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 100000000000,
+          "to_ns": 101000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 102000000000,
+          "to_ns": 103000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 104000000000,
+          "to_ns": 105000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 106000000000,
+          "to_ns": 107000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 108000000000,
+          "to_ns": 109000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 110000000000,
+          "to_ns": 111000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 112000000000,
+          "to_ns": 113000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 114000000000,
+          "to_ns": 115000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 116000000000,
+          "to_ns": 117000000000
+        },
+        {
+          "does": "sending",
+          "from_ns": 118000000000,
+          "to_ns": 119000000000
+        }
+      ],
+      "asks": [
+        {
+          "at_ns": 120000000000,
+          "least_ppm": 483870,
+          "most_ppm": 500000
+        }
+      ]
+    }
+  ],
   "busies": [
     {
       "busy_ppm": 0,
-      "drops_ppm": 0
+      "drops_ppm": 0,
+      "draws": [
+        {
+          "draw": 0,
+          "drops": false
+        },
+        {
+          "draw": 999999,
+          "drops": false
+        }
+      ]
     },
     {
       "busy_ppm": 100000,
-      "drops_ppm": 0
+      "drops_ppm": 0,
+      "draws": [
+        {
+          "draw": 0,
+          "drops": false
+        },
+        {
+          "draw": 999999,
+          "drops": false
+        }
+      ]
     },
     {
       "busy_ppm": 200000,
-      "drops_ppm": 0
+      "drops_ppm": 0,
+      "draws": [
+        {
+          "draw": 0,
+          "drops": false
+        },
+        {
+          "draw": 999999,
+          "drops": false
+        }
+      ]
     },
     {
       "busy_ppm": 200001,
-      "drops_ppm": 1
+      "drops_ppm": 1,
+      "draws": [
+        {
+          "draw": 0,
+          "drops": true
+        },
+        {
+          "draw": 1,
+          "drops": false
+        },
+        {
+          "draw": 999999,
+          "drops": false
+        }
+      ]
     },
     {
       "busy_ppm": 400000,
-      "drops_ppm": 250000
+      "drops_ppm": 250000,
+      "draws": [
+        {
+          "draw": 0,
+          "drops": true
+        },
+        {
+          "draw": 249999,
+          "drops": true
+        },
+        {
+          "draw": 250000,
+          "drops": false
+        },
+        {
+          "draw": 999999,
+          "drops": false
+        }
+      ]
     },
     {
       "busy_ppm": 600000,
-      "drops_ppm": 500000
+      "drops_ppm": 500000,
+      "draws": [
+        {
+          "draw": 0,
+          "drops": true
+        },
+        {
+          "draw": 499999,
+          "drops": true
+        },
+        {
+          "draw": 500000,
+          "drops": false
+        },
+        {
+          "draw": 999999,
+          "drops": false
+        }
+      ]
     },
     {
       "busy_ppm": 900000,
-      "drops_ppm": 875000
+      "drops_ppm": 875000,
+      "draws": [
+        {
+          "draw": 0,
+          "drops": true
+        },
+        {
+          "draw": 874999,
+          "drops": true
+        },
+        {
+          "draw": 875000,
+          "drops": false
+        },
+        {
+          "draw": 999999,
+          "drops": false
+        }
+      ]
     },
     {
       "busy_ppm": 1000000,
-      "drops_ppm": 1000000
+      "drops_ppm": 1000000,
+      "draws": [
+        {
+          "draw": 0,
+          "drops": true
+        },
+        {
+          "draw": 999999,
+          "drops": true
+        }
+      ]
     }
   ],
   "waits": [
