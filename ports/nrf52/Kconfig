@@ -1,0 +1,16 @@
+# The settings a Tern node is built with: those every port shares (../node/Kconfig.tern), and the
+# board, which is the one this port builds for yet.
+
+menu "Tern demo"
+
+    config TERN_BOARD_NAME
+        string
+        default "heltec-t114"
+        help
+            The name a client finds an image by: tern-<name>-<region>-<version>.
+
+    rsource "../node/Kconfig.tern"
+
+endmenu
+
+source "Kconfig.zephyr"

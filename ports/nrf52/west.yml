@@ -1,0 +1,24 @@
+# The Zephyr this port builds against, and only the modules it needs. With the repository checked
+# out as `firmware` in an empty directory:
+#
+#   west init -l --mf ports/nrf52/west.yml firmware
+#   west update
+#
+# Zephyr is a commit on main, not a release: the Heltec T114 V2's board came after v4.4's branch.
+# It moves to v4.5 once that is released.
+manifest:
+  remotes:
+    - name: zephyrproject-rtos
+      url-base: https://github.com/zephyrproject-rtos
+  projects:
+    - name: zephyr
+      remote: zephyrproject-rtos
+      revision: 64437be51c302e42003b3b1dcbf45c8ad7fd1f08
+      import:
+        name-allowlist:
+          - cmsis_6
+          - hal_nordic
+          - mbedtls
+          - tf-psa-crypto
+  self:
+    path: firmware

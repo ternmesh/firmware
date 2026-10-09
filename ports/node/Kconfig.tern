@@ -1,0 +1,124 @@
+# The settings every Tern node is built with, which the node (node.c) reads as CONFIG_TERN_*. Each
+# port's own Kconfig includes this inside its "Tern demo" menu, beside what is its own: the board.
+# Indented as the menu it goes in.
+
+    config TERN_VERSION
+        string "Version"
+        default "0.0.0-dev"
+        help
+            What the board says it runs: on the console at start, and to a client over the
+            companion link. A release sets it from its tag (release.sh).
+
+    choice TERN_REGION
+        prompt "Region"
+        default TERN_REGION_US915
+        help
+            Where the board is used. It sets the frequency, bandwidth and spreading factor, and
+            what the region's rules allow: see the profiles in the specification's draft/phy.md.
+            A board is also sold for one band, 863-928 MHz or 433/470-510 MHz; both of these
+            regions need the first.
+
+        config TERN_REGION_US915
+            bool "US915: 921.25 MHz, 500 kHz, SF9 (United States, Canada)"
+        config TERN_REGION_EU868
+            bool "EU868: 869.475 MHz, 125 kHz, SF7, at most 10% of any hour"
+    endchoice
+
+    config TERN_TX_POWER_DBM
+        int "Transmit power into the antenna, in dBm"
+        range -9 30
+        default 2
+        help
+            What the board puts into the antenna. The default is for a bench. A board refuses
+            to start with a power it does not give (-9 to 22 dBm with an SX1262 alone, +4 to 28
+            on the Heltec V4, whose amplifier adds to the radio's) or one that, with the
+            antenna's gain, is more than the region allows.
+
+    config TERN_ANTENNA_DBI
+        int "Antenna gain, in dBi"
+        range -10 30
+        default 3
+        help
+            The gain of the antenna fitted, which counts towards the power the region allows.
+            The small antenna sold with the board is 2 to 3 dBi.
+
+    config TERN_SCREEN_FLIP
+        bool "Turn the screen upside down"
+        default n
+        help
+            If the screen reads upside down on your board, or the board is mounted the other
+            way up, this turns it round.
+
+    config TERN_SCREEN_SLEEP_S
+        int "Seconds before the screen sleeps (0: never)"
+        range 0 65535
+        default 60
+        help
+            How long the screen stays on after a press of the button, a message heard or a pairing. A
+            press while it is off only wakes it. 'screen sleep <seconds>' on the console changes
+            it on a running board, and the board keeps the change.
+
+    config TERN_SCREEN_BENCH
+        bool "Show the bench screen's pages"
+        default n
+        help
+            The developer's pages - routing ids, neighbours, routes, frame counts - after the
+            user's. 'screen bench on|off' on the console changes it on a running board, and the
+            board keeps the change.
+
+    config TERN_UNREAD_LED
+        bool "Blink the LED while a message is unread"
+        default y
+        help
+            A short blink every four seconds while a message has come and not been read, on the
+            screen or on a client, for a board in sight whose screen is off.
+
+    comment "For experiments. Changing these takes the board off its region's profile."
+
+    config TERN_FREQ_HZ
+        int "Frequency, in Hz (0: the region's)"
+        range 0 960000000
+        default 0
+
+    config TERN_SF
+        int "Spreading factor, 7 to 12 (0: the region's)"
+        range 0 12
+        default 0
+
+    choice TERN_BW
+        prompt "Bandwidth"
+        default TERN_BW_REGION
+
+        config TERN_BW_REGION
+            bool "The region's"
+        config TERN_BW_62
+            bool "62.5 kHz"
+        config TERN_BW_125
+            bool "125 kHz"
+        config TERN_BW_250
+            bool "250 kHz"
+        config TERN_BW_500
+            bool "500 kHz"
+    endchoice
+
+    config TERN_BW_HZ
+        int
+        default 0 if TERN_BW_REGION
+        default 62500 if TERN_BW_62
+        default 125000 if TERN_BW_125
+        default 250000 if TERN_BW_250
+        default 500000 if TERN_BW_500
+
+    config TERN_RELAY
+        bool "Relay other nodes' frames"
+        default y
+        help
+            A relay announces the routes it has and is routed through. A leaf announces only
+            itself. Tern's routing draft (draft/routing.md) leaves the choice to the node's owner.
+
+    config TERN_SYNC_WORD
+        hex "Sync word, one-byte form"
+        default 0x5E
+        help
+            Tern's is 0x5E (draft/phy.md). Meshtastic's is 0x2B, MeshCore's 0x12 and LoRaWAN's
+            0x34; a board set to one of those hears that network's frames and can disturb it.

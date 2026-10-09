@@ -111,6 +111,29 @@ jobs:
           path: ports/esp32/release/
           if-no-files-found: error
 
+  # The nRF52840 port, built with Zephyr in a west workspace its manifest pins (ports/nrf52/west.yml),
+  # the way a release builds it: an image for each region, kept with the run.
+  nrf52:
+    name: build (heltec-t114, zephyr)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: firmware
+      - uses: zephyrproject-rtos/action-zephyr-setup@v1
+        with:
+          app-path: firmware
+          manifest-file-name: ports/nrf52/west.yml
+          sdk-version: 1.0.1
+          toolchains: arm-zephyr-eabi
+      - run: pip3 install -r zephyr/scripts/requirements-base.txt
+      - run: firmware/ports/nrf52/release.sh 0.0.0-dev
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tern-heltec-t114
+          path: firmware/ports/nrf52/release/
+          if-no-files-found: error
+
   format:
     runs-on: ubuntu-24.04
     steps:

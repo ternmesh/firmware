@@ -9,6 +9,7 @@ between the core and a port is [architecture.md](architecture.md); this is about
 |---|---|---|---|---|
 | Heltec WiFi LoRa 32 V3 | ESP32-S3 | SX1262 | [`ports/esp32/`](../ports/esp32/) | Runs |
 | Heltec WiFi LoRa 32 V4 (V4.2, V4.3) | ESP32-S3 | SX1262, 28 dBm amplifier | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board |
+| Heltec Mesh Node T114 V2 | nRF52840 | SX1262 | [`ports/nrf52/`](../ports/nrf52/) | Built, not yet run on a board |
 
 A board is **Runs** once someone has flashed a release onto one and checked it as
 [below](#bringing-a-board-up), and **Built** until then: CI builds its images, and nothing has
@@ -54,13 +55,45 @@ What a row cannot say yet, a board needs code for first:
 On the first board of a kind, before its status is **Runs**:
 
 1. `status` on the console names the board, and the radio started: no **Did not start**.
-2. The screen shows Home, and `screen sleep` turns it off and PRG on again.
+2. The screen shows Home, and `screen sleep` turns it off and the button on again.
 3. The battery's voltage on Home is within a tenth of a volt of a meter's on the cell.
 4. Two boards make contact, and `send` reaches the other and is acknowledged.
-5. On a bench page, holding PRG sends a ping, and the other board's pong says it heard it.
-6. Holding PRG for five seconds turns it off, and a press starts it again with its address.
+5. On a bench page, holding the button sends a ping, and the other board's pong says it heard it.
+6. Holding the button for five seconds turns it off, and a press starts it again with its address.
 7. On a board with an amplifier, the power at the antenna, measured, is no more than the power
    set, at the least, the default and the most. Until then its figures are an estimate.
+
+## Adding an nRF52840 board
+
+The port is built on Zephyr, which describes boards in devicetree, and has many of these already:
+among them the RAK4631, Seeed's Wio Tracker L1, XIAO nRF52840 and Wio-WM1110 kit, and the T114.
+`src/board.c` is the T114's today. It reads what it can from the devicetree (the radio's bus and
+lines, the button, the LED, the screen), so the next board starts by moving what is the T114's
+own (its screen's turn and size, its switches) behind that board's devicetree, and then is an
+overlay in `boards/` and a target in `release.sh` and CI. A board Zephyr has not got is its
+devicetree first, from its maker's documents, as for an ESP32 board's row.
+
+## Every board Meshtastic and MeshCore run on
+
+That is a hundred boards or so, but far fewer kinds of thing: a few families of chip, each a port,
+and a few radios, each a driver. A board is then its pins and what it has fitted. So the work
+goes a family or a radio at a time, and each one brings a crowd of boards with it:
+
+| What | Brings | Needs | Status |
+|---|---|---|---|
+| ESP32-S3 + SX1262 | Heltec V3, V4, Wireless Stick Lite V3, Wireless Tracker, Vision Master; LilyGo T3-S3, T-Beam Supreme, T-Deck; Seeed XIAO ESP32S3 kit; B&Q Station G2; RAK3312 | A row each; a power chip for the T-Beam Supreme, other screens for the rest | Port exists: V3 runs, V4 built |
+| nRF52840 + SX1262 | Heltec T114, Mesh Pocket; RAK4631 and the WisMesh devices on it; Seeed Wio Tracker L1, XIAO nRF52840 kit; LilyGo T-Echo; Elecrow ThinkNode | An overlay each, once `board.c` reads its board from the devicetree; e-paper for the T-Echo and others | Port exists: T114 built |
+| SX1276/SX1278 driver | LilyGo T-Beam to v1.2, T3 V1.6; Heltec V2; other boards of before 2022 | A driver in `src/`, beside the SX1262's | Next radio |
+| ESP32 (classic) | The SX1276 boards above, and the T-Beam v1.x with an SX1262 | The ESP32 port for another target | With the SX127x driver |
+| LR1110/LR1121 driver | Seeed SenseCAP T1000-E, Wio Tracker 1110; newer boards | A driver in `src/` | After the SX127x |
+| ESP32-C3/C6 | Heltec HT-CT62, and boards built from modules like it | The ESP32 port for another target | Later |
+| RP2040 | RAK11310, Raspberry Pi Pico with a Waveshare SX1262 | A port, on Zephyr as for the nRF52840 | Later |
+| STM32WL | RAK3172, Seeed LoRa-E5 | A port; the radio is in the chip, an SX126x behind registers | Later |
+| Linux | A Raspberry Pi with a LoRa HAT (SX1262 over spidev) | The core already builds on Linux; a port is the node over spidev, a socket and files | Later |
+| SX1280 | 2.4 GHz boards | A driver, and a region profile for 2.4 GHz in the specification first | Waits on the specification |
+
+Board by board, each waits on its maker's documents, as above: the clean-room rule means another
+mesh project's pin tables are not a source.
 
 ## Next
 
@@ -73,19 +106,13 @@ Rows, as above: among others, the Heltec Wireless Stick Lite V3 (no screen), the
 Station G2. Each waits on its maker's documents, and the T-Beam Supreme on a power management
 chip.
 
-### nRF52840 boards
+### More nRF52840 boards
 
-The low-power boards: the Heltec Mesh Node T114, RAKwireless's RAK4631, Seeed's Wio Tracker L1
-and the XIAO nRF52840 kits, and LilyGo's T-Echo. Most have an SX1262, whose driver is already the
-core's, and they run for days on a small cell where an ESP32 runs for hours.
-
-They need a port of their own, `ports/nrf52`, and the proposal is to build it on Zephyr: it is
-Apache-2.0, as this repository is, and it has the Bluetooth LE stack the companion link needs, a
-flash store for the identity and sessions, and MCUboot for the two firmware slots an update over
-the link writes into. The port is the same three things the ESP32's is: the board's pins, the
-loop (`main.c`'s, over Zephyr's), and the companion link's Bluetooth service. Most of these boards
-ship with a UF2 bootloader, which shows the board as a USB drive an image is copied onto, and the
-image has to start where that bootloader expects.
+The port is there ([`ports/nrf52/`](../ports/nrf52/)), on Zephyr, with the T114. Next: `board.c`
+read from the devicetree, so that a board Zephyr already has is an overlay (the RAK4631, the Wio
+Tracker L1, whose 128x64 screen is the node's own size, the XIAO nRF52840 kit); a layout for the
+T114's larger screen; and updates over the link, which want the two firmware slots MCUboot gives
+alongside the UF2 bootloader these boards ship with.
 
 ### Other radios
 

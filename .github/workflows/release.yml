@@ -1,8 +1,9 @@
 name: Release
 
-# A tag v<version> makes a release: every ESP32 board's images for each region, built from the
-# tag, with their checksums and the notes in docs/releases/v<version>.md. A version with a hyphen in it
-# (0.1.0-alpha.1) is marked a pre-release.
+# A tag v<version> makes a release: every board's images for each region, the ESP32 boards' and the
+# nRF52840 boards', built from the tag, with one SHA256SUMS over them all and the notes in
+# docs/releases/v<version>.md. A version with a hyphen in it (0.1.0-alpha.1) is marked a
+# pre-release.
 on:
   push:
     tags: ["v*"]
@@ -11,8 +12,10 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  version:
     runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
     steps:
       - uses: actions/checkout@v4
       - name: Read the version, and find its notes
@@ -21,17 +24,63 @@ jobs:
           echo "$GITHUB_REF_NAME" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9a-z.]+)?$'
           test -f "docs/releases/$GITHUB_REF_NAME.md"
           echo "version=${GITHUB_REF_NAME#v}" >>"$GITHUB_OUTPUT"
+
+  esp32:
+    needs: version
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
       - uses: espressif/esp-idf-ci-action@v1
         with:
           esp_idf_version: v5.5.5
           target: esp32s3
           path: ports/esp32
-          command: ./release.sh ${{ steps.tag.outputs.version }}
+          command: ./release.sh ${{ needs.version.outputs.version }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: esp32
+          path: ports/esp32/release/*.bin
+          if-no-files-found: error
+
+  nrf52:
+    needs: version
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: firmware
+      - uses: zephyrproject-rtos/action-zephyr-setup@v1
+        with:
+          app-path: firmware
+          manifest-file-name: ports/nrf52/west.yml
+          sdk-version: 1.0.1
+          toolchains: arm-zephyr-eabi
+      - run: pip3 install -r zephyr/scripts/requirements-base.txt
+      - run: firmware/ports/nrf52/release.sh ${{ needs.version.outputs.version }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nrf52
+          path: firmware/ports/nrf52/release/*.uf2
+          if-no-files-found: error
+
+  publish:
+    needs: [esp32, nrf52]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: images
+          merge-multiple: true
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          cd images
+          sha256sum -- *.bin *.uf2 >SHA256SUMS
+          cat SHA256SUMS
+          cd ..
           case "$GITHUB_REF_NAME" in *-*) pre=--prerelease ;; *) pre= ;; esac
           gh release create "$GITHUB_REF_NAME" $pre --verify-tag --title "$GITHUB_REF_NAME" \
             --notes-file "docs/releases/$GITHUB_REF_NAME.md" \
-            ports/esp32/release/*.bin ports/esp32/release/SHA256SUMS
+            images/*.bin images/*.uf2 images/SHA256SUMS

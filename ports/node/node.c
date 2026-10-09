@@ -50,6 +50,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "ble.h"
@@ -2114,12 +2115,11 @@ static void selftest(void) {
     }
     for (int i = 0; ok && i < 2; i++) {
         /* A message each way, in the session the handshake made, and its acknowledgement. */
-        uint8_t sealed[5 + TERN_UNICAST_OVERHEAD];
-        ok =
-            demo_seal(&node[i], 0, (const uint8_t *)"hello", 5, sealed) == DEMO_OK &&
-            demo_receive(&node[1 - i], 0, sealed, sizeof sealed, msg, &got) == DEMO_HEARD_MESSAGE &&
-            got.msg_len == 5 && memcmp(msg, "hello", 5) == 0 && got.acks == 1 &&
-            demo_acked(&node[i], 0, 0, got.ack[0], sizeof got.ack[0]);
+        uint8_t hello[5 + TERN_UNICAST_OVERHEAD];
+        ok = demo_seal(&node[i], 0, (const uint8_t *)"hello", 5, hello) == DEMO_OK &&
+             demo_receive(&node[1 - i], 0, hello, sizeof hello, msg, &got) == DEMO_HEARD_MESSAGE &&
+             got.msg_len == 5 && memcmp(msg, "hello", 5) == 0 && got.acks == 1 &&
+             demo_acked(&node[i], 0, 0, got.ack[0], sizeof got.ack[0]);
     }
     printf("selftest: %s, in %lld ms; %u bytes of this task's stack never used\n",
            ok ? "passed" : "FAILED", (long long)((board_now() - t0) / 1000000),
