@@ -1,0 +1,24 @@
+/*
+ * The T114 for this port. Its radio is driven by Tern's own SX1262 driver (src/sx126x.c), over
+ * the bus and lines Zephyr's board gives it, so Zephyr's LoRa driver is not built. Its screen is
+ * initialised once board_screen_init() has powered it (TFT_EN), not at boot.
+ */
+
+/ {
+	/* The board's switches for the screen, its backlight, Vext and the battery's divider have
+	 * no binding of their own; this one's makes their lines readable as GPIOs. No LED driver is
+	 * built, so nothing else takes them. */
+	board_controls {
+		compatible = "gpio-leds";
+	};
+};
+
+&lora {
+	status = "disabled";
+	/* The datasheet's 16 MHz, halved, as on the ESP32 boards. */
+	spi-max-frequency = <8000000>;
+};
+
+&tft_display {
+	zephyr,deferred-init;
+};

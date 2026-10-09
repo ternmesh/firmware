@@ -9,8 +9,9 @@ metered resource. The protocol is defined by the specification in
 **Status:** early. The core implements the four parts of the protocol the specification has
 drafted, radio settings, secured unicast frames, first contact and routes, and passes every one of
 their test vectors.
-One port runs them over the air, [for ESP32 boards](ports/esp32/), as a bench demo: on the Heltec
-V3, and built for the Heltec V4. Nodes find
+The same node runs them over the air as a bench demo, on two families of chip: [ESP32
+boards](ports/esp32/) (the Heltec V3, and built for the Heltec V4) and [nRF52840
+boards](ports/nrf52/) (built for the Heltec T114). Nodes find
 routes to each other, and a message follows them: it is sent to the next hop, sent again if
 nothing is heard of it, and acknowledged by the node it is for.
 
@@ -83,9 +84,10 @@ the air it may use. CI builds an image of each that you can flash from a browser
 |---|---|---|
 | Heltec WiFi LoRa 32 V3 (ESP32-S3, SX1262) | [`ports/esp32/`](ports/esp32/) | Runs. |
 | Heltec WiFi LoRa 32 V4 (ESP32-S3, SX1262, 28 dBm amplifier) | [`ports/esp32/`](ports/esp32/) | Built from Heltec's schematics; not yet run on a board. |
+| Heltec Mesh Node T114 V2 (nRF52840, SX1262) | [`ports/nrf52/`](ports/nrf52/) | Built on Zephyr; not yet run on a board. |
 
-An ESP32 board with an SX1262 is a row in a table; [docs/boards.md](docs/boards.md) says how to
-add one, and what the nRF52840 boards and the other radios need first.
+A board on a family the firmware has is a row in a table or an overlay; [docs/boards.md](docs/boards.md)
+says how to add one, and the plan for every board Meshtastic and MeshCore run on.
 
 ## Licence
 
