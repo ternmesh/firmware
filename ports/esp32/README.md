@@ -175,7 +175,7 @@ nothing sent.
 ## The screen
 
 The board's display shows what someone carrying it needs at a glance, in their words rather than
-the protocol's: eight pages, moved through by pressing PRG. It is the first version of the screen
+the protocol's: nine pages, moved through by pressing PRG. It is the first version of the screen
 [docs/ui.md](../../docs/ui.md) describes.
 
 | Page | |
@@ -186,6 +186,7 @@ the protocol's: eight pages, moved through by pressing PRG. It is the first vers
 | **Air** | The region's limit on time on the air, as a bar: what is counted against it, of how much, over what span, and when the next frame may go. In a region with no limit, how long it has sent for. |
 | **Share** | Its address as a QR code holding its link, `HTTPS://TERNMESH.ORG/A/` and the address in base32, which a phone's camera opens as a web page showing the address and its short code; and beside it, its short code. |
 | **This node** | Its short code, twelve digits two people compare to check a phone has the right node; its address, sixty-four hex digits in groups of eight, to read out or copy; relay or leaf, the region and the power; and the firmware's version. |
+| **Groups** | The groups it holds, one at a time, by the name it holds each under. Hold PRG to show the group's join code as a QR code (draft/groups.md), with beside it that whoever scans it can read the group; hold again for the next group, its code not shown until asked for. The code goes when the page does, or the screen goes dark. A code whose name is more than 12 bytes needs a larger code than the screen draws, so the one shown carries the first 12 bytes of the name, as whole characters: it joins the same group, under the shorter name, which its new member can change. |
 | **Phones** | How many phones have paired over Bluetooth and are remembered, and whether one is connected. Hold PRG, and hold it again within ten seconds, to forget them all, as `forget` does: each must pair again. |
 | **Reset** | Erases the board for a new owner or a fresh start. Hold PRG, and hold it again within ten seconds: the board restarts, erases its flash's storage whole (its identity, sessions, contacts, groups, messages, settings and the phones' bonds), and starts as a new node, with a new address and the build's settings. The time it has spent on the air is kept, so the region's limit still counts it. |
 

@@ -101,11 +101,13 @@ On the boards Tern starts with, a 128×64 monochrome display and one button. Its
 | Nearby | the nodes heard directly, with how well and how long ago | most recently heard first, seven to a screen; a long press shows the next. A node by a contact's name, else its routing id |
 | Air | the airtime account: used, allowed, and when more is free | the region's limit; the budget is not drafted |
 | Mesh | routes and frame counts, for whoever is curious; the bench screen's pages, more or less | the bench pages, behind `screen bench on` |
+| Groups | the groups held, and handing one on by its join code | one at a time; a long press shows its join code as a QR code, saying beside it that whoever scans it can read the group, and another the next group. The code is the group's secret: shown only when asked for, gone with the page or a dark screen, and wiped once drawn. A name past 12 bytes is cut in the code to fit version 3, which joins the same group |
 | Phones | the phones paired, and forgetting them | the name it is seen as, "Tern" and a random tag, so a phone's list tells nodes apart; how many are bonded and whether one is connected; forgetting asks first |
 | Reset | erasing the node for a new owner | the whole of its storage, and a new address; asks first, and keeps the time on the air |
 
 Controls on one button: a short press moves to the next page, a long press acts on the page shown
-(show the message before, the next nodes nearby, or on a bench page send a ping), and any press wakes the screen.
+(show the message before, the next nodes nearby, a group's join code and then the next group, or on
+a bench page send a ping), and any press wakes the screen.
 On Phones and Reset a long press only asks to be sure, for ten seconds, and a second long press in
 that time forgets the phones or erases the node; a short press leaves the page and keeps it all. A
 message shown is read once a press says someone saw it. The screen goes dark after a while on a
@@ -127,6 +129,14 @@ so 58 pixels at two pixels a module. The Heltec V3 draws it so, dark on light. T
 address's link, `HTTPS://TERNMESH.ORG/A/` and the address in base32, 75 characters, as
 [draft/sharing.md](https://github.com/ternmesh/spec/blob/main/draft/sharing.md) defines it: a
 web address, because a phone's camera does nothing with a scheme no app has claimed.
+
+A group's join code ([draft/groups.md](https://github.com/ternmesh/spec/blob/main/draft/groups.md#join-codes))
+is drawn the same way and the same size. Its link is alphanumeric but for its `#`, so it goes in
+three segments, the `#` alone as a byte, and a version 3 code holds it while the group's name is
+12 bytes or fewer. Any longer needs version 4, 33 modules, which at two pixels a module is taller
+than the screen, and at one pixel a module too small to scan from a 0.96" panel. So the code the
+screen shows carries the name cut to 12 bytes, as whole characters: the name in a code is only a
+suggestion, and the group it joins is the same.
 
 ## Addresses and contacts
 

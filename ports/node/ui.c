@@ -1,6 +1,7 @@
 #include "ui.h"
 
 #include "qr.h"
+#include "tern/crypto.h"
 #include "tern/share.h"
 
 #include <stdarg.h>
@@ -342,18 +343,15 @@ static void air(const struct ui_node *n, struct frame *f) {
 #define QR_TOP ((DISPLAY_PAGES * 8 - QR_SIZE * QR_SCALE) / 2)
 #define QR_WORDS (QR_GROUND + 4) /* where the words beside it start */
 
-/* The code dark on light, as every scanner reads it, which on this screen means a lit block with
- * the dark modules left unlit; the light margin round it is as wide as the screen leaves. Drawn
- * whole into a scratch picture, so only what changed is sent. */
-static void share(const struct ui_node *n, struct display *d) {
+/* A link as a QR code, dark on light, as every scanner reads it, which on this screen means a lit
+ * block with the dark modules left unlit; the light margin round it is as wide as the screen
+ * leaves. Beside it, `words`, a line each from the top, NULL for a line left empty. Drawn whole
+ * into a scratch picture, so only what changed is sent; the picture and the code are wiped after,
+ * since a join code's is a group's secret. */
+static void code_page(const char *link, const char *const words[DISPLAY_PAGES], struct display *d) {
     static struct display canvas;
     static struct qr code;
-    char link[TERN_ADDRESS_LINK_LEN + 1], sc[TERN_SHORT_CODE_LEN + 1];
     display_init(&canvas);
-    /* The link (draft/sharing.md): a web address a phone's camera opens, with the address in it in
-     * base32, which the console's 'contact' also takes as it is. */
-    tern_address_link(n->address, link);
-    tern_short_code(n->address, sc);
     if (!qr_encode(&code, link, QR_MASK_BEST)) {
         display_text(&canvas, 3, "No code to show", false);
         display_copy(d, &canvas);
@@ -366,17 +364,73 @@ static void share(const struct ui_node *n, struct display *d) {
             display_set(&canvas, x, y, !(inside && qr_dark(&code, mx, my)));
         }
     }
+    for (int r = 0; r < DISPLAY_PAGES; r++) {
+        if (words[r] != NULL) {
+            display_text_at(&canvas, r, QR_WORDS, words[r]);
+        }
+    }
+    display_copy(d, &canvas);
+    tern_wipe(&code, sizeof code);
+    tern_wipe(&canvas, sizeof canvas);
+}
+
+static void share(const struct ui_node *n, struct display *d) {
+    char link[TERN_ADDRESS_LINK_LEN + 1], sc[TERN_SHORT_CODE_LEN + 1];
+    /* The link (draft/sharing.md): a web address a phone's camera opens, with the address in it in
+     * base32, which the console's 'contact' also takes as it is. */
+    tern_address_link(n->address, link);
+    tern_short_code(n->address, sc);
     /* Beside it, the short code, for whoever scanned it to check against their phone's. */
     sc[9] = '\0'; /* "5358 3737" on one line, "3382" on the next */
     /* Where the code leads: a phone with no Tern app opens a page on the site (draft/sharing.md).
      */
-    display_text_at(&canvas, 1, QR_WORDS, "Scan to");
-    display_text_at(&canvas, 2, QR_WORDS, "open its");
-    display_text_at(&canvas, 3, QR_WORDS, "web page");
-    display_text_at(&canvas, 5, QR_WORDS, "Its code:");
-    display_text_at(&canvas, 6, QR_WORDS, sc);
-    display_text_at(&canvas, 7, QR_WORDS, &sc[10]);
-    display_copy(d, &canvas);
+    const char *const words[DISPLAY_PAGES] = {
+        NULL, "Scan to", "open its", "web page", NULL, "Its code:", sc, &sc[10],
+    };
+    code_page(link, words, d);
+}
+
+size_t ui_join_name(const uint8_t *name, size_t len) {
+    if (len <= UI_JOIN_NAME) {
+        return len;
+    }
+    size_t n = UI_JOIN_NAME;
+    while (n > 0 && (name[n] & 0xC0) == 0x80) {
+        n--; /* back to the start of the character the limit falls within */
+    }
+    return n;
+}
+
+/* A group's join code (draft/groups.md), once the user held PRG to see it, saying beside it what
+ * anyone who sees it can do; and before that, which group a hold shows it for, and what it is.
+ * True if it drew the code, the whole picture, rather than composing `f`. */
+static bool groups(const struct ui_node *n, struct frame *f, struct display *d) {
+    char name[UI_NAME + 1], where[16];
+    ascii(name, sizeof name, (const uint8_t *)n->group, name_len(n->group));
+    if (n->groups > 0 && n->join_link[0] != '\0') {
+        char shown[10];
+        snprintf(shown, sizeof shown, "%.9s", name);
+        const char *const words[DISPLAY_PAGES] = {
+            "Join code", shown, NULL, "Whoever", "scans it", "can read", "the group", NULL,
+        };
+        code_page(n->join_link, words, d);
+        return true;
+    }
+    if (n->groups == 0) {
+        line(f->rows[0], "Groups");
+        line(f->rows[3], "No groups yet");
+        line(f->rows[5], "Make or join one");
+        line(f->rows[6], "from your phone.");
+        return false;
+    }
+    snprintf(where, sizeof where, "%u/%u", (unsigned)n->group_shown + 1, (unsigned)n->groups);
+    ends(f->rows[0], "Groups", where);
+    line(f->rows[2], "%s", name[0] != '\0' ? name : "(no name)");
+    line(f->rows[4], "Hold PRG to show its");
+    line(f->rows[5], "join code. Whoever");
+    line(f->rows[6], "scans it can read");
+    line(f->rows[7], "the group.");
+    return false;
 }
 
 static void node(const struct ui_node *n, struct frame *f) {
@@ -492,6 +546,11 @@ void ui_draw(const struct ui_node *n, int page, struct display *d) {
         return;
     case UI_NODE:
         node(n, &f);
+        break;
+    case UI_GROUPS:
+        if (groups(n, &f, d)) {
+            return;
+        }
         break;
     case UI_PHONES:
         phones(n, &f);

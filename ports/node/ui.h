@@ -7,6 +7,7 @@
 #include "display.h"
 #include "tern/address.h"
 #include "tern/companion.h"
+#include "tern/group.h"
 
 /* The screen someone carrying the board sees: docs/ui.md, "The node's own screen".
  *
@@ -25,6 +26,7 @@ enum ui_page {
     UI_AIR,      /* the region's limit on transmitting, and what is used of it */
     UI_SHARE,    /* this node's address as a QR code, for a phone to scan */
     UI_NODE,     /* this node's address in digits, to read out or copy */
+    UI_GROUPS,   /* the groups it holds, one at a time, and a group's join code when asked for */
     UI_PHONES,   /* the phones paired over Bluetooth, and forgetting them */
     UI_RESET,    /* erasing everything the node keeps, for a new owner or a fresh start */
     UI_PAGES
@@ -34,6 +36,16 @@ enum ui_page {
 #define UI_BATTERY_LOW 10 /* percent, at or below which Home says the battery is low */
 
 #define UI_NAME 20 /* bytes of a name kept to show, which is as many as a line has room for */
+
+/* The bytes of a group's name the join code on the screen carries, at most: a code whose name is
+ * longer needs a version 4 symbol, 33 modules, which at two pixels a module is more than the 64
+ * rows the screen has. A shorter name is a suggestion all the same (draft/groups.md), and the
+ * group the code joins is the same. */
+#define UI_JOIN_NAME 12
+
+/* How much of a name of `len` bytes, valid UTF-8, a join code on the screen carries: all of it up
+ * to UI_JOIN_NAME bytes, and past that as many whole characters as fit. */
+size_t ui_join_name(const uint8_t *name, size_t len);
 
 struct ui_message {
     bool received;            /* from someone, rather than to them */
@@ -99,6 +111,15 @@ struct ui_node {
     bool from_group; /* and `from` is the group it was written to */
     uint8_t shown;
     struct ui_message message;
+
+    /* The groups the node holds: how many, and the one the Groups page shows (`group_shown`,
+     * counted from the first held), by the user's name for it. */
+    uint8_t groups, group_shown;
+    char group[UI_NAME + 1];
+    /* The join code of the group shown, as its link, once the user held PRG on the Groups page to
+     * see it; empty otherwise. It is the group's secret: the screen shows it only when asked, and
+     * whoever fills it in wipes it once it is drawn. */
+    char join_link[TERN_GROUP_LINK_MAX + 1];
 };
 
 /* Draws page `page` (an enum ui_page) of the node into the picture. */

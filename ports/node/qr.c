@@ -14,6 +14,16 @@ static int value_of(char c) {
     return at != NULL ? (int)(at - alphanumeric) : -1;
 }
 
+/* Zeroes `len` bytes in a way the compiler keeps: the text may be a group's join code, its
+ * secret, and the copies made of it on the way to a symbol are wiped before qr_encode() returns.
+ * The core's tern_wipe(), here so that this file stands alone, as tests/qr.c builds it. */
+static void wipe(void *p, size_t len) {
+    volatile uint8_t *v = p;
+    for (size_t i = 0; i < len; i++) {
+        v[i] = 0;
+    }
+}
+
 /* --- The codewords -----------------------------------------------------------------------------
  */
 
@@ -67,29 +77,62 @@ static void correct(const uint8_t data[DATA_CODEWORDS], uint8_t ec[EC_CODEWORDS]
     }
 }
 
-/* The text as the data codewords: mode, count, the characters two at a time, then the
- * terminator and the padding the standard gives. */
-static bool codewords(const char *text, uint8_t out[DATA_CODEWORDS + EC_CODEWORDS]) {
-    size_t n = strlen(text);
-    if (n > QR_TEXT_MAX) {
-        return false;
+/* The bits a segment of `n` characters takes: its mode, its count and its characters. A run of
+ * the alphanumeric set goes eleven bits to two characters; anything else goes a byte to each. */
+static size_t segment_bits(bool alnum, size_t n) {
+    return alnum ? 4 + 9 + 11 * (n / 2) + 6 * (n % 2) : 4 + 8 + 8 * n;
+}
+
+/* The length of the run of one kind that starts `text`: characters of the alphanumeric set, or
+ * characters outside it. */
+static size_t run(const char *text, bool alnum) {
+    size_t n = 0;
+    while (text[n] != '\0' && (value_of(text[n]) >= 0) == alnum) {
+        n++;
     }
-    for (size_t i = 0; i < n; i++) {
-        if (value_of(text[i]) < 0) {
-            return false;
+    return n;
+}
+
+/* The text as the data codewords: each run of it as a segment, its mode, its count and its
+ * characters, then the terminator and the padding the standard gives. A join code's link is three
+ * runs, the `#` alone in byte mode between two of the alphanumeric set (draft/groups.md). */
+static bool codewords(const char *text, uint8_t out[DATA_CODEWORDS + EC_CODEWORDS]) {
+    size_t room = DATA_CODEWORDS * 8, need = 0;
+    for (const char *p = text; *p != '\0';) {
+        bool alnum = value_of(*p) >= 0;
+        size_t n = run(p, alnum);
+        if (n > 255) {
+            return false; /* more than a byte segment's count holds, and than any code */
         }
+        need += segment_bits(alnum, n);
+        p += n;
+    }
+    if (need > room) {
+        return false;
     }
     memset(out, 0, DATA_CODEWORDS + EC_CODEWORDS);
     struct bits b = {out, 0};
-    put(&b, 0x2, 4); /* alphanumeric */
-    put(&b, (unsigned)n, 9);
-    for (size_t i = 0; i + 1 < n; i += 2) {
-        put(&b, (unsigned)(value_of(text[i]) * 45 + value_of(text[i + 1])), 11);
+    for (const char *p = text; *p != '\0';) {
+        bool alnum = value_of(*p) >= 0;
+        size_t n = run(p, alnum);
+        if (alnum) {
+            put(&b, 0x2, 4);
+            put(&b, (unsigned)n, 9);
+            for (size_t i = 0; i + 1 < n; i += 2) {
+                put(&b, (unsigned)(value_of(p[i]) * 45 + value_of(p[i + 1])), 11);
+            }
+            if (n % 2 != 0) {
+                put(&b, (unsigned)value_of(p[n - 1]), 6);
+            }
+        } else {
+            put(&b, 0x4, 4);
+            put(&b, (unsigned)n, 8);
+            for (size_t i = 0; i < n; i++) {
+                put(&b, (uint8_t)p[i], 8);
+            }
+        }
+        p += n;
     }
-    if (n % 2 != 0) {
-        put(&b, (unsigned)value_of(text[n - 1]), 6);
-    }
-    size_t room = DATA_CODEWORDS * 8;
     size_t end = b.at + 4 < room ? b.at + 4 : room; /* the terminator, as much of it as fits */
     b.at = (end + 7) / 8 * 8;
     for (uint8_t pad = 0xEC; b.at < room; pad ^= 0xEC ^ 0x11) {
@@ -322,5 +365,8 @@ bool qr_encode(struct qr *q, const char *text, int mask) {
     apply(&g, best);
     format(&g, best);
     memcpy(q->rows, g.dark, sizeof q->rows);
+    wipe(cw, sizeof cw);
+    wipe(&base, sizeof base);
+    wipe(&g, sizeof g);
     return true;
 }
