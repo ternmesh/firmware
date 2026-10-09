@@ -1,0 +1,4 @@
+# The Heltec Vision Master E290. Its USB port is the ESP32-S3's own, so the console, and the
+# companion link a computer drives over it, are USB Serial/JTAG.
+CONFIG_TERN_BOARD_HELTEC_VME290=y
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y

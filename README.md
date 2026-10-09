@@ -10,7 +10,7 @@ metered resource. The protocol is defined by the specification in
 drafted, radio settings, secured unicast frames, first contact and routes, and passes every one of
 their test vectors.
 The same node runs them over the air as a bench demo, on two families of chip: [ESP32
-boards](ports/esp32/) (the Heltec V3, and built for the Heltec V4) and [nRF52840
+boards](ports/esp32/) (the Heltec V3, and built for the Heltec V4 and five more of Heltec's) and [nRF52840
 boards](ports/nrf52/) (built for the Heltec T114). Nodes find
 routes to each other, and a message follows them: it is sent to the next hop, sent again if
 nothing is heard of it, and acknowledged by the node it is for.
@@ -85,6 +85,7 @@ the air it may use. CI builds an image of each that you can flash from a browser
 |---|---|---|
 | Heltec WiFi LoRa 32 V3 (ESP32-S3, SX1262) | [`ports/esp32/`](ports/esp32/) | Runs. |
 | Heltec WiFi LoRa 32 V4 (ESP32-S3, SX1262, 28 dBm amplifier) | [`ports/esp32/`](ports/esp32/) | Built from Heltec's schematics; not yet run on a board. |
+| Heltec Wireless Stick Lite V3, Wireless Tracker, Vision Master E290 and E213, Wireless Paper (ESP32-S3, SX1262) | [`ports/esp32/`](ports/esp32/) | Built from Heltec's schematics; not yet run on a board. Their screens are not driven yet. |
 | Heltec Mesh Node T114 V2 (nRF52840, SX1262) | [`ports/nrf52/`](ports/nrf52/) | Built on Zephyr; not yet run on a board. |
 
 A board on a family the firmware has is a row in a table or an overlay; [docs/boards.md](docs/boards.md)

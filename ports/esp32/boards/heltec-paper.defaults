@@ -1,0 +1,3 @@
+# The Heltec Wireless Paper: its console is UART0, through the CP2102 on its USB port, as
+# sdkconfig.defaults already has it.
+CONFIG_TERN_BOARD_HELTEC_PAPER=y

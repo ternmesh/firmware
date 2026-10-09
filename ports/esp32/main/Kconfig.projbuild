@@ -13,12 +13,27 @@ menu "Tern demo"
             bool "Heltec WiFi LoRa 32 V3"
         config TERN_BOARD_HELTEC_V4
             bool "Heltec WiFi LoRa 32 V4 (V4.2 and V4.3)"
+        config TERN_BOARD_HELTEC_WSL_V3
+            bool "Heltec Wireless Stick Lite V3"
+        config TERN_BOARD_HELTEC_TRACKER
+            bool "Heltec Wireless Tracker (V1.0 and V1.1)"
+        config TERN_BOARD_HELTEC_VME290
+            bool "Heltec Vision Master E290"
+        config TERN_BOARD_HELTEC_VME213
+            bool "Heltec Vision Master E213"
+        config TERN_BOARD_HELTEC_PAPER
+            bool "Heltec Wireless Paper"
     endchoice
 
     config TERN_BOARD_NAME
         string
         default "heltec-v3" if TERN_BOARD_HELTEC_V3
         default "heltec-v4" if TERN_BOARD_HELTEC_V4
+        default "heltec-wsl-v3" if TERN_BOARD_HELTEC_WSL_V3
+        default "heltec-tracker" if TERN_BOARD_HELTEC_TRACKER
+        default "heltec-vme290" if TERN_BOARD_HELTEC_VME290
+        default "heltec-vme213" if TERN_BOARD_HELTEC_VME213
+        default "heltec-paper" if TERN_BOARD_HELTEC_PAPER
 
     rsource "../../node/Kconfig.tern"
 
