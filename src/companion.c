@@ -66,6 +66,7 @@ enum field {
     RELEASE,   /* a string of up to TERN_COMPANION_RELEASE_MAX, into release */
     DATA,      /* up to TERN_COMPANION_UPDATE_CHUNK bytes of anything, into data */
     CARD_NAME, /* a string of up to TERN_COMPANION_NAME_MAX, into card_name */
+    LINK,      /* a string of up to TERN_COMPANION_LINK_MAX, into text */
 };
 
 struct layout {
@@ -90,6 +91,8 @@ static const struct layout layouts[] = {
     {TERN_C_SEND_GROUP, {REF, GROUP, TEXT}},
     {TERN_C_SEND_INVITE, {GROUP, ADDRESS}},
     {TERN_C_JOIN, {ID}},
+    {TERN_C_GROUP_LINK, {GROUP}},
+    {TERN_C_JOIN_LINK, {LINK}},
     {TERN_C_UPDATE_BEGIN, {SIZE, DIGEST}},
     {TERN_C_UPDATE_DATA, {OFFSET, DATA}},
     {TERN_C_UPDATE_END, {END}},
@@ -103,6 +106,7 @@ static const struct layout layouts[] = {
     {TERN_C_QUEUED, {ID}},
     {TERN_C_MADE, {GROUP}},
     {TERN_C_UPDATING, {OFFSET}},
+    {TERN_C_LINK, {LINK}},
     {TERN_C_SELF, {ADDRESS, ROLE, REGION, POWER, TIME, CARDS, CARD_NAME}},
     {TERN_C_CONTACT, {ADDRESS, SESSION, NAME}},
     {TERN_C_CONTACT_GONE, {ADDRESS}},
@@ -182,6 +186,9 @@ static const struct layout *layout_of(uint8_t type) {
 }
 
 uint8_t tern_companion_since(uint8_t type) {
+    if (type == TERN_C_GROUP_LINK || type == TERN_C_JOIN_LINK || type == TERN_C_LINK) {
+        return 7;
+    }
     if (type == TERN_C_CARD || type == TERN_C_CARD_GONE) {
         return 6;
     }
@@ -236,6 +243,8 @@ static size_t string_max(enum field f) {
         return TERN_COMPANION_RELEASE_MAX;
     case DATA:
         return TERN_COMPANION_UPDATE_CHUNK;
+    case LINK:
+        return TERN_COMPANION_LINK_MAX;
     default:
         return TERN_COMPANION_REGION_MAX;
     }

@@ -405,6 +405,21 @@ that holds the secret reads it. From the console:
 3. On that board, `groups` shows the invite and its id, and `group join <id>` takes the group.
 4. `group send 1 <text>` on either writes to it.
 
+A client can hand a group over off the air instead, with a [join
+code](https://github.com/ternmesh/spec/blob/main/draft/groups.md#join-codes) (companion protocol
+version 7): `GROUP_LINK` asks the board for a group's, a `ternmesh.org` link a QR code holds, and
+`JOIN_LINK` gives a board one to take the group from. Nothing goes on the air either way.
+`tools/companion.py` does both:
+
+```bash
+python3 tools/companion.py --port /dev/ttyUSB0 group code <group>
+python3 tools/companion.py --port /dev/ttyUSB0 group join HTTPS://TERNMESH.ORG/G#...
+```
+
+A join code is the group. Whoever sees it can read every frame of the group they hear from then
+on, and every one they recorded before, and it cannot be taken back: show one only to those the
+group is for.
+
 What to know before trusting one with anything:
 
 * **Any member can write as any other.** A group's frames say who wrote them, and every member

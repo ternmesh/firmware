@@ -1,5 +1,5 @@
 {
-  "description": "Groups, draft 0 (draft/groups.md). Secrets, nonces, frames and content are hex; routing ids (from, self) and hops are numbers, and power is signed. hops and power are the flood's (draft/flooding.md), and are 5 and 14 where a case does not give them. self is the routing id of the node receiving. In members, group is the index in groups of the group a frame is accepted for. hdr is 0x60 for a frame of words and 0x61 for one for the node, as node says. count is a number. In counts, each delivery's frame is content from its from, with its count, sealed under group_secret with hops and power, and with a nonce of its place in deliveries, from 0, as eight bytes most significant first; frame gives it. In invites and bad_invites, plaintext is that of a unicast message whose hdr has the node flag set (draft/unicast-security.md).",
+  "description": "Groups, draft 0 (draft/groups.md). Secrets, nonces, frames and content are hex; routing ids (from, self) and hops are numbers, and power is signed. hops and power are the flood's (draft/flooding.md), and are 5 and 14 where a case does not give them. self is the routing id of the node receiving. In members, group is the index in groups of the group a frame is accepted for. hdr is 0x60 for a frame of words and 0x61 for one for the node, as node says. count is a number. In counts, each delivery's frame is content from its from, with its count, sealed under group_secret with hops and power, and with a nonce of its place in deliveries, from 0, as eight bytes most significant first; frame gives it. In invites and bad_invites, plaintext is that of a unicast message whose hdr has the node flag set (draft/unicast-security.md). In join_codes, payload is the code's, link is how it is shown, and reads are other ways it is written that read as the same code; each of bad_join_codes reads as none.",
   "generator": "vectors/tools/groups.py",
   "accepted": [
     {
@@ -1014,6 +1014,110 @@
     {
       "name": "empty",
       "plaintext": ""
+    }
+  ],
+  "join_codes": [
+    {
+      "group_secret": "c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4",
+      "name": "",
+      "payload": "c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4290a",
+      "link": "HTTPS://TERNMESH.ORG/G#YTCMJRGEYTCMJRGEYTCMJRGEYQUQU",
+      "reads": [
+        "https://ternmesh.org/g#ytcmjrgeytcmjrgeytcmjrgeyququ",
+        "https://ternmesh.org/g#YTCMJRGEYTCMJRGEYTCMJRGEYQUQU",
+        "Https://TernMesh.org/G#ytcmjrgeytcmjrgeytcmjrgeyququ"
+      ]
+    },
+    {
+      "group_secret": "c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4",
+      "name": "Ridge walkers",
+      "payload": "c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c465ab52696467652077616c6b657273",
+      "link": "HTTPS://TERNMESH.ORG/G#YTCMJRGEYTCMJRGEYTCMJRGEYRS2WUTJMRTWKIDXMFWGWZLSOM",
+      "reads": [
+        "https://ternmesh.org/g#ytcmjrgeytcmjrgeytcmjrgeyrs2wutjmrtwkidxmfwgwzlsom",
+        "https://ternmesh.org/g#YTCMJRGEYTCMJRGEYTCMJRGEYRS2WUTJMRTWKIDXMFWGWZLSOM",
+        "Https://TernMesh.org/G#ytcmjrgeytcmjrgeytcmjrgeyrs2wutjmrtwkidxmfwgwzlsom"
+      ]
+    },
+    {
+      "group_secret": "c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4",
+      "name": "Καλημέρα",
+      "payload": "c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c47af9ce9aceb1cebbceb7cebcceadcf81ceb1",
+      "link": "HTTPS://TERNMESH.ORG/G#YTCMJRGEYTCMJRGEYTCMJRGEYR5PTTU2Z2Y45O6OW7HLZTVNZ6A45MI",
+      "reads": [
+        "https://ternmesh.org/g#ytcmjrgeytcmjrgeytcmjrgeyr5pttu2z2y45o6ow7hlztvnz6a45mi",
+        "https://ternmesh.org/g#YTCMJRGEYTCMJRGEYTCMJRGEYR5PTTU2Z2Y45O6OW7HLZTVNZ6A45MI",
+        "Https://TernMesh.org/G#ytcmjrgeytcmjrgeytcmjrgeyr5pttu2z2y45o6ow7hlztvnz6a45mi"
+      ]
+    },
+    {
+      "group_secret": "c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4",
+      "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "payload": "c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4190478787878787878787878787878787878787878787878787878787878787878",
+      "link": "HTTPS://TERNMESH.ORG/G#YTCMJRGEYTCMJRGEYTCMJRGEYQMQI6DYPB4HQ6DYPB4HQ6DYPB4HQ6DYPB4HQ6DYPB4HQ6DYPB4HQ6A",
+      "reads": [
+        "https://ternmesh.org/g#ytcmjrgeytcmjrgeytcmjrgeyqmqi6dypb4hq6dypb4hq6dypb4hq6dypb4hq6dypb4hq6dypb4hq6a",
+        "https://ternmesh.org/g#YTCMJRGEYTCMJRGEYTCMJRGEYQMQI6DYPB4HQ6DYPB4HQ6DYPB4HQ6DYPB4HQ6DYPB4HQ6DYPB4HQ6A",
+        "Https://TernMesh.org/G#ytcmjrgeytcmjrgeytcmjrgeyqmqi6dypb4hq6dypb4hq6dypb4hq6dypb4hq6dypb4hq6dypb4hq6a"
+      ]
+    }
+  ],
+  "bad_join_codes": [
+    {
+      "why": "another scheme",
+      "link": "HTTP://TERNMESH.ORG/G#YTCMJRGEYTCMJRGEYTCMJRGEYTXXESDVOQ"
+    },
+    {
+      "why": "another host",
+      "link": "HTTPS://TERNMESH.NET/G#YTCMJRGEYTCMJRGEYTCMJRGEYTXXESDVOQ"
+    },
+    {
+      "why": "an address's path",
+      "link": "HTTPS://TERNMESH.ORG/A#YTCMJRGEYTCMJRGEYTCMJRGEYTXXESDVOQ"
+    },
+    {
+      "why": "in the path, not after a #",
+      "link": "HTTPS://TERNMESH.ORG/G/YTCMJRGEYTCMJRGEYTCMJRGEYTXXESDVOQ"
+    },
+    {
+      "why": "a character that is not base32",
+      "link": "HTTPS://TERNMESH.ORG/G#YTCMJRGEYTCMJRGEYTCMJRGEYTXXESDVO1"
+    },
+    {
+      "why": "a last character whose spare bits are not zero",
+      "link": "HTTPS://TERNMESH.ORG/G#YTCMJRGEYTCMJRGEYTCMJRGEYTXXESDVOR"
+    },
+    {
+      "why": "a character too many",
+      "link": "HTTPS://TERNMESH.ORG/G#YTCMJRGEYTCMJRGEYTCMJRGEYTXXESDVOQA"
+    },
+    {
+      "why": "a payload too short",
+      "link": "HTTPS://TERNMESH.ORG/G#YTCMJRGEYTCMJRGEYTCMJRGEYTXQ"
+    },
+    {
+      "why": "a payload too long",
+      "link": "HTTPS://TERNMESH.ORG/G#YTCMJRGEYTCMJRGEYTCMJRGEYQMQI6DYPB4HQ6DYPB4HQ6DYPB4HQ6DYPB4HQ6DYPB4HQ6DYPB4HQ6DY"
+    },
+    {
+      "why": "a check that is wrong",
+      "link": "HTTPS://TERNMESH.ORG/G#YTCMJRGEYTCMJRGEYTCMJRGEYTXHESDVOQ"
+    },
+    {
+      "why": "a secret with a letter wrong",
+      "link": "HTTPS://TERNMESH.ORG/G#2TCMJRGEYTCMJRGEYTCMJRGEYTXXESDVOQ"
+    },
+    {
+      "why": "a name that is not UTF-8",
+      "link": "HTTPS://TERNMESH.ORG/G#YTCMJRGEYTCMJRGEYTCMJRGEYTPVH7Y"
+    },
+    {
+      "why": "a dotless i, which upper-cases to an I",
+      "link": "HTTPS://TERNMESH.ORG/G#ıTCMJRGEYTCMJRGEYTCMJRGEYTXXESDVOQ"
+    },
+    {
+      "why": "empty after the #",
+      "link": "HTTPS://TERNMESH.ORG/G#"
     }
   ]
 }

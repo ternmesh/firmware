@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "tern/crypto.h"
+#include "tern/share.h"
 
 /* Groups: specification draft 0, draft/groups.md in ternmesh/spec.
  *
@@ -143,5 +144,28 @@ size_t tern_group_invite_write(const uint8_t secret[TERN_GROUP_SECRET], const ui
  * ignore. `name` holds TERN_GROUP_NAME_MAX bytes. */
 bool tern_group_invite_read(const uint8_t *plaintext, size_t len, uint8_t secret[TERN_GROUP_SECRET],
                             uint8_t *name, size_t *name_len);
+
+/* --- Join codes: a group handed over off the air, as a link ---
+ *
+ * The group's secret, a check, and a name, in base32 after "HTTPS://TERNMESH.ORG/G#": what a QR
+ * code holds. Whoever has the code has the group, for as long as it lasts, so a node makes one only
+ * when its user asks for that group's, and takes a group from one only when its user says so. None
+ * goes on the air. */
+
+#define TERN_GROUP_CODE_MIN (TERN_GROUP_SECRET + 2) /* the secret and its check */
+#define TERN_GROUP_CODE_MAX (TERN_GROUP_CODE_MIN + TERN_GROUP_NAME_MAX)
+#define TERN_GROUP_LINK_MIN (23 + TERN_BASE32_LEN(TERN_GROUP_CODE_MIN)) /* 52 */
+#define TERN_GROUP_LINK_MAX (23 + TERN_BASE32_LEN(TERN_GROUP_CODE_MAX)) /* 102 */
+
+/* Writes a join code's link, NUL-terminated, for a group and what its user calls it: UTF-8, at
+ * most TERN_GROUP_NAME_MAX bytes. Returns its length, or 0 if the name is too long or not UTF-8. */
+size_t tern_group_link(const uint8_t secret[TERN_GROUP_SECRET], const uint8_t *name,
+                       size_t name_len, char out[TERN_GROUP_LINK_MAX + 1]);
+
+/* Reads a join code from len bytes of text, as a person gives one: its scheme, host and path, and
+ * its base32, each in either case. False, writing nothing, for anything else, a check that fails
+ * included. `name` holds TERN_GROUP_NAME_MAX bytes. Reading one takes no network. */
+bool tern_group_link_read(const char *text, size_t len, uint8_t secret[TERN_GROUP_SECRET],
+                          uint8_t *name, size_t *name_len);
 
 #endif

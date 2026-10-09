@@ -258,3 +258,74 @@ bool tern_group_invite_read(const uint8_t *plaintext, size_t len, uint8_t secret
     *name_len = n;
     return true;
 }
+
+static const char join_link[] = "HTTPS://TERNMESH.ORG/G#";
+
+/* check = SHA-256("tern group code" || G || name)[0..2] */
+static void join_check(const uint8_t secret[TERN_GROUP_SECRET], const uint8_t *name,
+                       size_t name_len, uint8_t check[2]) {
+    static const uint8_t label[] = "tern group code";
+    struct tern_sha256 c;
+    uint8_t h[TERN_SHA256_LEN];
+    tern_sha256_init(&c);
+    tern_sha256_update(&c, label, sizeof label - 1);
+    tern_sha256_update(&c, secret, TERN_GROUP_SECRET);
+    tern_sha256_update(&c, name, name_len);
+    tern_sha256_final(&c, h);
+    memcpy(check, h, 2);
+    tern_wipe(h, sizeof h);
+}
+
+size_t tern_group_link(const uint8_t secret[TERN_GROUP_SECRET], const uint8_t *name,
+                       size_t name_len, char out[TERN_GROUP_LINK_MAX + 1]) {
+    if (name_len > TERN_GROUP_NAME_MAX || (name == NULL && name_len > 0) ||
+        !tern_companion_utf8(name, name_len)) {
+        return 0;
+    }
+    uint8_t code[TERN_GROUP_CODE_MAX];
+    memcpy(code, secret, TERN_GROUP_SECRET);
+    join_check(secret, name, name_len, code + TERN_GROUP_SECRET);
+    if (name_len > 0) {
+        memcpy(code + TERN_GROUP_CODE_MIN, name, name_len);
+    }
+    size_t n = TERN_GROUP_CODE_MIN + name_len, len = sizeof join_link - 1 + TERN_BASE32_LEN(n);
+    memcpy(out, join_link, sizeof join_link - 1);
+    tern_base32_write(code, n, out + sizeof join_link - 1);
+    out[len] = '\0';
+    tern_wipe(code, sizeof code);
+    return len;
+}
+
+bool tern_group_link_read(const char *text, size_t len, uint8_t secret[TERN_GROUP_SECRET],
+                          uint8_t *name, size_t *name_len) {
+    const size_t head = sizeof join_link - 1;
+    if (len < head) {
+        return false;
+    }
+    /* ASCII's case alone: no other character upper-cases into the link. */
+    for (size_t i = 0; i < head; i++) {
+        char c = text[i];
+        if ((c >= 'a' && c <= 'z' ? (char)(c - 'a' + 'A') : c) != join_link[i]) {
+            return false;
+        }
+    }
+    uint8_t code[TERN_GROUP_CODE_MAX], check[2];
+    size_t n;
+    bool ok = tern_base32_read(text + head, len - head, code, sizeof code, &n) &&
+              n >= TERN_GROUP_CODE_MIN;
+    if (ok) {
+        n -= TERN_GROUP_CODE_MIN;
+        join_check(code, code + TERN_GROUP_CODE_MIN, n, check);
+        ok = memcmp(check, code + TERN_GROUP_SECRET, 2) == 0 &&
+             tern_companion_utf8(code + TERN_GROUP_CODE_MIN, n);
+    }
+    if (ok) {
+        memcpy(secret, code, TERN_GROUP_SECRET);
+        if (n > 0) {
+            memcpy(name, code + TERN_GROUP_CODE_MIN, n);
+        }
+        *name_len = n;
+    }
+    tern_wipe(code, sizeof code);
+    return ok;
+}

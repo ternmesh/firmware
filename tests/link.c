@@ -547,8 +547,18 @@ static size_t first_of(const struct step *steps, size_t n, uint8_t type) {
 static void the_exchange_is_followed_frame_for_frame(void) {
     begin();
     follow("exchange", exchange, COUNT(exchange), COUNT(exchange), NULL);
-    /* It ends with the group it joined held, and the one it made left. */
-    CHECK(companion.groups[0].used != companion.groups[1].used);
+    /* It ends with the group it was invited to held, the one it made left, and, in that one's
+     * place, the one it joined from a code, under the name the code gave. The code typed wrong
+     * took nothing. */
+    CHECK(companion.groups[0].used && companion.groups[1].used && !companion.groups[2].used);
+    CHECK(companion.groups[0].name_len == 3 && memcmp(companion.groups[0].name, "Hut", 3) == 0);
+}
+
+/* A client of version 6 may not ask for a join code, nor join from one: the node answers either
+ * as a request it does not know from that client. */
+static void an_older_client_has_no_join_codes(void) {
+    begin();
+    follow("older 6", older_6, COUNT(older_6), COUNT(older_6), NULL);
 }
 
 /* Clients of versions 3 and 4, to a node that holds a position from Bob and shares its own with
@@ -1182,6 +1192,61 @@ static void a_group_is_not_made_without_randomness_room_or_flash(void) {
     }
     request(&q);
     CHECK_EQ_I64(sent(0).code, TERN_C_ERR_FULL);
+}
+
+/* A group's join code is the one its secret and name make, and joining from it takes the group
+ * once: a second time changes nothing and tells nothing, a group not held has no code, and a full
+ * node takes no other. */
+static void a_join_code_is_shown_and_joined_from(void) {
+    make_group();
+    struct tern_companion_msg ask = for_group(TERN_C_GROUP_LINK, made_id());
+    request(&ask);
+    char want[TERN_GROUP_LINK_MAX + 1];
+    size_t len = tern_group_link(made_secret, (const uint8_t *)"Hut", 3, want);
+    CHECK_EQ_U64(board.n_out, 1);
+    CHECK_EQ_I64(sent(0).type, TERN_C_LINK);
+    CHECK(sent(0).text_len == len && memcmp(sent(0).text, want, len) == 0);
+    static const uint8_t nobody[TERN_COMPANION_GROUP] = {1};
+    ask = for_group(TERN_C_GROUP_LINK, nobody);
+    request(&ask);
+    CHECK_EQ_I64(sent(0).code, TERN_C_ERR_NOT_HELD);
+
+    /* Its own code, given back: held already, as it was. */
+    struct tern_companion_msg q = {.type = TERN_C_JOIN_LINK, .seq = 8, .text_len = (uint8_t)len};
+    memcpy(q.text, want, len);
+    request(&q);
+    CHECK_EQ_U64(board.n_out, 1);
+    CHECK(sent(0).type == TERN_C_MADE &&
+          memcmp(sent(0).group, made_id(), TERN_COMPANION_GROUP) == 0);
+    CHECK(companion.groups[0].used && !companion.groups[1].used);
+
+    /* Another group's, lower-case, until there is no room. */
+    static uint8_t secrets[LINK_GROUPS][16];
+    for (int i = 1; i <= LINK_GROUPS; i++) {
+        secrets[i - 1][0] = (uint8_t)(0x40 + i);
+        len = tern_group_link(secrets[i - 1], (const uint8_t *)"Ridge", 5, want);
+        for (size_t k = 0; k < len; k++) {
+            want[k] = want[k] >= 'A' && want[k] <= 'Z' ? (char)(want[k] - 'A' + 'a') : want[k];
+        }
+        q.text_len = (uint8_t)len;
+        memcpy(q.text, want, len);
+        request(&q);
+        if (i < LINK_GROUPS) {
+            uint8_t id[TERN_COMPANION_GROUP];
+            tern_companion_group_id(secrets[i - 1], id);
+            CHECK_EQ_U64(board.n_out, 2);
+            CHECK(sent(0).type == TERN_C_MADE && memcmp(sent(0).group, id, sizeof id) == 0);
+            CHECK(sent(1).type == TERN_C_GROUP && sent(1).text_len == 5 &&
+                  memcmp(sent(1).group, id, sizeof id) == 0);
+        } else {
+            CHECK_EQ_I64(sent(0).code, TERN_C_ERR_FULL);
+        }
+    }
+    /* Not a code at all. */
+    q.text_len = 5;
+    memcpy(q.text, "hello", 5);
+    request(&q);
+    CHECK_EQ_I64(sent(0).code, TERN_C_ERR_REFUSED);
 }
 
 static void a_group_message_is_queued_once_for_each_ref(void) {
@@ -2297,6 +2362,7 @@ static void what_flash_holds_that_is_no_message_is_not_loaded(void) {
 int main(void) {
     RUN(the_exchange_is_followed_frame_for_frame);
     RUN(an_older_client_is_told_no_cards);
+    RUN(an_older_client_has_no_join_codes);
     RUN(cards_are_the_newest_from_each);
     RUN(an_older_client_is_not_told_who_asked);
     RUN(an_older_client_is_told_no_positions);
@@ -2319,6 +2385,7 @@ int main(void) {
     RUN(a_client_before_groups_is_not_told_of_them);
     RUN(a_group_is_made_with_the_boards_randomness_and_kept);
     RUN(a_group_is_not_made_without_randomness_room_or_flash);
+    RUN(a_join_code_is_shown_and_joined_from);
     RUN(a_group_message_is_queued_once_for_each_ref);
     RUN(an_invite_carries_the_groups_secret_and_name);
     RUN(an_invite_is_held_until_joined);

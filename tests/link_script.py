@@ -15,6 +15,8 @@ import time
 
 BOB = "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c"
 GONE = "the node took this client for gone"
+# The specification's join code for a group called Ridge walkers (vectors/groups.json).
+RIDGE = "HTTPS://TERNMESH.ORG/G#YTCMJRGEYTCMJRGEYTCMJRGEYRS2WUTJMRTWKIDXMFWGWZLSOM"
 
 
 def main():
@@ -70,6 +72,10 @@ def main():
         run(port, "state",
             expect=["contact 'Bob'", "message #1 to Bob: 'On the ridge by six' (waiting)"])
         run(port, "set", "power", "10", expect=["set"])
+        # A group joined from its code, given lower-case, and the code asked for again.
+        run(port, "group", "join", RIDGE.lower(), expect=["joined group c8eafadc0857a696"])
+        run(port, "group", "code", "c8eafadc0857a696", expect=[RIDGE])
+        run(port, "state", expect=["group 'Ridge walkers'"])
     finally:
         board.stdin.close()
         board.wait(timeout=10)
