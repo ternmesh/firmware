@@ -393,6 +393,22 @@ bool board_screen_power(bool on) {
     return on ? oled_send(on_seq, sizeof on_seq) : oled_send(off_seq, sizeof off_seq);
 }
 
+/* The ADC's ranges on the ESP32-S3, each the most it reads at that attenuation (ESP-IDF's ADC
+ * oneshot guide), the least first: a battery is read in the narrowest that holds a full cell
+ * through the board's divider, with a tenth to spare. 390k over 100k, the Heltecs', puts 4.2 V at
+ * 0.86 V; an even divider, at 2.1 V. */
+static const struct {
+    adc_atten_t atten;
+    uint16_t most_mv;
+} adc_ranges[] = {
+    {ADC_ATTEN_DB_2_5, 1250},
+    {ADC_ATTEN_DB_6, 1750},
+    {ADC_ATTEN_DB_12, 3100},
+};
+
+static adc_atten_t battery_atten;
+static uint16_t battery_range_mv;
+
 bool board_battery_init(void) {
     adc_unit_t unit;
     gpio_config_t ctrl = {.pin_bit_mask = bit(B->battery.enable), .mode = GPIO_MODE_OUTPUT};
@@ -401,16 +417,22 @@ bool board_battery_init(void) {
         adc_oneshot_io_to_channel(B->battery.sense, &unit, &battery_channel) != ESP_OK) {
         return false;
     }
+    size_t r = 0;
+    while (r + 1 < sizeof adc_ranges / sizeof adc_ranges[0] &&
+           board_battery_pin_mv(B) * 11 / 10 > adc_ranges[r].most_mv) {
+        r++;
+    }
+    battery_atten = adc_ranges[r].atten;
+    battery_range_mv = adc_ranges[r].most_mv;
     adc_oneshot_unit_init_cfg_t init = {.unit_id = unit};
-    /* 2.5 dB reads to about 1.25 V: a full cell, 4.2 V, is 0.86 V after the divider. */
-    adc_oneshot_chan_cfg_t chan = {.atten = ADC_ATTEN_DB_2_5, .bitwidth = ADC_BITWIDTH_DEFAULT};
+    adc_oneshot_chan_cfg_t chan = {.atten = battery_atten, .bitwidth = ADC_BITWIDTH_DEFAULT};
     if (adc_oneshot_new_unit(&init, &adc) != ESP_OK ||
         adc_oneshot_config_channel(adc, battery_channel, &chan) != ESP_OK) {
         return false;
     }
     adc_cali_curve_fitting_config_t cal = {.unit_id = unit,
                                            .chan = battery_channel,
-                                           .atten = ADC_ATTEN_DB_2_5,
+                                           .atten = battery_atten,
                                            .bitwidth = ADC_BITWIDTH_DEFAULT};
     have_cali = adc_cali_create_scheme_curve_fitting(&cal, &adc_cali) == ESP_OK;
     have_adc = true;
@@ -428,7 +450,7 @@ static uint16_t battery_at(int level) {
             return 0;
         }
         if (!have_cali || adc_cali_raw_to_voltage(adc_cali, raw, &mv) != ESP_OK) {
-            mv = raw * 1250 / 4095; /* uncalibrated: the range taken as even */
+            mv = raw * battery_range_mv / 4095; /* uncalibrated: the range taken as even */
         }
         sum += mv;
     }
