@@ -1607,15 +1607,16 @@ void link_close(struct link *l, unsigned conn) {
     l->conns[conn] = (struct link_conn){.open = false};
 }
 
-void link_receive(struct link *l, unsigned conn, tern_time now, const uint8_t *frame, size_t len) {
-    static struct tern_companion_msg q; /* a request is answered before the next is read */
+/* Answers the request in frame, which it reads into q. */
+static void receive(struct link *l, unsigned conn, tern_time now, const uint8_t *frame, size_t len,
+                    struct tern_companion_msg *q) {
     struct link_conn *c = &l->conns[conn];
     if (!c->open) {
         return;
     }
     l->asker = c;
-    memset(&q, 0, sizeof q);
-    enum tern_companion_read r = tern_companion_read(&q, frame, len);
+    memset(q, 0, sizeof *q);
+    enum tern_companion_read r = tern_companion_read(q, frame, len);
     if (r == TERN_C_READ_SHORT || !tern_companion_request(frame[0])) {
         return; /* nothing to answer: too short, or not a request */
     }
@@ -1627,33 +1628,33 @@ void link_receive(struct link *l, unsigned conn, tern_time now, const uint8_t *f
         error(l, frame[1], (uint8_t)r);
         return;
     }
-    if (!c->hello && q.type != TERN_C_HELLO) {
-        error(l, q.seq, TERN_C_ERR_HELLO_FIRST);
+    if (!c->hello && q->type != TERN_C_HELLO) {
+        error(l, q->seq, TERN_C_ERR_HELLO_FIRST);
         return;
     }
     /* A request the client's version does not have is one this node does not know from it: it
      * could not be told what the request changed. */
-    if (c->hello && q.type != TERN_C_HELLO && c->version < tern_companion_since(q.type)) {
-        error(l, q.seq, TERN_C_ERR_UNKNOWN);
+    if (c->hello && q->type != TERN_C_HELLO && c->version < tern_companion_since(q->type)) {
+        error(l, q->seq, TERN_C_ERR_UNKNOWN);
         return;
     }
-    switch (q.type) {
+    switch (q->type) {
     case TERN_C_HELLO: {
         /* Over Bluetooth a frame is one notification, which the ATT MTU bounds: 3 bytes of it
          * are the ATT header. */
         if (c->mtu != 0 && c->mtu < TERN_COMPANION_MAX_FRAME + 3) {
-            error(l, q.seq, TERN_C_ERR_MTU);
+            error(l, q->seq, TERN_C_ERR_MTU);
             break;
         }
         struct tern_companion_msg a = {
-            .type = TERN_C_INFO, .seq = q.seq, .version = TERN_COMPANION_VERSION};
+            .type = TERN_C_INFO, .seq = q->seq, .version = TERN_COMPANION_VERSION};
         put_text(&a, (const uint8_t *)l->host.firmware,
                  cstr_len(l->host.firmware, TERN_COMPANION_FIRMWARE_MAX));
         a.board_len = (uint8_t)cstr_len(l->host.board, TERN_COMPANION_BOARD_MAX);
         memcpy(a.board, l->host.board == NULL ? "" : l->host.board, a.board_len);
         a.release_len = (uint8_t)cstr_len(l->host.release, TERN_COMPANION_RELEASE_MAX);
         memcpy(a.release, l->host.release == NULL ? "" : l->host.release, a.release_len);
-        c->version = q.version; /* INFO too is as the client's version has it */
+        c->version = q->version; /* INFO too is as the client's version has it */
         send_msg(l, c, &a);
         c->hello = true;
         c->synced = false;
@@ -1661,25 +1662,25 @@ void link_receive(struct link *l, unsigned conn, tern_time now, const uint8_t *f
         break;
     }
     case TERN_C_SYNC:
-        sync(l, &q, now);
+        sync(l, q, now);
         break;
     case TERN_C_PING:
-        answer(l, TERN_C_OK, q.seq);
+        answer(l, TERN_C_OK, q->seq);
         break;
     case TERN_C_SET_TIME:
-        l->host.set_time(l->host.ctx, q.time);
-        answer(l, TERN_C_OK, q.seq);
+        l->host.set_time(l->host.ctx, q->time);
+        answer(l, TERN_C_OK, q->seq);
         break;
     case TERN_C_SET: {
         /* A setting a later version added is one this client's version does not have. */
-        uint8_t code = c->version < tern_companion_setting_since(q.setting)
+        uint8_t code = c->version < tern_companion_setting_since(q->setting)
                            ? (uint8_t)TERN_C_ERR_UNKNOWN
-                           : l->host.set(l->host.ctx, &q);
+                           : l->host.set(l->host.ctx, q);
         if (code != 0) {
-            error(l, q.seq, code);
+            error(l, q->seq, code);
             break;
         }
-        answer(l, TERN_C_OK, q.seq);
+        answer(l, TERN_C_OK, q->seq);
         /* A setting that takes effect at once, as cards do, is news now: one that takes a
          * restart changes nothing SELF says until then. */
         l->host.view(l->host.ctx, &l->view);
@@ -1693,64 +1694,70 @@ void link_receive(struct link *l, unsigned conn, tern_time now, const uint8_t *f
     }
     case TERN_C_SEND:
     case TERN_C_SEND_GROUP:
-        send_request(l, &q);
+        send_request(l, q);
         break;
     case TERN_C_MAKE_GROUP:
-        make_group(l, &q);
+        make_group(l, q);
         break;
     case TERN_C_LEAVE_GROUP:
-        leave_group(l, &q);
+        leave_group(l, q);
         break;
     case TERN_C_NAME_GROUP:
-        name_group(l, &q);
+        name_group(l, q);
         break;
     case TERN_C_SEND_INVITE:
-        send_invite(l, &q);
+        send_invite(l, q);
         break;
     case TERN_C_JOIN:
-        join(l, &q);
+        join(l, q);
         break;
     case TERN_C_GROUP_LINK:
-        group_link(l, &q);
+        group_link(l, q);
         break;
     case TERN_C_JOIN_LINK:
-        join_link(l, &q);
-        tern_wipe(&q, sizeof q); /* the code is the group's secret: not left for the next request */
+        join_link(l, q);
         break;
     case TERN_C_READ:
-        read_request(l, &q);
+        read_request(l, q);
         break;
     case TERN_C_SAVE_CONTACT:
-        save_contact(l, &q);
+        save_contact(l, q);
         break;
     case TERN_C_REMOVE_CONTACT:
-        remove_contact(l, &q);
+        remove_contact(l, q);
         break;
     case TERN_C_END_SESSION:
-        end_session(l, &q);
+        end_session(l, q);
         break;
     case TERN_C_UPDATE_BEGIN:
-        update_begin(l, &q);
+        update_begin(l, q);
         break;
     case TERN_C_UPDATE_DATA:
-        update_data(l, &q);
+        update_data(l, q);
         break;
     case TERN_C_UPDATE_END:
-        update_end(l, &q);
+        update_end(l, q);
         break;
     case TERN_C_SET_POSITION:
-        set_position(l, &q, now);
+        set_position(l, q, now);
         break;
     case TERN_C_SHARE:
-        share_request(l, &q, now);
+        share_request(l, q, now);
         break;
     case TERN_C_SHARE_GROUP:
-        share_group(l, &q, now);
+        share_group(l, q, now);
         break;
     default:
-        error(l, q.seq, TERN_C_ERR_UNKNOWN);
+        error(l, q->seq, TERN_C_ERR_UNKNOWN);
         break;
     }
+}
+
+void link_receive(struct link *l, unsigned conn, tern_time now, const uint8_t *frame, size_t len) {
+    static struct tern_companion_msg q; /* a request is answered before the next is read */
+    receive(l, conn, now, frame, len, &q);
+    /* Whatever became of it: a JOIN_LINK's code is a group's secret, and none is left behind. */
+    tern_wipe(&q, sizeof q);
 }
 
 /* --- Telling what changed -------------------------------------------------------------------- */
