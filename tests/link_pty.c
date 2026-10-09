@@ -166,6 +166,36 @@ static bool save_ids(void *ctx, uint32_t next) {
     return true;
 }
 
+/* This node saves no messages: it is the one whose flash had no room for them. */
+static size_t load_message(void *ctx, size_t place, uint8_t *buf, size_t cap) {
+    (void)ctx;
+    (void)place;
+    (void)buf;
+    (void)cap;
+    return 0;
+}
+
+static enum link_saved save_message(void *ctx, size_t place, const uint8_t *buf, size_t len) {
+    (void)ctx;
+    (void)place;
+    (void)buf;
+    return len == 0 ? LINK_SAVED : LINK_NOT_SAVED;
+}
+
+static bool load_state(void *ctx, size_t place, uint64_t *state) {
+    (void)ctx;
+    (void)place;
+    (void)state;
+    return false;
+}
+
+static bool save_state(void *ctx, size_t place, uint64_t state) {
+    (void)ctx;
+    (void)place;
+    (void)state;
+    return false;
+}
+
 int main(int argc, char **argv) {
     master = posix_openpt(O_RDWR | O_NOCTTY);
     if (master < 0 || grantpt(master) != 0 || unlockpt(master) != 0) {
@@ -201,7 +231,11 @@ int main(int argc, char **argv) {
                              .save_groups = save_groups,
                              .random = no_random,
                              .load_ids = load_ids,
-                             .save_ids = save_ids};
+                             .save_ids = save_ids,
+                             .load_message = load_message,
+                             .save_message = save_message,
+                             .load_state = load_state,
+                             .save_state = save_state};
     link_init(&node, &host);
     link_open(&node, LINK_SERIAL, lapse, 0);
     struct tern_companion_parser parser;

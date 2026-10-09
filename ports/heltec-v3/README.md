@@ -98,8 +98,8 @@ a message is unread** in `idf.py menuconfig` turns that off).
 Holding PRG for five seconds turns the board off. From the second second the screen counts
 down, and letting go before the end leaves it on. Off, the board is in deep sleep with its
 display and radio unpowered, drawing tens of microamps, and a press of PRG starts it again, as
-at power on. The messages it holds are kept in memory only, so they are lost, as at any
-restart; its identity, sessions, contacts and settings are not.
+at power on. Its identity, sessions, contacts, groups, settings and messages are in flash, and
+are there when it starts.
 
 To start:
 
@@ -126,7 +126,7 @@ the protocol's: eight pages, moved through by pressing PRG. It is the first vers
 | **Share** | Its address as a QR code holding its link, `HTTPS://TERNMESH.ORG/A/` and the address in base32, which a phone's camera opens as a web page showing the address and its short code; and beside it, its short code. |
 | **This node** | Its short code, twelve digits two people compare to check a phone has the right node; its address, sixty-four hex digits in groups of eight, to read out or copy; relay or leaf, the region and the power; and the firmware's version. |
 | **Phones** | How many phones have paired over Bluetooth and are remembered, and whether one is connected. Hold PRG, and hold it again within ten seconds, to forget them all, as `forget` does: each must pair again. |
-| **Reset** | Erases the board for a new owner or a fresh start. Hold PRG, and hold it again within ten seconds: the board restarts, erases its flash's storage whole (its identity, sessions, contacts, groups, settings and the phones' bonds), and starts as a new node, with a new address and the build's settings. The time it has spent on the air is kept, so the region's limit still counts it. |
+| **Reset** | Erases the board for a new owner or a fresh start. Hold PRG, and hold it again within ten seconds: the board restarts, erases its flash's storage whole (its identity, sessions, contacts, groups, messages, settings and the phones' bonds), and starts as a new node, with a new address and the build's settings. The time it has spent on the air is kept, so the region's limit still counts it. |
 
 When it starts, the board shows its name and firmware version at once, then its region and
 short code as it reads them (and **New address made** on the start that gave it its address), for two and a half seconds after it is on the air, or until PRG is
@@ -360,8 +360,6 @@ What to know before trusting one with anything:
 * **A board writes only so much.** Its own group messages take at most 0.5% of its time, about
   two dozen short ones at once and one every 25 seconds after; it tells a client when one waits
   for that. It spends up to 3% of its time passing on other boards'.
-* **An invite not joined before a restart is gone**, since messages are not saved. A group that
-  was joined is kept.
 * **An old message can be sent again by anyone who recorded it, and is read as new.** The board
   knows a group frame it has had only by the last 64 it read in that group, and forgets those
   when it restarts. A frame older than that, recorded off the air and sent again, shows as a new
@@ -400,9 +398,24 @@ seconds to stay connected, and if it is cut off anyway, it says `HELLO` again an
 
 What the board offers is what the demo is:
 
-* **Messages** are the ones sent and received since it started, up to 32; they are not saved.
-  Their ids are: a message's id is greater than every one before it, across restarts too, so a
-  client that asks for what is new since the last id it holds is never answered with nothing.
+* **Messages** are the last 32 sent and received, saved to flash as they come, so a board with
+  no client attached holds what arrived until one asks, through a restart or a flat battery. A
+  message that was waiting when the board restarted and had not yet been handed over to be sent
+  goes once it starts. One to an address that had been handed over is shown as not delivered:
+  the board no longer listens for its acknowledgement and has given it up, though it may have
+  arrived. An invite not yet joined is kept, with the group's secret, like any other message.
+  **Not all 32 are always saved.** Messages share 24 KB of flash with everything else the board
+  saves, and have about a quarter of it, so that they are never why a session or a contact
+  cannot be saved: room for 26 messages of up to 23 bytes, 20 of 60 bytes, or 16 at the
+  full 128. The newest are the ones saved: when there is no room for another, the oldest
+  leave flash for it, and are held in memory until a restart; `status` says how many are saved
+  and how many are not. More
+  wants a part of the flash for messages alone, which a board updated by its application only
+  would not get.
+  Nothing in flash is encrypted: whoever holds the board can read them, as they can its keys.
+  A message's id is greater than every one before it, across restarts too, so a client that asks
+  for what is new since the last id it holds is never answered with nothing. A `SEND` repeated
+  with the same `ref` after a restart is sent twice: the board does not save which it has had.
   Contacts, up to 16, are saved to flash.
 * **A session with each of eight nodes.** A message to a node the board has no session with
   starts first contact with it. Its state says it is waiting for a session meanwhile, and "not

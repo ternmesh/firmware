@@ -258,6 +258,154 @@ size_t link_invite_write(struct link *l, const struct link_message *x,
     return g == NULL ? 0 : tern_group_invite_write(g->g.secret, x->text, x->text_len, out);
 }
 
+/* --- Messages in flash -------------------------------------------------------------------------
+ *
+ * What is written once: a version, the kind, the state and flags it began with, then the id, the
+ * time, the address, the group, the writer, an invite's secret and the text. What changes after is
+ * a word: the id it is of, so that a word left by the place's last message is not taken for this
+ * one's, then the state, the flags and whether it was handed over. */
+
+#define SAVED_VERSION 1
+#define SAVED_ADDRESS 12
+#define SAVED_GROUP (SAVED_ADDRESS + TERN_ADDRESS_LEN)
+#define SAVED_FROM (SAVED_GROUP + TERN_COMPANION_GROUP)
+#define SAVED_SECRET (SAVED_FROM + 4)
+#define SAVED_LEN (SAVED_SECRET + TERN_GROUP_SECRET)
+_Static_assert(LINK_SAVED_HEAD == SAVED_LEN + 1, "a saved message's head");
+
+static void put32(uint8_t *p, uint32_t v) {
+    for (size_t i = 0; i < 4; i++) {
+        p[i] = (uint8_t)(v >> (8 * i));
+    }
+}
+
+static uint32_t get32(const uint8_t *p) {
+    return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
+}
+
+static void save_state(struct link *l, const struct link_message *x) {
+    if (x->saved) {
+        uint64_t word = (uint64_t)x->id | (uint64_t)x->state << 32 | (uint64_t)x->flags << 40 |
+                        (uint64_t)(x->taken ? 1 : 0) << 48;
+        (void)l->host.save_state(l->host.ctx, (size_t)(x - l->messages), word);
+    }
+}
+
+/* Takes the oldest saved message whose end is known out of flash, to make room there: the node
+ * holds it still, until a restart. False if there is none but `but`. */
+static bool unsave_oldest(struct link *l, const struct link_message *but) {
+    struct link_message *oldest = NULL;
+    for (size_t i = 0; i < LINK_MESSAGES; i++) {
+        struct link_message *x = &l->messages[i];
+        if (x->used && x->saved && x != but && x->state != TERN_C_WAITING &&
+            (oldest == NULL || x->id < oldest->id)) {
+            oldest = x;
+        }
+    }
+    if (oldest == NULL || l->host.save_message(l->host.ctx, (size_t)(oldest - l->messages),
+                                               (const uint8_t *)"", 0) != LINK_SAVED) {
+        return false;
+    }
+    oldest->saved = false;
+    return true;
+}
+
+/* Saves a message newly kept. Where flash has no room, the newest are the ones to have there, so
+ * the oldest make way: LINK_UNSAVE of them at most, which is room for any message. A write that
+ * failed for another reason takes nothing out. If it cannot be saved even so, what the place held
+ * before is forgotten, so that a restart does not bring back a message the node has let go of. */
+static void save_message(struct link *l, struct link_message *x) {
+    uint8_t b[LINK_SAVED_MAX];
+    size_t place = (size_t)(x - l->messages);
+    b[0] = SAVED_VERSION;
+    b[1] = x->kind;
+    b[2] = x->state;
+    b[3] = x->flags;
+    put32(b + 4, x->id);
+    put32(b + 8, x->time);
+    memcpy(b + SAVED_ADDRESS, x->address, TERN_ADDRESS_LEN);
+    memcpy(b + SAVED_GROUP, x->group, TERN_COMPANION_GROUP);
+    put32(b + SAVED_FROM, x->from);
+    memcpy(b + SAVED_SECRET, x->secret, TERN_GROUP_SECRET);
+    b[SAVED_LEN] = x->text_len;
+    memcpy(b + LINK_SAVED_HEAD, x->text, x->text_len);
+    size_t len = LINK_SAVED_HEAD + x->text_len;
+    enum link_saved how = l->host.save_message(l->host.ctx, place, b, len);
+    for (unsigned i = 0; i < LINK_UNSAVE && how == LINK_NO_ROOM && unsave_oldest(l, x); i++) {
+        how = l->host.save_message(l->host.ctx, place, b, len);
+    }
+    x->saved = how == LINK_SAVED;
+    if (!x->saved) {
+        (void)l->host.save_message(l->host.ctx, place, b, 0);
+    }
+    tern_wipe(b, sizeof b);
+}
+
+/* What the place held when the node last ran, as it stands now that it has restarted. */
+static void load_message(struct link *l, size_t place) {
+    uint8_t b[LINK_SAVED_MAX];
+    struct link_message *x = &l->messages[place];
+    size_t len = l->host.load_message(l->host.ctx, place, b, sizeof b);
+    bool invite = len >= LINK_SAVED_HEAD && b[1] == LINK_KIND_INVITE;
+    if (len < LINK_SAVED_HEAD || len > sizeof b || b[0] != SAVED_VERSION ||
+        b[1] > LINK_KIND_INVITE || b[2] > TERN_C_RECEIVED || get32(b + 4) == 0 ||
+        len != LINK_SAVED_HEAD + (size_t)b[SAVED_LEN] ||
+        b[SAVED_LEN] > (invite ? TERN_COMPANION_NAME_MAX : TERN_COMPANION_TEXT_MAX) ||
+        (b[SAVED_LEN] == 0 && !invite) || find_message(l, get32(b + 4)) != NULL) {
+        tern_wipe(b, sizeof b);
+        return;
+    }
+    x->kind = b[1];
+    x->state = b[2];
+    x->flags = b[3];
+    x->id = get32(b + 4);
+    x->time = get32(b + 8);
+    memcpy(x->address, b + SAVED_ADDRESS, TERN_ADDRESS_LEN);
+    memcpy(x->group, b + SAVED_GROUP, TERN_COMPANION_GROUP);
+    x->from = get32(b + SAVED_FROM);
+    memcpy(x->secret, b + SAVED_SECRET, TERN_GROUP_SECRET);
+    x->text_len = b[SAVED_LEN];
+    memcpy(x->text, b + LINK_SAVED_HEAD, x->text_len);
+    tern_wipe(b, sizeof b);
+    x->used = true;
+    x->saved = true;
+
+    uint64_t word = 0;
+    bool received = x->state == TERN_C_RECEIVED;
+    uint8_t state = 0;
+    if (l->host.load_state(l->host.ctx, place, &word) && (uint32_t)word == x->id) {
+        state = (uint8_t)(word >> 32);
+        /* A received message stays one, and no other becomes one. */
+        if (state <= TERN_C_RECEIVED && (state == TERN_C_RECEIVED) == received) {
+            x->state = state;
+            x->flags = (uint8_t)(word >> 40);
+            x->taken = (word >> 48 & 1) != 0;
+        }
+    }
+    if (x->id >= l->next_id) {
+        l->next_id = x->id + 1;
+    }
+    if (x->state != TERN_C_WAITING && x->state != TERN_C_SENT) {
+        return;
+    }
+    /* Whatever held its frame is gone. */
+    bool taken = x->taken;
+    x->taken = false;
+    state = x->state;
+    if (x->kind == LINK_KIND_GROUP) {
+        if (state == TERN_C_WAITING && find_group(l, x->group) == NULL) {
+            state = TERN_C_NOT_DELIVERED;
+        }
+    } else if (taken || state == TERN_C_SENT ||
+               (x->kind == LINK_KIND_INVITE && find_group(l, x->group) == NULL)) {
+        state = TERN_C_NOT_DELIVERED;
+    }
+    if (state != x->state || taken) {
+        x->state = state;
+        save_state(l, x);
+    }
+}
+
 void link_init(struct link *l, const struct link_host *host) {
     memset(l, 0, sizeof *l);
     l->host = *host;
@@ -279,6 +427,9 @@ void link_init(struct link *l, const struct link_host *host) {
         }
     }
     tern_wipe(kept, sizeof kept);
+    for (size_t i = 0; i < LINK_MESSAGES; i++) {
+        load_message(l, i);
+    }
 }
 
 /* Sets the next message id aside in flash, if it is not yet. Done before the id is told to
@@ -311,6 +462,7 @@ static uint32_t keep_message(struct link *l, const struct link_message *like, co
     x->id = l->next_id++;
     memcpy(x->text, text, keep);
     x->text_len = (uint8_t)keep;
+    save_message(l, x);
     news_message(l, NULL, x);
     return x->id;
 }
@@ -366,9 +518,13 @@ void link_state(struct link *l, uint32_t id, uint8_t state, uint8_t reason, uint
         wait = 0;
     }
     bool changed = x->state != state || x->reason != reason;
+    bool moved = x->state != state;
     x->state = state;
     x->reason = reason;
     x->wait = wait;
+    if (moved) {
+        save_state(l, x);
+    }
     if (changed) {
         /* Only to a client that was told of the message: one from before groups was not sent a
          * group message or an invite, and news of what became of one would be of nothing. */
@@ -392,6 +548,7 @@ void link_taken(struct link *l, uint32_t id) {
     struct link_message *x = find_message(l, id);
     if (x != NULL) {
         x->taken = true;
+        save_state(l, x);
         link_state(l, id, TERN_C_WAITING, TERN_C_WAIT_UNNAMED, 0);
     }
 }
@@ -558,6 +715,7 @@ static void read_through(struct link *l, uint32_t through, uint8_t version) {
             !(x->flags & TERN_C_READ_FLAG) &&
             (x->kind == LINK_KIND_MESSAGE || version >= tern_companion_since(TERN_C_INVITE))) {
             x->flags |= TERN_C_READ_FLAG;
+            save_state(l, x);
             news_message(l, NULL, x);
         }
     }

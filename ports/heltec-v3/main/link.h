@@ -40,7 +40,13 @@
 #define LINK_MESSAGES 32
 #define LINK_REFS 16    /* SENDs remembered, so one sent again is not sent twice */
 #define LINK_ID_STEP 64 /* message ids set aside by one write to flash */
-#define LINK_ASKED 8    /* addresses lately refused, remembered so each is news once a LINK_QUIET */
+/* A message as flash keeps it, at most: what does not change, then its text. */
+#define LINK_SAVED_HEAD (17 + TERN_ADDRESS_LEN + TERN_COMPANION_GROUP + TERN_GROUP_SECRET)
+#define LINK_SAVED_MAX (LINK_SAVED_HEAD + TERN_COMPANION_TEXT_MAX)
+/* Saved messages taken out of flash, at most, for one new one: two of the shortest take more
+ * room there than one of the longest. */
+#define LINK_UNSAVE 2
+#define LINK_ASKED 8 /* addresses lately refused, remembered so each is news once a LINK_QUIET */
 #define LINK_NEIGHBOURS 64
 #define LINK_QUIET TERN_S(10) /* the least time between two news frames about one thing */
 #define LINK_LOOK TERN_S(1)   /* how often the link looks for changes to tell */
@@ -74,6 +80,10 @@ struct link_view {
     uint8_t percent, power_flags;
 };
 
+/* What became of saving a message: saved, refused for want of room, or not written for any other
+ * reason. */
+enum link_saved { LINK_SAVED, LINK_NO_ROOM, LINK_NOT_SAVED };
+
 struct link_host {
     void *ctx;
     const char *firmware;
@@ -103,6 +113,16 @@ struct link_host {
      * (link_init()). */
     bool (*load_ids)(void *ctx, uint32_t *next);
     bool (*save_ids)(void *ctx, uint32_t next);
+    /* The messages, each saved alone by its place among LINK_MESSAGES, in two parts: what is
+     * written once, up to LINK_SAVED_MAX bytes, and a word for what changes after. Loading gives
+     * the length, or 0 with nothing kept there; saving a length of 0 forgets what the place
+     * held. A host with no room to spare says so: the link then takes its oldest out of flash
+     * and asks again. A message not saved, for that or because the write failed, is held until
+     * a restart, and a write that failed takes no other message out of flash. */
+    size_t (*load_message)(void *ctx, size_t place, uint8_t *buf, size_t cap);
+    enum link_saved (*save_message)(void *ctx, size_t place, const uint8_t *buf, size_t len);
+    bool (*load_state)(void *ctx, size_t place, uint64_t *state);
+    bool (*save_state)(void *ctx, size_t place, uint64_t state);
 };
 
 struct link_contact {
@@ -135,6 +155,7 @@ enum link_kind { LINK_KIND_MESSAGE, LINK_KIND_GROUP, LINK_KIND_INVITE };
 struct link_message {
     bool used;
     bool taken; /* with the forwarder or the flooder, which sends it: not to be handed over again */
+    bool saved; /* in flash, so what becomes of it is written there too */
     uint8_t kind;
     uint32_t id;
     uint8_t address[TERN_ADDRESS_LEN];   /* not a group message's */
@@ -210,14 +231,23 @@ struct link {
     struct link_view view; /* scratch, filled by the host */
 };
 
-/* Loads the contacts, and where the message ids had got to. Every connection starts closed.
+/* Loads the contacts, the groups, the messages, and where the message ids had got to. Every
+ * connection starts closed.
  *
  * A message's id is greater than every one the node gave before, across restarts too
  * (draft/companion.md, "Messages"): a client asks for what is new by the greatest id it holds.
- * The messages themselves are not kept, so the ids are: LINK_ID_STEP of them are set aside in
- * flash at a time, and a restart begins after the last set aside, skipping the few not used. If
- * the write fails the id is given all the same and the next message tries again; a restart
- * before one succeeds may give those ids twice. */
+ * A message the host could not save is lost at a restart, so the ids are kept apart from the
+ * messages: LINK_ID_STEP of them are set aside in flash at a time, and a restart begins after
+ * the last set aside, skipping the few not used. If the write fails the id is given all the same
+ * and the next message tries again; a restart before one succeeds may give those ids twice.
+ *
+ * A message is saved as it is kept, and again, in a word, when it is handed over to be sent,
+ * when its state changes and when it is read. One that was waiting when the node restarted and
+ * had not been handed over waits still, and goes. One to an address that had been handed over is
+ * not delivered: the node no longer holds its frame or listens for its acknowledgement, so it
+ * has given it up, and whether it arrived is not known. A group message that was waiting goes,
+ * handed over or not, since it is on the air only once and is sent from then. The SENDs
+ * remembered (LINK_REFS) are not saved: one sent again after a restart is sent twice. */
 void link_init(struct link *l, const struct link_host *host);
 
 /* A connection opened: a client connected, or a port that one may open at any time. It starts

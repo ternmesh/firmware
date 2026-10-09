@@ -51,6 +51,14 @@ struct board {
     uint32_t ids;          /* the message ids set aside, 0 if none were */
     unsigned id_saves;
     unsigned id_saves_at_queued; /* how many there had been when QUEUED was last sent */
+    /* The messages in flash, by place: 0 bytes where there is none. */
+    uint8_t messages[LINK_MESSAGES][LINK_SAVED_MAX];
+    size_t message_len[LINK_MESSAGES];
+    uint64_t states[LINK_MESSAGES];
+    bool have_state[LINK_MESSAGES];
+    bool no_room;  /* for another message, whatever is taken out */
+    unsigned most; /* messages the flash has room for, or 0 for all of them */
+    unsigned message_saves, state_saves;
     uint8_t out[96][TERN_COMPANION_MAX_FRAME];
     size_t out_len[96];
     unsigned out_conn[96];
@@ -166,6 +174,50 @@ static bool board_save_ids(void *ctx, uint32_t next) {
     return true;
 }
 
+static size_t board_load_message(void *ctx, size_t place, uint8_t *buf, size_t cap) {
+    struct board *b = ctx;
+    if (b->message_len[place] > cap) {
+        return 0;
+    }
+    memcpy(buf, b->messages[place], b->message_len[place]);
+    return b->message_len[place];
+}
+
+static enum link_saved board_save_message(void *ctx, size_t place, const uint8_t *buf, size_t len) {
+    struct board *b = ctx;
+    unsigned others = 0;
+    for (size_t i = 0; i < LINK_MESSAGES; i++) {
+        others += i != place && b->message_len[i] > 0;
+    }
+    if (b->save_fails || len > LINK_SAVED_MAX) {
+        return LINK_NOT_SAVED;
+    }
+    if (len > 0 && (b->no_room || (b->most != 0 && others >= b->most))) {
+        return LINK_NO_ROOM;
+    }
+    memcpy(b->messages[place], buf, len);
+    b->message_len[place] = len;
+    b->message_saves++;
+    return LINK_SAVED;
+}
+
+static bool board_load_state(void *ctx, size_t place, uint64_t *state) {
+    struct board *b = ctx;
+    *state = b->states[place];
+    return b->have_state[place];
+}
+
+static bool board_save_state(void *ctx, size_t place, uint64_t state) {
+    struct board *b = ctx;
+    if (b->save_fails) {
+        return false;
+    }
+    b->states[place] = state;
+    b->have_state[place] = true;
+    b->state_saves++;
+    return true;
+}
+
 static struct board board;
 static struct link companion;
 
@@ -204,6 +256,10 @@ static void start(void) {
         .random = board_random,
         .load_ids = board_load_ids,
         .save_ids = board_save_ids,
+        .load_message = board_load_message,
+        .save_message = board_save_message,
+        .load_state = board_load_state,
+        .save_state = board_save_state,
     };
     board.random = made_secret;
     link_init(&companion, &host);
@@ -1233,6 +1289,225 @@ static void a_restart_gives_no_id_again(void) {
     CHECK(add() > sent(0).id);
 }
 
+/* --- Messages across a restart --------------------------------------------------------------- */
+
+static const struct link_message *held(uint32_t id) {
+    for (size_t i = 0; i < LINK_MESSAGES; i++) {
+        if (companion.messages[i].used && companion.messages[i].id == id) {
+            return &companion.messages[i];
+        }
+    }
+    return NULL;
+}
+
+static uint32_t queue(uint32_t ref, const char *text) {
+    struct tern_companion_msg q = send_to(bob, ref, text);
+    request(&q);
+    return sent(0).type == TERN_C_QUEUED ? sent(0).id : 0;
+}
+
+static void messages_are_kept_across_a_restart(void) {
+    make_group();
+    uint8_t group[TERN_COMPANION_GROUP];
+    memcpy(group, made_id(), sizeof group);
+    uint32_t got = link_add(&companion, bob, 1790000100, TERN_C_RECEIVED, 0,
+                            (const uint8_t *)"Kettle is on", 12);
+    uint32_t unread = link_add(&companion, bob, 1790000110, TERN_C_RECEIVED, 0,
+                               (const uint8_t *)"Bring the map", 13);
+    uint32_t said =
+        link_add_group(&companion, 0, 0x1D2E3F40, 1790000120, (const uint8_t *)"here", 4);
+    uint32_t invite =
+        link_add_invite(&companion, bob, 1790000130, invited_secret, (const uint8_t *)"Ridge", 5);
+    link_read(&companion, got);
+    uint32_t waits = queue(0xA1, "one");
+    uint32_t arrived = queue(0xA2, "two");
+    uint32_t flying = queue(0xA3, "three");
+    CHECK(got && unread && said && invite && waits && arrived && flying);
+    link_taken(&companion, arrived);
+    link_state(&companion, arrived, TERN_C_DELIVERED, 0, 0);
+    link_taken(&companion, flying);
+    /* Why a message waits changes often, and is not what flash is for. */
+    unsigned writes = board.state_saves;
+    link_state(&companion, waits, TERN_C_WAITING, TERN_C_WAIT_REGION, 30);
+    link_state(&companion, waits, TERN_C_WAITING, TERN_C_WAIT_ROUTE, 0);
+    CHECK_EQ_U64(board.state_saves, writes);
+
+    for (int again = 0; again < 2; again++) {
+        restart();
+        const struct link_message *x = held(got);
+        CHECK(x != NULL && x->state == TERN_C_RECEIVED && x->flags == TERN_C_READ_FLAG);
+        CHECK(x != NULL && x->time == 1790000100 && x->text_len == 12 &&
+              memcmp(x->text, "Kettle is on", 12) == 0 &&
+              memcmp(x->address, bob, TERN_ADDRESS_LEN) == 0);
+        x = held(unread);
+        CHECK(x != NULL && x->state == TERN_C_RECEIVED && x->flags == 0);
+        x = held(said);
+        CHECK(x != NULL && x->kind == LINK_KIND_GROUP && x->from == 0x1D2E3F40 &&
+              memcmp(x->group, group, sizeof group) == 0);
+        x = held(invite);
+        CHECK(x != NULL && x->kind == LINK_KIND_INVITE && x->text_len == 5 &&
+              memcmp(x->secret, invited_secret, TERN_GROUP_SECRET) == 0);
+        /* The one not handed over waits still and is next to go; the one delivered is; the one
+         * that was with the forwarder has been given up. */
+        x = held(waits);
+        CHECK(x != NULL && x->state == TERN_C_WAITING && link_outgoing(&companion) == x);
+        x = held(arrived);
+        CHECK(x != NULL && x->state == TERN_C_DELIVERED);
+        x = held(flying);
+        CHECK(x != NULL && x->state == TERN_C_NOT_DELIVERED && !x->taken);
+    }
+
+    /* A client is given them as it would have been before, in order of id. */
+    hello();
+    request(&(struct tern_companion_msg){.type = TERN_C_SYNC, .seq = 2, .after = 0});
+    uint32_t last = 0;
+    unsigned n = 0;
+    for (size_t i = 0; i < board.n_out; i++) {
+        struct tern_companion_msg m = sent(i);
+        if (m.type == TERN_C_MESSAGE || m.type == TERN_C_GROUP_MESSAGE || m.type == TERN_C_INVITE) {
+            CHECK(m.id > last);
+            last = m.id;
+            n++;
+        }
+    }
+    CHECK_EQ_U64(n, 7);
+    /* The invite can still be taken, and the next message's id is after them all. */
+    struct tern_companion_msg q = {.type = TERN_C_JOIN, .seq = 3, .id = invite};
+    request(&q);
+    CHECK_EQ_I64(sent(0).type, TERN_C_OK);
+    CHECK(add() > flying);
+}
+
+static void a_group_message_that_waited_goes_after_a_restart(void) {
+    make_group();
+    struct tern_companion_msg q = for_group(TERN_C_SEND_GROUP, made_id());
+    q.ref = 0xB1;
+    q.text_len = 2;
+    memcpy(q.text, "hi", 2);
+    request(&q);
+    uint32_t went = sent(0).id;
+    q.ref = 0xB2;
+    request(&q);
+    uint32_t waits = sent(0).id;
+    CHECK(went != 0 && waits != 0 && went != waits);
+    link_taken(&companion, went);
+    link_state(&companion, went, TERN_C_SENT, 0, 0);
+    link_taken(&companion, waits); /* sealed and with the flooder, not yet on the air */
+
+    restart();
+    CHECK(held(went) != NULL && held(went)->state == TERN_C_SENT);
+    const struct link_message *x = held(waits);
+    CHECK(x != NULL && x->state == TERN_C_WAITING && link_outgoing(&companion) == x);
+}
+
+static void a_message_flash_has_no_room_for_is_held_until_a_restart(void) {
+    start();
+    uint32_t first = add();
+    for (unsigned i = 1; i < LINK_MESSAGES; i++) {
+        (void)add();
+    }
+    link_read(&companion, first + LINK_MESSAGES);
+    restart();
+    CHECK(held(first) != NULL && held(first + LINK_MESSAGES - 1) != NULL);
+
+    /* The next takes the oldest's place. Flash will not have it, and lets go of the oldest all
+     * the same: a restart does not bring back what the node forgot. */
+    board.no_room = true;
+    uint32_t lost = add();
+    CHECK(lost != 0 && held(lost) != NULL && !held(lost)->saved && held(first) == NULL);
+    unsigned writes = board.state_saves;
+    link_read(&companion, lost);
+    CHECK_EQ_U64(board.state_saves, writes); /* nothing to write what became of it beside */
+    restart();
+    /* Two of the oldest were taken out of flash for it, to no end. */
+    CHECK(held(lost) == NULL && held(first) == NULL && held(first + LINK_UNSAVE) == NULL);
+    CHECK(held(first + LINK_UNSAVE + 1) != NULL);
+
+    /* With room again, the place is used, and the word its last message left there, read, is not
+     * taken for the new one's. */
+    board.no_room = false;
+    board.states[0] =
+        (uint64_t)first | (uint64_t)TERN_C_RECEIVED << 32 | (uint64_t)TERN_C_READ_FLAG << 40;
+    board.have_state[0] = true;
+    uint32_t kept = add();
+    restart();
+    CHECK(held(kept) != NULL && held(kept)->flags == 0 && held(kept)->saved);
+}
+
+static void the_newest_messages_are_the_ones_in_flash(void) {
+    start();
+    board.most = 4;
+    uint32_t first = add();
+    for (unsigned i = 1; i < 6; i++) {
+        (void)add();
+    }
+    /* All six are held, and a client is given them. */
+    CHECK(held(first) != NULL && !held(first)->saved && held(first + 5)->saved);
+    restart();
+    CHECK(held(first) == NULL && held(first + 1) == NULL);
+    for (uint32_t id = first + 2; id < first + 6; id++) {
+        CHECK(held(id) != NULL);
+    }
+
+    /* A write that fails for want of anything but room takes no other message out of flash. */
+    start();
+    first = add();
+    (void)add();
+    board.save_fails = true;
+    uint32_t unwritten = add();
+    board.save_fails = false;
+    CHECK(!held(unwritten)->saved && held(first)->saved && held(first + 1)->saved);
+    restart();
+    CHECK(held(unwritten) == NULL && held(first) != NULL && held(first + 1) != NULL);
+
+    /* One still waiting is not taken out for a newer: what becomes of it is yet to be written. */
+    start();
+    board.most = 1;
+    hello();
+    uint32_t waits = queue(0xA1, "one");
+    uint32_t got = add();
+    CHECK(held(waits)->saved && !held(got)->saved);
+    link_taken(&companion, waits);
+    link_state(&companion, waits, TERN_C_DELIVERED, 0, 0);
+    uint32_t next = add();
+    CHECK(!held(waits)->saved && held(next)->saved);
+}
+
+static void what_flash_holds_that_is_no_message_is_not_loaded(void) {
+    start();
+    uint32_t id = add();
+    CHECK(board.message_len[0] == LINK_SAVED_HEAD + 1);
+    uint8_t good[LINK_SAVED_MAX];
+    memcpy(good, board.messages[0], sizeof good);
+
+    board.messages[0][0] ^= 0xFF; /* another build's */
+    restart();
+    CHECK(held(id) == NULL);
+    memcpy(board.messages[0], good, sizeof good);
+    board.message_len[0]++; /* longer than its text */
+    restart();
+    CHECK(held(id) == NULL);
+    board.message_len[0] = LINK_SAVED_HEAD - 1;
+    restart();
+    CHECK(held(id) == NULL);
+    board.message_len[0] = LINK_SAVED_HEAD + 1;
+    board.messages[0][1] = LINK_KIND_INVITE + 1;
+    restart();
+    CHECK(held(id) == NULL);
+    /* Twice in flash is once in the node. */
+    memcpy(board.messages[0], good, sizeof good);
+    memcpy(board.messages[1], good, sizeof good);
+    board.message_len[1] = board.message_len[0];
+    restart();
+    CHECK(companion.messages[0].used && !companion.messages[1].used);
+    /* A word that says a received message was sent is not believed. */
+    board.message_len[1] = 0;
+    board.states[0] = (uint64_t)id | (uint64_t)TERN_C_DELIVERED << 32;
+    board.have_state[0] = true;
+    restart();
+    CHECK(held(id) != NULL && held(id)->state == TERN_C_RECEIVED);
+}
+
 int main(void) {
     RUN(the_exchange_is_followed_frame_for_frame);
     RUN(an_older_client_is_not_told_who_asked);
@@ -1266,5 +1541,10 @@ int main(void) {
     RUN(a_silent_serial_client_is_taken_for_gone);
     RUN(two_clients_drive_one_node);
     RUN(a_restart_gives_no_id_again);
+    RUN(messages_are_kept_across_a_restart);
+    RUN(a_group_message_that_waited_goes_after_a_restart);
+    RUN(a_message_flash_has_no_room_for_is_held_until_a_restart);
+    RUN(the_newest_messages_are_the_ones_in_flash);
+    RUN(what_flash_holds_that_is_no_message_is_not_loaded);
     return CHECK_DONE();
 }
