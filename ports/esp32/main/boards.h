@@ -72,6 +72,11 @@ const struct board_def *board_def_named(const char *name);
 int8_t board_min_dbm(const struct board_def *b);
 int8_t board_max_dbm(const struct board_def *b);
 
+/* What a full cell, 4.2 V, puts on the battery's ADC pin through the board's divider, in
+ * millivolts, or 0 for no battery: board.c chooses the ADC's range by it. */
+#define BOARD_CELL_FULL_MV 4200
+uint16_t board_battery_pin_mv(const struct board_def *b);
+
 /* Whether the board gives dbm into its antenna. */
 bool board_gives(const struct board_def *b, int dbm);
 

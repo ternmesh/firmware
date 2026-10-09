@@ -163,6 +163,20 @@ static void an_amplifier_is_taken_off_what_the_chip_is_asked(void) {
     }
 }
 
+/* A full cell through each board's divider is within the widest range the ESP32-S3's ADC reads,
+ * 3.1 V, with a tenth to spare (board.c chooses the narrowest that holds it). */
+static void a_full_battery_is_within_the_adcs_reach(void) {
+    CHECK_EQ_I64(board_battery_pin_mv(&board_heltec_v3), 857); /* 390k over 100k */
+    for (size_t i = 0; board_defs[i] != NULL; i++) {
+        const struct board_def *b = board_defs[i];
+        if (b->battery.sense != BOARD_NO_PIN) {
+            CHECK(board_battery_pin_mv(b) * 11 / 10 <= 3100);
+        } else {
+            CHECK_EQ_I64(board_battery_pin_mv(b), 0);
+        }
+    }
+}
+
 int main(int argc, char **argv) {
     if (argc != 2) {
         fprintf(stderr, "usage: test_boards <ports/esp32>\n");
@@ -174,5 +188,6 @@ int main(int argc, char **argv) {
     RUN(no_pin_does_two_jobs);
     RUN(a_board_without_an_amplifier_is_its_chip);
     RUN(an_amplifier_is_taken_off_what_the_chip_is_asked);
+    RUN(a_full_battery_is_within_the_adcs_reach);
     return CHECK_DONE();
 }

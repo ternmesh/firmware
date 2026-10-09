@@ -99,6 +99,14 @@ int8_t board_max_dbm(const struct board_def *b) {
     return (int8_t)(b->max_dbm < most ? b->max_dbm : most);
 }
 
+uint16_t board_battery_pin_mv(const struct board_def *b) {
+    if (b->battery.sense == BOARD_NO_PIN) {
+        return 0;
+    }
+    unsigned total = (unsigned)b->battery.top_k + b->battery.bottom_k;
+    return (uint16_t)(BOARD_CELL_FULL_MV * (unsigned)b->battery.bottom_k / total);
+}
+
 bool board_gives(const struct board_def *b, int dbm) {
     return dbm >= board_min_dbm(b) && dbm <= board_max_dbm(b);
 }
