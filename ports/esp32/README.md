@@ -1,6 +1,6 @@
-# Heltec WiFi LoRa 32 V3
+# ESP32 boards
 
-The first board port: an ESP32-S3 with an SX1262, built with ESP-IDF 5.5. Each board has an
+The port for boards with an ESP32 and an SX1262, built with ESP-IDF 5.5. Each board has an
 address. One makes [first contact](https://github.com/ternmesh/spec/blob/main/draft/first-contact.md)
 with the other's, and the two then send each other
 [secured unicast frames](https://github.com/ternmesh/spec/blob/main/draft/unicast-security.md)
@@ -16,6 +16,42 @@ with each of up to eight others. First contact follows routes too, so two boards
 wherever one could send the other a message: through a relay, with neither hearing the other.
 There is no airtime budget yet.
 
+## Boards
+
+One port runs them all: what differs between boards is a row in `main/boards.c` (pins, how the
+radio is wired, the screen, the battery, an amplifier) and a file in `boards/` (what ESP-IDF
+needs to know, such as which USB the console is on). An image is built for one board and does not
+run on another. Everything below holds for each, unless it says otherwise.
+
+| Board | Name | Status | |
+|---|---|---|---|
+| Heltec WiFi LoRa 32 V3, V3.1, V3.2 | `heltec-v3` | Runs | The first board. USB through a CP2102: the port is `/dev/ttyUSB0` or similar. |
+| Heltec WiFi LoRa 32 V4 (V4.2, V4.3) | `heltec-v4` | Built, not yet run on a board | Pin for pin a V3, with an amplifier after the radio for up to 28 dBm, and USB from the ESP32-S3 itself: the port is `/dev/ttyACM0` or similar. See [the V4](#the-heltec-v4). |
+
+[Adding a board](../../docs/boards.md) says what a new one takes, and which come next.
+
+### The Heltec V4
+
+The V4 is read from Heltec's datasheet and its schematics for the V4.2 and V4.3. What is not a V3
+about it:
+
+* **The amplifier.** After the SX1262 comes a 17 dB attenuator and a front-end amplifier: a GC1109
+  on the V4.2, a KCT8103L on the V4.3. The board powers it (GPIO7) and enables it (GPIO2) at start,
+  turns it off with the board, and raises its transmit line for as long as a frame is going: GPIO46
+  on the V4.2 and GPIO5 on the V4.3, both at once, since on each the other goes only to the header.
+  One image runs on either. Do not wire anything to GPIO5 or GPIO46.
+* **Power.** Every power here, the build's, `power` and a client's, is what goes into the antenna,
+  from +4 to +28 dBm; a V4 starts at +4, the least it gives. The radio is asked for 13 dB less than
+  the power set: the most the V4.2's amplifier adds after its attenuator, by the GC1109's
+  datasheet (the V4.3's KCT8103L has none published). The power at the antenna is that or less,
+  never more, until someone measures it with a meter. The region's limit is checked
+  against the power set, as on the V3; with a 3 dBi antenna, EU868's limit stops at +26 dBm.
+* **USB.** The V4 has no USB-to-serial chip. Its console and the companion link are the ESP32-S3's
+  own USB Serial/JTAG, which shows as `/dev/ttyACM0` (`/dev/cu.usbmodem…` on a Mac). It needs no
+  driver, and flashing needs no button: esptool resets it into its bootloader itself.
+
+Its 16 MB flash is laid out as the V3's 8 MB is, so the addresses below are the same for both.
+
 ## Flashing
 
 Flashing replaces whatever is on the board, Meshtastic included, along with its settings.
@@ -23,14 +59,16 @@ Flashing replaces whatever is on the board, Meshtastic included, along with its 
 ### Without installing anything
 
 1. From the latest [release](https://github.com/ternmesh/firmware/releases), download the image
-   for where you are: `tern-heltec-v3-us915-<version>.bin` for the United States and Canada,
-   `tern-heltec-v3-eu868-<version>.bin` for Europe. A board sends on its region's frequency as
-   soon as it starts, so take the right one.
+   for your board and where you are: `tern-<board>-us915-<version>.bin` for the United States
+   and Canada, `tern-<board>-eu868-<version>.bin` for Europe, `<board>` being its name in
+   [the table](#boards), such as `heltec-v3`. A board sends on its region's frequency as soon as
+   it starts, so take the right one.
 2. In Chrome or Edge, open [esptool-js](https://espressif.github.io/esptool-js/), plug in the
    board over USB, and press **Connect**.
 3. Set the flash address to `0x0`, choose the image, and press **Program**.
 4. Press the board's RST button, then open a serial terminal at 115200 baud: esptool-js has one
-   under **Console**, or use the Arduino IDE's serial monitor, or `screen /dev/ttyUSB0 115200`.
+   under **Console**, or use the Arduino IDE's serial monitor, or `screen /dev/ttyUSB0 115200`
+   (`/dev/ttyACM0` on a V4).
 
 Flashing the full image this way also erases the board's identity and its session. It starts
 again with a new address, and the other board has to make contact with that one.
@@ -46,7 +84,7 @@ from then on a phone can update it.
 The release's `-app.bin` is the firmware alone, which a phone sends over the link. Do not write
 it at `0x10000` as the first releases said: there is no firmware there any more.
 
-Every CI run also keeps the same images of its commit, under **Artifacts** as `tern-heltec-v3`.
+Every CI run also keeps the same images of its commit, under **Artifacts** as `tern-<board>`.
 
 ### With ESP-IDF
 
@@ -54,19 +92,21 @@ With [ESP-IDF 5.5](https://docs.espressif.com/projects/esp-idf/en/v5.5.5/esp32s3
 installed and activated:
 
 ```bash
-cd ports/heltec-v3
-idf.py build
-idf.py -p /dev/ttyUSB0 flash monitor     # COM3 or similar on Windows
+cd ports/esp32
+./build.sh heltec-v4                                     # or heltec-v3: a file in boards/
+idf.py -B build-heltec-v4 -p /dev/ttyACM0 flash monitor  # COM3 or similar on Windows
 ```
 
-If flashing stops with "Invalid head of packet", the USB-to-serial chip is not keeping up: add
-`-b 230400`.
+A plain `idf.py build` builds for the V3, as before there were other boards.
 
-`idf.py menuconfig`, under **Tern demo**, chooses the region, the transmit power and the
-antenna's gain. The default region is US915.
+If flashing a V3 stops with "Invalid head of packet", the USB-to-serial chip is not keeping up:
+add `-b 230400`.
 
-`./release.sh <version>` builds what a release carries, an image for each region, into
-`release/`. A tag `v<version>` makes the release from it
+`idf.py -B build-<board> menuconfig`, under **Tern demo**, chooses the region, the transmit power
+and the antenna's gain. The default region is US915.
+
+`./release.sh <version>` builds what a release carries, for every board an image for each region,
+into `release/` (`./release.sh <version> <board>` for only that one). A tag `v<version>` makes the release from it
 ([release.yml](../../.github/workflows/release.yml)), with the notes in
 `docs/releases/v<version>.md`.
 
@@ -310,10 +350,10 @@ Meshtastic's (`0x2B`), MeshCore's (`0x12`) or LoRaWAN's (`0x34`), so these board
 those networks' frames, nor they these. They do hear each other as energy on the channel, as any
 radio would. Two boards built before this change and after it do not hear each other either.
 
-* **Power.** The default is +2 dBm, plenty for a bench: two boards in the same house hear each
-  other easily. The radio gives up to +22 dBm. The board refuses to start if the power set, with
-  the antenna's gain, is more than the region allows, which this board cannot reach with an
-  ordinary antenna.
+* **Power.** The default is +2 dBm (+4 on a V4), plenty for a bench: two boards in the same house
+  hear each other easily. The V3 gives up to +22 dBm, the V4 [up to +28](#the-heltec-v4). The board refuses
+  to start if the power set, with the antenna's gain, is more than the region allows, which a V3
+  cannot reach with an ordinary antenna and a V4 can.
 * **EU868's 10%.** The board counts the time on air of every frame it sends and refuses to send
   one that would take it past 360 s in any hour. `status` shows the count. The count is saved to
   flash, and after a restart everything in it is treated as just sent, so restarting only makes
@@ -523,7 +563,8 @@ ESP-IDF finds it a Tern image for this chip, the board restarts into it. If the 
 cannot start, as **Did not start** would say, or the board restarts before it is on the air, the
 bootloader goes back to the firmware it ran before.
 
-`INFO` names the board `heltec-v3`, and the firmware's release, so a client can find the image.
+`INFO` names the board, `heltec-v3` or `heltec-v4`, and the firmware's release, so a client can
+find the image.
 A board flashed with a release from before 0.2.0 has one slot and cannot be updated this way; it
 names no board, and is moved to two slots [over USB](#without-installing-anything) once.
 
@@ -534,7 +575,8 @@ signed: the digest says it arrived whole, not who made it.
 
 | File | |
 |---|---|
-| `main/board.c` | The pins, the SPI bus, the radio's reset and BUSY line, the button, the LED, and the display (an SSD1306 on its own I2C bus). |
+| `main/boards.c` | Each board's pins and what it has fitted, from its maker's documents, and how much less to ask of the radio on a board with an amplifier. No hardware code; tested on a host by `tests/boards.c`. |
+| `main/board.c` | The chosen board's hardware: the SPI bus, the radio's reset and BUSY line, an amplifier, the button, the LED, the display (an SSD1306 or SSD1315 on its own I2C bus), the battery and the console (UART or USB Serial/JTAG). |
 | `main/demo.c` | The board's identity, first contact, and the saved sessions. It has no hardware code, so `tests/demo.c` tests it on a host, and `tests/relay.c` with the router and the forwarder: boards that make a session through a relay. |
 | `main/ui.c` | The screen's pages, drawn from a snapshot of the node in the user's words. Tested on a host by `tests/ui.c`, which also writes each page it checks as a picture: `build/test_ui <directory>`. |
 | `main/qr.c` | The QR code: version 3, level L, alphanumeric, written from ISO/IEC 18004. `tests/qr.c` checks every mask against another encoder's symbols. |
@@ -544,6 +586,6 @@ signed: the digest says it arrived whole, not who made it.
 | `main/link.c` | The companion link: contacts, messages and what became of them, positions and whom they are shared with, updates, and the answers and news each client gets, on USB and over Bluetooth. No hardware code; tested on a host by `tests/link.c`, and with `tools/companion.py` by `tests/link_script.py`. |
 | `main/ble.c` | The companion link's Bluetooth LE service, pairing and advertising, over NimBLE, which runs in its own task and reports to the loop through a queue. |
 | `main/main.c` | One loop that polls the radio, the serial port, the button and the screen. |
-| `../../src/sx126x.c` | The SX1262 driver, part of the core and shared with future boards. |
+| `../../src/sx126x.c` | The SX1262 driver, part of the core and shared with every board. |
 
 The core is compiled into the app unchanged, from the repository's `src/`.

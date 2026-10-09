@@ -14,7 +14,7 @@
  * or Bluetooth LE. It never goes over LoRa. This is the part every node and every client needs:
  * a frame's fields, read and written, and how frames are found in a byte stream shared with a
  * text console. What a node answers and when is the node's business, not the core's (on the
- * Heltec V3, ports/heltec-v3/main/link.c). */
+ * ESP32 boards, ports/esp32/main/link.c). */
 
 #define TERN_COMPANION_VERSION 5
 #define TERN_COMPANION_MAX_FRAME 180

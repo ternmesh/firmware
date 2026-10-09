@@ -1,6 +1,6 @@
 # Tern firmware
 
-The reference implementation of Tern: a portable C protocol core that also builds on Linux (for infrastructure nodes on single-board computers, and for host tests), plus ports for each supported board.
+The reference implementation of Tern: a portable C protocol core that also builds on Linux (for infrastructure nodes on single-board computers, and for host tests), plus ports for the boards it runs on ([docs/boards.md](docs/boards.md)).
 
 Part of **Tern**, a LoRa mesh protocol that treats airtime as a shared,
 metered resource. The protocol is defined by the specification in
@@ -9,7 +9,8 @@ metered resource. The protocol is defined by the specification in
 **Status:** early. The core implements the four parts of the protocol the specification has
 drafted, radio settings, secured unicast frames, first contact and routes, and passes every one of
 their test vectors.
-One board runs them over the air: the [Heltec V3](ports/heltec-v3/), as a bench demo. Nodes find
+One port runs them over the air, [for ESP32 boards](ports/esp32/), as a bench demo: on the Heltec
+V3, and built for the Heltec V4. Nodes find
 routes to each other, and a message follows them: it is sent to the next hop, sent again if
 nothing is heard of it, and acknowledged by the node it is for.
 
@@ -34,6 +35,7 @@ nothing is heard of it, and acknowledged by the node it is for.
 
 * [docs/architecture.md](docs/architecture.md) — the core, the ports, and the seam between them
 * [docs/ui.md](docs/ui.md) — what a node shows the person carrying it, and what it will
+* [docs/boards.md](docs/boards.md) — adding a board, and which boards come next
 * [CONTRIBUTING.md](CONTRIBUTING.md) — DCO sign-off and the clean-room rule
 * [Governance](https://github.com/ternmesh/spec/blob/main/GOVERNANCE.md)
 
@@ -73,9 +75,17 @@ CI runs the same.
 
 ## Boards
 
-| Board | Directory | |
+Every board runs the same bench demo: first contact, then messages that follow routes and are
+acknowledged, with a screen that says, in plain words, what it hears, what came in and how much of
+the air it may use. CI builds an image of each that you can flash from a browser.
+
+| Board | Port | |
 |---|---|---|
-| Heltec WiFi LoRa 32 V3 (ESP32-S3, SX1262) | [`ports/heltec-v3/`](ports/heltec-v3/) | A bench demo: first contact, then messages that follow routes and are acknowledged, with a screen that says, in plain words, what it hears, what came in and how much of the air it may use. CI builds an image you can flash from a browser. |
+| Heltec WiFi LoRa 32 V3 (ESP32-S3, SX1262) | [`ports/esp32/`](ports/esp32/) | Runs. |
+| Heltec WiFi LoRa 32 V4 (ESP32-S3, SX1262, 28 dBm amplifier) | [`ports/esp32/`](ports/esp32/) | Built from Heltec's schematics; not yet run on a board. |
+
+An ESP32 board with an SX1262 is a row in a table; [docs/boards.md](docs/boards.md) says how to
+add one, and what the nRF52840 boards and the other radios need first.
 
 ## Licence
 

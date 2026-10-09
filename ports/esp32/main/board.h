@@ -1,21 +1,32 @@
-#ifndef HELTEC_V3_BOARD_H
-#define HELTEC_V3_BOARD_H
+#ifndef ESP32_BOARD_H
+#define ESP32_BOARD_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
+#include "boards.h"
+#include "tern/radio.h"
 #include "tern/sx126x.h"
 #include "tern/time.h"
 
-/* The Heltec WiFi LoRa 32 V3: an ESP32-S3 wired to an SX1262 with a 1.8 V TCXO on DIO3 and the
- * antenna switch on DIO2, as Heltec's schematic shows. */
+/* The board the build was made for (Kconfig, "Board"), an ESP32 wired to an SX1262: its pins and
+ * what it has fitted are its entry in boards.c. */
 
-/* Sets up the pins and the SPI bus, resets the radio and starts its driver. */
+/* Which board this is. */
+const struct board_def *board_def(void);
+
+/* Sets up the pins and the SPI bus, resets the radio and starts its driver, and powers the board's
+ * amplifier if it has one. */
 int board_init(struct tern_sx126x *radio);
+
+/* The radio for the core: the chip's own, or on a board with an amplifier one that drives it, and
+ * takes the core's powers to be the antenna's (boards.h). */
+struct tern_radio board_radio(struct tern_sx126x *radio);
 
 tern_time board_now(void);
 
-/* The PRG button, which reads true while it is held. */
+/* The board's button (PRG on the Heltecs), which reads true while it is held. */
 bool board_button(void);
 
 void board_led(bool on);
@@ -49,5 +60,11 @@ __attribute__((noreturn)) void board_off(uint32_t wake_after_s);
 /* Whether this start is the timer board_off() was given running out, rather than a press or
  * power coming on. */
 bool board_woke_by_timer(void);
+
+/* The serial console, over USB: UART0 or USB Serial/JTAG, as the build's console is. */
+bool board_console_init(void);
+bool board_console_read(uint8_t *c); /* one byte if one has come, without waiting */
+void board_console_write(const uint8_t *buf, size_t len);
+void board_console_flush(uint32_t ms); /* waits up to ms for what was written to leave */
 
 #endif

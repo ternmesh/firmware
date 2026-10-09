@@ -1,0 +1,6 @@
+# The Heltec WiFi LoRa 32 V4. It has no USB-to-serial chip: its USB port is the ESP32-S3's own, so
+# the console, and the companion link a computer drives over it, are USB Serial/JTAG.
+CONFIG_TERN_BOARD_HELTEC_V4=y
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+# Its amplifier puts the least it can send at +4 dBm (main/boards.c), above the bench's +2.
+CONFIG_TERN_TX_POWER_DBM=4

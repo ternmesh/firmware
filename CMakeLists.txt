@@ -199,21 +199,21 @@ if(BUILD_TESTING)
         DEPENDS tests/vectors/companion_to_c.py tests/vectors/companion.json
         VERBATIM)
 
-    # The Heltec V3 port's node logic touches no hardware, so it is tested here too.
-    add_executable(test_demo tests/demo.c ports/heltec-v3/main/demo.c)
-    target_include_directories(test_demo PRIVATE ports/heltec-v3/main)
+    # The ESP32 port's node logic touches no hardware, so it is tested here too.
+    add_executable(test_demo tests/demo.c ports/esp32/main/demo.c)
+    target_include_directories(test_demo PRIVATE ports/esp32/main)
     target_link_libraries(test_demo PRIVATE tern)
     target_compile_options(test_demo PRIVATE ${TERN_WARNINGS} -Wno-missing-prototypes)
     add_test(NAME demo COMMAND test_demo)
     # And with the router and the forwarder, as the port's main loop joins them: first contact
     # between boards that do not hear each other.
-    add_executable(test_relay tests/relay.c ports/heltec-v3/main/demo.c)
-    target_include_directories(test_relay PRIVATE ports/heltec-v3/main)
+    add_executable(test_relay tests/relay.c ports/esp32/main/demo.c)
+    target_include_directories(test_relay PRIVATE ports/esp32/main)
     target_link_libraries(test_relay PRIVATE tern)
     target_compile_options(test_relay PRIVATE ${TERN_WARNINGS} -Wno-missing-prototypes)
     add_test(NAME relay COMMAND test_relay)
-    add_executable(test_link tests/link.c ports/heltec-v3/main/link.c ${exchange_h})
-    target_include_directories(test_link PRIVATE ports/heltec-v3/main
+    add_executable(test_link tests/link.c ports/esp32/main/link.c ${exchange_h})
+    target_include_directories(test_link PRIVATE ports/esp32/main
         ${CMAKE_CURRENT_BINARY_DIR}/vectors)
     target_link_libraries(test_link PRIVATE tern)
     target_compile_options(test_link PRIVATE ${TERN_WARNINGS} -Wno-missing-prototypes)
@@ -224,30 +224,34 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}/tools/companion.py selftest
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/vectors/companion.json)
     if(UNIX)
-        add_executable(test_link_pty tests/link_pty.c ports/heltec-v3/main/link.c)
-        target_include_directories(test_link_pty PRIVATE ports/heltec-v3/main)
+        add_executable(test_link_pty tests/link_pty.c ports/esp32/main/link.c)
+        target_include_directories(test_link_pty PRIVATE ports/esp32/main)
         target_link_libraries(test_link_pty PRIVATE tern)
         target_compile_options(test_link_pty PRIVATE ${TERN_WARNINGS} -Wno-missing-prototypes)
         add_test(NAME link_script COMMAND Python3::Interpreter
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/link_script.py $<TARGET_FILE:test_link_pty>
             ${CMAKE_CURRENT_SOURCE_DIR}/tools/companion.py)
     endif()
-    add_executable(test_status tests/status.c ports/heltec-v3/main/status.c
-        ports/heltec-v3/main/display.c)
-    target_include_directories(test_status PRIVATE ports/heltec-v3/main)
+    add_executable(test_status tests/status.c ports/esp32/main/status.c
+        ports/esp32/main/display.c)
+    target_include_directories(test_status PRIVATE ports/esp32/main)
     target_compile_options(test_status PRIVATE ${TERN_WARNINGS} -Wno-missing-prototypes)
     add_test(NAME status COMMAND test_status)
-    add_executable(test_power tests/power.c ports/heltec-v3/main/power.c)
-    target_include_directories(test_power PRIVATE ports/heltec-v3/main)
+    add_executable(test_power tests/power.c ports/esp32/main/power.c)
+    target_include_directories(test_power PRIVATE ports/esp32/main)
     target_compile_options(test_power PRIVATE ${TERN_WARNINGS} -Wno-missing-prototypes)
     add_test(NAME power COMMAND test_power)
-    add_executable(test_qr tests/qr.c ports/heltec-v3/main/qr.c)
-    target_include_directories(test_qr PRIVATE ports/heltec-v3/main)
+    add_executable(test_boards tests/boards.c ports/esp32/main/boards.c)
+    target_include_directories(test_boards PRIVATE ports/esp32/main)
+    target_compile_options(test_boards PRIVATE ${TERN_WARNINGS} -Wno-missing-prototypes)
+    add_test(NAME boards COMMAND test_boards ${CMAKE_CURRENT_SOURCE_DIR}/ports/esp32)
+    add_executable(test_qr tests/qr.c ports/esp32/main/qr.c)
+    target_include_directories(test_qr PRIVATE ports/esp32/main)
     target_compile_options(test_qr PRIVATE ${TERN_WARNINGS} -Wno-missing-prototypes)
     add_test(NAME qr COMMAND test_qr)
-    add_executable(test_ui tests/ui.c ports/heltec-v3/main/ui.c ports/heltec-v3/main/display.c
-        ports/heltec-v3/main/qr.c)
-    target_include_directories(test_ui PRIVATE ports/heltec-v3/main)
+    add_executable(test_ui tests/ui.c ports/esp32/main/ui.c ports/esp32/main/display.c
+        ports/esp32/main/qr.c)
+    target_include_directories(test_ui PRIVATE ports/esp32/main)
     target_link_libraries(test_ui PRIVATE tern)
     target_compile_options(test_ui PRIVATE ${TERN_WARNINGS} -Wno-missing-prototypes)
     add_test(NAME ui COMMAND test_ui)

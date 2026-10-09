@@ -7,7 +7,7 @@
 #include "check.h"
 #include "tern/route.h"
 
-/* The Heltec V3 port's node (ports/heltec-v3/main/demo.c), which has no hardware in it: its
+/* The ESP32 port's node (ports/esp32/main/demo.c), which has no hardware in it: its
  * identity, first contact over frames that may be lost, and the session that follows. What
  * matters most is that no restart, loss or failure makes a board send two frames with the same
  * keys and counter, or leaves the two boards unable to meet again. */

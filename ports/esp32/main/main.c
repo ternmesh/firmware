@@ -1,4 +1,4 @@
-/* The Heltec V3 demo: boards make first contact and send each other secured unicast frames,
+/* The ESP32 port's demo: boards make first contact and send each other secured unicast frames,
  * which follow routes: each is handed to the forwarder (tern/forward.h), sent to the next hop its
  * route gives, sent again if nothing is heard of it, and acknowledged by the board it is for. A
  * board built as a relay passes other boards' frames on.
@@ -57,7 +57,6 @@
 #include "bootloader_random.h"
 #include "demo.h"
 #include "display.h"
-#include "driver/uart.h"
 #include "esp_app_desc.h"
 #include "esp_attr.h"
 #include "esp_ota_ops.h"
@@ -85,7 +84,6 @@
 #include "tern/sx126x.h"
 #include "ui.h"
 
-#define CONSOLE UART_NUM_0
 #define CONSOLE_LINE 300
 #define LED_MS 150
 #define UNREAD_BLINK_MS 100  /* while a message is unread, the LED blinks this long */
@@ -100,7 +98,7 @@
 #define DESTINATIONS 128
 #define FORWARD_SLOTS 8 /* frames in hand at once, this board's and those it passes on: 2.4 kB */
 #define PENDING 4       /* of them, this board's own messages not yet acknowledged */
-#define TX_MIN_DBM (-9) /* the SX1262's least */
+#define TX_MIN_DBM board_min_dbm(board_def()) /* the least this board puts into its antenna */
 #define POWER_UNSET INT8_MIN
 #define SCREEN_MS 500      /* how often the bench screen is drawn again */
 #define BOOT_MS 2500       /* how long the boot screen stays up once the board has started */
@@ -111,8 +109,9 @@
 #define CONFIRM_S 10       /* held once on Phones or Reset, how long it asks to be sure */
 #define EMPTY_CHECK_S 1800 /* turned off for an empty battery, how often it wakes to look again */
 #define SCREEN_TRIES 5     /* writes failed in a row before the screen is given up */
-#define FIRMWARE "tern " CONFIG_TERN_VERSION " heltec-v3"
-#define BOARD "heltec-v3" /* the name a client finds an image by: tern-heltec-v3-<region>-... */
+#define FIRMWARE "tern " CONFIG_TERN_VERSION " " CONFIG_TERN_BOARD_NAME
+/* The name a client finds an image by: tern-<board>-<region>-... */
+#define BOARD CONFIG_TERN_BOARD_NAME
 /* An update with nothing new for this long is no longer shown on the screen. */
 #define UPDATE_SHOWN_S 30
 _Static_assert(sizeof FIRMWARE - 1 <= TERN_COMPANION_FIRMWARE_MAX, "the version fits in INFO");
@@ -1538,7 +1537,7 @@ static bool bench_command(char *line) {
         }
     } else if (is_power) {
         struct tern_radio_config allowed;
-        if (dbm < TX_MIN_DBM || dbm > 22 ||
+        if (!board_gives(board_def(), (int)dbm) ||
             tern_region_radio(region, (int8_t)dbm, CONFIG_TERN_ANTENNA_DBI, &allowed) != TERN_OK) {
             printf("%ld dBm is not a power this radio gives and %s allows\n", dbm, region->name);
             return true;
@@ -1582,7 +1581,7 @@ static void link_out(void *ctx, unsigned conn, const uint8_t *frame, size_t len)
     size_t n = tern_companion_wrap(frame, len, wrapped);
     fflush(stdout);
     if (n != 0) {
-        uart_write_bytes(CONSOLE, wrapped, n);
+        board_console_write(wrapped, n);
     }
 }
 
@@ -1687,7 +1686,7 @@ static uint8_t link_set(void *ctx, const struct tern_companion_msg *m) {
         next.role = m->role;
         break;
     case TERN_C_SET_POWER:
-        if (m->power < TX_MIN_DBM || m->power > 22 ||
+        if (!board_gives(board_def(), m->power) ||
             tern_region_radio(region, m->power, CONFIG_TERN_ANTENNA_DBI, &check) != TERN_OK) {
             return TERN_C_ERR_REFUSED;
         }
@@ -2366,13 +2365,13 @@ static void console_text(void *ctx, uint8_t c) {
     }
 }
 
-/* A setting that takes a restart is applied once its answer has gone: out of the UART, and given
+/* A setting that takes a restart is applied once its answer has gone: out of the console, and given
  * a moment to leave as a notification. */
 static void restart_if_due(void) {
     if (restart_due) {
         printf("restarting to apply a setting\n");
         fflush(stdout);
-        uart_wait_tx_done(CONSOLE, pdMS_TO_TICKS(500));
+        board_console_flush(500);
         vTaskDelay(pdMS_TO_TICKS(200));
         esp_restart();
     }
@@ -2449,7 +2448,7 @@ static void poll_ble(void) {
 static void poll_console(void) {
     static const struct tern_companion_sink sink = {NULL, console_frame, console_text};
     uint8_t c;
-    while (uart_read_bytes(CONSOLE, &c, 1, 0) == 1) {
+    while (board_console_read(&c)) {
         tern_companion_push(&parser, board_now(), c, &sink);
         fflush(stdout);
     }
@@ -3180,7 +3179,7 @@ void app_main(void) {
         halt(UI_FAULT_STORAGE, 0);
     }
     ESP_ERROR_CHECK(e);
-    ESP_ERROR_CHECK(uart_driver_install(CONSOLE, 512, 0, 0, NULL, 0));
+    ESP_ERROR_CHECK(board_console_init() ? ESP_OK : ESP_FAIL);
 
     /* With Wi-Fi and Bluetooth off, the chip's generator has no entropy of its own until this
      * turns on its noise source. It stays on until Bluetooth starts (start_bluetooth()), so the
@@ -3210,11 +3209,17 @@ void app_main(void) {
     if (chosen == NULL) {
         chosen = region;
     }
-    if (tern_region_radio(chosen, chosen_power, CONFIG_TERN_ANTENNA_DBI, &cfg) == TERN_OK) {
+    if (board_gives(board_def(), chosen_power) &&
+        tern_region_radio(chosen, chosen_power, CONFIG_TERN_ANTENNA_DBI, &cfg) == TERN_OK) {
         region = chosen;
         power = chosen_power;
     } else {
         printf("the settings a client saved do not fit this antenna; using the build's\n");
+    }
+    if (!board_gives(board_def(), power)) {
+        printf("%d dBm is not a power the %s gives (%d to %d dBm). Not starting.\n", power,
+               board_def()->title, board_min_dbm(board_def()), board_max_dbm(board_def()));
+        halt(UI_FAULT_POWER, 0);
     }
     if (tern_region_radio(region, power, CONFIG_TERN_ANTENNA_DBI, &cfg) != TERN_OK) {
         printf("%d dBm into a %d dBi antenna is more than %s allows (%d dBm radiated). Not "
@@ -3285,7 +3290,7 @@ void app_main(void) {
                     seed ^ 0x666c6f6fu, board_now());
 
     int err = board_init(&sx);
-    radio = tern_sx126x_radio(&sx);
+    radio = board_radio(&sx);
     if (err == TERN_OK) {
         err = tern_radio_configure(&radio, &cfg);
     }
@@ -3345,11 +3350,13 @@ void app_main(void) {
         printf("the battery's ADC did not start: the battery is reported as unknown\n");
     }
     if (have_screen) {
-        printf("\nTern demo on the Heltec V3. Type 'status'. PRG shows the screen's next page; "
-               "'screen bench on' adds the bench pages.\n");
+        printf("\nTern demo on the %s. Type 'status'. PRG shows the screen's next page; "
+               "'screen bench on' adds the bench pages.\n",
+               board_def()->title);
     } else {
-        printf("\nTern demo on the Heltec V3, with no screen found. Type 'status', or press PRG "
-               "to ping.\n");
+        printf("\nTern demo on the %s, with no screen found. Type 'status', or press PRG "
+               "to ping.\n",
+               board_def()->title);
     }
     pairing_passkey = PAIRING_NONE;
     start_bluetooth();

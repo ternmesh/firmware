@@ -7,14 +7,34 @@ menu "Tern demo"
             What the board says it runs: on the console at start, and to a client over the
             companion link. A release sets it from its tag (release.sh).
 
+    choice TERN_BOARD
+        prompt "Board"
+        default TERN_BOARD_HELTEC_V3
+        help
+            The board the image is for: its pins and what it has fitted (main/boards.c). An
+            image for one board does not run on another. boards/<name>.defaults sets this with
+            the rest of what the board needs, such as its console: build with
+            ./build.sh <name>.
+
+        config TERN_BOARD_HELTEC_V3
+            bool "Heltec WiFi LoRa 32 V3"
+        config TERN_BOARD_HELTEC_V4
+            bool "Heltec WiFi LoRa 32 V4 (V4.2 and V4.3)"
+    endchoice
+
+    config TERN_BOARD_NAME
+        string
+        default "heltec-v3" if TERN_BOARD_HELTEC_V3
+        default "heltec-v4" if TERN_BOARD_HELTEC_V4
+
     choice TERN_REGION
         prompt "Region"
         default TERN_REGION_US915
         help
             Where the board is used. It sets the frequency, bandwidth and spreading factor, and
             what the region's rules allow: see the profiles in the specification's draft/phy.md.
-            A board is also built for one band, 863-928 MHz or 433/470-510 MHz for the Heltec
-            V3; both of these regions need the first.
+            A board is also built for one band, 863-928 MHz or 433/470-510 MHz for the Heltecs;
+            both of these regions need the first.
 
         config TERN_REGION_US915
             bool "US915: 921.25 MHz, 500 kHz, SF9 (United States, Canada)"
@@ -23,12 +43,14 @@ menu "Tern demo"
     endchoice
 
     config TERN_TX_POWER_DBM
-        int "Transmit power, in dBm (-9 to 22)"
-        range -9 22
+        int "Transmit power into the antenna, in dBm"
+        range -9 30
         default 2
         help
-            What the radio puts into the antenna. The default is for a bench. The build refuses
-            a power that, with the antenna's gain, is more than the region allows.
+            What the board puts into the antenna. The default is for a bench. A board refuses
+            to start with a power it does not give (-9 to 22 dBm on the V3, +4 to 28 on the
+            V4, whose amplifier adds to the radio's) or one that, with the antenna's gain, is
+            more than the region allows.
 
     config TERN_ANTENNA_DBI
         int "Antenna gain, in dBi"

@@ -4,7 +4,7 @@
 
 #include "check.h"
 
-/* The Heltec V3 port's QR code (ports/heltec-v3/main/qr.c), against symbols made by another
+/* The ESP32 port's QR code (ports/esp32/main/qr.c), against symbols made by another
  * encoder: segno 1.6.6, a Python implementation of ISO/IEC 18004, asked for version 3, level L,
  * alphanumeric mode and each mask in turn. Every symbol below was also read back by ZXing and by
  * OpenCV's detector. They are a check from outside, not something this code was written from. */
