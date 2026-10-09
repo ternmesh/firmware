@@ -318,6 +318,8 @@ uint32_t plat_random32(void) {
     return r;
 }
 
+void plat_entropy_start(void) {}
+
 void plat_bluetooth_starting(bool starting) { (void)starting; }
 
 /* --- Updates: not over the link yet ----------------------------------------------------------- */
