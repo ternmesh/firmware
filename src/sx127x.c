@@ -2,7 +2,8 @@
 
 #include "tern/err.h"
 
-/* Registers of the LoRa modem, from the datasheet's register table (section 6.4). */
+/* Registers of the LoRa modem, from the datasheet's register table (page 108 on), and the two the
+ * errata note adds. */
 enum {
     REG_FIFO = 0x00,
     REG_OP_MODE = 0x01,
@@ -10,7 +11,6 @@ enum {
     REG_FRF_MID = 0x07,
     REG_FRF_LSB = 0x08,
     REG_PA_CONFIG = 0x09,
-    REG_OCP = 0x0B,
     REG_LNA = 0x0C,
     REG_FIFO_ADDR_PTR = 0x0D,
     REG_FIFO_TX_BASE = 0x0E,
@@ -29,9 +29,14 @@ enum {
     REG_PAYLOAD_LENGTH = 0x22,
     REG_MAX_PAYLOAD_LENGTH = 0x23,
     REG_MODEM_CONFIG_3 = 0x26,
+    REG_IF_FREQ_2 = 0x2F, /* errata 2.3 */
+    REG_IF_FREQ_1 = 0x30,
     REG_DETECT_OPTIMIZE = 0x31,
+    REG_HIGH_BW_OPTIMIZE_1 = 0x36, /* errata 2.1 */
     REG_DETECTION_THRESHOLD = 0x37,
     REG_SYNC_WORD = 0x39,
+    REG_HIGH_BW_OPTIMIZE_2 = 0x3A, /* errata 2.1 */
+    REG_IMAGE_CAL = 0x3B,          /* in the FSK modem; RegInvertIQ2 in LoRa's */
     REG_VERSION = 0x42,
     REG_TCXO = 0x4B,
     REG_PA_DAC = 0x4D,
@@ -39,6 +44,7 @@ enum {
 
 enum {
     MODE_LORA = 0x80, /* LongRangeMode, changed only in sleep */
+    MODE_LF = 0x08,   /* LowFrequencyModeOn: the LF bank of band registers, 1 at reset */
     MODE_SLEEP = 0x00,
     MODE_STANDBY = 0x01,
     MODE_TX = 0x03,
@@ -64,11 +70,19 @@ enum {
     (STAT_HEADER_INFO_VALID | STAT_RX_ONGOING | STAT_SIGNAL_SYNCHRONIZED | STAT_SIGNAL_DETECTED)
 
 #define VERSION 0x12 /* RegVersion on every chip of the family */
-#define WRITE 0x80   /* the address byte's wnr bit (section 4.3) */
+#define WRITE 0x80   /* the address byte's wnr bit (page 80) */
+#define IMAGE_CAL_START 0x40
+#define IMAGE_CAL_RUNNING 0x20
+#define AUTO_IMAGE_CAL 0x80
+#define IMAGE_CAL_TIMEOUT_NS 100000000 /* it takes about 10 ms */
 #define MIN_FREQ_HZ 137000000u
 #define SX1276_MAX_FREQ_HZ 1020000000u
 #define SX1278_MAX_FREQ_HZ 525000000u
-#define LF_MAX_HZ 525000000u /* below this the RFI_LF port: band 2 and 3 */
+/* The bands (page 81): to 525 MHz the LF port, bands 2 (from 410 MHz) and 3; from 779 MHz the HF
+ * port, band 1 from 862 MHz. */
+#define LF_MAX_HZ 525000000u
+#define BAND1_MIN_HZ 862000000u
+#define BAND2_MIN_HZ 410000000u
 
 static int write_register(struct tern_sx127x *d, uint8_t addr, uint8_t value) {
     const uint8_t tx[2] = {(uint8_t)(WRITE | addr), value};
@@ -99,11 +113,17 @@ static void drop(struct tern_sx127x *d) {
     d->signal = false;
 }
 
-static int set_mode(struct tern_sx127x *d, uint8_t mode) {
-    return write_register(d, REG_OP_MODE, (uint8_t)(MODE_LORA | mode));
+/* The LF bank of band registers below 525 MHz, the HF bank above. The datasheet says only that the
+ * bit chooses the bank (page 106), and resets it to the LF one. */
+static uint8_t band_bit(const struct tern_sx127x *d) {
+    return d->cfg.freq_hz > LF_MAX_HZ ? 0 : MODE_LF;
 }
 
-/* Writing a flag's bit clears it (section 4.1.2.4). */
+static int set_mode(struct tern_sx127x *d, uint8_t mode) {
+    return write_register(d, REG_OP_MODE, (uint8_t)(MODE_LORA | band_bit(d) | mode));
+}
+
+/* Writing a flag's bit clears it (page 111). */
 static int clear_irq(struct tern_sx127x *d, uint8_t mask) {
     return write_register(d, REG_IRQ_FLAGS, mask);
 }
@@ -114,6 +134,7 @@ int tern_sx127x_init(struct tern_sx127x *d, const struct tern_sx127x_bus *bus,
     d->board = *board;
     d->configured = false;
     d->counts = (struct tern_sx127x_counts){0};
+    d->cfg = (struct tern_radio_config){0}; /* the LF bank, as at reset, until a frequency is set */
     tern_listen_init(&d->listen);
     d->signal = false;
 
@@ -126,8 +147,8 @@ int tern_sx127x_init(struct tern_sx127x *d, const struct tern_sx127x_bus *bus,
         return TERN_EIO;
     }
     /* The chip starts in the FSK modem's standby. LongRangeMode is changed only in sleep, so to
-     * sleep first, then to the LoRa modem's (section 4.1.3). */
-    err = write_register(d, REG_OP_MODE, MODE_SLEEP);
+     * sleep first, then to the LoRa modem's (page 108). */
+    err = write_register(d, REG_OP_MODE, MODE_LF | MODE_SLEEP);
     if (err == TERN_OK) {
         err = set_mode(d, MODE_SLEEP);
     }
@@ -140,34 +161,27 @@ int tern_sx127x_init(struct tern_sx127x *d, const struct tern_sx127x_bus *bus,
     return err;
 }
 
-/* RegPaConfig, RegPaDac and RegOcp for a power, or TERN_EINVAL if the board does not give it
- * (section 5.4). On PA_BOOST, Pout = 2 + OutputPower up to +17 dBm; above, with PaDac at 0x87,
- * Pout = 5 + OutputPower to +20 dBm, which draws more than the default current limit of 100 mA
- * allows, so the limit is raised to 140 mA. On RFO with MaxPower at 7, Pout = OutputPower. */
-struct pa {
-    uint8_t config, dac, ocp;
-};
-
-static int pa_for(const struct tern_sx127x_board *b, int dbm, struct pa *pa) {
+/* RegPaConfig for a power, or TERN_EINVAL if the board does not give it (pages 83 and 109). On
+ * PA_BOOST, Pout = 17 - (15 - OutputPower): +2 to +17 dBm, which it may send for as long as it
+ * likes. PaDac's +20 dBm is not offered: the datasheet holds it to a 1% duty cycle and an antenna
+ * no worse than 3:1, and gives it at one setting only. On RFO with MaxPower at 7, Pmax is 15 dBm
+ * and Pout = OutputPower, to the +14 dBm the register table limits RFO to. */
+static int pa_config(const struct tern_sx127x_board *b, int dbm, uint8_t *config) {
     if (b->pa_boost) {
-        if (dbm < 2 || dbm > 20) {
+        if (dbm < 2 || dbm > 17) {
             return TERN_EINVAL;
         }
-        if (dbm <= 17) {
-            *pa = (struct pa){.config = (uint8_t)(0xF0 | (dbm - 2)), .dac = 0x84, .ocp = 0x2B};
-        } else {
-            *pa = (struct pa){.config = (uint8_t)(0xF0 | (dbm - 5)), .dac = 0x87, .ocp = 0x31};
-        }
+        *config = (uint8_t)(0xF0 | (dbm - 2));
         return TERN_OK;
     }
-    if (dbm < 0 || dbm > 15) {
+    if (dbm < 0 || dbm > 14) {
         return TERN_EINVAL;
     }
-    *pa = (struct pa){.config = (uint8_t)(0x70 | dbm), .dac = 0x84, .ocp = 0x2B};
+    *config = (uint8_t)(0x70 | dbm);
     return TERN_OK;
 }
 
-/* The bandwidth codes of RegModemConfig1 (section 6.4). */
+/* The bandwidth codes of RegModemConfig1 (page 113). */
 static int bw_code(uint32_t bw_hz, uint8_t *code) {
     switch (bw_hz) {
     case 62500:
@@ -187,33 +201,72 @@ static int bw_code(uint32_t bw_hz, uint8_t *code) {
     }
 }
 
+/* Sets the frequency, Frf = freq * 2^19 / 32 MHz (page 81), and calibrates the receiver's image
+ * rejection at it, leaving the chip asleep in the LoRa modem. The chip calibrates itself only at
+ * power on, and only at 434 MHz; the datasheet asks for it again at the frequency used, which
+ * takes the FSK modem's standby, and for the calibration on a change of temperature to be turned
+ * off (pages 52 and 53). */
+static int calibrate_image(struct tern_sx127x *d) {
+    uint32_t frf = (uint32_t)(((uint64_t)d->cfg.freq_hz << 19) / 32000000u);
+    uint8_t fsk = band_bit(d);
+    int err = set_mode(d, MODE_SLEEP);
+    if (err == TERN_OK) {
+        err = write_register(d, REG_OP_MODE, (uint8_t)(fsk | MODE_SLEEP));
+    }
+    if (err == TERN_OK) {
+        err = write_register(d, REG_FRF_MSB, (uint8_t)(frf >> 16));
+    }
+    if (err == TERN_OK) {
+        err = write_register(d, REG_FRF_MID, (uint8_t)(frf >> 8));
+    }
+    if (err == TERN_OK) {
+        err = write_register(d, REG_FRF_LSB, (uint8_t)frf); /* the one that takes it */
+    }
+    if (err == TERN_OK) {
+        err = write_register(d, REG_OP_MODE, (uint8_t)(fsk | MODE_STANDBY));
+    }
+    if (err == TERN_OK) {
+        err = update_register(d, REG_IMAGE_CAL, AUTO_IMAGE_CAL | IMAGE_CAL_START, IMAGE_CAL_START);
+    }
+    tern_time start = d->bus.now(d->bus.ctx);
+    uint8_t cal = IMAGE_CAL_RUNNING;
+    while (err == TERN_OK && (cal & IMAGE_CAL_RUNNING)) {
+        err = read_register(d, REG_IMAGE_CAL, &cal);
+        if (err == TERN_OK && (cal & IMAGE_CAL_RUNNING) &&
+            d->bus.now(d->bus.ctx) - start > IMAGE_CAL_TIMEOUT_NS) {
+            err = TERN_EIO;
+        }
+    }
+    if (err == TERN_OK) {
+        err = write_register(d, REG_OP_MODE, (uint8_t)(fsk | MODE_SLEEP));
+    }
+    if (err == TERN_OK) {
+        err = set_mode(d, MODE_SLEEP);
+    }
+    return err;
+}
+
 static int sx_configure(void *ctx, const struct tern_radio_config *cfg) {
     struct tern_sx127x *d = ctx;
     const struct tern_lora *m = &cfg->mod;
     uint32_t max_hz = d->board.chip == TERN_SX1278 ? SX1278_MAX_FREQ_HZ : SX1276_MAX_FREQ_HZ;
-    uint8_t bw;
-    struct pa pa;
+    uint8_t bw, pa;
     /* Implicit headers need the frame's length in advance, which the seam does not give, as for
      * the SX1262. */
-    if (bw_code(m->bw_hz, &bw) != TERN_OK || pa_for(&d->board, cfg->tx_power_dbm, &pa) != TERN_OK ||
-        cfg->freq_hz < MIN_FREQ_HZ || cfg->freq_hz > max_hz || m->implicit_header) {
+    if (bw_code(m->bw_hz, &bw) != TERN_OK ||
+        pa_config(&d->board, cfg->tx_power_dbm, &pa) != TERN_OK || cfg->freq_hz < MIN_FREQ_HZ ||
+        cfg->freq_hz > max_hz || m->implicit_header) {
         return TERN_EINVAL;
     }
     d->cfg = *cfg;
     d->configured = false;
     drop(d); /* it is left in standby */
 
-    /* Frf = freq * 2^19 / 32 MHz (section 4.1.4). */
-    uint32_t frf = (uint32_t)(((uint64_t)cfg->freq_hz << 19) / 32000000u);
-
-    int err = set_mode(d, MODE_SLEEP);
+    bool wide = m->bw_hz == 500000;
+    int err = calibrate_image(d);
     const uint8_t regs[][2] = {
-        {REG_FRF_MSB, (uint8_t)(frf >> 16)},
-        {REG_FRF_MID, (uint8_t)(frf >> 8)},
-        {REG_FRF_LSB, (uint8_t)frf},
-        {REG_PA_CONFIG, pa.config},
-        {REG_PA_DAC, pa.dac},
-        {REG_OCP, pa.ocp},
+        {REG_PA_CONFIG, pa},
+        {REG_PA_DAC, 0x84}, /* PaDac's high power off, as it must be but for +20 dBm */
         /* The LNA at its highest gain, its current boosted on the HF port; the AGC sets the gain
          * from there (RegModemConfig3). */
         {REG_LNA, cfg->freq_hz > LF_MAX_HZ ? 0x23 : 0x20},
@@ -224,15 +277,34 @@ static int sx_configure(void *ctx, const struct tern_radio_config *cfg) {
         {REG_PREAMBLE_LSB, (uint8_t)m->preamble},
         {REG_MAX_PAYLOAD_LENGTH, 0xFF},
         {REG_SYNC_WORD, cfg->sync_word},
-        {REG_DETECTION_THRESHOLD, 0x0A}, /* SF7 to SF12 */
+        {REG_DETECTION_THRESHOLD, 0x0A}, /* SF7 to SF12 (page 115) */
         {REG_FIFO_TX_BASE, 0x00},        /* the whole FIFO, either way: never both at once */
         {REG_FIFO_RX_BASE, 0x00},
     };
     for (size_t i = 0; err == TERN_OK && i < sizeof regs / sizeof regs[0]; i++) {
         err = write_register(d, regs[i][0], regs[i][1]);
     }
+    /* RegDetectOptimize's detection for SF7 to SF12 (page 115), and its AutomaticIFOn as errata
+     * 2.3 has it: off below 500 kHz, with the IF it then needs, which turning the bit on again
+     * erases. At these bandwidths the errata moves no frequency. */
     if (err == TERN_OK) {
-        err = update_register(d, REG_DETECT_OPTIMIZE, 0x07, 0x03); /* SF7 to SF12 */
+        err = update_register(d, REG_DETECT_OPTIMIZE, 0x87, wide ? 0x83 : 0x03);
+    }
+    if (err == TERN_OK && !wide) {
+        err = write_register(d, REG_IF_FREQ_2, 0x40);
+    }
+    if (err == TERN_OK && !wide) {
+        err = write_register(d, REG_IF_FREQ_1, 0x00);
+    }
+    /* Errata 2.1: at 500 kHz in bands 1 and 2, the sensitivity it should have. */
+    if (err == TERN_OK) {
+        bool band1 = cfg->freq_hz >= BAND1_MIN_HZ,
+             band2 = cfg->freq_hz >= BAND2_MIN_HZ && cfg->freq_hz <= LF_MAX_HZ;
+        bool tuned = wide && (band1 || band2);
+        err = write_register(d, REG_HIGH_BW_OPTIMIZE_1, tuned ? 0x02 : 0x03);
+        if (err == TERN_OK && tuned) {
+            err = write_register(d, REG_HIGH_BW_OPTIMIZE_2, band1 ? 0x64 : 0x7F);
+        }
     }
     if (err == TERN_OK) {
         err = set_mode(d, MODE_STANDBY);
@@ -252,8 +324,8 @@ static int sx_transmit(void *ctx, const uint8_t *frame, uint8_t len) {
         buf[1 + i] = frame[i];
     }
 
-    /* The FIFO is written only in standby, from the pointer, which each byte moves on (section
-     * 4.1.2.3). */
+    /* The FIFO is written only in standby, from the pointer, which each byte moves on (pages 34
+     * and 80). */
     drop(d);
     int err = set_mode(d, MODE_STANDBY);
     if (err == TERN_OK) {
@@ -357,9 +429,9 @@ static int sx_receiving(void *ctx) {
     return tern_listen_receiving(&d->listen, &d->cfg.mod, d->bus.now(d->bus.ctx)) ? 1 : 0;
 }
 
-/* A packet's RSSI from RegPktRssiValue and RegPktSnrValue (section 5.5.5): -157 dBm plus the raw
- * value on the HF port, -164 on the LF port; above the noise, scaled by 16/15, and below it, with
- * the SNR added, since the signal is then under what the RSSI measures. */
+/* A packet's RSSI from RegPktRssiValue and RegPktSnrValue (page 112): -157 dBm plus the raw value
+ * on the HF port, -164 on the LF port; above the noise, scaled by 16/15 for the register's slope,
+ * and below it, with the SNR added, since the signal is then under what the RSSI measures. */
 static int16_t packet_rssi(const struct tern_sx127x *d, uint8_t raw, int8_t snr_raw) {
     int base = d->cfg.freq_hz > LF_MAX_HZ ? -157 : -164;
     if (snr_raw < 0) {
@@ -392,8 +464,9 @@ static int sx_poll(void *ctx, struct tern_radio_event *ev) {
             return err == TERN_OK ? 1 : err;
         }
 
-        /* How long the frame is and where it starts, then the frame from there (section
-         * 4.1.2.3), then its signal: SNR is the signed raw / 4 dB. */
+        /* How long the frame is and where it starts, then the frame from there: in continuous
+         * reception frames follow one another in the FIFO (page 39). Then its signal: SNR is the
+         * signed raw / 4 dB. */
         uint8_t len, start, snr, rssi;
         err = read_register(d, REG_RX_NB_BYTES, &len);
         if (err == TERN_OK) {

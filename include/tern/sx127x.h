@@ -10,12 +10,14 @@
 #include "tern/time.h"
 
 /* A driver for Semtech's SX1276 and SX1278, written from their datasheet (SX1276/77/78/79, revision
- * 7) and its errata note, section numbers in src/sx127x.c being the datasheet's. It drives the
+ * 7, May 2020) and errata note (revision 1), page numbers in src/sx127x.c being the datasheet's:
+ * its section numbers do not match its contents page. It drives the
  * LoRa modem only and implements struct tern_radio_ops, so the core drives these chips as it does
  * the SX1262: the frames on the air are the same. The SX1277 and SX1279 are not supported yet.
  *
  * It needs only the SPI bus from the board, and is otherwise portable. The board resets the chip
- * (NRESET) before tern_sx127x_init(). No DIO is needed: tern_radio_poll() reads the chip's flags.
+ * before tern_sx127x_init(): NRESET low for more than 100 us, then let go, then 5 ms (page 117). No
+ * DIO is needed: tern_radio_poll() reads the chip's flags.
  */
 
 struct tern_sx127x_bus {
@@ -35,8 +37,8 @@ enum tern_sx127x_chip {
 /* How the chip is wired on this board. */
 struct tern_sx127x_board {
     enum tern_sx127x_chip chip;
-    /* The antenna is on PA_BOOST, as on most modules: +2 to +20 dBm. Otherwise on RFO: 0 to
-     * +15 dBm. */
+    /* The antenna is on PA_BOOST, as on most modules: +2 to +17 dBm. Otherwise on RFO: 0 to
+     * +14 dBm. */
     bool pa_boost;
     bool tcxo; /* the chip's clock is a TCXO on XTA, not a crystal */
 };
@@ -66,7 +68,8 @@ struct tern_sx127x {
 };
 
 /* Checks the chip is one of these (TERN_EIO if it does not answer as one), and puts it to sleep in
- * LoRa mode, set up as the board is wired. */
+ * LoRa mode, set up as the board is wired. Each configuration calibrates the receiver at its
+ * frequency, which takes about 10 ms. */
 int tern_sx127x_init(struct tern_sx127x *d, const struct tern_sx127x_bus *bus,
                      const struct tern_sx127x_board *board);
 

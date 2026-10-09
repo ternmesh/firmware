@@ -14,10 +14,12 @@
 struct bus {
     uint8_t regs[0x80];
     uint8_t fifo[256];
-    uint8_t writes[128][2]; /* each single-register write, address and value, in order */
+    uint8_t writes[512][2]; /* each single-register write, address and value, in order */
     size_t count;
     size_t transfers;
     tern_time now;
+    tern_time tick; /* how far the clock moves at each transfer */
+    bool cal_stuck; /* the image calibration never finishes */
 };
 
 static int bus_transfer(void *ctx, const uint8_t *tx, uint8_t *rx, size_t len) {
@@ -25,6 +27,7 @@ static int bus_transfer(void *ctx, const uint8_t *tx, uint8_t *rx, size_t len) {
     uint8_t addr = tx[0] & 0x7F;
     bool write = (tx[0] & 0x80) != 0;
     b->transfers++;
+    b->now += b->tick;
     if (rx != NULL) {
         memset(rx, 0, len);
     }
@@ -39,11 +42,15 @@ static int bus_transfer(void *ctx, const uint8_t *tx, uint8_t *rx, size_t len) {
             continue;
         }
         if (write) {
-            CHECK(len == 2 && b->count < 128);
+            CHECK(len == 2 && b->count < 512);
             b->writes[b->count][0] = addr;
             b->writes[b->count++][1] = tx[i];
             if (addr == 0x12) {
                 b->regs[addr] &= (uint8_t)~tx[i];
+            } else if (addr == 0x3B && (b->regs[0x01] & 0x80) == 0) {
+                /* RegImageCal in the FSK modem: ImageCalStart runs it, done at once unless stuck,
+                 * and reads back as 0. */
+                b->regs[addr] = (uint8_t)((tx[i] & ~0x60) | (b->cal_stuck ? 0x20 : 0x00));
             } else {
                 b->regs[addr] = tx[i];
             }
@@ -78,6 +85,8 @@ static void start_on(struct tern_sx127x *d, struct bus *b, const struct tern_sx1
     b->regs[0x42] = 0x12; /* RegVersion */
     b->regs[0x31] = 0xC3; /* RegDetectOptimize at reset */
     b->regs[0x4B] = 0x09; /* RegTcxo at reset */
+    b->regs[0x3B] = 0x82; /* RegImageCal at reset */
+    b->regs[0x01] = 0x09; /* RegOpMode: the FSK modem's standby, the LF bank */
     struct tern_sx127x_bus sb = {b, bus_transfer, bus_now};
     CHECK(tern_sx127x_init(d, &sb, board) == TERN_OK);
 }
@@ -99,8 +108,8 @@ static void init_checks_the_chip_and_sleeps_in_lora(void) {
     static struct bus b;
     static struct tern_sx127x d;
     start(&d, &b);
-    CHECK(wrote(&b, 0, 0x01, 0x00)); /* to the FSK modem's sleep, */
-    CHECK(wrote(&b, 1, 0x01, 0x80)); /* then LongRangeMode, still asleep */
+    CHECK(wrote(&b, 0, 0x01, 0x08)); /* to the FSK modem's sleep, the LF bank as at reset, */
+    CHECK(wrote(&b, 1, 0x01, 0x88)); /* then LongRangeMode, still asleep */
     CHECK(last(&b, 0x11) == 0x00);   /* no flag masked */
     CHECK(last(&b, 0x4B) == -1);     /* a crystal: RegTcxo left alone */
     CHECK(!d.configured);
@@ -127,12 +136,17 @@ static void configure_sets_the_datasheet_registers(void) {
     b.count = 0;
     CHECK(tern_radio_configure(&r, &cfg) == TERN_OK);
 
-    CHECK(wrote(&b, 0, 0x01, 0x80)); /* asleep while it is set up */
-    /* 915 MHz * 2^19 / 32 MHz = 14991360 = 0xE4C000. */
-    CHECK(b.regs[0x06] == 0xE4 && b.regs[0x07] == 0xC0 && b.regs[0x08] == 0x00);
-    /* +17 dBm on PA_BOOST: 2 + OutputPower 15, MaxPower 7; PaDac and the current limit as they
-     * are at reset. */
-    CHECK(b.regs[0x09] == 0xFF && b.regs[0x4D] == 0x84 && b.regs[0x0B] == 0x2B);
+    /* Asleep, in the HF bank above 525 MHz; to the FSK modem's sleep and standby for the image
+     * calibration, at the frequency: 915 MHz * 2^19 / 32 MHz = 14991360 = 0xE4C000. */
+    CHECK(wrote(&b, 0, 0x01, 0x80));
+    CHECK(wrote(&b, 1, 0x01, 0x00));
+    CHECK(wrote(&b, 2, 0x06, 0xE4) && wrote(&b, 3, 0x07, 0xC0) && wrote(&b, 4, 0x08, 0x00));
+    CHECK(wrote(&b, 5, 0x01, 0x01));
+    CHECK(wrote(&b, 6, 0x3B, 0x42)); /* ImageCalStart, the calibration on temperature off */
+    CHECK(wrote(&b, 7, 0x01, 0x00));
+    CHECK(wrote(&b, 8, 0x01, 0x80)); /* and back to the LoRa modem's sleep */
+    /* +17 dBm on PA_BOOST: 17 - (15 - OutputPower 15), MaxPower 7, PaDac's high power off. */
+    CHECK(b.regs[0x09] == 0xFF && b.regs[0x4D] == 0x84);
     CHECK(b.regs[0x0C] == 0x23);                       /* LNA: G1, boosted on the HF port */
     CHECK(b.regs[0x1D] == 0x82);                       /* 250 kHz, 4/5, explicit header */
     CHECK(b.regs[0x1E] == 0x74);                       /* SF7, CRC on */
@@ -140,19 +154,29 @@ static void configure_sets_the_datasheet_registers(void) {
     CHECK(b.regs[0x20] == 0x00 && b.regs[0x21] == 16); /* preamble */
     CHECK(b.regs[0x23] == 0xFF);
     CHECK(b.regs[0x39] == 0x24); /* the one-byte sync word, as it is */
-    CHECK(b.regs[0x37] == 0x0A && b.regs[0x31] == 0xC3);
+    CHECK(b.regs[0x37] == 0x0A);
+    /* Errata 2.3 below 500 kHz: AutomaticIFOn off, the rest of RegDetectOptimize as it was with
+     * SF7-12's detection, and the IF it needs. Errata 2.1 not in play: 0x36 at its default. */
+    CHECK(b.regs[0x31] == 0x43 && b.regs[0x2F] == 0x40 && b.regs[0x30] == 0x00);
+    CHECK(b.regs[0x36] == 0x03);
     CHECK(b.regs[0x0E] == 0x00 && b.regs[0x0F] == 0x00);
     CHECK(wrote(&b, b.count - 1, 0x01, 0x81)); /* and left in standby */
     CHECK(d.configured);
 
-    /* +20 dBm: PaDac on, 5 + OutputPower 15, and the current limit raised to 140 mA. +2 dBm, the
-     * least. */
-    cfg.tx_power_dbm = 20;
-    CHECK(tern_radio_configure(&r, &cfg) == TERN_OK);
-    CHECK(b.regs[0x09] == 0xFF && b.regs[0x4D] == 0x87 && b.regs[0x0B] == 0x31);
+    /* +2 dBm, the least on PA_BOOST. */
     cfg.tx_power_dbm = 2;
     CHECK(tern_radio_configure(&r, &cfg) == TERN_OK);
-    CHECK(b.regs[0x09] == 0xF0 && b.regs[0x4D] == 0x84 && b.regs[0x0B] == 0x2B);
+    CHECK(b.regs[0x09] == 0xF0);
+
+    /* 500 kHz in band 1: AutomaticIFOn back on, and errata 2.1's sensitivity. */
+    cfg.mod = tern_lora_default(7, 500000);
+    CHECK(tern_radio_configure(&r, &cfg) == TERN_OK);
+    CHECK(b.regs[0x31] == 0xC3 && b.regs[0x36] == 0x02 && b.regs[0x3A] == 0x64);
+    /* Between bands 2 and 1, errata 2.1 says nothing: 0x36 at its default. */
+    cfg.freq_hz = 800000000;
+    CHECK(tern_radio_configure(&r, &cfg) == TERN_OK);
+    CHECK(b.regs[0x36] == 0x03);
+    cfg.freq_hz = 915000000;
 
     /* SF12 at 125 kHz: 32.768 ms symbols, so LDRO on. */
     cfg.mod = tern_lora_default(12, 125000);
@@ -172,13 +196,19 @@ static void an_sx1278_on_rfo_at_433_mhz(void) {
     CHECK(tern_radio_configure(&r, &cfg) == TERN_OK);
     /* 433 MHz * 2^19 / 32 MHz = 7094272 = 0x6C4000. */
     CHECK(b.regs[0x06] == 0x6C && b.regs[0x07] == 0x40 && b.regs[0x08] == 0x00);
-    CHECK(b.regs[0x09] == 0x7A); /* RFO, MaxPower 7: Pout = OutputPower */
-    CHECK(b.regs[0x0C] == 0x20); /* no boost on the LF port */
+    CHECK(b.regs[0x09] == 0x7A);               /* RFO, MaxPower 7: Pout = OutputPower */
+    CHECK(b.regs[0x0C] == 0x20);               /* no boost on the LF port */
+    CHECK(wrote(&b, b.count - 1, 0x01, 0x89)); /* standby, in the LF bank */
+
+    cfg.mod = tern_lora_default(7, 500000); /* errata 2.1 in band 2 */
+    CHECK(tern_radio_configure(&r, &cfg) == TERN_OK);
+    CHECK(b.regs[0x36] == 0x02 && b.regs[0x3A] == 0x7F);
+    cfg.mod = us_config().mod;
 
     cfg.freq_hz = 868000000; /* past the SX1278's band */
     CHECK(tern_radio_configure(&r, &cfg) == TERN_EINVAL);
     cfg.freq_hz = 433000000;
-    cfg.tx_power_dbm = 16; /* past RFO's */
+    cfg.tx_power_dbm = 15; /* past what the register table gives RFO */
     CHECK(tern_radio_configure(&r, &cfg) == TERN_EINVAL);
     cfg.tx_power_dbm = 0;
     CHECK(tern_radio_configure(&r, &cfg) == TERN_OK);
@@ -190,7 +220,9 @@ static void configure_refuses_what_the_chip_cannot_do(void) {
     start(&d, &b);
     struct tern_radio r = tern_sx127x_radio(&d);
     struct tern_radio_config cfg = us_config();
-    cfg.tx_power_dbm = 21;
+    cfg.tx_power_dbm = 18; /* PaDac's +20 dBm is not offered */
+    CHECK(tern_radio_configure(&r, &cfg) == TERN_EINVAL);
+    cfg.tx_power_dbm = 20;
     CHECK(tern_radio_configure(&r, &cfg) == TERN_EINVAL);
     cfg.tx_power_dbm = 1; /* below PA_BOOST's least */
     CHECK(tern_radio_configure(&r, &cfg) == TERN_EINVAL);
@@ -219,6 +251,23 @@ static void configure_refuses_what_the_chip_cannot_do(void) {
     CHECK(tern_radio_configure(&r, &cfg) == TERN_EINVAL);
     CHECK(b.transfers == 0);
     CHECK(tern_radio_transmit(&r, (const uint8_t *)"x", 1) == TERN_OK);
+}
+
+/* An image calibration that does not finish is an error, not a wait for ever, and the radio is
+ * left unconfigured. */
+static void a_calibration_that_hangs_fails(void) {
+    static struct bus b;
+    static struct tern_sx127x d;
+    start(&d, &b);
+    struct tern_radio r = tern_sx127x_radio(&d);
+    struct tern_radio_config cfg = us_config();
+    b.cal_stuck = true;
+    b.tick = 1000000; /* 1 ms a transfer */
+    CHECK(tern_radio_configure(&r, &cfg) == TERN_EIO);
+    CHECK(!d.configured);
+    CHECK(b.now < 200000000);
+    b.cal_stuck = false;
+    CHECK(tern_radio_configure(&r, &cfg) == TERN_OK);
 }
 
 static void transmit_fills_the_fifo_and_starts(void) {
@@ -423,6 +472,7 @@ int main(void) {
     RUN(configure_sets_the_datasheet_registers);
     RUN(an_sx1278_on_rfo_at_433_mhz);
     RUN(configure_refuses_what_the_chip_cannot_do);
+    RUN(a_calibration_that_hangs_fails);
     RUN(transmit_fills_the_fifo_and_starts);
     RUN(poll_reports_what_happened);
     RUN(rssi_on_the_lf_port);
