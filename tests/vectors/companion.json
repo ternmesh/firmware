@@ -1,5 +1,5 @@
 {
-  "description": "The companion protocol, version 4 (draft/companion.md). Frames, streams, addresses and group ids are hex; numbers are numbers; strings are text. In frames, frame is the frame alone, as one BLE write or notification carries it, and stream is the same frame as it goes on a byte stream. In extended, frame carries bytes past the fields this version defines, and fields is what a receiver reads from it. In rejected, a receiver discards frame; answer is the ERROR code a node answers it with, null for none. In streams, items are what a receiver finds in stream, in order: a frame, or a run of bytes that is not one, and pending is what it holds at the end waiting for more. In group_ids, group is the id of the group whose secret is group_secret. Exchange is one connection, in order. In it the node refuses first contact from the third address just before the ASKED; the group it makes has the secret made, where a node in use draws one; and after its own group message is sent it receives a message to that group from the second address's routing id, and then an invite from that address to the group whose secret is invited. Older holds connections to the same node by clients of earlier versions. To the client of version 0 it holds what the exchange begins with, and refuses that first contact after the sync, before the client's SAVE_CONTACT. To the client of version 1 it holds what the exchange has before its JOIN but for the group message and the invite received, which come after the sync and before the client's SEND; the client's last request is one its version does not define, which a client must not send, and the node answers it as it would any other it does not know from that client. To the client of version 2 it holds what the exchange begins with, and its SYNCED is version 2's, without news. Each connection's frames are read by the version its client speaks, and each client of an earlier version is sent an INFO without board and release. Update is one update of image, whose SHA-256 is image_digest, over two connections to a node that holds only itself: the link is lost after the first connection's last frame, and the node keeps what it was sent. Refusals is one connection to a node with no update under way, given an image of the same size whose digest is not its own. The three addresses are the public keys of RFC 8032's first three Ed25519 test vectors.",
+  "description": "The companion protocol, version 5 (draft/companion.md). Frames, streams, addresses and group ids are hex; numbers are numbers; strings are text. In frames, frame is the frame alone, as one BLE write or notification carries it, and stream is the same frame as it goes on a byte stream. In extended, frame carries bytes past the fields this version defines, and fields is what a receiver reads from it. In rejected, a receiver discards frame; answer is the ERROR code a node answers it with, null for none. In unknown_to_older, frame is of a type that version does not define: a node speaking it answers ERROR answer, and a client speaking it ignores news and discards an answer (null). In streams, items are what a receiver finds in stream, in order: a frame, or a run of bytes that is not one, and pending is what it holds at the end waiting for more. In group_ids, group is the id of the group whose secret is group_secret. Exchange is one connection, in order. In it the node refuses first contact from the third address just before the ASKED; the group it makes has the secret made, where a node in use draws one; and after its own group message is sent it receives a message to that group from the second address's routing id, and then an invite from that address to the group whose secret is invited. After it leaves the first group, it receives a position from the second address, just before its POSITION. Older holds connections to the same node by clients of earlier versions. To the client of version 0 it holds what the exchange begins with, and refuses that first contact after the sync, before the client's SAVE_CONTACT. To the client of version 1 it holds what the exchange has before its JOIN but for the group message and the invite received, which come after the sync and before the client's SEND; the client's last request is one its version does not define, which a client must not send, and the node answers it as it would any other it does not know from that client. To the client of version 2 it holds what the exchange begins with, and its SYNCED is version 2's, without news. To the clients of versions 3 and 4 it holds what the exchange begins with, a position from the second address, and sharing with that address: the sync sends neither, and the node refuses the request each client's version does not define, which it must not send. Positions are in units of 10^-7 degree. Each connection's frames are read by the version its client speaks, and each client of an earlier version is sent an INFO without board and release. Update is one update of image, whose SHA-256 is image_digest, over two connections to a node that holds only itself: the link is lost after the first connection's last frame, and the node keeps what it was sent. Refusals is one connection to a node with no update under way, given an image of the same size whose digest is not its own. The three addresses are the public keys of RFC 8032's first three Ed25519 test vectors.",
   "generator": "vectors/tools/companion.py",
   "crc_check": {
     "input": "313233343536373839",
@@ -8,6 +8,15 @@
   "made": "000102030405060708090a0b0c0d0e0f",
   "invited": "c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4",
   "frames": [
+    {
+      "type": "HELLO",
+      "seq": 1,
+      "fields": {
+        "version": 5
+      },
+      "frame": "010105",
+      "stream": "f5540003010105de74"
+    },
     {
       "type": "HELLO",
       "seq": 1,
@@ -292,6 +301,71 @@
       "stream": "f5540002321a3a2c"
     },
     {
+      "type": "SET_POSITION",
+      "seq": 27,
+      "fields": {
+        "lat": 458325000,
+        "lon": 68644000,
+        "altitude": 4806,
+        "accuracy": 4,
+        "age": 3
+      },
+      "frame": "331b1b517c0804176ca012c600040003",
+      "stream": "f5540010331b1b517c0804176ca012c6000400035053"
+    },
+    {
+      "type": "SET_POSITION",
+      "seq": 28,
+      "fields": {
+        "lat": -336183000,
+        "lon": -704517000,
+        "altitude": -32768,
+        "accuracy": 0,
+        "age": 600
+      },
+      "frame": "331cebf64128d601ec78800000000258",
+      "stream": "f5540010331cebf64128d601ec78800000000258ab9d"
+    },
+    {
+      "type": "SHARE",
+      "seq": 29,
+      "fields": {
+        "contact": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "precision": 20,
+        "fields": 3,
+        "interval": 900,
+        "minutes": 60
+      },
+      "frame": "341d3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c14030384003c",
+      "stream": "f5540028341d3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c14030384003c8d2b"
+    },
+    {
+      "type": "SHARE",
+      "seq": 30,
+      "fields": {
+        "contact": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "precision": 0,
+        "fields": 0,
+        "interval": 0,
+        "minutes": 0
+      },
+      "frame": "341e3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c000000000000",
+      "stream": "f5540028341e3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c0000000000009fbb"
+    },
+    {
+      "type": "SHARE_GROUP",
+      "seq": 31,
+      "fields": {
+        "group": "c8eafadc0857a696",
+        "precision": 12,
+        "fields": 0,
+        "interval": 300,
+        "minutes": 0
+      },
+      "frame": "351fc8eafadc0857a6960c00012c0000",
+      "stream": "f5540010351fc8eafadc0857a6960c00012c0000c95e"
+    },
+    {
       "type": "OK",
       "seq": 4,
       "fields": {},
@@ -393,6 +467,15 @@
       },
       "frame": "411a0b",
       "stream": "f5540003411a0bfd9e"
+    },
+    {
+      "type": "ERROR",
+      "seq": 29,
+      "fields": {
+        "code": 12
+      },
+      "frame": "411d0c",
+      "stream": "f5540003411d0c14ee"
     },
     {
       "type": "SELF",
@@ -679,6 +762,91 @@
       },
       "frame": "8d16000000163d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660cc8eafadc0857a6966ab13c480004000000055269646765",
       "stream": "f554003d8d16000000163d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660cc8eafadc0857a6966ab13c48000400000005526964676527e5"
+    },
+    {
+      "type": "POSITION",
+      "seq": 23,
+      "fields": {
+        "contact": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "precision": 16,
+        "lat": 603945922,
+        "lon": 52871704,
+        "altitude": -32768,
+        "accuracy": 0,
+        "age": 40
+      },
+      "frame": "8e173d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c1023ff7bc20326c21880000000000028",
+      "stream": "f55400328e173d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c1023ff7bc20326c21880000000000028ab29"
+    },
+    {
+      "type": "POSITION",
+      "seq": 24,
+      "fields": {
+        "contact": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "precision": 0,
+        "lat": 0,
+        "lon": 0,
+        "altitude": 0,
+        "accuracy": 0,
+        "age": 0
+      },
+      "frame": "8e183d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c00000000000000000000000000000000",
+      "stream": "f55400328e183d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c000000000000000000000000000000001e1d"
+    },
+    {
+      "type": "GROUP_POSITION",
+      "seq": 25,
+      "fields": {
+        "group": "c8eafadc0857a696",
+        "from": 150946753,
+        "precision": 24,
+        "lat": 458325040,
+        "lon": 68644058,
+        "altitude": 4806,
+        "accuracy": 4,
+        "age": 12
+      },
+      "frame": "8f19c8eafadc0857a69608ff43c1181b517c3004176cda12c6040000000c",
+      "stream": "f554001e8f19c8eafadc0857a69608ff43c1181b517c3004176cda12c6040000000c273e"
+    },
+    {
+      "type": "SHARING",
+      "seq": 26,
+      "fields": {
+        "contact": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "precision": 20,
+        "fields": 3,
+        "interval": 900,
+        "minutes": 60
+      },
+      "frame": "901a3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c14030384003c",
+      "stream": "f5540028901a3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c14030384003cbde2"
+    },
+    {
+      "type": "SHARING",
+      "seq": 27,
+      "fields": {
+        "contact": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "precision": 0,
+        "fields": 0,
+        "interval": 0,
+        "minutes": 0
+      },
+      "frame": "901b3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c000000000000",
+      "stream": "f5540028901b3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c000000000000e226"
+    },
+    {
+      "type": "GROUP_SHARING",
+      "seq": 28,
+      "fields": {
+        "group": "c8eafadc0857a696",
+        "precision": 12,
+        "fields": 0,
+        "interval": 300,
+        "minutes": 0
+      },
+      "frame": "911cc8eafadc0857a6960c00012c0000",
+      "stream": "f5540010911cc8eafadc0857a6960c00012c0000e4cc"
     }
   ],
   "extended": [
@@ -851,6 +1019,21 @@
       "why": "a field cut short",
       "frame": "420104147465726e20302e322e302068656c7465632d76330968656c7465632d763305302e322e",
       "answer": null
+    },
+    {
+      "why": "a field cut short",
+      "frame": "331b1b517c0804176ca00000000000",
+      "answer": 2
+    },
+    {
+      "why": "a field cut short",
+      "frame": "341d3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c1400038400",
+      "answer": 2
+    },
+    {
+      "why": "a field cut short",
+      "frame": "8e173d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c1023ff7bc20326c218000000000000",
+      "answer": null
     }
   ],
   "streams": [
@@ -1012,13 +1195,13 @@
       "from": "client",
       "type": "HELLO",
       "seq": 1,
-      "frame": "010104"
+      "frame": "010105"
     },
     {
       "from": "node",
       "type": "INFO",
       "seq": 1,
-      "frame": "420104147465726e20302e322e302068656c7465632d76330968656c7465632d763305302e322e30"
+      "frame": "420105147465726e20302e322e302068656c7465632d76330968656c7465632d763305302e322e30"
     },
     {
       "from": "client",
@@ -1316,9 +1499,9 @@
     },
     {
       "from": "client",
-      "type": "END_SESSION",
+      "type": "SET_POSITION",
       "seq": 14,
-      "frame": "1a0e3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c"
+      "frame": "330e1b517c0804176ca012c600040003"
     },
     {
       "from": "node",
@@ -1327,10 +1510,76 @@
       "frame": "400e"
     },
     {
+      "from": "client",
+      "type": "SHARE",
+      "seq": 15,
+      "frame": "340f3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c14000384003c"
+    },
+    {
+      "from": "node",
+      "type": "OK",
+      "seq": 15,
+      "frame": "400f"
+    },
+    {
+      "from": "node",
+      "type": "SHARING",
+      "seq": 25,
+      "frame": "90193d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c14000384003c"
+    },
+    {
+      "from": "node",
+      "type": "POSITION",
+      "seq": 26,
+      "frame": "8e1a3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c1023ff7bc20326c21880000000000028"
+    },
+    {
+      "from": "client",
+      "type": "SHARE_GROUP",
+      "seq": 16,
+      "frame": "3510c8eafadc0857a6961900012c0000"
+    },
+    {
+      "from": "node",
+      "type": "ERROR",
+      "seq": 16,
+      "frame": "411003"
+    },
+    {
+      "from": "client",
+      "type": "SHARE",
+      "seq": 17,
+      "frame": "34113d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c000000000000"
+    },
+    {
+      "from": "node",
+      "type": "OK",
+      "seq": 17,
+      "frame": "4011"
+    },
+    {
+      "from": "node",
+      "type": "SHARING",
+      "seq": 27,
+      "frame": "901b3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c000000000000"
+    },
+    {
+      "from": "client",
+      "type": "END_SESSION",
+      "seq": 18,
+      "frame": "1a123d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c"
+    },
+    {
+      "from": "node",
+      "type": "OK",
+      "seq": 18,
+      "frame": "4012"
+    },
+    {
       "from": "node",
       "type": "CONTACT",
-      "seq": 25,
-      "frame": "81193d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c0003426f62"
+      "seq": 28,
+      "frame": "811c3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c0003426f62"
     }
   ],
   "older": [
@@ -1347,7 +1596,7 @@
           "from": "node",
           "type": "INFO",
           "seq": 1,
-          "frame": "420104147465726e20302e322e302068656c7465632d7633"
+          "frame": "420105147465726e20302e322e302068656c7465632d7633"
         },
         {
           "from": "client",
@@ -1424,7 +1673,7 @@
           "from": "node",
           "type": "INFO",
           "seq": 1,
-          "frame": "420104147465726e20302e322e302068656c7465632d7633"
+          "frame": "420105147465726e20302e322e302068656c7465632d7633"
         },
         {
           "from": "client",
@@ -1531,7 +1780,7 @@
           "from": "node",
           "type": "INFO",
           "seq": 1,
-          "frame": "420104147465726e20302e322e302068656c7465632d7633"
+          "frame": "420105147465726e20302e322e302068656c7465632d7633"
         },
         {
           "from": "client",
@@ -1582,6 +1831,239 @@
           "frame": "4302"
         }
       ]
+    },
+    {
+      "version": 3,
+      "frames": [
+        {
+          "from": "client",
+          "type": "HELLO",
+          "seq": 1,
+          "frame": "010103"
+        },
+        {
+          "from": "node",
+          "type": "INFO",
+          "seq": 1,
+          "frame": "420105147465726e20302e322e302068656c7465632d7633"
+        },
+        {
+          "from": "client",
+          "type": "SYNC",
+          "seq": 2,
+          "frame": "020200000000"
+        },
+        {
+          "from": "node",
+          "type": "SELF",
+          "seq": 0,
+          "frame": "8000d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b80"
+        },
+        {
+          "from": "node",
+          "type": "CONTACT",
+          "seq": 1,
+          "frame": "81013d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c0103426f62"
+        },
+        {
+          "from": "node",
+          "type": "MESSAGE",
+          "seq": 2,
+          "frame": "8302000000113d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c6ab1379800040000000e57686572652061726520796f753f"
+        },
+        {
+          "from": "node",
+          "type": "NEIGHBOUR",
+          "seq": 3,
+          "frame": "85031d2e3f4001da002a"
+        },
+        {
+          "from": "node",
+          "type": "AIRTIME",
+          "seq": 4,
+          "frame": "870400000e1000057e400000303900000000"
+        },
+        {
+          "from": "node",
+          "type": "POWER",
+          "seq": 5,
+          "frame": "88050f935101"
+        },
+        {
+          "from": "node",
+          "type": "SYNCED",
+          "seq": 2,
+          "frame": "430206"
+        },
+        {
+          "from": "client",
+          "type": "UPDATE_BEGIN",
+          "seq": 3,
+          "frame": "3003000001905bfba1ba423a18ae5da63853d4ece421507db90702b63dcc6ebdac56b5ce4349"
+        },
+        {
+          "from": "node",
+          "type": "ERROR",
+          "seq": 3,
+          "frame": "410301"
+        }
+      ]
+    },
+    {
+      "version": 4,
+      "frames": [
+        {
+          "from": "client",
+          "type": "HELLO",
+          "seq": 1,
+          "frame": "010104"
+        },
+        {
+          "from": "node",
+          "type": "INFO",
+          "seq": 1,
+          "frame": "420105147465726e20302e322e302068656c7465632d76330968656c7465632d763305302e322e30"
+        },
+        {
+          "from": "client",
+          "type": "SYNC",
+          "seq": 2,
+          "frame": "020200000000"
+        },
+        {
+          "from": "node",
+          "type": "SELF",
+          "seq": 0,
+          "frame": "8000d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b80"
+        },
+        {
+          "from": "node",
+          "type": "CONTACT",
+          "seq": 1,
+          "frame": "81013d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c0103426f62"
+        },
+        {
+          "from": "node",
+          "type": "MESSAGE",
+          "seq": 2,
+          "frame": "8302000000113d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c6ab1379800040000000e57686572652061726520796f753f"
+        },
+        {
+          "from": "node",
+          "type": "NEIGHBOUR",
+          "seq": 3,
+          "frame": "85031d2e3f4001da002a"
+        },
+        {
+          "from": "node",
+          "type": "AIRTIME",
+          "seq": 4,
+          "frame": "870400000e1000057e400000303900000000"
+        },
+        {
+          "from": "node",
+          "type": "POWER",
+          "seq": 5,
+          "frame": "88050f935101"
+        },
+        {
+          "from": "node",
+          "type": "SYNCED",
+          "seq": 2,
+          "frame": "430206"
+        },
+        {
+          "from": "client",
+          "type": "SHARE",
+          "seq": 3,
+          "frame": "34033d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c000000000000"
+        },
+        {
+          "from": "node",
+          "type": "ERROR",
+          "seq": 3,
+          "frame": "410301"
+        }
+      ]
+    }
+  ],
+  "unknown_to_older": [
+    {
+      "type": "END_SESSION",
+      "version": 0,
+      "frame": "1a053d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+      "why": "a type this version does not define",
+      "answer": 1
+    },
+    {
+      "type": "ASKED",
+      "version": 0,
+      "frame": "8905fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb91154890802501",
+      "why": "a type this version does not define",
+      "answer": null
+    },
+    {
+      "type": "MAKE_GROUP",
+      "version": 1,
+      "frame": "200503487574",
+      "why": "a type this version does not define",
+      "answer": 1
+    },
+    {
+      "type": "GROUP",
+      "version": 1,
+      "frame": "8a05c0037dcd77f6eac603487574",
+      "why": "a type this version does not define",
+      "answer": null
+    },
+    {
+      "type": "UPDATE_BEGIN",
+      "version": 3,
+      "frame": "3005000001905bfba1ba423a18ae5da63853d4ece421507db90702b63dcc6ebdac56b5ce4349",
+      "why": "a type this version does not define",
+      "answer": 1
+    },
+    {
+      "type": "UPDATE_END",
+      "version": 3,
+      "frame": "3205",
+      "why": "a type this version does not define",
+      "answer": 1
+    },
+    {
+      "type": "UPDATING",
+      "version": 3,
+      "frame": "460500000000",
+      "why": "a type this version does not define",
+      "answer": null
+    },
+    {
+      "type": "SHARE",
+      "version": 4,
+      "frame": "34053d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c14000384003c",
+      "why": "a type this version does not define",
+      "answer": 1
+    },
+    {
+      "type": "SET_POSITION",
+      "version": 4,
+      "frame": "33051b517c0804176ca012c600040003",
+      "why": "a type this version does not define",
+      "answer": 1
+    },
+    {
+      "type": "POSITION",
+      "version": 4,
+      "frame": "8e053d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c1023ff7bc20326c21880000000000028",
+      "why": "a type this version does not define",
+      "answer": null
+    },
+    {
+      "type": "SHARING",
+      "version": 4,
+      "frame": "90053d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c14000384003c",
+      "why": "a type this version does not define",
+      "answer": null
     }
   ],
   "image": "079e35cc63fa9128bf56ed841bb249e0770ea53cd36a01982fc65df48b22b950e77e15ac43da71089f36cd64fb9229c057ee851cb34ae1780fa63dd46b029930c75ef58c23ba51e87f16ad44db7209a037ce65fc932ac158ef861db44be27910a73ed56c039a31c85ff68d24bb52e98017ae45dc730aa138cf66fd942bc259f0871eb54ce37a11a83fd66d049b32c960f78e25bc53ea8118af46dd740ba239d067fe952cc35af1881fb64de47b12a940d76e059c33ca61f88f26bd54eb8219b047de750ca33ad168ff962dc45bf28920b74ee57c13aa41d86f069d34cb62f99027be55ec831ab148df760da43bd26900972ec55cf38a21b84fe67d14ab42d970079e35cc63fa9128bf56ed841bb249e0770ea53cd36a01982fc65df48b22b950e77e15ac43da71089f36cd64fb9229c057ee851cb34ae1780fa63dd46b029930c75ef58c23ba51e87f16ad44db7209a037ce65fc932ac158ef861db44be27910a73ed56c039a31c85ff68d24bb52e98017ae45dc730aa138cf66fd942bc259f0871eb54ce37a11a83fd66d049b32c960",
@@ -1592,13 +2074,13 @@
         "from": "client",
         "type": "HELLO",
         "seq": 1,
-        "frame": "010104"
+        "frame": "010105"
       },
       {
         "from": "node",
         "type": "INFO",
         "seq": 1,
-        "frame": "420104147465726e20302e322e302068656c7465632d76330968656c7465632d763305302e322e30"
+        "frame": "420105147465726e20302e322e302068656c7465632d76330968656c7465632d763305302e322e30"
       },
       {
         "from": "client",
@@ -1684,13 +2166,13 @@
         "from": "client",
         "type": "HELLO",
         "seq": 1,
-        "frame": "010104"
+        "frame": "010105"
       },
       {
         "from": "node",
         "type": "INFO",
         "seq": 1,
-        "frame": "420104147465726e20302e322e302068656c7465632d76330968656c7465632d763305302e322e30"
+        "frame": "420105147465726e20302e322e302068656c7465632d76330968656c7465632d763305302e322e30"
       },
       {
         "from": "client",
@@ -1777,13 +2259,13 @@
       "from": "client",
       "type": "HELLO",
       "seq": 1,
-      "frame": "010104"
+      "frame": "010105"
     },
     {
       "from": "node",
       "type": "INFO",
       "seq": 1,
-      "frame": "420104147465726e20302e322e302068656c7465632d76330968656c7465632d763305302e322e30"
+      "frame": "420105147465726e20302e322e302068656c7465632d76330968656c7465632d763305302e322e30"
     },
     {
       "from": "client",

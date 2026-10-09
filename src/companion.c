@@ -12,46 +12,57 @@
  * and the kind of bytes it is on the wire. */
 enum field {
     END = 0,
-    VERSION,  /* u8 */
-    SETTING,  /* u8, and then the setting's value */
-    CODE,     /* u8 */
-    ROLE,     /* u8 */
-    SESSION,  /* u8 */
-    FLAGS,    /* u8 */
-    STATE,    /* u8 */
-    REASON,   /* u8 */
-    PERCENT,  /* u8 */
-    WHY,      /* u8 */
-    NEWS,     /* u8 */
-    POWER,    /* i8 */
-    SNR,      /* i8 */
-    HEARD,    /* u16 */
-    MV,       /* u16 */
-    WAIT16,   /* u16, into wait */
-    AFTER,    /* u32 */
-    TIME,     /* u32 */
-    REF,      /* u32 */
-    THROUGH,  /* u32 */
-    ID,       /* u32 */
-    RID,      /* u32 */
-    PERIOD,   /* u32 */
-    ALLOWED,  /* u32 */
-    USED,     /* u32 */
-    WAIT32,   /* u32, into wait */
-    PASSKEY,  /* u32 */
-    FROM,     /* u32 */
-    SIZE,     /* u32 */
-    OFFSET,   /* u32 */
-    ADDRESS,  /* 32 bytes */
-    GROUP,    /* 8 bytes: a group's id */
-    DIGEST,   /* 32 bytes: a SHA-256 */
-    TEXT,     /* a string of up to TERN_COMPANION_TEXT_MAX */
-    NAME,     /* a string of up to TERN_COMPANION_NAME_MAX, into text */
-    FIRMWARE, /* a string of up to TERN_COMPANION_FIRMWARE_MAX, into text */
-    REGION,   /* a string of up to TERN_COMPANION_REGION_MAX, into text */
-    BOARD,    /* a string of up to TERN_COMPANION_BOARD_MAX, into board */
-    RELEASE,  /* a string of up to TERN_COMPANION_RELEASE_MAX, into release */
-    DATA,     /* up to TERN_COMPANION_UPDATE_CHUNK bytes of anything, into data */
+    VERSION,   /* u8 */
+    SETTING,   /* u8, and then the setting's value */
+    CODE,      /* u8 */
+    ROLE,      /* u8 */
+    SESSION,   /* u8 */
+    FLAGS,     /* u8 */
+    STATE,     /* u8 */
+    REASON,    /* u8 */
+    PERCENT,   /* u8 */
+    WHY,       /* u8 */
+    NEWS,      /* u8 */
+    PRECISION, /* u8 */
+    SHARED,    /* u8: SHARE's and SHARING's fields */
+    ACC8,      /* u8, into accuracy */
+    POWER,     /* i8 */
+    SNR,       /* i8 */
+    HEARD,     /* u16 */
+    MV,        /* u16 */
+    WAIT16,    /* u16, into wait */
+    ALTITUDE,  /* i16 */
+    ACC16,     /* u16, into accuracy */
+    AGE16,     /* u16, into age */
+    INTERVAL,  /* u16 */
+    MINUTES,   /* u16 */
+    AFTER,     /* u32 */
+    TIME,      /* u32 */
+    REF,       /* u32 */
+    THROUGH,   /* u32 */
+    ID,        /* u32 */
+    RID,       /* u32 */
+    PERIOD,    /* u32 */
+    ALLOWED,   /* u32 */
+    USED,      /* u32 */
+    WAIT32,    /* u32, into wait */
+    PASSKEY,   /* u32 */
+    FROM,      /* u32 */
+    SIZE,      /* u32 */
+    OFFSET,    /* u32 */
+    LAT,       /* i32 */
+    LON,       /* i32 */
+    AGE32,     /* u32, into age */
+    ADDRESS,   /* 32 bytes */
+    GROUP,     /* 8 bytes: a group's id */
+    DIGEST,    /* 32 bytes: a SHA-256 */
+    TEXT,      /* a string of up to TERN_COMPANION_TEXT_MAX */
+    NAME,      /* a string of up to TERN_COMPANION_NAME_MAX, into text */
+    FIRMWARE,  /* a string of up to TERN_COMPANION_FIRMWARE_MAX, into text */
+    REGION,    /* a string of up to TERN_COMPANION_REGION_MAX, into text */
+    BOARD,     /* a string of up to TERN_COMPANION_BOARD_MAX, into board */
+    RELEASE,   /* a string of up to TERN_COMPANION_RELEASE_MAX, into release */
+    DATA,      /* up to TERN_COMPANION_UPDATE_CHUNK bytes of anything, into data */
 };
 
 struct layout {
@@ -79,6 +90,9 @@ static const struct layout layouts[] = {
     {TERN_C_UPDATE_BEGIN, {SIZE, DIGEST}},
     {TERN_C_UPDATE_DATA, {OFFSET, DATA}},
     {TERN_C_UPDATE_END, {END}},
+    {TERN_C_SET_POSITION, {LAT, LON, ALTITUDE, ACC16, AGE16}},
+    {TERN_C_SHARE, {ADDRESS, PRECISION, SHARED, INTERVAL, MINUTES}},
+    {TERN_C_SHARE_GROUP, {GROUP, PRECISION, SHARED, INTERVAL, MINUTES}},
     {TERN_C_OK, {END}},
     {TERN_C_ERROR, {CODE}},
     {TERN_C_INFO, {VERSION, FIRMWARE, BOARD, RELEASE}},
@@ -100,6 +114,10 @@ static const struct layout layouts[] = {
     {TERN_C_GROUP_GONE, {GROUP}},
     {TERN_C_GROUP_MESSAGE, {ID, GROUP, FROM, TIME, FLAGS, STATE, REASON, WAIT16, TEXT}},
     {TERN_C_INVITE, {ID, ADDRESS, GROUP, TIME, FLAGS, STATE, REASON, WAIT16, NAME}},
+    {TERN_C_POSITION, {ADDRESS, PRECISION, LAT, LON, ALTITUDE, ACC8, AGE32}},
+    {TERN_C_GROUP_POSITION, {GROUP, FROM, PRECISION, LAT, LON, ALTITUDE, ACC8, AGE32}},
+    {TERN_C_SHARING, {ADDRESS, PRECISION, SHARED, INTERVAL, MINUTES}},
+    {TERN_C_GROUP_SHARING, {GROUP, PRECISION, SHARED, INTERVAL, MINUTES}},
 };
 
 /* A later version adds fields only at the end of a frame: from field `from` on, a type's fields
@@ -147,6 +165,10 @@ static const struct layout *layout_of(uint8_t type) {
 }
 
 uint8_t tern_companion_since(uint8_t type) {
+    if ((type >= TERN_C_SET_POSITION && type <= TERN_C_SHARE_GROUP) ||
+        (type >= TERN_C_POSITION && type <= TERN_C_GROUP_SHARING)) {
+        return 5;
+    }
     if ((type >= TERN_C_UPDATE_BEGIN && type <= TERN_C_UPDATE_END) || type == TERN_C_UPDATING) {
         return 4;
     }
@@ -223,6 +245,26 @@ static void *member(struct tern_companion_msg *m, enum field f) {
         return &m->why;
     case NEWS:
         return &m->news;
+    case PRECISION:
+        return &m->precision;
+    case SHARED:
+        return &m->fields;
+    case ALTITUDE:
+        return &m->altitude;
+    case ACC8:
+    case ACC16:
+        return &m->accuracy;
+    case INTERVAL:
+        return &m->interval;
+    case MINUTES:
+        return &m->minutes;
+    case LAT:
+        return &m->lat;
+    case LON:
+        return &m->lon;
+    case AGE16:
+    case AGE32:
+        return &m->age;
     case POWER:
         return &m->power;
     case SNR:
@@ -293,6 +335,12 @@ static uint32_t get_member(const struct tern_companion_msg *m, enum field f) {
     if (f == WAIT16) {
         return (uint16_t)m->wait;
     }
+    if (f == AGE16) {
+        return (uint16_t)m->age;
+    }
+    if (f == ACC8) {
+        return (uint8_t)m->accuracy;
+    }
     switch (width(f)) {
     case 1:
         return f == POWER || f == SNR ? (uint8_t) * (const int8_t *)p : *(const uint8_t *)p;
@@ -307,6 +355,14 @@ static void set_member(struct tern_companion_msg *m, enum field f, uint32_t v) {
     void *p = member(m, f);
     if (f == WAIT16) {
         m->wait = v;
+        return;
+    }
+    if (f == AGE16) {
+        m->age = v;
+        return;
+    }
+    if (f == ACC8) {
+        m->accuracy = (uint16_t)v;
         return;
     }
     switch (width(f)) {

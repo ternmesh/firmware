@@ -42,6 +42,7 @@ add_library(tern
     src/hkdf.c
     src/listen.c
     src/lora.c
+    src/position.c
     src/radio.c
     src/region.c
     src/route.c
@@ -57,7 +58,7 @@ target_compile_options(tern PRIVATE ${TERN_WARNINGS})
 
 include(CTest)
 if(BUILD_TESTING)
-    foreach(t address companion contact crypto duty flood forward group listen lora mesh radio region route share sx126x unicast)
+    foreach(t address companion contact crypto duty flood forward group listen lora mesh position radio region route share sx126x unicast)
         add_executable(test_${t} tests/${t}.c)
         target_link_libraries(test_${t} PRIVATE tern)
         # The test files define their cases as static functions, so the prototype warning is
@@ -155,6 +156,17 @@ if(BUILD_TESTING)
         VERBATIM)
     target_sources(test_group PRIVATE ${groups_h})
     target_include_directories(test_group PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/vectors)
+
+    set(positions_h ${CMAKE_CURRENT_BINARY_DIR}/vectors/positions.h)
+    add_custom_command(
+        OUTPUT ${positions_h}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/vectors
+        COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tests/vectors/positions_to_c.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/vectors/positions.json ${positions_h}
+        DEPENDS tests/vectors/positions_to_c.py tests/vectors/positions.json
+        VERBATIM)
+    target_sources(test_position PRIVATE ${positions_h})
+    target_include_directories(test_position PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/vectors)
 
     set(listening_h ${CMAKE_CURRENT_BINARY_DIR}/vectors/listening.h)
     add_custom_command(

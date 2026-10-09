@@ -1,0 +1,1356 @@
+{
+  "description": "Positions, draft 0 (draft/positions.md). Latitudes and longitudes are integers in units of 10^-7 degree, north and east positive; plaintexts, where, frames, secrets and nonces are hex; times are seconds. In grid, row and column are the cell of the point at precision, where is how they go on the air, and centre_latitude, centre_longitude, south and west are the cell's centre, rounded down, and its south-west corner. In positions, plaintext is that of a message for the node made from the other fields (accuracy as the sender's estimate in metres, age_seconds as the fix's age), and read is what a receiver takes from it, age in seconds as the least the byte stands for. In extended, bytes after the fields are read past. A receiver ignores each plaintext of ignored. In ages, byte is the age field for seconds, and read_seconds what it is read as. In sizes, the lengths in bytes of a position at each precision, without its optional fields and with all three, and of the unicast and group frames that carry it, with their time on air at each profile of draft/phy.md. In frames, a position as each frame carries it; the unicast frame's route is hops, power, next and destination. In receiving, each case is one session, new, and holds is what read gives for the position the node holds from its other end after each delivery, null for none. In schedule, due is whether a position may go to a destination, given interval, when the last went (last_at, null for none since sharing began), whether the position changed since, the fix's age and the time now.",
+  "generator": "vectors/tools/positions.py",
+  "grid": [
+    {
+      "name": "summit",
+      "latitude": 458325000,
+      "longitude": 68644000,
+      "precision": 1,
+      "row": 0,
+      "column": 1,
+      "where": "80",
+      "centre_latitude": 0,
+      "centre_longitude": 900000000,
+      "south": -900000000,
+      "west": 0
+    },
+    {
+      "name": "summit",
+      "latitude": 458325000,
+      "longitude": 68644000,
+      "precision": 2,
+      "row": 1,
+      "column": 2,
+      "where": "c0",
+      "centre_latitude": 450000000,
+      "centre_longitude": 450000000,
+      "south": 0,
+      "west": 0
+    },
+    {
+      "name": "summit",
+      "latitude": 458325000,
+      "longitude": 68644000,
+      "precision": 8,
+      "row": 96,
+      "column": 132,
+      "where": "c108",
+      "centre_latitude": 457031250,
+      "centre_longitude": 63281250,
+      "south": 450000000,
+      "west": 56250000
+    },
+    {
+      "name": "summit",
+      "latitude": 458325000,
+      "longitude": 68644000,
+      "precision": 12,
+      "row": 1545,
+      "column": 2126,
+      "where": "c1309c",
+      "centre_latitude": 458349609,
+      "centre_longitude": 68994140,
+      "south": 457910156,
+      "west": 68554687
+    },
+    {
+      "name": "summit",
+      "latitude": 458325000,
+      "longitude": 68644000,
+      "precision": 16,
+      "row": 24727,
+      "column": 34017,
+      "where": "c12f09c2",
+      "centre_latitude": 458322143,
+      "centre_longitude": 68637084,
+      "south": 458294677,
+      "west": 68609619
+    },
+    {
+      "name": "summit",
+      "latitude": 458325000,
+      "longitude": 68644000,
+      "precision": 18,
+      "row": 98910,
+      "column": 136070,
+      "where": "c12f4270c0",
+      "centre_latitude": 458329010,
+      "centre_longitude": 68643951,
+      "south": 458322143,
+      "west": 68637084
+    },
+    {
+      "name": "summit",
+      "latitude": 458325000,
+      "longitude": 68644000,
+      "precision": 20,
+      "row": 395640,
+      "column": 544282,
+      "where": "c12f109c34",
+      "centre_latitude": 458323860,
+      "centre_longitude": 68645668,
+      "south": 458322143,
+      "west": 68643951
+    },
+    {
+      "name": "summit",
+      "latitude": 458325000,
+      "longitude": 68644000,
+      "precision": 24,
+      "row": 6330253,
+      "column": 8708512,
+      "where": "c12f1b09c340",
+      "centre_latitude": 458325040,
+      "centre_longitude": 68644058,
+      "south": 458324933,
+      "west": 68643951
+    },
+    {
+      "name": "harbour",
+      "latitude": 603946000,
+      "longitude": 52878000,
+      "precision": 12,
+      "row": 1711,
+      "column": 2108,
+      "where": "d5f078",
+      "centre_latitude": 604248046,
+      "centre_longitude": 53173828,
+      "south": 603808593,
+      "west": 52734375
+    },
+    {
+      "name": "harbour",
+      "latitude": 603946000,
+      "longitude": 52878000,
+      "precision": 16,
+      "row": 27378,
+      "column": 33730,
+      "where": "d5e50784",
+      "centre_latitude": 603945922,
+      "centre_longitude": 52871704,
+      "south": 603918457,
+      "west": 52844238
+    },
+    {
+      "name": "harbour",
+      "latitude": 603946000,
+      "longitude": 52878000,
+      "precision": 20,
+      "row": 438056,
+      "column": 539689,
+      "where": "d5e5107852",
+      "centre_latitude": 603947639,
+      "centre_longitude": 52876853,
+      "south": 603945922,
+      "west": 52875137
+    },
+    {
+      "name": "harbour",
+      "latitude": 603946000,
+      "longitude": 52878000,
+      "precision": 24,
+      "row": 7008896,
+      "column": 8635037,
+      "where": "d5e50107853a",
+      "centre_latitude": 603946030,
+      "centre_longitude": 52878034,
+      "south": 603945922,
+      "west": 52877926
+    },
+    {
+      "name": "south-west",
+      "latitude": -336183000,
+      "longitude": -704517000,
+      "precision": 8,
+      "row": 40,
+      "column": 77,
+      "where": "509a",
+      "centre_latitude": -330468750,
+      "centre_longitude": -710156250,
+      "south": -337500000,
+      "west": -717187500
+    },
+    {
+      "name": "south-west",
+      "latitude": -336183000,
+      "longitude": -704517000,
+      "precision": 12,
+      "row": 641,
+      "column": 1246,
+      "where": "5029bc",
+      "centre_latitude": -336181641,
+      "centre_longitude": -704443360,
+      "south": -336621094,
+      "west": -704882813
+    },
+    {
+      "name": "south-west",
+      "latitude": -336183000,
+      "longitude": -704517000,
+      "precision": 16,
+      "row": 10263,
+      "column": 19942,
+      "where": "502e9bcc",
+      "centre_latitude": -336209107,
+      "centre_longitude": -704525757,
+      "south": -336236573,
+      "west": -704553223
+    },
+    {
+      "name": "south-west",
+      "latitude": -336183000,
+      "longitude": -704517000,
+      "precision": 20,
+      "row": 164223,
+      "column": 319082,
+      "where": "502fe9bcd4",
+      "centre_latitude": -336183358,
+      "centre_longitude": -704517174,
+      "south": -336185074,
+      "west": -704518891
+    },
+    {
+      "name": "south-west",
+      "latitude": -336183000,
+      "longitude": -704517000,
+      "precision": 24,
+      "row": 2627577,
+      "column": 5105320,
+      "where": "502ff29bcd50",
+      "centre_latitude": -336183036,
+      "centre_longitude": -704517067,
+      "south": -336183143,
+      "west": -704517174
+    },
+    {
+      "name": "dateline",
+      "latitude": -170000000,
+      "longitude": 1800000000,
+      "precision": 12,
+      "row": 830,
+      "column": 0,
+      "where": "67c000",
+      "centre_latitude": -170068360,
+      "centre_longitude": -1799560547,
+      "south": -170507813,
+      "west": -1800000000
+    },
+    {
+      "name": "dateline",
+      "latitude": -170000000,
+      "longitude": 1800000000,
+      "precision": 24,
+      "row": 3402046,
+      "column": 0,
+      "where": "67d27c000000",
+      "centre_latitude": -170000017,
+      "centre_longitude": -1799999893,
+      "south": -170000124,
+      "west": -1800000000
+    },
+    {
+      "name": "north-pole",
+      "latitude": 900000000,
+      "longitude": 0,
+      "precision": 1,
+      "row": 0,
+      "column": 1,
+      "where": "80",
+      "centre_latitude": 0,
+      "centre_longitude": 900000000,
+      "south": -900000000,
+      "west": 0
+    },
+    {
+      "name": "north-pole",
+      "latitude": 900000000,
+      "longitude": 0,
+      "precision": 12,
+      "row": 2047,
+      "column": 2048,
+      "where": "fff000",
+      "centre_latitude": 899560546,
+      "centre_longitude": 439453,
+      "south": 899121093,
+      "west": 0
+    },
+    {
+      "name": "north-pole",
+      "latitude": 900000000,
+      "longitude": 0,
+      "precision": 24,
+      "row": 8388607,
+      "column": 8388608,
+      "where": "ffffff000000",
+      "centre_latitude": 899999892,
+      "centre_longitude": 107,
+      "south": 899999785,
+      "west": 0
+    },
+    {
+      "name": "south-pole",
+      "latitude": -900000000,
+      "longitude": 0,
+      "precision": 12,
+      "row": 0,
+      "column": 2048,
+      "where": "001000",
+      "centre_latitude": -899560547,
+      "centre_longitude": 439453,
+      "south": -900000000,
+      "west": 0
+    },
+    {
+      "name": "south-pole",
+      "latitude": -900000000,
+      "longitude": 0,
+      "precision": 24,
+      "row": 0,
+      "column": 8388608,
+      "where": "000001000000",
+      "centre_latitude": -899999893,
+      "centre_longitude": 107,
+      "south": -900000000,
+      "west": 0
+    },
+    {
+      "name": "greenwich-equator",
+      "latitude": 0,
+      "longitude": 0,
+      "precision": 1,
+      "row": 0,
+      "column": 1,
+      "where": "80",
+      "centre_latitude": 0,
+      "centre_longitude": 900000000,
+      "south": -900000000,
+      "west": 0
+    },
+    {
+      "name": "greenwich-equator",
+      "latitude": 0,
+      "longitude": 0,
+      "precision": 2,
+      "row": 1,
+      "column": 2,
+      "where": "c0",
+      "centre_latitude": 450000000,
+      "centre_longitude": 450000000,
+      "south": 0,
+      "west": 0
+    },
+    {
+      "name": "greenwich-equator",
+      "latitude": 0,
+      "longitude": 0,
+      "precision": 24,
+      "row": 4194304,
+      "column": 8388608,
+      "where": "800001000000",
+      "centre_latitude": 107,
+      "centre_longitude": 107,
+      "south": 0,
+      "west": 0
+    },
+    {
+      "name": "just-west",
+      "latitude": 0,
+      "longitude": -1,
+      "precision": 24,
+      "row": 4194304,
+      "column": 8388607,
+      "where": "800000fffffe",
+      "centre_latitude": 107,
+      "centre_longitude": -108,
+      "south": 0,
+      "west": -215
+    },
+    {
+      "name": "an-edge",
+      "latitude": 458294677,
+      "longitude": 68609619,
+      "precision": 16,
+      "row": 24726,
+      "column": 34016,
+      "where": "c12d09c0",
+      "centre_latitude": 458267211,
+      "centre_longitude": 68582153,
+      "south": 458239746,
+      "west": 68554687
+    },
+    {
+      "name": "just-below-an-edge",
+      "latitude": 458294676,
+      "longitude": 68644000,
+      "precision": 16,
+      "row": 24726,
+      "column": 34017,
+      "where": "c12d09c2",
+      "centre_latitude": 458267211,
+      "centre_longitude": 68637084,
+      "south": 458239746,
+      "west": 68609619
+    }
+  ],
+  "positions": [
+    {
+      "name": "town",
+      "note": "precision 12, nothing else: five bytes",
+      "precision": 12,
+      "latitude": 458325000,
+      "longitude": 68644000,
+      "plaintext": "0260c1309c",
+      "read": {
+        "precision": 12,
+        "row": 1545,
+        "column": 2126,
+        "latitude": 458349609,
+        "longitude": 68994140,
+        "south": 457910156,
+        "west": 68554687
+      }
+    },
+    {
+      "name": "neighbourhood",
+      "note": "precision 16",
+      "precision": 16,
+      "latitude": 458325000,
+      "longitude": 68644000,
+      "plaintext": "0280c12f09c2",
+      "read": {
+        "precision": 16,
+        "row": 24727,
+        "column": 34017,
+        "latitude": 458322143,
+        "longitude": 68637084,
+        "south": 458294677,
+        "west": 68609619
+      }
+    },
+    {
+      "name": "street",
+      "note": "precision 20, with its age",
+      "precision": 20,
+      "latitude": 603946000,
+      "longitude": 52878000,
+      "age_seconds": 95,
+      "plaintext": "02a4d5e51078523c",
+      "read": {
+        "precision": 20,
+        "row": 438056,
+        "column": 539689,
+        "latitude": 603947639,
+        "longitude": 52876853,
+        "south": 603945922,
+        "west": 52875137,
+        "age": 60
+      }
+    },
+    {
+      "name": "exact",
+      "note": "precision 24, with altitude, accuracy and age",
+      "precision": 24,
+      "latitude": 458325000,
+      "longitude": 68644000,
+      "altitude": 4806,
+      "accuracy": 4,
+      "age_seconds": 12,
+      "plaintext": "02c7c12f1b09c34012c6040c",
+      "read": {
+        "precision": 24,
+        "row": 6330253,
+        "column": 8708512,
+        "latitude": 458325040,
+        "longitude": 68644058,
+        "south": 458324933,
+        "west": 68643951,
+        "altitude": 4806,
+        "accuracy": 4,
+        "age": 12
+      }
+    },
+    {
+      "name": "exact-south-west",
+      "note": "precision 24, altitude only, below the ellipsoid",
+      "precision": 24,
+      "latitude": -336183000,
+      "longitude": -704517000,
+      "altitude": -12,
+      "plaintext": "02c1502ff29bcd50fff4",
+      "read": {
+        "precision": 24,
+        "row": 2627577,
+        "column": 5105320,
+        "latitude": -336183036,
+        "longitude": -704517067,
+        "south": -336183143,
+        "west": -704517174,
+        "altitude": -12
+      }
+    },
+    {
+      "name": "accuracy-only",
+      "note": "precision 22, accuracy 255: 255 m or worse",
+      "precision": 22,
+      "latitude": 603946000,
+      "longitude": 52878000,
+      "accuracy": 300,
+      "plaintext": "02b2d5e5041e14e0ff",
+      "read": {
+        "precision": 22,
+        "row": 1752224,
+        "column": 2158759,
+        "latitude": 603946352,
+        "longitude": 52878141,
+        "south": 603945922,
+        "west": 52877712,
+        "accuracy": 255
+      }
+    },
+    {
+      "name": "old",
+      "note": "an age past 195 minutes",
+      "precision": 18,
+      "latitude": -170000000,
+      "longitude": 1800000000,
+      "age_seconds": 14400,
+      "plaintext": "029467d2000000ff",
+      "read": {
+        "precision": 18,
+        "row": 53156,
+        "column": 0,
+        "latitude": -170006562,
+        "longitude": -1799993134,
+        "south": -170013428,
+        "west": -1800000000,
+        "age": 11760
+      }
+    },
+    {
+      "name": "hemisphere",
+      "note": "precision 1: which side of Greenwich",
+      "precision": 1,
+      "latitude": 458325000,
+      "longitude": 68644000,
+      "plaintext": "020880",
+      "read": {
+        "precision": 1,
+        "row": 0,
+        "column": 1,
+        "latitude": 0,
+        "longitude": 900000000,
+        "south": -900000000,
+        "west": 0
+      }
+    },
+    {
+      "name": "stopped",
+      "note": "precision 0: the sender has stopped sharing",
+      "precision": 0,
+      "plaintext": "0200",
+      "read": {
+        "precision": 0
+      }
+    }
+  ],
+  "extended": [
+    {
+      "plaintext": "0280c12f09c2aabb",
+      "read": {
+        "precision": 16,
+        "row": 24727,
+        "column": 34017,
+        "latitude": 458322143,
+        "longitude": 68637084,
+        "south": 458294677,
+        "west": 68609619
+      }
+    },
+    {
+      "plaintext": "020001",
+      "read": {
+        "precision": 0
+      }
+    }
+  ],
+  "ignored": [
+    {
+      "why": "shorter than a kind and a form",
+      "plaintext": ""
+    },
+    {
+      "why": "shorter than a kind and a form",
+      "plaintext": "02"
+    },
+    {
+      "why": "another kind",
+      "plaintext": "0160c1309c"
+    },
+    {
+      "why": "another kind",
+      "plaintext": "0360c1309c"
+    },
+    {
+      "why": "a precision above 24",
+      "plaintext": "02c800000000000000"
+    },
+    {
+      "why": "a precision above 24",
+      "plaintext": "02ff000000000000000000000000"
+    },
+    {
+      "why": "a stopped position with fields",
+      "plaintext": "0201"
+    },
+    {
+      "why": "a stopped position with fields",
+      "plaintext": "020405"
+    },
+    {
+      "why": "shorter than its fields",
+      "plaintext": "0260c130"
+    },
+    {
+      "why": "shorter than its fields",
+      "plaintext": "02c7c12f1b09c34012c604"
+    },
+    {
+      "why": "shorter than its fields",
+      "plaintext": "02c7c12f1b09c340"
+    },
+    {
+      "why": "a padding bit set",
+      "plaintext": "0260c1309d"
+    },
+    {
+      "why": "altitude -32768",
+      "plaintext": "02c1c12f1b09c3408000"
+    },
+    {
+      "why": "accuracy 0",
+      "plaintext": "02c2c12f1b09c34000"
+    }
+  ],
+  "ages": [
+    {
+      "seconds": 0,
+      "byte": 0,
+      "read_seconds": 0
+    },
+    {
+      "seconds": 1,
+      "byte": 1,
+      "read_seconds": 1
+    },
+    {
+      "seconds": 59,
+      "byte": 59,
+      "read_seconds": 59
+    },
+    {
+      "seconds": 60,
+      "byte": 60,
+      "read_seconds": 60
+    },
+    {
+      "seconds": 61,
+      "byte": 60,
+      "read_seconds": 60
+    },
+    {
+      "seconds": 119,
+      "byte": 60,
+      "read_seconds": 60
+    },
+    {
+      "seconds": 120,
+      "byte": 61,
+      "read_seconds": 120
+    },
+    {
+      "seconds": 600,
+      "byte": 69,
+      "read_seconds": 600
+    },
+    {
+      "seconds": 3599,
+      "byte": 118,
+      "read_seconds": 3540
+    },
+    {
+      "seconds": 3600,
+      "byte": 119,
+      "read_seconds": 3600
+    },
+    {
+      "seconds": 11700,
+      "byte": 254,
+      "read_seconds": 11700
+    },
+    {
+      "seconds": 11760,
+      "byte": 255,
+      "read_seconds": 11760
+    },
+    {
+      "seconds": 86400,
+      "byte": 255,
+      "read_seconds": 11760
+    }
+  ],
+  "sizes": [
+    {
+      "precision": 0,
+      "where_bytes": 0,
+      "cell_degrees": null,
+      "lengths": [
+        {
+          "fields": "",
+          "plaintext": 2,
+          "unicast_frame": 25,
+          "group_frame": 29,
+          "airtime_ns": {
+            "US915": {
+              "unicast": 59648000,
+              "group": 64768000
+            },
+            "EU868": {
+              "unicast": 69888000,
+              "group": 75008000
+            }
+          }
+        }
+      ]
+    },
+    {
+      "precision": 1,
+      "where_bytes": 1,
+      "cell_degrees": "360/2^1",
+      "lengths": [
+        {
+          "fields": "",
+          "plaintext": 3,
+          "unicast_frame": 26,
+          "group_frame": 30,
+          "airtime_ns": {
+            "US915": {
+              "unicast": 59648000,
+              "group": 64768000
+            },
+            "EU868": {
+              "unicast": 69888000,
+              "group": 80128000
+            }
+          }
+        },
+        {
+          "fields": "altitude, accuracy, age",
+          "plaintext": 7,
+          "unicast_frame": 30,
+          "group_frame": 34,
+          "airtime_ns": {
+            "US915": {
+              "unicast": 64768000,
+              "group": 69888000
+            },
+            "EU868": {
+              "unicast": 80128000,
+              "group": 85248000
+            }
+          }
+        }
+      ]
+    },
+    {
+      "precision": 4,
+      "where_bytes": 1,
+      "cell_degrees": "360/2^4",
+      "lengths": [
+        {
+          "fields": "",
+          "plaintext": 3,
+          "unicast_frame": 26,
+          "group_frame": 30,
+          "airtime_ns": {
+            "US915": {
+              "unicast": 59648000,
+              "group": 64768000
+            },
+            "EU868": {
+              "unicast": 69888000,
+              "group": 80128000
+            }
+          }
+        },
+        {
+          "fields": "altitude, accuracy, age",
+          "plaintext": 7,
+          "unicast_frame": 30,
+          "group_frame": 34,
+          "airtime_ns": {
+            "US915": {
+              "unicast": 64768000,
+              "group": 69888000
+            },
+            "EU868": {
+              "unicast": 80128000,
+              "group": 85248000
+            }
+          }
+        }
+      ]
+    },
+    {
+      "precision": 8,
+      "where_bytes": 2,
+      "cell_degrees": "360/2^8",
+      "lengths": [
+        {
+          "fields": "",
+          "plaintext": 4,
+          "unicast_frame": 27,
+          "group_frame": 31,
+          "airtime_ns": {
+            "US915": {
+              "unicast": 64768000,
+              "group": 69888000
+            },
+            "EU868": {
+              "unicast": 75008000,
+              "group": 80128000
+            }
+          }
+        },
+        {
+          "fields": "altitude, accuracy, age",
+          "plaintext": 8,
+          "unicast_frame": 31,
+          "group_frame": 35,
+          "airtime_ns": {
+            "US915": {
+              "unicast": 69888000,
+              "group": 69888000
+            },
+            "EU868": {
+              "unicast": 80128000,
+              "group": 85248000
+            }
+          }
+        }
+      ]
+    },
+    {
+      "precision": 12,
+      "where_bytes": 3,
+      "cell_degrees": "360/2^12",
+      "lengths": [
+        {
+          "fields": "",
+          "plaintext": 5,
+          "unicast_frame": 28,
+          "group_frame": 32,
+          "airtime_ns": {
+            "US915": {
+              "unicast": 64768000,
+              "group": 69888000
+            },
+            "EU868": {
+              "unicast": 75008000,
+              "group": 80128000
+            }
+          }
+        },
+        {
+          "fields": "altitude, accuracy, age",
+          "plaintext": 9,
+          "unicast_frame": 32,
+          "group_frame": 36,
+          "airtime_ns": {
+            "US915": {
+              "unicast": 69888000,
+              "group": 75008000
+            },
+            "EU868": {
+              "unicast": 80128000,
+              "group": 85248000
+            }
+          }
+        }
+      ]
+    },
+    {
+      "precision": 16,
+      "where_bytes": 4,
+      "cell_degrees": "360/2^16",
+      "lengths": [
+        {
+          "fields": "",
+          "plaintext": 6,
+          "unicast_frame": 29,
+          "group_frame": 33,
+          "airtime_ns": {
+            "US915": {
+              "unicast": 64768000,
+              "group": 69888000
+            },
+            "EU868": {
+              "unicast": 75008000,
+              "group": 80128000
+            }
+          }
+        },
+        {
+          "fields": "altitude, accuracy, age",
+          "plaintext": 10,
+          "unicast_frame": 33,
+          "group_frame": 37,
+          "airtime_ns": {
+            "US915": {
+              "unicast": 69888000,
+              "group": 75008000
+            },
+            "EU868": {
+              "unicast": 80128000,
+              "group": 90368000
+            }
+          }
+        }
+      ]
+    },
+    {
+      "precision": 18,
+      "where_bytes": 5,
+      "cell_degrees": "360/2^18",
+      "lengths": [
+        {
+          "fields": "",
+          "plaintext": 7,
+          "unicast_frame": 30,
+          "group_frame": 34,
+          "airtime_ns": {
+            "US915": {
+              "unicast": 64768000,
+              "group": 69888000
+            },
+            "EU868": {
+              "unicast": 80128000,
+              "group": 85248000
+            }
+          }
+        },
+        {
+          "fields": "altitude, accuracy, age",
+          "plaintext": 11,
+          "unicast_frame": 34,
+          "group_frame": 38,
+          "airtime_ns": {
+            "US915": {
+              "unicast": 69888000,
+              "group": 75008000
+            },
+            "EU868": {
+              "unicast": 85248000,
+              "group": 90368000
+            }
+          }
+        }
+      ]
+    },
+    {
+      "precision": 20,
+      "where_bytes": 5,
+      "cell_degrees": "360/2^20",
+      "lengths": [
+        {
+          "fields": "",
+          "plaintext": 7,
+          "unicast_frame": 30,
+          "group_frame": 34,
+          "airtime_ns": {
+            "US915": {
+              "unicast": 64768000,
+              "group": 69888000
+            },
+            "EU868": {
+              "unicast": 80128000,
+              "group": 85248000
+            }
+          }
+        },
+        {
+          "fields": "altitude, accuracy, age",
+          "plaintext": 11,
+          "unicast_frame": 34,
+          "group_frame": 38,
+          "airtime_ns": {
+            "US915": {
+              "unicast": 69888000,
+              "group": 75008000
+            },
+            "EU868": {
+              "unicast": 85248000,
+              "group": 90368000
+            }
+          }
+        }
+      ]
+    },
+    {
+      "precision": 22,
+      "where_bytes": 6,
+      "cell_degrees": "360/2^22",
+      "lengths": [
+        {
+          "fields": "",
+          "plaintext": 8,
+          "unicast_frame": 31,
+          "group_frame": 35,
+          "airtime_ns": {
+            "US915": {
+              "unicast": 69888000,
+              "group": 69888000
+            },
+            "EU868": {
+              "unicast": 80128000,
+              "group": 85248000
+            }
+          }
+        },
+        {
+          "fields": "altitude, accuracy, age",
+          "plaintext": 12,
+          "unicast_frame": 35,
+          "group_frame": 39,
+          "airtime_ns": {
+            "US915": {
+              "unicast": 69888000,
+              "group": 75008000
+            },
+            "EU868": {
+              "unicast": 85248000,
+              "group": 90368000
+            }
+          }
+        }
+      ]
+    },
+    {
+      "precision": 24,
+      "where_bytes": 6,
+      "cell_degrees": "360/2^24",
+      "lengths": [
+        {
+          "fields": "",
+          "plaintext": 8,
+          "unicast_frame": 31,
+          "group_frame": 35,
+          "airtime_ns": {
+            "US915": {
+              "unicast": 69888000,
+              "group": 69888000
+            },
+            "EU868": {
+              "unicast": 80128000,
+              "group": 85248000
+            }
+          }
+        },
+        {
+          "fields": "altitude, accuracy, age",
+          "plaintext": 12,
+          "unicast_frame": 35,
+          "group_frame": 39,
+          "airtime_ns": {
+            "US915": {
+              "unicast": 69888000,
+              "group": 75008000
+            },
+            "EU868": {
+              "unicast": 85248000,
+              "group": 90368000
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "frames": [
+    {
+      "name": "to-a-contact",
+      "note": "a secured unicast frame with the node flag set",
+      "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "direction": 1,
+      "counter": 5,
+      "hdr": 73,
+      "hops": 32,
+      "power": 14,
+      "next": 168496141,
+      "destination": 16909060,
+      "plaintext": "02c7c12f1b09c34012c6040c",
+      "frame": "49200e0a0b0c0d0102030435ffdf2d4b9c7f28edccf463fc9bc256f81faa4eb8dd3790"
+    },
+    {
+      "name": "to-a-group",
+      "note": "a group frame with the node flag set",
+      "group_secret": "000102030405060708090a0b0c0d0e0f",
+      "nonce": "5050505050505050",
+      "from": 489570112,
+      "hdr": 97,
+      "hops": 5,
+      "power": 14,
+      "content": "0260c1309c",
+      "frame": "61050e505050505050505095a335ad8797a0dc73107a2e8a3fee6a89b1bfd879"
+    }
+  ],
+  "receiving": [
+    {
+      "name": "overtaken",
+      "note": "an older position after a newer is ignored",
+      "deliveries": [
+        {
+          "contact": true,
+          "counter": 5,
+          "plaintext": "02c0c12f1b09c340",
+          "holds": {
+            "precision": 24,
+            "row": 6330253,
+            "column": 8708512,
+            "latitude": 458325040,
+            "longitude": 68644058,
+            "south": 458324933,
+            "west": 68643951
+          }
+        },
+        {
+          "contact": true,
+          "counter": 3,
+          "plaintext": "0260d5f078",
+          "holds": {
+            "precision": 24,
+            "row": 6330253,
+            "column": 8708512,
+            "latitude": 458325040,
+            "longitude": 68644058,
+            "south": 458324933,
+            "west": 68643951
+          }
+        },
+        {
+          "contact": true,
+          "counter": 6,
+          "plaintext": "0280d5e50784",
+          "holds": {
+            "precision": 16,
+            "row": 27378,
+            "column": 33730,
+            "latitude": 603945922,
+            "longitude": 52871704,
+            "south": 603918457,
+            "west": 52844238
+          }
+        }
+      ]
+    },
+    {
+      "name": "after-stopped",
+      "note": "a stopped position overtakes an older one, which is ignored when it comes: the counter is kept though the position is forgotten",
+      "deliveries": [
+        {
+          "contact": true,
+          "counter": 5,
+          "plaintext": "02c0c12f1b09c340",
+          "holds": {
+            "precision": 24,
+            "row": 6330253,
+            "column": 8708512,
+            "latitude": 458325040,
+            "longitude": 68644058,
+            "south": 458324933,
+            "west": 68643951
+          }
+        },
+        {
+          "contact": true,
+          "counter": 7,
+          "plaintext": "0200",
+          "holds": null
+        },
+        {
+          "contact": true,
+          "counter": 6,
+          "plaintext": "02a0c12f109c34",
+          "holds": null
+        },
+        {
+          "contact": true,
+          "counter": 8,
+          "plaintext": "0260c1309c",
+          "holds": {
+            "precision": 12,
+            "row": 1545,
+            "column": 2126,
+            "latitude": 458349609,
+            "longitude": 68994140,
+            "south": 457910156,
+            "west": 68554687
+          }
+        }
+      ]
+    },
+    {
+      "name": "ignored-keeps-nothing",
+      "note": "a plaintext that is ignored moves no counter",
+      "deliveries": [
+        {
+          "contact": true,
+          "counter": 9,
+          "plaintext": "0260c130",
+          "holds": null
+        },
+        {
+          "contact": true,
+          "counter": 4,
+          "plaintext": "0260c1309c",
+          "holds": {
+            "precision": 12,
+            "row": 1545,
+            "column": 2126,
+            "latitude": 458349609,
+            "longitude": 68994140,
+            "south": 457910156,
+            "west": 68554687
+          }
+        }
+      ]
+    },
+    {
+      "name": "not-a-contact",
+      "note": "a position from an address that is not a contact is ignored",
+      "deliveries": [
+        {
+          "contact": false,
+          "counter": 0,
+          "plaintext": "0260c1309c",
+          "holds": null
+        },
+        {
+          "contact": false,
+          "counter": 1,
+          "plaintext": "0200",
+          "holds": null
+        }
+      ]
+    }
+  ],
+  "schedule": [
+    {
+      "note": "the first since sharing began",
+      "interval": 900,
+      "last_at": null,
+      "changed": true,
+      "age": 0,
+      "now": 1000,
+      "due": true
+    },
+    {
+      "note": "the first, even unchanged",
+      "interval": 900,
+      "last_at": null,
+      "changed": false,
+      "age": 0,
+      "now": 1000,
+      "due": true
+    },
+    {
+      "note": "too soon after the last",
+      "interval": 900,
+      "last_at": 1000,
+      "changed": true,
+      "age": 0,
+      "now": 1899,
+      "due": false
+    },
+    {
+      "note": "the interval passed, and it moved",
+      "interval": 900,
+      "last_at": 1000,
+      "changed": true,
+      "age": 0,
+      "now": 1900,
+      "due": true
+    },
+    {
+      "note": "the interval passed, and it did not move",
+      "interval": 900,
+      "last_at": 1000,
+      "changed": false,
+      "age": 0,
+      "now": 1900,
+      "due": false
+    },
+    {
+      "note": "not moved, refreshed after POSITION_REFRESH",
+      "interval": 900,
+      "last_at": 1000,
+      "changed": false,
+      "age": 0,
+      "now": 4600,
+      "due": true
+    },
+    {
+      "note": "not moved, a second short of it",
+      "interval": 900,
+      "last_at": 1000,
+      "changed": false,
+      "age": 0,
+      "now": 4599,
+      "due": false
+    },
+    {
+      "note": "an interval longer than the refresh",
+      "interval": 7200,
+      "last_at": 1000,
+      "changed": false,
+      "age": 0,
+      "now": 8200,
+      "due": true
+    },
+    {
+      "note": "a fix too old",
+      "interval": 900,
+      "last_at": null,
+      "changed": true,
+      "age": 3601,
+      "now": 1000,
+      "due": false
+    },
+    {
+      "note": "a fix exactly POSITION_STALE old",
+      "interval": 900,
+      "last_at": null,
+      "changed": true,
+      "age": 3600,
+      "now": 1000,
+      "due": true
+    },
+    {
+      "note": "a group's least interval",
+      "interval": 300,
+      "last_at": 1000,
+      "changed": true,
+      "age": 30,
+      "now": 1300,
+      "due": true
+    },
+    {
+      "note": "a contact's least interval",
+      "interval": 60,
+      "last_at": 1000,
+      "changed": true,
+      "age": 30,
+      "now": 1059,
+      "due": false
+    }
+  ]
+}

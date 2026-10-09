@@ -8,7 +8,7 @@
 #include "tern/address.h"
 #include "tern/time.h"
 
-/* The companion protocol: version 4 of draft/companion.md in ternmesh/spec.
+/* The companion protocol: version 5 of draft/companion.md in ternmesh/spec.
  *
  * The link between a node and the client driving it, a phone or a computer, over USB serial, TCP
  * or Bluetooth LE. It never goes over LoRa. This is the part every node and every client needs:
@@ -16,7 +16,7 @@
  * text console. What a node answers and when is the node's business, not the core's (on the
  * ESP32 boards, ports/esp32/main/link.c). */
 
-#define TERN_COMPANION_VERSION 4
+#define TERN_COMPANION_VERSION 5
 #define TERN_COMPANION_MAX_FRAME 180
 #define TERN_COMPANION_STREAM_MAX (TERN_COMPANION_MAX_FRAME + 6) /* magic, length, CRC */
 #define TERN_COMPANION_NAME_MAX 31
@@ -51,6 +51,9 @@ enum tern_companion_type {
     TERN_C_UPDATE_BEGIN = 0x30, /* version 4, as are the two after it */
     TERN_C_UPDATE_DATA = 0x31,
     TERN_C_UPDATE_END = 0x32,
+    TERN_C_SET_POSITION = 0x33, /* version 5, as are the two after it */
+    TERN_C_SHARE = 0x34,
+    TERN_C_SHARE_GROUP = 0x35,
     /* Answers, node to client. */
     TERN_C_OK = 0x40,
     TERN_C_ERROR = 0x41,
@@ -74,6 +77,10 @@ enum tern_companion_type {
     TERN_C_GROUP_GONE = 0x8B,
     TERN_C_GROUP_MESSAGE = 0x8C,
     TERN_C_INVITE = 0x8D,
+    TERN_C_POSITION = 0x8E, /* version 5, as are the three after it */
+    TERN_C_GROUP_POSITION = 0x8F,
+    TERN_C_SHARING = 0x90,
+    TERN_C_GROUP_SHARING = 0x91,
 };
 
 /* The first version of the protocol that defines a type: a node sends a client no frame its
@@ -103,6 +110,7 @@ enum tern_companion_error {
     TERN_C_ERR_NOT_HELD = 9,      /* version 2 */
     TERN_C_ERR_NOT_THERE = 10,    /* version 4: no update under way, or not at that offset */
     TERN_C_ERR_NOT_AN_IMAGE = 11, /* version 4: the update is discarded */
+    TERN_C_ERR_NOT_CONTACT = 12,  /* version 5: an address the node does not hold as a contact */
 };
 
 enum tern_companion_state {
@@ -131,12 +139,16 @@ enum tern_companion_why {
 #define TERN_C_READ_FLAG 0x01      /* MESSAGE flags: a received message has been read */
 #define TERN_C_CHARGING 0x01       /* POWER flags */
 #define TERN_C_EXTERNAL_POWER 0x02 /* POWER flags */
+#define TERN_C_SHARE_ALTITUDE 0x01 /* SHARE's and SHARING's fields */
+#define TERN_C_SHARE_ACCURACY 0x02
+#define TERN_C_NO_ALTITUDE (-32768) /* a position's altitude, when there is none */
 
 /* Any frame, as its fields. Each type uses the members its table in the draft names, under the
  * same names (SYNCED's news is `news`), with three folded together: the one string a frame carries
  * (text, name, firmware, region, or SET's region) is `text`; the one address (to, address, contact)
  * is `address`; and `wait` is MESSAGE's and STATE's u16 or AIRTIME's u32. INFO's board and release,
- * and UPDATE_DATA's data, have members of their own. SET's value is `text`,
+ * and UPDATE_DATA's data, have members of their own. A position's `accuracy` and `age` are one
+ * member each, though SET_POSITION's are wider than the news'. SET's value is `text`,
  * `role`, `power` or `passkey` as `setting` says. Members a type does not use are ignored when
  * writing and left as they were when reading. */
 struct tern_companion_msg {
@@ -146,6 +158,12 @@ struct tern_companion_msg {
     uint16_t heard, millivolts;
     uint32_t after, time, ref, through, id, routing_id, period, allowed, used, wait, passkey;
     uint32_t from, size, offset;
+    int32_t lat, lon;          /* positions' and SET_POSITION's, in 10^-7 degree */
+    int16_t altitude;          /* metres, or TERN_C_NO_ALTITUDE */
+    uint16_t accuracy;         /* metres, 0 for none */
+    uint32_t age;              /* seconds */
+    uint8_t precision, fields; /* fields: SHARE's and SHARING's */
+    uint16_t interval, minutes;
     uint8_t address[TERN_ADDRESS_LEN];
     uint8_t group[TERN_COMPANION_GROUP];
     uint8_t digest[TERN_COMPANION_DIGEST];

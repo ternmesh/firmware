@@ -27,6 +27,7 @@ idf_component_register(
         ${root}/src/listen.c
         ${root}/src/hkdf.c
         ${root}/src/lora.c
+        ${root}/src/position.c
         ${root}/src/radio.c
         ${root}/src/region.c
         ${root}/src/route.c

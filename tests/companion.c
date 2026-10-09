@@ -110,6 +110,15 @@ static void each_type_has_the_version_it_came_in(void) {
         CHECK(tern_companion_since((uint8_t)t) == 2);
     }
     CHECK(tern_companion_since(TERN_C_MADE) == 2 && tern_companion_since(TERN_C_QUEUED) == 0);
+    for (unsigned t = TERN_C_UPDATE_BEGIN; t <= TERN_C_UPDATE_END; t++) {
+        CHECK(tern_companion_since((uint8_t)t) == 4);
+    }
+    for (unsigned t = TERN_C_SET_POSITION; t <= TERN_C_SHARE_GROUP; t++) {
+        CHECK(tern_companion_since((uint8_t)t) == 5);
+    }
+    for (unsigned t = TERN_C_POSITION; t <= TERN_C_GROUP_SHARING; t++) {
+        CHECK(tern_companion_since((uint8_t)t) == 5);
+    }
 }
 
 static void rejected_frames_are_answered_as_the_draft_says(void) {

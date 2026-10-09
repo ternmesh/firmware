@@ -37,16 +37,16 @@ import time
 
 MAX_FRAME, MAGIC = 180, b"\xf5\x54"
 # The version this script speaks. It has no commands for groups, which came with version 2, so it
-# says 1 and is told of none: the frames of versions 2 and 3 are here only to be checked. `update`
+# says 1 and is told of none: the frames of versions 2 to 5 are here only to be checked. `update`
 # says the latest, which it needs.
 VERSION = 1
 # The latest version the frames below are, which selftest reads the vectors by.
-LATEST = 4
+LATEST = 5
 UPDATE_CHUNK = 172
 ANSWER_WAIT = 5.0
 IDLE = 20.0  # the most a client lets pass after an answer before it asks again
 
-# type: (name, fields). A field is (name, kind) with kind one of B b H I addr gid digest str raw
+# type: (name, fields). A field is (name, kind) with kind one of B b H h I i addr gid digest str raw
 # (bytes of anything, after a length).
 FRAMES = {
     0x01: ("HELLO", [("version", "B")]),
@@ -68,6 +68,12 @@ FRAMES = {
     0x30: ("UPDATE_BEGIN", [("size", "I"), ("digest", "digest")]),
     0x31: ("UPDATE_DATA", [("offset", "I"), ("data", "raw")]),
     0x32: ("UPDATE_END", []),
+    0x33: ("SET_POSITION", [("lat", "i"), ("lon", "i"), ("altitude", "h"), ("accuracy", "H"),
+                            ("age", "H")]),
+    0x34: ("SHARE", [("contact", "addr"), ("precision", "B"), ("fields", "B"), ("interval", "H"),
+                     ("minutes", "H")]),
+    0x35: ("SHARE_GROUP", [("group", "gid"), ("precision", "B"), ("fields", "B"),
+                           ("interval", "H"), ("minutes", "H")]),
     0x40: ("OK", []),
     0x41: ("ERROR", [("code", "B")]),
     0x42: ("INFO", [("version", "B"), ("firmware", "str"), ("board", "str"), ("release", "str")]),
@@ -96,6 +102,14 @@ FRAMES = {
     0x8D: ("INVITE", [("id", "I"), ("contact", "addr"), ("group", "gid"), ("time", "I"),
                       ("flags", "B"), ("state", "B"), ("reason", "B"), ("wait", "H"),
                       ("name", "str")]),
+    0x8E: ("POSITION", [("contact", "addr"), ("precision", "B"), ("lat", "i"), ("lon", "i"),
+                        ("altitude", "h"), ("accuracy", "B"), ("age", "I")]),
+    0x8F: ("GROUP_POSITION", [("group", "gid"), ("from", "I"), ("precision", "B"), ("lat", "i"),
+                              ("lon", "i"), ("altitude", "h"), ("accuracy", "B"), ("age", "I")]),
+    0x90: ("SHARING", [("contact", "addr"), ("precision", "B"), ("fields", "B"),
+                       ("interval", "H"), ("minutes", "H")]),
+    0x91: ("GROUP_SHARING", [("group", "gid"), ("precision", "B"), ("fields", "B"),
+                             ("interval", "H"), ("minutes", "H")]),
 }
 # Fields a later version added at the end of a frame: an earlier version's frame stops before them.
 LATER = {(0x43, "news"): 3, (0x42, "board"): 4, (0x42, "release"): 4}
@@ -109,7 +123,8 @@ REASONS = ["", "for a route", "for a session", "for the region's limit", "for it
 ERRORS = {1: "not something this node knows", 2: "malformed", 3: "refused",
           4: "not a valid address, or the node's own", 5: "no room", 6: "HELLO first",
           7: "the Bluetooth MTU is too small", 8: "not now", 9: "not held",
-          10: "not where the update is", 11: "not an image this node runs"}
+          10: "not where the update is", 11: "not an image this node runs",
+          12: "not a contact"}
 
 
 def crc16(data):

@@ -418,6 +418,34 @@ What to know before trusting one with anything:
   message with its old words, and nobody need hold the group's secret to do it. The draft lists
   replay as not yet closed.
 
+## Positions
+
+A client can give the board its position and have it shared, as
+[positions](https://github.com/ternmesh/spec/blob/main/draft/positions.md) says, with the contacts
+the user chooses, at the precision the user chooses: `SET_POSITION`, then `SHARE` (companion
+protocol version 5). The board has no receiver of its own, so it shares nothing until a client has
+given it a position. It works out the cell, decides when one is due, and sends it to the contact
+as a message for its node, sealed and acknowledged as a message is. What it receives from a
+contact is told to every client as a `POSITION`.
+
+* **Only to contacts, and only over a session.** A position never makes first contact: to a
+  contact the board shares no session with, nothing goes.
+* **Seldom.** One goes when the board has moved to another cell, no sooner than the interval the
+  user chose (a minute at least), and again after an hour if it has not. One at a time to each
+  contact: the next waits until the last is acknowledged or given up. A fix more than an hour old
+  is not sent. Messages go first.
+* **A cell's edge.** Once a cell has gone, the board takes itself to be in it until it is more
+  than a quarter of a cell outside it.
+* **Turning sharing off** sends the contact a stopped position, once, if a position had gone. A
+  contact that receives one forgets the last: a node that keeps it anyway cannot be stopped.
+* **Not across a restart.** Sharing is not saved: after a restart the board shares with nobody
+  until a client turns it on again, and a client's next sync says so. Received positions are not
+  saved either, and are forgotten a day after they came.
+* **Not to groups yet.** The board holds what `SHARE_GROUP` sets, and tells clients of it, but a
+  position to a group needs the group frame's `node` flag, which
+  [ternmesh/spec#28](https://github.com/ternmesh/spec/pull/28) adds. Until the board has it, it
+  sends no position to a group and reads none from one.
+
 ## The companion link
 
 The same USB port speaks the
@@ -552,7 +580,7 @@ signed: the digest says it arrived whole, not who made it.
 | `main/power.c` | Which of the battery's readings to believe, and the charge a voltage is taken for. Tested on a host by `tests/power.c`; `board.c` does the reading. |
 | `main/status.c` | The bench pages, and the snapshot they are drawn from, as lines of text. Tested on a host by `tests/status.c`. |
 | `main/display.c` | The picture of the screen, its font in two sizes, the bar, and which parts of it have changed. |
-| `main/link.c` | The companion link: contacts, messages and what became of them, updates, and the answers and news each client gets, on USB and over Bluetooth. No hardware code; tested on a host by `tests/link.c`, and with `tools/companion.py` by `tests/link_script.py`. |
+| `main/link.c` | The companion link: contacts, messages and what became of them, positions and whom they are shared with, updates, and the answers and news each client gets, on USB and over Bluetooth. No hardware code; tested on a host by `tests/link.c`, and with `tools/companion.py` by `tests/link_script.py`. |
 | `main/ble.c` | The companion link's Bluetooth LE service, pairing and advertising, over NimBLE, which runs in its own task and reports to the loop through a queue. |
 | `main/main.c` | One loop that polls the radio, the serial port, the button and the screen. |
 | `../../src/sx126x.c` | The SX1262 driver, part of the core and shared with every board. |
