@@ -308,6 +308,27 @@ enum link_saved plat_message_save(size_t place, const uint8_t *buf, size_t len) 
     return LINK_SAVED;
 }
 
+size_t plat_store_read(const char *key, void *buf, size_t cap) {
+    ssize_t len = find(key, buf, cap);
+    return len > 0 && (size_t)len <= cap ? (size_t)len : 0;
+}
+
+/* Only with SPARE_BYTES still free besides, as for a message. */
+bool plat_store_save_if_room(const char *key, const void *buf, size_t len) {
+    char k[KEY_MAX];
+    full_key(k, key);
+    if (len == 0) {
+        int err = settings_delete(k);
+        return err == 0 || err == -ENOENT;
+    }
+    struct nvs_fs *fs = store_fs();
+    ssize_t free_bytes = fs != NULL ? nvs_calc_free_space(fs) : -1;
+    if (free_bytes < 0 || (size_t)free_bytes < SPARE_BYTES + cost_of(len)) {
+        return false;
+    }
+    return settings_save_one(k, buf, len) == 0;
+}
+
 bool plat_state_load(size_t place, uint64_t *state) {
     char key[8];
     message_key(key, 's', place);
