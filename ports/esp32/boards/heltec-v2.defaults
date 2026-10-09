@@ -1,0 +1,4 @@
+# The Heltec WiFi LoRa 32 V2: a classic ESP32 with 8 MB of flash, its console UART0 through the
+# CP2102 on its USB port, as sdkconfig.defaults has it.
+CONFIG_IDF_TARGET="esp32"
+CONFIG_TERN_BOARD_HELTEC_V2=y

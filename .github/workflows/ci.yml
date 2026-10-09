@@ -96,7 +96,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        board: [heltec-v3, heltec-v4, heltec-wsl-v3, heltec-tracker, heltec-vme290, heltec-vme213, heltec-paper]
+        board: [heltec-v3, heltec-v4, heltec-wsl-v3, heltec-tracker, heltec-vme290, heltec-vme213, heltec-paper, heltec-v2, heltec-v21, lilygo-t3-v161]
     steps:
       - uses: actions/checkout@v4
       - uses: espressif/esp-idf-ci-action@v1

@@ -6,12 +6,12 @@
 #include <stdint.h>
 
 #include "tern/radio.h"
-#include "tern/sx126x.h"
 #include "tern/time.h"
 
-/* The board the node runs on: what each port implements for each board it supports, an SX1262 and
- * whatever the board has besides (on an ESP32, ports/esp32/main/board.c, its pins from boards.c).
- * Where a board has no screen, LED or battery, those say so and the node goes on without. */
+/* The board the node runs on: what each port implements for each board it supports, a LoRa radio
+ * (an SX1262, or on an ESP32 an SX1276 or SX1278) and whatever the board has besides (on an ESP32,
+ * ports/esp32/main/board.c, its pins from boards.c). Where a board has no screen, LED or battery,
+ * those say so and the node goes on without. */
 
 /* The board's name, as its maker sells it. */
 const char *board_title(void);
@@ -24,11 +24,24 @@ bool board_power_ok(int dbm);
 
 /* Sets up the pins and the SPI bus, resets the radio and starts its driver, and powers the board's
  * amplifier if it has one. */
-int board_init(struct tern_sx126x *radio);
+int board_init(void);
 
 /* The radio for the core: the chip's own, or on a board with an amplifier one that drives it, and
  * takes the core's powers to be the antenna's (boards.h). */
-struct tern_radio board_radio(struct tern_sx126x *radio);
+struct tern_radio board_radio(void);
+
+/* What the radio's receiver has seen since it started, or since board_radio_counts_reset(): the
+ * driver's own counts (tern/sx126x.h, tern/sx127x.h), which are the same five. */
+struct board_radio_counts {
+    uint32_t preambles, headers, header_errors, crc_errors, frames;
+};
+void board_radio_counts(struct board_radio_counts *c);
+void board_radio_counts_reset(void);
+
+/* Puts the radio to sleep, for a board that is turning itself off: started first if board_init()
+ * was never called, since from power on it would sit in standby. A radio that does not answer is
+ * left as it is. */
+void board_radio_sleep(void);
 
 tern_time board_now(void);
 
@@ -60,7 +73,7 @@ uint16_t board_battery_mv(void);
 /* Turns the board off: the display unpowered, the chip in deep sleep, drawing tens of microamps,
  * once PRG has been let go. A press of PRG turns it on again, and so does `wake_after_s` passing,
  * if it is not 0. Either way it starts from the top, as at power on. The radio is put to sleep by
- * the caller first (tern_sx126x_sleep()). Never returns. */
+ * the caller first (board_radio_sleep()). Never returns. */
 __attribute__((noreturn)) void board_off(uint32_t wake_after_s);
 
 /* Whether this start is the timer board_off() was given running out, rather than a press or

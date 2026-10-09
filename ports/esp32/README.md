@@ -32,6 +32,9 @@ run on another. Everything below holds for each, unless it says otherwise.
 | Heltec Vision Master E290 | `heltec-vme290` | Built, not yet run on a board | Runs without its e-paper for now; the button is the one marked USER, not BOOT. USB from the ESP32-S3 itself. |
 | Heltec Vision Master E213 | `heltec-vme213` | Built, not yet run on a board | As the E290. |
 | Heltec Wireless Paper | `heltec-paper` | Built, not yet run on a board | Runs without its e-paper for now. USB through a CP2102. |
+| Heltec WiFi LoRa 32 V2 | `heltec-v2` | Built, not yet run on a board | A classic ESP32 and an SX1276, 2 to 17 dBm. USB through a CP2102. |
+| Heltec WiFi LoRa 32 V2.1 | `heltec-v21` | Built, not yet run on a board | A V2 that reads its battery on another pin: an image for the one does not read the other's battery. |
+| LilyGo LoRa32 T3 V1.6.1 (868/915 MHz) | `lilygo-t3-v161` | Built, not yet run on a board | A classic ESP32 and an SX1276. Its only button is RESET, so it turns off only when its battery runs down. Not the 433 MHz board, which has an SX1278. |
 
 A board without a screen it can drive runs as one with no screen: the console, the companion link
 and the LED say what it is doing.
@@ -105,7 +108,9 @@ cd ports/esp32
 idf.py -B build-heltec-v4 -p /dev/ttyACM0 flash monitor  # COM3 or similar on Windows
 ```
 
-A plain `idf.py build` builds for the V3, as before there were other boards.
+A plain `idf.py build` builds for the V3, as before there were other boards. `build.sh` builds for
+the board's own chip, the ESP32-S3 or the classic ESP32 (`CONFIG_IDF_TARGET` in its file in
+`boards/`), whatever the shell's `IDF_TARGET` says.
 
 If flashing a V3 stops with "Invalid head of packet", the USB-to-serial chip is not keeping up:
 add `-b 230400`.

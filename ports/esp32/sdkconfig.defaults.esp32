@@ -1,0 +1,4 @@
+# Over sdkconfig.defaults, for a board whose chip is the classic ESP32 (ESP-IDF reads this file
+# beside sdkconfig.defaults when the build is for that chip). Its Bluetooth controller is set apart
+# from the host, and holds room for as many connections as it is told: one, as NimBLE is.
+CONFIG_BTDM_CTRL_BLE_MAX_CONN=1

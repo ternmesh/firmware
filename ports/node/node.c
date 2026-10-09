@@ -74,7 +74,6 @@
 #include "tern/region.h"
 #include "tern/route.h"
 #include "tern/share.h"
-#include "tern/sx126x.h"
 #include "ui.h"
 
 #define CONSOLE_LINE 300
@@ -112,7 +111,6 @@ _Static_assert(sizeof FIRMWARE - 1 <= TERN_COMPANION_FIRMWARE_MAX, "the version 
 #define IDS_EARLIER 0x10000u /* past the message ids of a build that did not keep them */
 #define PASSKEY_RANDOM 0xFFFFFFFFu
 
-static struct tern_sx126x sx;
 static struct tern_radio radio;
 static struct tern_radio_config cfg;
 static const struct tern_region *region;
@@ -1434,7 +1432,9 @@ static bool bench_configure(void) {
 }
 
 static void bench_counts(void) {
-    const struct tern_sx126x_counts *c = &sx.counts;
+    struct board_radio_counts counts;
+    const struct board_radio_counts *c = &counts;
+    board_radio_counts(&counts);
     int32_t rssi = bench_ours ? bench_rssi / (int32_t)bench_ours : 0;
     int32_t snr = bench_ours ? bench_snr_cdb / (int32_t)bench_ours : 0;
     printf("counts: sync 0x%02X, %d dBm, sent %lu, preambles %lu, headers %lu, header errors %lu, "
@@ -1547,7 +1547,7 @@ static bool bench_command(char *line) {
         return true;
     }
     if (strcmp(line, "counts reset") == 0) {
-        sx.counts = (struct tern_sx126x_counts){0};
+        board_radio_counts_reset();
         beacon_sent = bench_ours = bench_others = 0;
         bench_rssi = bench_snr_cdb = 0;
         printf("counts reset\n");
@@ -1574,7 +1574,7 @@ static bool bench_command(char *line) {
         cfg.sync_word = (uint8_t)a;
         off_profile = off_profile || cfg.sync_word != TERN_SYNC_WORD;
         if (bench_configure()) {
-            printf("sync word 0x%02X, which the radio takes as 0x%04X\n", cfg.sync_word,
+            printf("sync word 0x%02X, which an SX126x takes as 0x%04X\n", cfg.sync_word,
                    tern_sync_word_sx126x(cfg.sync_word));
         }
     } else if (is_power) {
@@ -2192,9 +2192,20 @@ static bool memory_save(void *ctx, const char *key, const void *buf, size_t len)
 }
 
 static void selftest(void) {
-    static struct memory_store flash[2];
-    static struct demo node[2];
-    static uint8_t msg[TERN_UNICAST_MAX_PLAINTEXT];
+    /* Two whole nodes, borrowed from the heap while the test runs rather than kept for it: the
+     * classic ESP32 has too little static RAM to hold them besides the node's own. */
+    struct selftest_memory {
+        struct memory_store flash[2];
+        struct demo node[2];
+        uint8_t msg[TERN_UNICAST_MAX_PLAINTEXT];
+    } *m = calloc(1, sizeof *m);
+    if (m == NULL) {
+        printf("selftest: no memory for it\n");
+        return;
+    }
+    struct memory_store *flash = m->flash;
+    struct demo *node = m->node;
+    uint8_t *msg = m->msg;
     static const char *const step[] = {"respond to message_1", "message_2 to message_3",
                                        "message_3 to message_4", "accept message_4"};
     struct demo_received got;
@@ -2203,7 +2214,6 @@ static void selftest(void) {
     bool ok = true;
     tern_time t0 = board_now(), t;
 
-    memset(flash, 0, sizeof flash);
     for (int i = 0; i < 2; i++) {
         struct demo_store st = {&flash[i], memory_load, memory_save, board_random};
         ok = demo_start(&node[i], &st, 1000000000LL) && ok;
@@ -2235,8 +2245,8 @@ static void selftest(void) {
     printf("selftest: %s, in %lld ms; %u bytes of this task's stack never used\n",
            ok ? "passed" : "FAILED", (long long)((board_now() - t0) / 1000000),
            (unsigned)plat_stack_unused());
-    memset(flash, 0, sizeof flash);
-    memset(node, 0, sizeof node);
+    memset(m, 0, sizeof *m); /* the keys, gone before the memory is given back */
+    free(m);
 }
 
 /* 'screen' says how long the screen stays on and whether it shows the bench pages; 'screen sleep
@@ -2900,14 +2910,8 @@ __attribute__((noreturn)) static void turn_off(enum ui_off why) {
         screen_flush();
         plat_sleep_ms(2000);
     }
-    /* The radio, asleep: started now if the board stopped before starting it (halt()), since
-     * from power on it would sit in standby. A radio that does not answer is left as it is. */
-    if (sx.bus.transfer == NULL) {
-        (void)board_init(&sx);
-    }
-    if (sx.bus.transfer != NULL) {
-        (void)tern_sx126x_sleep(&sx);
-    }
+    /* The radio, asleep, even if the board stopped before starting it (halt()). */
+    board_radio_sleep();
     board_off(why == UI_OFF_EMPTY ? EMPTY_CHECK_S : 0);
 }
 
@@ -3317,8 +3321,8 @@ void node_main(void) {
     tern_flood_init(&flood, &flc, &route, flood_slots, FLOOD_SLOTS, flood_seen, TERN_FLOOD_SEEN,
                     seed ^ 0x666c6f6fu, board_now());
 
-    int err = board_init(&sx);
-    radio = board_radio(&sx);
+    int err = board_init();
+    radio = board_radio();
     if (err == TERN_OK) {
         err = tern_radio_configure(&radio, &cfg);
     }

@@ -1,0 +1,8 @@
+# partitions.csv for a board with 4 MB of flash: the same layout, NVS and otadata where they are on
+# every board, so release.sh cuts its images at the same places, with two slots that end at 4 MB.
+#
+# Name,   Type, SubType, Offset,   Size
+nvs,      data, nvs,     0x9000,   0x6000
+otadata,  data, ota,     0xF000,   0x2000
+ota_0,    app,  ota_0,   0x20000,  0x1F0000
+ota_1,    app,  ota_1,   0x210000, 0x1F0000

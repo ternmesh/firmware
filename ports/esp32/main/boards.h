@@ -4,9 +4,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* What makes one ESP32 board with an SX1262 different from another: its pins, how its radio is
- * wired, and what else it has fitted. board.c drives whichever one the build chose (Kconfig,
- * "Board"); everything above board.h is the same on every board.
+/* What makes one ESP32 board different from another: which ESP32 it is, which radio, its pins, how
+ * the radio is wired, and what else it has fitted. board.c drives whichever one the build chose
+ * (Kconfig, "Board"); everything above board.h is the same on every board.
  *
  * Each is read off its maker's published datasheet and schematic, cited beside it in boards.c,
  * never from another mesh project's source (CONTRIBUTING.md). Nothing here touches the hardware,
@@ -14,29 +14,54 @@
 
 #define BOARD_NO_PIN (-1)
 
+/* The ESP32 on the board, which the build is for: CONFIG_IDF_TARGET in boards/<name>.defaults,
+ * esp32s3 where it does not say (sdkconfig.defaults). */
+enum board_soc {
+    BOARD_ESP32S3,
+    BOARD_ESP32,
+};
+
+/* The LoRa radio, which board.c drives with tern/sx126x.h or tern/sx127x.h. */
+enum board_chip {
+    BOARD_SX1262,
+    BOARD_SX1276, /* 137 to 1020 MHz */
+    BOARD_SX1278, /* 137 to 525 MHz */
+};
+
 struct board_def {
     /* The name a client finds an image by (tern-<name>-<region>-<version>.bin), and the one it is
      * told over the companion link. Lower case, letters, digits and hyphens. */
     const char *name;
     const char *title; /* as the maker sells it */
+    enum board_soc soc;
 
     struct {
-        int8_t nss, sck, mosi, miso, reset, busy;
-        uint16_t tcxo_mv;    /* the TCXO's supply from DIO3, or 0 for a crystal */
-        bool dio2_rf_switch; /* DIO2 drives the antenna switch, or the amplifier's */
+        enum board_chip chip;
+        int8_t nss, sck, mosi, miso, reset;
+        int8_t busy; /* the SX1262's; an SX127x has none, BOARD_NO_PIN */
+        /* The SX1262's TCXO's supply from DIO3, or 0 for a crystal. On an SX127x, which does not
+         * power its TCXO, any but 0 says it has one. */
+        uint16_t tcxo_mv;
+        bool dio2_rf_switch; /* the SX1262's DIO2 drives the antenna switch, or the amplifier's */
+        bool pa_boost;       /* the SX127x's antenna is on PA_BOOST rather than RFO */
     } lora;
 
-    int8_t button; /* low while it is pressed; it also wakes the board, so an RTC pin */
-    int8_t led;    /* lit when high, or BOARD_NO_PIN */
+    /* Low while it is pressed; it also wakes the board, so an RTC pin. BOARD_NO_PIN for a board
+     * with none but RESET, which board_off() then leaves to wake it. */
+    int8_t button;
+    int8_t led; /* lit when high, or BOARD_NO_PIN */
 
     /* A 128x64 SSD1306 or a controller that takes its commands (the SSD1315), on I2C. */
     struct {
         int8_t sda, scl, reset; /* sda BOARD_NO_PIN for none */
     } screen;
 
-    /* The switched supply the screen is on, and whether high turns it on. */
+    /* The switched supply the screen is on, and whether high turns it on. Where it supplies more
+     * than the screen (an antenna switch, the battery's divider), it is on whenever the board is,
+     * with a screen or without: vext_always. */
     int8_t vext;
     bool vext_high_on;
+    bool vext_always;
 
     /* The battery, through a divider onto an ADC pin, behind a switch on `enable` whose sense the
      * board learns (power.h). */
@@ -45,7 +70,7 @@ struct board_def {
         uint16_t top_k, bottom_k;
     } battery;
 
-    /* A front-end amplifier after the SX1262, or none (power BOARD_NO_PIN). `power` and `enable`
+    /* A front-end amplifier after the radio, or none (power BOARD_NO_PIN). `power` and `enable`
      * are raised once at start and lowered when the board turns off; every pin in `tx` is raised
      * while a frame is sent and lowered otherwise. `gain_db` is what the amplifier and whatever
      * stands before it add to the chip's power, taken as high as it might be, so that a power
@@ -66,6 +91,9 @@ extern const struct board_def board_heltec_tracker;
 extern const struct board_def board_heltec_vme290;
 extern const struct board_def board_heltec_vme213;
 extern const struct board_def board_heltec_paper;
+extern const struct board_def board_heltec_v2;
+extern const struct board_def board_heltec_v21;
+extern const struct board_def board_lilygo_t3_v161;
 
 /* Every board this port knows, ending with NULL. */
 extern const struct board_def *const board_defs[];
@@ -85,8 +113,13 @@ uint16_t board_battery_pin_mv(const struct board_def *b);
 /* Whether the board gives dbm into its antenna. */
 bool board_gives(const struct board_def *b, int dbm);
 
-/* What to ask the SX1262 for, -9 to 22 dBm, so that the antenna gets no more than antenna_dbm, for
- * a power the board gives (board_gives()). */
+/* The least and the most the board's radio gives, in dBm at its pins: -9 to 22 for the SX1262, 2
+ * to 17 on an SX127x's PA_BOOST and 0 to 14 on its RFO (tern/sx127x.h). */
+int8_t board_chip_min_dbm(const struct board_def *b);
+int8_t board_chip_max_dbm(const struct board_def *b);
+
+/* What to ask the radio for, within its range, so that the antenna gets no more than antenna_dbm,
+ * for a power the board gives (board_gives()). */
 int8_t board_chip_dbm(const struct board_def *b, int8_t antenna_dbm);
 
 #endif
