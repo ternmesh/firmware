@@ -365,9 +365,10 @@ bool board_screen_page(int page, const uint8_t data[128]) {
 
 bool board_screen_power(bool on) {
     if (on) {
-        (void)display_blanking_off(screen);
+        /* On a panel without a backlight of its own, this is all that wakes it. */
+        int err = display_blanking_off(screen);
         set(&tft_led_en, 1);
-        return true;
+        return err == 0;
     }
     set(&tft_led_en, 0);
     return display_blanking_on(screen) == 0;
