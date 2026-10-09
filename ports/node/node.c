@@ -1238,6 +1238,14 @@ static void poll_forward(void) {
 /* Sends what the flooder has to send: this board's group messages, and frames for every node
  * that it passes on. A frame of its own waits for the board's allowance, and the client is told
  * so; one to pass on that the allowance cannot pay for is dropped by the flooder. */
+/* The board's presence card: what poll_card() keeps, and poll_flood() tells it when one goes. */
+static bool card_sent;                 /* one has gone since the board started */
+static tern_time card_last;            /* when */
+static tern_time card_next;            /* when the next is due, or 0 for not yet drawn */
+static bool card_pending;              /* one is with the flooder, not yet on the air */
+static uint8_t card_id[TERN_FLOOD_ID]; /* and its id */
+static void card_went(tern_time now);
+
 static void poll_flood(void) {
     static uint8_t frame[TERN_FLOOD_FRAME_MAX];
     tern_time now = board_now();
@@ -1300,6 +1308,9 @@ static void poll_flood(void) {
     }
     uint8_t id[TERN_FLOOD_ID];
     tern_flood_id(frame, len, id);
+    if (card_pending && memcmp(card_id, id, TERN_FLOOD_ID) == 0) {
+        card_went(now);
+    }
     for (int i = 0; i < FLOODING; i++) {
         if (positioning[i].on && memcmp(positioning[i].frame_id, id, TERN_FLOOD_ID) == 0) {
             positioning[i].on = false; /* on the air: nothing more to let go of */
@@ -1325,16 +1336,24 @@ static void poll_flood(void) {
 
 #define CARD_RETRY TERN_S(60) /* after flash or the flooder said no */
 
-static bool card_sent;      /* one has gone since the board started */
-static tern_time card_last; /* when */
-static tern_time card_next; /* when the next goes, or 0 for not yet drawn */
-
-/* Cards were turned on or off, or renamed: the next is drawn again. */
-static void card_changed(bool renamed) {
-    if (card_next != 0 && !renamed) {
-        return; /* on, and as it was: the one drawn stands */
+/* Cards were turned off, or renamed: a card still waiting for the air is let go of, so that none
+ * goes with cards off or with the old name, and the next is drawn again. */
+static void card_changed(void) {
+    if (card_pending) {
+        (void)tern_flood_cancel(&flood, board_now(), card_id);
+        card_pending = false;
     }
     card_next = 0;
+}
+
+/* The board's card went on the air: the next is drawn from now. */
+static void card_went(tern_time now) {
+    uint32_t r = 0;
+    (void)board_random(NULL, (uint8_t *)&r, sizeof r);
+    card_pending = false;
+    card_sent = true;
+    card_last = now;
+    card_next = now + TERN_CARD_EVERY / 2 + (tern_time)(r % 1000001u) * (TERN_CARD_EVERY / 1000000);
 }
 
 static void poll_card(void) {
@@ -1343,6 +1362,9 @@ static void poll_card(void) {
     if (!settings.cards) {
         card_next = 0;
         return;
+    }
+    if (card_pending) {
+        return; /* one at a time: the next is drawn when this one goes */
     }
     if (card_next == 0) {
         tern_time soonest = card_sent ? card_last + TERN_CARD_EVERY / 2 : now;
@@ -1361,12 +1383,9 @@ static void poll_card(void) {
         card_next = now + CARD_RETRY;
         return;
     }
-    uint32_t r = 0;
-    (void)board_random(NULL, (uint8_t *)&r, sizeof r);
-    card_sent = true;
-    card_last = now;
-    card_next = now + TERN_CARD_EVERY / 2 + (tern_time)(r % 1000001u) * (TERN_CARD_EVERY / 1000000);
-    printf("card %lu flooded: %u bytes\n", (unsigned long)number, (unsigned)len);
+    card_pending = true;
+    tern_flood_id(frame, len, card_id);
+    printf("card %lu waits for the air: %u bytes\n", (unsigned long)number, (unsigned)len);
 }
 
 /* Sends what the router has to send: its announces, and its requests for routes. A frame the
@@ -1747,10 +1766,13 @@ static uint8_t link_set(void *ctx, const struct tern_companion_msg *m) {
     }
     bool renamed = next.card_name_len != settings.card_name_len ||
                    memcmp(next.card_name, settings.card_name, next.card_name_len) != 0;
+    bool off = settings.cards && !next.cards;
     settings = next;
     restart_due = restart_due || restart;
     ble_passkey(settings.passkey);
-    card_changed(renamed);
+    if (renamed || off) {
+        card_changed();
+    }
     return 0;
 }
 

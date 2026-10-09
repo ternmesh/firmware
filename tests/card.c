@@ -106,6 +106,16 @@ static void relayed_card_is_still_good(void) {
     CHECK(receive(&t, 0, relayed, sizeof relayed, &at) == TERN_CARD_ACCEPTED);
 }
 
+/* A table of no places checks a card and holds nothing, and says so with place 0. */
+static void a_table_of_none_only_checks(void) {
+    struct tern_cards t;
+    size_t at = 9;
+    tern_cards_init(&t, NULL, 0);
+    CHECK(receive(&t, 0, accepted[0].frame, accepted[0].len, &at) == TERN_CARD_ACCEPTED);
+    CHECK(at == 0);
+    CHECK(tern_cards_due(&t, TERN_CARD_KEPT) == INT64_MAX);
+}
+
 static void deliveries_in_order(void) {
     struct tern_card place[4];
     struct tern_cards t;
@@ -156,6 +166,7 @@ int main(void) {
     RUN(rejected_cards);
     RUN(relayed_card_is_still_good);
     RUN(deliveries_in_order);
+    RUN(a_table_of_none_only_checks);
     RUN(room_and_forgetting);
     return CHECK_DONE();
 }

@@ -99,7 +99,8 @@ enum tern_card_verdict tern_cards_receive(struct tern_cards *c,
     }
     if (held == NULL) {
         if (c->cap == 0) {
-            return TERN_CARD_ACCEPTED; /* checked, and nowhere to hold it */
+            *index = 0; /* checked, and nowhere to hold it: there is no place 0 to read */
+            return TERN_CARD_ACCEPTED;
         }
         held = &c->card[0];
         for (size_t i = 1; i < c->cap; i++) {

@@ -65,7 +65,8 @@ void tern_cards_init(struct tern_cards *c, struct tern_card *places, size_t cap)
 /* Receives a card, as the flood hands it over, for a node whose address is `self`. If it is
  * accepted it is held, in place of any held from its address: `*index` says where. With no room,
  * the card heard longest ago is forgotten for it, and if that was another address's, `*gone` is
- * set and that address written to `gone_address`, for the caller to say it is forgotten. The
+ * set and that address written to `gone_address`, for the caller to say it is forgotten. A table
+ * of no places checks a card and holds nothing: `*index` is then 0, which is not a place. The
  * checks that cost least come first, so a card heard again costs no signature check. */
 enum tern_card_verdict tern_cards_receive(struct tern_cards *c,
                                           const uint8_t self[TERN_ADDRESS_LEN], tern_time now,
