@@ -37,7 +37,8 @@
  * list until this loop seals it and hands it to the forwarder.
  *
  * Pressing PRG shows the screen's next page (ui.h), and holding it for a second acts on the page
- * shown: on Messages it shows the one before, on Nearby the next nodes, and on Phones and Reset it
+ * shown: on Messages it shows the one before, on Nearby the next nodes, on Groups a group's join
+ * code and then the next group, and on Phones and Reset it
  * asks to be sure, then forgets every paired phone or erases the board. 'screen bench on' adds the
  * bench screen's pages (status.h) after them, where holding PRG sends a ping, and a board that
  * receives a ping answers with a pong saying how well it heard it. (With no screen, a press sends a
@@ -197,6 +198,11 @@ static bool have_screen;
 static int screen_page;
 static uint8_t message_shown; /* which message the Messages page shows, counted from the newest */
 static uint16_t nearby_first; /* the first node the Nearby page shows, most recently heard first */
+static uint8_t group_shown;   /* which group the Groups page shows, counted from the first held */
+/* The user held PRG on the Groups page to see the join code of the group it shows. Only while that
+ * page is shown and the screen is lit: the code is the group's secret (draft/groups.md). */
+static bool group_code;
+static uint8_t group_code_id[TERN_COMPANION_GROUP]; /* the group it was asked for, and no other */
 static int confirm_page = -1; /* the page asking to be sure of what a second hold does, or -1 */
 static tern_time confirm_until;
 /* The page shown was reached by a press, so its reader has seen it: a message shown because it
@@ -2774,6 +2780,36 @@ static void fill_ui(struct ui_node *u) {
             memcpy(m->text, x->text, x->text_len);
         }
     }
+    /* The groups, in the order the node holds them, and of them the one the Groups page shows,
+     * with its join code only while the user has asked to see it. */
+    const struct link_group *shown = NULL;
+    for (size_t i = 0; i < LINK_GROUPS; i++) {
+        const struct link_group *g = &companion.groups[i];
+        if (g->used && u->groups++ == group_shown) {
+            shown = g;
+        }
+    }
+    if (shown == NULL && u->groups > 0) {
+        group_shown = 0; /* past the last: round to the first again */
+        for (size_t i = 0; shown == NULL && i < LINK_GROUPS; i++) {
+            shown = companion.groups[i].used ? &companion.groups[i] : NULL;
+        }
+    }
+    if (shown == NULL || screen_page != UI_GROUPS ||
+        memcmp(shown->id, group_code_id, sizeof group_code_id) != 0) {
+        group_code = false; /* off the page, or the groups changed under it: asked for again */
+    }
+    u->group_shown = group_shown;
+    if (shown != NULL) {
+        size_t len = shown->name_len < UI_NAME ? shown->name_len : UI_NAME;
+        memcpy(u->group, shown->name, len);
+        u->group[len] = '\0';
+        if (group_code) {
+            /* The name cut to what a version 3 code holds: a suggestion, for the same group. */
+            tern_group_link(shown->g.secret, shown->name,
+                            ui_join_name(shown->name, shown->name_len), u->join_link);
+        }
+    }
 }
 
 /* Someone is looking at the Messages page: the message it shows, and any before it, are read, here
@@ -2826,6 +2862,7 @@ static void poll_screen(void) {
             return;
         }
         screen_asleep = !on;
+        group_code = false; /* dark, and so no longer shown to whoever asked */
         screen_failures = 0;
         screen_due = 0;
     }
@@ -2856,6 +2893,7 @@ static void poll_screen(void) {
             }
             fill_ui(&u);
             ui_draw(&u, screen_page, &screen);
+            tern_wipe(u.join_link, sizeof u.join_link);
         } else {
             static struct node_status st;
             char rows[STATUS_ROWS][STATUS_COLS + 1];
@@ -3000,7 +3038,8 @@ static void ping(void) {
 }
 
 /* Holding PRG acts on the page shown: on Messages, it shows the message before; on Nearby, the
- * next nodes; on a bench page, it sends a ping. On Phones and Reset, it first asks to be sure, and
+ * next nodes; on Groups, the group's join code, and held again, the next group; on a bench page,
+ * it sends a ping. On Phones and Reset, it first asks to be sure, and
  * only a second hold while it asks forgets the phones or erases the board. Elsewhere it does
  * nothing. */
 static void screen_hold(void) {
@@ -3023,7 +3062,22 @@ static void screen_hold(void) {
         printf("PRG held on Phones: every Bluetooth client is forgotten, and must pair again\n");
         return;
     }
-    if (screen_page == UI_MESSAGES) {
+    if (screen_page == UI_GROUPS) {
+        /* Its join code, asked for; held again, the next group, its code not shown until asked. */
+        if (group_code) {
+            group_shown++; /* fill_ui() goes round to the first after the last */
+            group_code = false;
+        } else {
+            for (size_t i = 0, n = 0; i < LINK_GROUPS; i++) {
+                const struct link_group *g = &companion.groups[i];
+                if (g->used && n++ == group_shown) {
+                    memcpy(group_code_id, g->id, sizeof group_code_id);
+                    group_code = true;
+                }
+            }
+        }
+        screen_due = 0;
+    } else if (screen_page == UI_MESSAGES) {
         message_shown++; /* fill_ui() goes round to the newest after the oldest */
         screen_looked = true;
         screen_due = 0;
@@ -3075,7 +3129,9 @@ static void poll_button(void) {
             screen_page = (screen_page + 1) % screen_pages();
             message_shown = 0;
             nearby_first = 0;
-            confirm_page = -1; /* a press keeps what the page asked about */
+            group_shown = 0;
+            group_code = false; /* a join code is shown only on its page, while asked for */
+            confirm_page = -1;  /* a press keeps what the page asked about */
             screen_looked = true;
             screen_due = 0;
         } else {

@@ -433,6 +433,67 @@ static void the_share_page_is_the_address_as_a_code(void) {
     }
 }
 
+static void the_groups_page_says_what_a_hold_shows(void) {
+    struct ui_node n = alone();
+    draw(&n, UI_GROUPS, "groups-none");
+    CHECK_ROW(0, "Groups");
+    CHECK_ROW(3, "No groups yet");
+    n.groups = 2;
+    n.group_shown = 1;
+    strcpy(n.group, "Ridge walkers");
+    draw(&n, UI_GROUPS, "groups");
+    CHECK_ROW(0, "Groups            2/2");
+    CHECK_ROW(2, "Ridge walkers");
+    CHECK_ROW(4, "Hold PRG to show its");
+    CHECK_ROW(5, "join code. Whoever");
+    CHECK_ROW(6, "scans it can read");
+    CHECK_ROW(7, "the group.");
+}
+
+/* Asked for, the group's join code is drawn as the address's is, with what it gives away beside it;
+ * the link it holds is the one the node wrote, here a name of 12 bytes, the most that fits. */
+static void the_join_code_is_drawn_once_asked_for(void) {
+    struct ui_node n = alone();
+    static const char link[] =
+        "HTTPS://TERNMESH.ORG/G#YTCMJRGEYTCMJRGEYTCMJRGEYSGX4UTJMRTWKIDXMFWGWZLS";
+    n.groups = 1;
+    strcpy(n.group, "Ridge walker");
+    strcpy(n.join_link, link);
+    draw(&n, UI_GROUPS, "groups-code");
+    struct qr want;
+    CHECK(qr_encode(&want, link, QR_MASK_BEST));
+    int wrong = 0;
+    for (int my = 0; my < QR_SIZE; my++) {
+        for (int mx = 0; mx < QR_SIZE; mx++) {
+            for (int k = 0; k < 4; k++) {
+                wrong += lit(6 + 2 * mx + k % 2, 3 + 2 * my + k / 2) == qr_dark(&want, mx, my);
+            }
+        }
+    }
+    CHECK_EQ_I64(wrong, 0);
+    struct display words;
+    display_init(&words);
+    display_text_at(&words, 3, 74, "Whoever");
+    CHECK(memcmp(&words.px[3][74], &d.px[3][74], DISPLAY_WIDTH - 74) == 0);
+    /* With no link, the page says what a hold would show, and shows no code. */
+    n.join_link[0] = '\0';
+    draw(&n, UI_GROUPS, "groups-asked");
+    CHECK_ROW(4, "Hold PRG to show its");
+}
+
+static void a_join_code_carries_as_much_of_the_name_as_fits(void) {
+    CHECK_EQ_I64(ui_join_name((const uint8_t *)"Hut", 3), 3);
+    CHECK_EQ_I64(ui_join_name((const uint8_t *)"Ridge walker", 12), 12);
+    CHECK_EQ_I64(ui_join_name((const uint8_t *)"Ridge walkers", 13), 12);
+    /* A character the limit falls within is left out whole: "ü" is bytes 11 and 12. */
+    CHECK_EQ_I64(ui_join_name((const uint8_t *)"Ridge walke\xc3\xbc", 13), 11);
+    CHECK_EQ_I64(
+        ui_join_name(
+            (const uint8_t *)"\xe2\x9b\xb0\xe2\x9b\xb0\xe2\x9b\xb0\xe2\x9b\xb0\xe2\x9b\xb0", 15),
+        12);
+    CHECK_EQ_I64(ui_join_name((const uint8_t *)"abcdefghijk\xe2\x9b\xb0", 14), 11);
+}
+
 static void the_phones_page_says_who_is_paired(void) {
     struct ui_node n = alone();
     n.bluetooth = true;
@@ -621,6 +682,9 @@ static void huge_numbers_stay_on_the_screen(void) {
     n.message.text_len = UINT8_MAX; /* more than a message holds */
     n.nearby_first = UINT16_MAX;
     n.nearby_n = UINT8_MAX; /* more than the page has room for */
+    n.groups = UINT8_MAX;
+    n.group_shown = UINT8_MAX;
+    memset(n.group, 'W', UI_NAME); /* and no NUL */
     for (int i = 0; i < UI_NEARBY_ROWS; i++) {
         n.neighbour[i] = (struct ui_neighbour){.snr_db = INT8_MIN, .ago_s = UINT32_MAX};
         memset(n.neighbour[i].name, 'W', UI_NAME); /* and no NUL */
@@ -680,6 +744,9 @@ int main(int argc, char **argv) {
     RUN(the_share_page_is_the_address_as_a_code);
     RUN(the_node_page_gives_its_short_code);
     RUN(the_battery_shows_once_it_is_known);
+    RUN(the_groups_page_says_what_a_hold_shows);
+    RUN(the_join_code_is_drawn_once_asked_for);
+    RUN(a_join_code_carries_as_much_of_the_name_as_fits);
     RUN(the_phones_page_says_who_is_paired);
     RUN(forgetting_phones_asks_first);
     RUN(erasing_asks_first);

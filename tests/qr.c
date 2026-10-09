@@ -1,13 +1,17 @@
 #include "qr.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #include "check.h"
 
-/* The node's QR code (ports/node/qr.c), against symbols made by another
- * encoder: segno 1.6.6, a Python implementation of ISO/IEC 18004, asked for version 3, level L,
- * alphanumeric mode and each mask in turn. Every symbol below was also read back by ZXing and by
- * OpenCV's detector. They are a check from outside, not something this code was written from. */
+/* The node's QR code (ports/node/qr.c), against symbols made by other encoders: segno 1.6.6, a
+ * Python implementation of ISO/IEC 18004, asked for version 3, level L, alphanumeric mode and each
+ * mask in turn; and for a join code's link in three segments (draft/groups.md), the one with no
+ * name from ternmesh/site's tests/vectors/qr.json, made with segno, and two with a name of 12
+ * bytes, the most version 3 holds, from the site's encoder, which is held to those vectors. Every
+ * symbol below was also read back by ZXing, and the address's by OpenCV's detector. They are a
+ * check from outside, not something this code was written from. */
 
 static const struct {
     const char *text;
@@ -85,6 +89,33 @@ static const struct {
       0x11fc2c5d, 0x1420be5d, 0xa1d4c5d,  0x1232941,  0xc53977f}},
 };
 
+/* A join code's links: alphanumeric, then the `#` as a byte, then alphanumeric again. */
+static const char no_name[] = "HTTPS://TERNMESH.ORG/G#YTCMJRGEYTCMJRGEYTCMJRGEYQUQU";
+static const char twelve[] = /* the group "Ridge walker" */
+    "HTTPS://TERNMESH.ORG/G#YTCMJRGEYTCMJRGEYTCMJRGEYSGX4UTJMRTWKIDXMFWGWZLS";
+
+static const struct {
+    const char *text;
+    int mask;
+    uint32_t rows[QR_SIZE];
+} join_codes[] = {
+    {no_name, 0, {0x1fd9527f, 0x105d7c41, 0x1750175d, 0x17510e5d, 0x1755e45d, 0x105f0241,
+                  0x1fd5557f, 0x1df700,   0x46f4df7,  0x9fc2c32,  0x18906361, 0x20d49a5,
+                  0x1a8c10c3, 0x1d023a15, 0x1e285e76, 0x1d44b7a3, 0x6b0ca5e,  0x186e888c,
+                  0x67c26e1,  0x2dd8906,  0x11fc94f1, 0x111fbb00, 0x13575d7f, 0x171ef741,
+                  0x7fac95d,  0xf4fce5d,  0x107ea35d, 0x1d2a0f41, 0x14d0917f}},
+    {twelve, 2, {0x1fc8827f, 0x10534941, 0x1741e65d, 0x175f155d, 0x1744545d, 0x10516b41,
+                 0x1fd5557f, 0x13e400,   0xabe99df,  0xa722ba9,  0x4e182e4,  0x1833a1d,
+                 0x6fdcb75,  0x1e84482a, 0x241ba66,  0x1edaa205, 0x1ac12763, 0x1be0809f,
+                 0x1a0ddc5d, 0x153e689,  0xdfd1445,  0x1311a900, 0xf56e77f,  0x1510f441,
+                 0x1bfb6f5d, 0xcc19f5d,  0xc0f795d,  0x1ea42741, 0x8a10f7f}},
+    {twelve, 5, {0x1fd3ee7f, 0x1053ca41, 0x1741e65d, 0x174ed35d, 0x1744555d, 0x1051e841,
+                 0x1fd5557f, 0x136600,   0x31e98e3,  0x1603ecb5, 0x4e182e4,  0x9a3b815,
+                 0x1026a6c3, 0x16a4ca22, 0x241ba66,  0x2ab6519,  0x1ac12763, 0x13c00297,
+                 0xcd6b1eb,  0x9736481,  0xdfd1445,  0xf106f00,  0xf56e77f,  0x1d107741,
+                 0xdf0025d,  0x4e11c5d,  0xc0f785d,  0x2d5e141,  0x8a10f7f}},
+};
+
 static void every_mask_matches_another_encoder(void) {
     for (size_t i = 0; i < sizeof symbols / sizeof symbols[0]; i++) {
         struct qr q;
@@ -99,6 +130,19 @@ static void every_mask_matches_another_encoder(void) {
             }
         }
     }
+}
+
+static void a_join_code_is_three_segments(void) {
+    for (size_t i = 0; i < sizeof join_codes / sizeof join_codes[0]; i++) {
+        struct qr q;
+        CHECK(qr_encode(&q, join_codes[i].text, join_codes[i].mask));
+        CHECK(memcmp(q.rows, join_codes[i].rows, sizeof q.rows) == 0);
+    }
+    /* One byte more of the name, and a version 3 code has no room for it. */
+    struct qr q;
+    char thirteen[sizeof twelve + 2];
+    snprintf(thirteen, sizeof thirteen, "%sAB", twelve);
+    CHECK(!qr_encode(&q, thirteen, QR_MASK_BEST));
 }
 
 /* The penalty rules choose mask 0 for this address, as the other encoder's own scores do. */
@@ -134,8 +178,15 @@ static void what_does_not_fit_is_refused(void) {
     CHECK(!qr_encode(&q, text, QR_MASK_BEST)); /* 78 characters */
     text[QR_TEXT_MAX] = '\0';
     CHECK(qr_encode(&q, text, QR_MASK_BEST)); /* 77 */
-    CHECK(!qr_encode(&q, "lower case", QR_MASK_BEST));
-    CHECK(!qr_encode(&q, "A#B", QR_MASK_BEST));
+    /* Anything outside the alphanumeric set goes as bytes: a byte apiece, and a segment's start. */
+    CHECK(qr_encode(&q, "lower case", QR_MASK_BEST));
+    CHECK(qr_encode(&q, "A#B", QR_MASK_BEST));
+    memset(text, 'a', sizeof text - 1);
+    text[53] = '\0';
+    CHECK(qr_encode(&q, text, QR_MASK_BEST)); /* 4 + 8 + 53 * 8 bits: 436 of 440 */
+    text[53] = 'a';
+    text[54] = '\0';
+    CHECK(!qr_encode(&q, text, QR_MASK_BEST));
     CHECK(!qr_encode(&q, "A", 8));
     CHECK(!qr_encode(&q, "A", -2));
     CHECK(qr_encode(&q, "", QR_MASK_BEST));
@@ -143,6 +194,7 @@ static void what_does_not_fit_is_refused(void) {
 
 int main(void) {
     RUN(every_mask_matches_another_encoder);
+    RUN(a_join_code_is_three_segments);
     RUN(the_mask_chosen_scores_least);
     RUN(the_finders_and_timing_are_where_they_belong);
     RUN(what_does_not_fit_is_refused);
