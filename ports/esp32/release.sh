@@ -44,7 +44,7 @@ for board in "$@"; do
             echo "CONFIG_TERN_VERSION=\"$version\""
             echo "CONFIG_TERN_REGION_$upper=y"
         } >"$build/release.defaults"
-        idf.py -B "$build" -D SDKCONFIG="$build/sdkconfig" \
+        idf.py -B "$build" -D TERN_BOARD="$board" -D SDKCONFIG="$build/sdkconfig" \
             -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;boards/$board.defaults;$build/release.defaults" \
             build
         name=tern-$board-$region-$version
@@ -52,7 +52,7 @@ for board in "$@"; do
         cp "$build/$name.bin" "release/$name.bin"
         head -c $((0x9000)) "$build/$name.bin" >"release/$name-boot.bin"
         tail -c +$((0xF000 + 1)) "$build/$name.bin" >"release/$name-update.bin"
-        cp "$build/tern.bin" "release/$name-app.bin"
+        cp "$build/tern-$board.bin" "release/$name-app.bin"
     done
 done
 
