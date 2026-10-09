@@ -278,7 +278,7 @@ class Node:
 
     def __init__(self, port, console=False, idle=IDLE, speak=VERSION):
         self.port, self.parser, self.console, self.idle = port, Parser(), console, idle
-        self.speak = speak
+        self.want = self.speak = speak  # what HELLO asks for, and what the node then speaks
         self.seq, self.pending, self.inbox = 0, [], []
         self.greeted, self.answered = False, time.monotonic()
         self.messages = {}  # message id: the MESSAGE last heard, with any STATE since
@@ -370,7 +370,10 @@ class Node:
 
     def hello(self):
         self.greeted = False
-        info = self.request("HELLO", version=self.speak)
+        info = self.request("HELLO", version=self.want)
+        # A node older than what was asked for speaks its own version, and its frames are read
+        # as that version has them: SELF without the fields a later one added, for one.
+        self.speak = min(self.want, info["version"])
         self.greeted = True
         self.pending.clear()
         return info
