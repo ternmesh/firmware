@@ -16,33 +16,65 @@
 #include "tern/err.h"
 #include "tern/sx126x.h"
 
-/* The Heltec Mesh Node T114 V2, an nRF52840 wired to an SX1262, as Zephyr's board for it
- * (heltec_t114_v2) describes it and Heltec's schematic (MeshNode-T114_V2.1) shows: the radio on
- * SPI3 with a 1.8 V TCXO on DIO3 and its antenna switch on DIO2; a 135x240 ST7789 screen whose
- * supply (TFT_EN) and backlight (TFT_LED_EN) are each switched by a P-channel FET, on when low; the
- * user button, low when pressed; a green LED, lit when low; and the battery through 390k over 100k
- * onto AIN2, behind a switch P0.06 turns on when high. */
+/* An nRF52840 board wired to an SX1262, read from its devicetree: Zephyr's board for it, and this
+ * port's overlay on it in boards/, which says what Zephyr's does not or overrides it where the
+ * maker's documents disagree. So a board Zephyr has is an overlay and a line in Kconfig, not code
+ * here. From the devicetree:
+ *
+ *   lora                 the SX1262 node (semtech,sx1262): its bus, reset-gpios, busy-gpios, its
+ *                        TCXO's voltage (dio3-tcxo-voltage) and whether DIO2 drives the antenna
+ *                        switch (dio2-tx-enable). Its antenna-enable-gpios, if it has them, are on
+ *                        while the radio is, and its rx-enable-gpios and tx-enable-gpios while it
+ *                        receives and while it sends, as Zephyr's own driver drives them.
+ *   sw0, led0            the button and the LED, if the board has them
+ *   zephyr,display       the screen, if it has one: a 128x64 monochrome panel whose memory is in
+ *                        pages (the SSD1306 or SH1106), or a colour one the picture is drawn into
+ *   vbatt                the battery's divider (voltage-divider): its ADC channel, its resistors,
+ *                        and the switch that connects it (power-gpios), if any
+ *   tft-en, tft-led-en,  switches a board's screen, backlight or external supply hangs on, if it
+ *   vext-control         has them
+ */
 
 #define LORA DT_NODELABEL(lora)
+#define VBATT DT_NODELABEL(vbatt)
+#define NONE                                                                                       \
+    { 0 }
 
 static const struct spi_dt_spec lora_spi =
     SPI_DT_SPEC_GET(LORA, SPI_WORD_SET(8) | SPI_TRANSFER_MSB | SPI_OP_MODE_CONTROLLER);
 static const struct gpio_dt_spec lora_reset = GPIO_DT_SPEC_GET(LORA, reset_gpios);
 static const struct gpio_dt_spec lora_busy = GPIO_DT_SPEC_GET(LORA, busy_gpios);
-static const struct gpio_dt_spec button = GPIO_DT_SPEC_GET(DT_ALIAS(sw0), gpios);
-static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(DT_ALIAS(led0), gpios);
-static const struct gpio_dt_spec tft_en = GPIO_DT_SPEC_GET(DT_ALIAS(tft_en), gpios);
-static const struct gpio_dt_spec tft_led_en = GPIO_DT_SPEC_GET(DT_ALIAS(tft_led_en), gpios);
-static const struct gpio_dt_spec vext = GPIO_DT_SPEC_GET(DT_ALIAS(vext_control), gpios);
-static const struct gpio_dt_spec adc_ctrl = GPIO_DT_SPEC_GET(DT_ALIAS(adc_control), gpios);
-static const struct device *const screen = DEVICE_DT_GET(DT_CHOSEN(zephyr_display));
-static const struct device *const adc = DEVICE_DT_GET(DT_NODELABEL(adc));
-static const struct adc_channel_cfg battery_channel =
-    ADC_CHANNEL_CFG_DT(DT_CHILD(DT_NODELABEL(adc), channel_2));
+static const struct gpio_dt_spec lora_ant = GPIO_DT_SPEC_GET_OR(LORA, antenna_enable_gpios, NONE);
+static const struct gpio_dt_spec lora_rx = GPIO_DT_SPEC_GET_OR(LORA, rx_enable_gpios, NONE);
+static const struct gpio_dt_spec lora_tx = GPIO_DT_SPEC_GET_OR(LORA, tx_enable_gpios, NONE);
+static const struct gpio_dt_spec button = GPIO_DT_SPEC_GET_OR(DT_ALIAS(sw0), gpios, NONE);
+static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET_OR(DT_ALIAS(led0), gpios, NONE);
+static const struct gpio_dt_spec tft_en = GPIO_DT_SPEC_GET_OR(DT_ALIAS(tft_en), gpios, NONE);
+static const struct gpio_dt_spec tft_led_en =
+    GPIO_DT_SPEC_GET_OR(DT_ALIAS(tft_led_en), gpios, NONE);
+static const struct gpio_dt_spec vext = GPIO_DT_SPEC_GET_OR(DT_ALIAS(vext_control), gpios, NONE);
 static const struct device *const console = DEVICE_DT_GET(DT_CHOSEN(zephyr_console));
 
-#define DIVIDER_TOP_K 390
-#define DIVIDER_BOTTOM_K 100
+#if DT_HAS_CHOSEN(zephyr_display)
+static const struct device *const screen = DEVICE_DT_GET(DT_CHOSEN(zephyr_display));
+#endif
+
+#if DT_NODE_EXISTS(VBATT)
+static const struct adc_dt_spec battery = ADC_DT_SPEC_GET(VBATT);
+static const struct gpio_dt_spec battery_switch = GPIO_DT_SPEC_GET_OR(VBATT, power_gpios, NONE);
+#define DIVIDER_FULL DT_PROP(VBATT, full_ohms)
+#define DIVIDER_OUTPUT DT_PROP(VBATT, output_ohms)
+#endif
+
+/* The TCXO's supply from DIO3, in millivolts, from Zephyr's code for it (dt-bindings/lora/
+ * sx126x.h), or 0 for a crystal. */
+static const uint16_t tcxo_mv[] = {1600, 1700, 1800, 2200, 2400, 2700, 3000, 3300};
+#if DT_NODE_HAS_PROP(LORA, dio3_tcxo_voltage)
+#define TCXO_MV tcxo_mv[DT_PROP(LORA, dio3_tcxo_voltage)]
+#else
+#define TCXO_MV 0
+#endif
+
 #define BATTERY_SETTLE_US 2000
 #define BATTERY_SAMPLES 16
 #define BUSY_TIMEOUT_US 100000
@@ -54,7 +86,18 @@ static struct power_sense sense;
 static bool have_adc;
 static struct tern_sx126x sx;
 
-const char *board_title(void) { return "Heltec Mesh Node T114"; }
+/* Sets a line the board may not have. */
+static void set(const struct gpio_dt_spec *g, int value) {
+    if (g->port != NULL) {
+        (void)gpio_pin_set_dt(g, value);
+    }
+}
+
+static bool output(const struct gpio_dt_spec *g, gpio_flags_t flags) {
+    return g->port == NULL || gpio_pin_configure_dt(g, flags) == 0;
+}
+
+const char *board_title(void) { return CONFIG_TERN_BOARD_TITLE; }
 int8_t board_power_min(void) { return POWER_MIN_DBM; }
 int8_t board_power_max(void) { return POWER_MAX_DBM; }
 bool board_power_ok(int dbm) { return dbm >= POWER_MIN_DBM && dbm <= POWER_MAX_DBM; }
@@ -89,8 +132,9 @@ static int bus_transfer(void *ctx, const uint8_t *tx, uint8_t *rx, size_t len) {
 int board_init(void) {
     if (!spi_is_ready_dt(&lora_spi) || !gpio_is_ready_dt(&lora_reset) ||
         gpio_pin_configure_dt(&lora_reset, GPIO_OUTPUT_INACTIVE) != 0 ||
-        gpio_pin_configure_dt(&lora_busy, GPIO_INPUT) != 0 ||
-        gpio_pin_configure_dt(&led, GPIO_OUTPUT_INACTIVE) != 0) {
+        gpio_pin_configure_dt(&lora_busy, GPIO_INPUT) != 0 || !output(&led, GPIO_OUTPUT_INACTIVE) ||
+        !output(&lora_rx, GPIO_OUTPUT_INACTIVE) || !output(&lora_tx, GPIO_OUTPUT_INACTIVE) ||
+        !output(&lora_ant, GPIO_OUTPUT_ACTIVE)) {
         return TERN_EIO;
     }
     /* Hold NRESET low for over 100 us (section 8.1), then let the chip start. */
@@ -100,11 +144,79 @@ int board_init(void) {
     k_busy_wait(10000);
 
     struct tern_sx126x_bus sb = {.ctx = NULL, .transfer = bus_transfer, .now = bus_now};
-    struct tern_sx126x_board wiring = {.tcxo_mv = 1800, .dio2_rf_switch = true, .dcdc = true};
+    struct tern_sx126x_board wiring = {
+        .tcxo_mv = TCXO_MV, .dio2_rf_switch = DT_PROP(LORA, dio2_tx_enable), .dcdc = true};
     return tern_sx126x_init(&sx, &sb, &wiring);
 }
 
-struct tern_radio board_radio(void) { return tern_sx126x_radio(&sx); }
+/* A board whose antenna switch has lines of its own (rx-enable-gpios, tx-enable-gpios) is driven
+ * through a radio that wraps the chip's and sets them: the one for receiving while it receives,
+ * the one for sending while a frame goes, and neither otherwise, as Zephyr's driver sets them. */
+
+static struct tern_radio chip;
+
+static void switch_to(bool rx, bool tx) {
+    set(&lora_tx, tx ? 1 : 0);
+    set(&lora_rx, rx ? 1 : 0);
+}
+
+static int sw_configure(void *ctx, const struct tern_radio_config *cfg) {
+    (void)ctx;
+    return chip.ops->configure(chip.ctx, cfg);
+}
+
+static int sw_transmit(void *ctx, const uint8_t *frame, uint8_t len) {
+    (void)ctx;
+    switch_to(false, true);
+    int err = chip.ops->transmit(chip.ctx, frame, len);
+    if (err != TERN_OK) {
+        switch_to(false, false);
+    }
+    return err;
+}
+
+static int sw_receive(void *ctx) {
+    (void)ctx;
+    switch_to(true, false);
+    return chip.ops->receive(chip.ctx);
+}
+
+static int sw_standby(void *ctx) {
+    (void)ctx;
+    switch_to(false, false);
+    return chip.ops->standby(chip.ctx);
+}
+
+static int sw_poll(void *ctx, struct tern_radio_event *ev) {
+    (void)ctx;
+    int n = chip.ops->poll(chip.ctx, ev);
+    if (n == 1 && ev->kind == TERN_RADIO_TX_DONE) {
+        switch_to(false, false); /* the chip is in standby once a frame has gone */
+    }
+    return n;
+}
+
+static int sw_receiving(void *ctx) {
+    (void)ctx;
+    return chip.ops->receiving != NULL ? chip.ops->receiving(chip.ctx) : 0;
+}
+
+static const struct tern_radio_ops sw_ops = {
+    .configure = sw_configure,
+    .transmit = sw_transmit,
+    .receive = sw_receive,
+    .standby = sw_standby,
+    .poll = sw_poll,
+    .receiving = sw_receiving,
+};
+
+struct tern_radio board_radio(void) {
+    chip = tern_sx126x_radio(&sx);
+    if (lora_rx.port == NULL && lora_tx.port == NULL) {
+        return chip;
+    }
+    return (struct tern_radio){.ops = &sw_ops, .ctx = NULL};
+}
 
 void board_radio_counts(struct board_radio_counts *c) {
     *c = (struct board_radio_counts){.preambles = sx.counts.preambles,
@@ -123,12 +235,17 @@ void board_radio_sleep(void) {
     if (sx.bus.transfer != NULL) {
         (void)tern_sx126x_sleep(&sx);
     }
+    switch_to(false, false);
+    set(&lora_ant, 0);
 }
 
 /* --- The button and the LED ------------------------------------------------------------------ */
 
 bool board_button(void) {
     static bool ready;
+    if (button.port == NULL) {
+        return false;
+    }
     if (!ready) {
         if (gpio_pin_configure_dt(&button, GPIO_INPUT) != 0) {
             return false;
@@ -138,29 +255,29 @@ bool board_button(void) {
     return gpio_pin_get_dt(&button) == 1;
 }
 
-void board_led(bool on) { (void)gpio_pin_set_dt(&led, on ? 1 : 0); }
+void board_led(bool on) { set(&led, on ? 1 : 0); }
 
 /* --- The screen ------------------------------------------------------------------------------ */
 
-/* The node draws a 128x64 picture a page of eight rows at a time (display.h). The T114's panel is
- * 135x240, mounted on its side: the picture is turned to lie along it, at one panel pixel a
- * picture pixel, in its middle. That is small on a 1.14" panel; a layout of its own is for later
- * (docs/boards.md). */
-#define PANEL_W 135
-#define PANEL_H 240
+/* The node draws a 128x64 picture a page of eight rows at a time (display.h), a byte a column with
+ * its lowest bit at the top. A monochrome panel that keeps its memory in such pages (Zephyr's
+ * SCREEN_INFO_MONO_VTILED: the SSD1306 and the SH1106) takes each page as it is. A colour panel is
+ * drawn into: the T114's 135x240 is mounted on its side, so the picture is turned to lie along it,
+ * at one panel pixel a picture pixel, in its middle. That is small on a 1.14" panel; a layout of
+ * its own is for later (docs/boards.md). */
 #define PIC_W 128
 #define PIC_H 64
-#define ACROSS 240 /* the panel's long side, which the picture's width lies along */
-#define DOWN 135
-#define AT_X ((ACROSS - PIC_W) / 2)
-#define AT_Y ((DOWN - PIC_H) / 2)
 #define LIT 0xFFFFu
 #define DARK 0x0000u
 
+#if DT_HAS_CHOSEN(zephyr_display)
+
+static bool paged;                /* monochrome, in pages: each page goes as it is */
+static int panel_w, panel_h;      /* a colour panel's size, its long side down */
 static uint16_t strip[PIC_W * 8]; /* one page, turned: 8 panel columns by 128 panel rows */
 
-static int panel_write(int x, int y, int w, int h, const uint16_t *pixels) {
-    struct display_buffer_descriptor d = {.buf_size = (uint32_t)(w * h * 2),
+static int panel_write(int x, int y, int w, int h, const void *pixels, size_t len) {
+    struct display_buffer_descriptor d = {.buf_size = (uint32_t)len,
                                           .width = (uint16_t)w,
                                           .height = (uint16_t)h,
                                           .pitch = (uint16_t)w};
@@ -168,35 +285,65 @@ static int panel_write(int x, int y, int w, int h, const uint16_t *pixels) {
 }
 
 bool board_screen_init(void) {
-    if (gpio_pin_configure_dt(&tft_en, GPIO_OUTPUT_ACTIVE) != 0 ||
-        gpio_pin_configure_dt(&tft_led_en, GPIO_OUTPUT_INACTIVE) != 0) {
+    if (!output(&tft_en, GPIO_OUTPUT_ACTIVE) || !output(&tft_led_en, GPIO_OUTPUT_INACTIVE)) {
         return false;
     }
-    k_msleep(20); /* the panel's supply settles before its controller is reset and set up */
+    if (tft_en.port != NULL) {
+        k_msleep(20); /* the panel's supply settles before its controller is reset and set up */
+    }
     if (device_init(screen) != 0 && !device_is_ready(screen)) {
         return false;
     }
-    /* Dark all over, then the backlight on. */
-    for (size_t i = 0; i < sizeof strip / sizeof strip[0]; i++) {
-        strip[i] = DARK;
-    }
-    for (int y = 0; y < PANEL_H; y++) {
-        if (panel_write(0, y, PANEL_W, 1, strip) != 0) {
+    struct display_capabilities caps;
+    display_get_capabilities(screen, &caps);
+    if ((caps.supported_pixel_formats & PIXEL_FORMAT_MONO01) != 0 &&
+        (caps.screen_info & SCREEN_INFO_MONO_VTILED) != 0 &&
+        (caps.screen_info & SCREEN_INFO_MONO_MSB_FIRST) == 0 && caps.x_resolution >= PIC_W &&
+        caps.y_resolution >= PIC_H) {
+        /* A set bit lit, as the node draws it. */
+        if (display_set_pixel_format(screen, PIXEL_FORMAT_MONO01) != 0) {
             return false;
         }
+        paged = true;
+        static const uint8_t blank[PIC_W];
+        for (int page = 0; page < PIC_H / 8; page++) {
+            if (!board_screen_page(page, blank)) {
+                return false;
+            }
+        }
+    } else if (caps.current_pixel_format == PIXEL_FORMAT_RGB_565 &&
+               caps.x_resolution >= PIC_H + 8 && caps.y_resolution >= PIC_W) {
+        panel_w = caps.x_resolution;
+        panel_h = caps.y_resolution;
+        /* Dark all over. */
+        for (size_t i = 0; i < sizeof strip / sizeof strip[0]; i++) {
+            strip[i] = DARK;
+        }
+        for (int y = 0; y < panel_h; y++) {
+            if (panel_write(0, y, panel_w, 1, strip, (size_t)panel_w * 2) != 0) {
+                return false;
+            }
+        }
+    } else {
+        return false; /* a panel the node's pages are not drawn for */
     }
     (void)display_blanking_off(screen);
-    (void)gpio_pin_set_dt(&tft_led_en, 1);
+    set(&tft_led_en, 1);
     return true;
 }
 
 bool board_screen_page(int page, const uint8_t data[128]) {
+    if (paged) {
+        return panel_write(0, page * 8, PIC_W, 8, data, PIC_W) == 0;
+    }
     /* Picture row y = 8 * page + bit lies at panel column x; picture column c at panel row. One
      * way round or, with TERN_SCREEN_FLIP, the other. */
-    int y0 = AT_Y + 8 * page;
+    int at_x = (panel_h - PIC_W) / 2; /* where the picture's width starts along the long side */
+    int at_y = (panel_w - PIC_H) / 2;
+    int y0 = at_y + 8 * page;
 #if CONFIG_TERN_SCREEN_FLIP
     int x = y0;                       /* panel column of the page's first row */
-    int top = PANEL_H - AT_X - PIC_W; /* panel row of the picture's last column */
+    int top = panel_h - at_x - PIC_W; /* panel row of the picture's last column */
     for (int r = 0; r < PIC_W; r++) {
         uint8_t col = data[PIC_W - 1 - r];
         for (int i = 0; i < 8; i++) {
@@ -204,8 +351,8 @@ bool board_screen_page(int page, const uint8_t data[128]) {
         }
     }
 #else
-    int x = PANEL_W - 1 - (y0 + 7);
-    int top = AT_X;
+    int x = panel_w - 1 - (y0 + 7);
+    int top = at_x;
     for (int r = 0; r < PIC_W; r++) {
         uint8_t col = data[r];
         for (int i = 0; i < 8; i++) {
@@ -213,58 +360,76 @@ bool board_screen_page(int page, const uint8_t data[128]) {
         }
     }
 #endif
-    return panel_write(x, top, 8, PIC_W, strip) == 0;
+    return panel_write(x, top, 8, PIC_W, strip, sizeof strip) == 0;
 }
 
 bool board_screen_power(bool on) {
     if (on) {
         (void)display_blanking_off(screen);
-        return gpio_pin_set_dt(&tft_led_en, 1) == 0;
+        set(&tft_led_en, 1);
+        return true;
     }
-    (void)gpio_pin_set_dt(&tft_led_en, 0);
+    set(&tft_led_en, 0);
     return display_blanking_on(screen) == 0;
 }
 
+#else
+
+bool board_screen_init(void) { return false; }
+bool board_screen_page(int page, const uint8_t data[128]) { return false; }
+bool board_screen_power(bool on) { return false; }
+
+#endif
+
 /* --- The battery ----------------------------------------------------------------------------- */
 
+#if DT_NODE_EXISTS(VBATT)
+
 bool board_battery_init(void) {
-    if (!device_is_ready(adc) || gpio_pin_configure_dt(&adc_ctrl, GPIO_OUTPUT_INACTIVE) != 0 ||
-        adc_channel_setup(adc, &battery_channel) != 0) {
+    if (!adc_is_ready_dt(&battery) || !output(&battery_switch, GPIO_OUTPUT_INACTIVE) ||
+        adc_channel_setup_dt(&battery) != 0) {
         return false;
     }
     have_adc = true;
     return true;
 }
 
-/* The battery's millivolts with the switch at `level`, or 0 if the ADC would not say. */
+/* The battery's millivolts with the switch's line at `level` (its level on the pin, whatever its
+ * flags say), or 0 if the ADC would not say. */
 static uint16_t battery_at(int level) {
     int16_t raw;
-    struct adc_sequence seq = {.channels = BIT(battery_channel.channel_id),
-                               .buffer = &raw,
-                               .buffer_size = sizeof raw,
-                               .resolution = 12};
-    (void)gpio_pin_set_dt(&adc_ctrl, level);
+    struct adc_sequence seq = {.buffer = &raw, .buffer_size = sizeof raw};
+    if (adc_sequence_init_dt(&battery, &seq) != 0) {
+        return 0;
+    }
+    if (battery_switch.port != NULL) {
+        (void)gpio_pin_set_raw(battery_switch.port, battery_switch.pin, level);
+    }
     k_busy_wait(BATTERY_SETTLE_US);
     int32_t sum = 0;
     for (int i = 0; i < BATTERY_SAMPLES; i++) {
-        if (adc_read(adc, &seq) != 0) {
+        if (adc_read_dt(&battery, &seq) != 0) {
             return 0;
         }
         int32_t mv = raw < 0 ? 0 : raw;
-        if (adc_raw_to_millivolts(adc_ref_internal(adc), battery_channel.gain, 12, &mv) != 0) {
+        if (adc_raw_to_millivolts_dt(&battery, &mv) != 0) {
             return 0;
         }
         sum += mv;
     }
-    int32_t mv = sum / BATTERY_SAMPLES * (DIVIDER_TOP_K + DIVIDER_BOTTOM_K) / DIVIDER_BOTTOM_K;
+    int64_t mv = (int64_t)(sum / BATTERY_SAMPLES) * DIVIDER_FULL / DIVIDER_OUTPUT;
     return (uint16_t)(mv > UINT16_MAX ? UINT16_MAX : mv);
 }
 
-/* As on the Heltec ESP32 boards, the switch's sense is learnt rather than assumed (power.h): high
- * turns it on, by the schematic, and the board finds so itself. */
+/* As on the Heltec ESP32 boards, the switch's sense is learnt rather than assumed (power.h): the
+ * devicetree's flags say which level turns it on, and the board finds so itself. */
 uint16_t board_battery_mv(void) {
     if (!have_adc) {
         return 0;
+    }
+    if (battery_switch.port == NULL) {
+        uint16_t mv = battery_at(0); /* a divider always connected */
+        return mv < POWER_NONE_MV ? 0 : mv;
     }
     uint16_t low = 0, high = 0;
     if (!sense.known || !sense.high_enables) {
@@ -274,9 +439,25 @@ uint16_t board_battery_mv(void) {
         high = battery_at(1);
     }
     uint16_t mv = power_pick(&sense, low, high);
-    (void)gpio_pin_set_dt(&adc_ctrl, sense.known && !sense.high_enables ? 1 : 0);
+    (void)gpio_pin_set_raw(battery_switch.port, battery_switch.pin,
+                           sense.known && !sense.high_enables ? 1 : 0);
     return mv;
 }
+
+static void battery_off(void) {
+    if (battery_switch.port != NULL) {
+        (void)gpio_pin_set_raw(battery_switch.port, battery_switch.pin,
+                               sense.known && !sense.high_enables ? 1 : 0);
+    }
+}
+
+#else
+
+bool board_battery_init(void) { return false; }
+uint16_t board_battery_mv(void) { return 0; }
+static void battery_off(void) {}
+
+#endif
 
 /* --- Turning off ----------------------------------------------------------------------------- */
 
@@ -293,14 +474,15 @@ bool board_woke_by_timer(void) {
 
 /* Off: the screen and its backlight unpowered, the LED and Vext off, and the chip in System OFF,
  * drawing a few microamps, once the button has been let go; a press starts it again from the
- * top. System OFF has no timer to wake it, so a board asked to wake after a while sleeps in System
- * ON instead, idle, and restarts when the time is up or the button is pressed. */
+ * top, or on a board without one, RESET. System OFF has no timer to wake it, so a board asked to
+ * wake after a while sleeps in System ON instead, idle, and restarts when the time is up or the
+ * button is pressed. */
 void board_off(uint32_t wake_after_s) {
     board_led(false);
-    (void)gpio_pin_set_dt(&tft_led_en, 0);
-    (void)gpio_pin_configure_dt(&tft_en, GPIO_OUTPUT_INACTIVE);
-    (void)gpio_pin_configure_dt(&vext, GPIO_OUTPUT_INACTIVE);
-    (void)gpio_pin_set_dt(&adc_ctrl, 0);
+    set(&tft_led_en, 0);
+    (void)output(&tft_en, GPIO_OUTPUT_INACTIVE);
+    (void)output(&vext, GPIO_OUTPUT_INACTIVE);
+    battery_off();
     while (board_button()) {
         k_msleep(10);
     }
@@ -315,7 +497,9 @@ void board_off(uint32_t wake_after_s) {
         woke_by = WOKE_BY_TIMER;
         sys_reboot(SYS_REBOOT_WARM);
     }
-    (void)gpio_pin_interrupt_configure_dt(&button, GPIO_INT_LEVEL_ACTIVE);
+    if (button.port != NULL) {
+        (void)gpio_pin_interrupt_configure_dt(&button, GPIO_INT_LEVEL_ACTIVE);
+    }
     sys_poweroff();
 }
 
