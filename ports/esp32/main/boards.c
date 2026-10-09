@@ -3,8 +3,11 @@
 #include <stddef.h>
 #include <string.h>
 
-#define CHIP_MIN_DBM (-9) /* the SX1262's high-power amplifier, its least */
-#define CHIP_MAX_DBM 22   /* and its most */
+#define SX1262_MIN_DBM (-9) /* the SX1262's high-power amplifier, its least */
+#define SX1262_MAX_DBM 22   /* and its most */
+#define PA_BOOST_MIN_DBM 2  /* an SX127x's PA_BOOST (tern/sx127x.h) */
+#define PA_BOOST_MAX_DBM 17
+#define RFO_MAX_DBM 14 /* and its RFO, from 0 */
 
 /* The Heltec WiFi LoRa 32 V3, from Heltec's pin map and its schematics for the V3, V3.1 and V3.2:
  * a 1.8 V TCXO on DIO3, the antenna switch on DIO2, the screen and the header's 3.3 V on a supply
@@ -13,7 +16,9 @@
 const struct board_def board_heltec_v3 = {
     .name = "heltec-v3",
     .title = "Heltec WiFi LoRa 32 V3",
-    .lora = {.nss = 8,
+    .soc = BOARD_ESP32S3,
+    .lora = {.chip = BOARD_SX1262,
+             .nss = 8,
              .sck = 9,
              .mosi = 10,
              .miso = 11,
@@ -28,7 +33,7 @@ const struct board_def board_heltec_v3 = {
     .vext_high_on = false,
     .battery = {.sense = 1, .enable = 37, .top_k = 390, .bottom_k = 100},
     .amp = {.power = BOARD_NO_PIN, .enable = BOARD_NO_PIN, .tx = {BOARD_NO_PIN, BOARD_NO_PIN}},
-    .max_dbm = CHIP_MAX_DBM,
+    .max_dbm = SX1262_MAX_DBM,
 };
 
 /* The Heltec WiFi LoRa 32 V4, from Heltec's datasheet (V4.3.1) and its schematics for the V4.2 and
@@ -59,7 +64,9 @@ const struct board_def board_heltec_v3 = {
 const struct board_def board_heltec_v4 = {
     .name = "heltec-v4",
     .title = "Heltec WiFi LoRa 32 V4",
-    .lora = {.nss = 8,
+    .soc = BOARD_ESP32S3,
+    .lora = {.chip = BOARD_SX1262,
+             .nss = 8,
              .sck = 9,
              .mosi = 10,
              .miso = 11,
@@ -85,8 +92,8 @@ const struct board_def board_heltec_v4 = {
  * without one until the port has a driver for it. */
 #define HELTEC_SX1262                                                                              \
     {                                                                                              \
-        .nss = 8, .sck = 9, .mosi = 10, .miso = 11, .reset = 12, .busy = 13, .tcxo_mv = 1800,      \
-        .dio2_rf_switch = true                                                                     \
+        .chip = BOARD_SX1262, .nss = 8, .sck = 9, .mosi = 10, .miso = 11, .reset = 12, .busy = 13, \
+        .tcxo_mv = 1800, .dio2_rf_switch = true                                                    \
     }
 #define NO_AMP                                                                                     \
     {                                                                                              \
@@ -102,6 +109,7 @@ const struct board_def board_heltec_v4 = {
 const struct board_def board_heltec_wsl_v3 = {
     .name = "heltec-wsl-v3",
     .title = "Heltec Wireless Stick Lite V3",
+    .soc = BOARD_ESP32S3,
     .lora = HELTEC_SX1262,
     .button = 0,
     .led = 35,
@@ -110,7 +118,7 @@ const struct board_def board_heltec_wsl_v3 = {
     .vext_high_on = false,
     .battery = {.sense = 1, .enable = 37, .top_k = 390, .bottom_k = 100},
     .amp = NO_AMP,
-    .max_dbm = CHIP_MAX_DBM,
+    .max_dbm = SX1262_MAX_DBM,
 };
 
 /* The Heltec Wireless Tracker V1.1, from its datasheet (Wireless Tracker1.1), schematic
@@ -123,6 +131,7 @@ const struct board_def board_heltec_wsl_v3 = {
 const struct board_def board_heltec_tracker = {
     .name = "heltec-tracker",
     .title = "Heltec Wireless Tracker",
+    .soc = BOARD_ESP32S3,
     .lora = HELTEC_SX1262,
     .button = 0,
     .led = 18,
@@ -131,7 +140,7 @@ const struct board_def board_heltec_tracker = {
     .vext_high_on = true,
     .battery = {.sense = 1, .enable = 2, .top_k = 390, .bottom_k = 100},
     .amp = NO_AMP,
-    .max_dbm = CHIP_MAX_DBM,
+    .max_dbm = SX1262_MAX_DBM,
 };
 
 /* The Heltec Vision Master E290 and E213, from their schematics (HT-VME290, HT-VME213) and
@@ -145,6 +154,7 @@ const struct board_def board_heltec_tracker = {
 const struct board_def board_heltec_vme290 = {
     .name = "heltec-vme290",
     .title = "Heltec Vision Master E290",
+    .soc = BOARD_ESP32S3,
     .lora = HELTEC_SX1262,
     .button = 21,
     .led = 45,
@@ -153,12 +163,13 @@ const struct board_def board_heltec_vme290 = {
     .vext_high_on = true,
     .battery = {.sense = 7, .enable = 46, .top_k = 390, .bottom_k = 100},
     .amp = NO_AMP,
-    .max_dbm = CHIP_MAX_DBM,
+    .max_dbm = SX1262_MAX_DBM,
 };
 
 const struct board_def board_heltec_vme213 = {
     .name = "heltec-vme213",
     .title = "Heltec Vision Master E213",
+    .soc = BOARD_ESP32S3,
     .lora = HELTEC_SX1262,
     .button = 21,
     .led = 45,
@@ -167,7 +178,7 @@ const struct board_def board_heltec_vme213 = {
     .vext_high_on = true,
     .battery = {.sense = 7, .enable = 46, .top_k = 390, .bottom_k = 100},
     .amp = NO_AMP,
-    .max_dbm = CHIP_MAX_DBM,
+    .max_dbm = SX1262_MAX_DBM,
 };
 
 /* The Heltec Wireless Paper, from its schematic (Wireless_Paper_V0.4) and datasheet (Rev1.0); its
@@ -179,6 +190,7 @@ const struct board_def board_heltec_vme213 = {
 const struct board_def board_heltec_paper = {
     .name = "heltec-paper",
     .title = "Heltec Wireless Paper",
+    .soc = BOARD_ESP32S3,
     .lora = HELTEC_SX1262,
     .button = 0,
     .led = 18,
@@ -187,7 +199,7 @@ const struct board_def board_heltec_paper = {
     .vext_high_on = false,
     .battery = {.sense = 20, .enable = 19, .top_k = 10, .bottom_k = 10},
     .amp = NO_AMP,
-    .max_dbm = CHIP_MAX_DBM,
+    .max_dbm = SX1262_MAX_DBM,
 };
 
 const struct board_def *const board_defs[] = {
@@ -207,10 +219,26 @@ static int8_t gain(const struct board_def *b) {
     return b->amp.power == BOARD_NO_PIN ? 0 : b->amp.gain_db;
 }
 
-int8_t board_min_dbm(const struct board_def *b) { return (int8_t)(CHIP_MIN_DBM + gain(b)); }
+int8_t board_chip_min_dbm(const struct board_def *b) {
+    if (b->lora.chip == BOARD_SX1262) {
+        return SX1262_MIN_DBM;
+    }
+    return b->lora.pa_boost ? PA_BOOST_MIN_DBM : 0;
+}
+
+int8_t board_chip_max_dbm(const struct board_def *b) {
+    if (b->lora.chip == BOARD_SX1262) {
+        return SX1262_MAX_DBM;
+    }
+    return b->lora.pa_boost ? PA_BOOST_MAX_DBM : RFO_MAX_DBM;
+}
+
+int8_t board_min_dbm(const struct board_def *b) {
+    return (int8_t)(board_chip_min_dbm(b) + gain(b));
+}
 
 int8_t board_max_dbm(const struct board_def *b) {
-    int most = CHIP_MAX_DBM + gain(b);
+    int most = board_chip_max_dbm(b) + gain(b);
     return (int8_t)(b->max_dbm < most ? b->max_dbm : most);
 }
 
@@ -228,11 +256,11 @@ bool board_gives(const struct board_def *b, int dbm) {
 
 int8_t board_chip_dbm(const struct board_def *b, int8_t antenna_dbm) {
     int chip = antenna_dbm - gain(b);
-    if (chip < CHIP_MIN_DBM) {
-        chip = CHIP_MIN_DBM;
+    if (chip < board_chip_min_dbm(b)) {
+        chip = board_chip_min_dbm(b);
     }
-    if (chip > CHIP_MAX_DBM) {
-        chip = CHIP_MAX_DBM;
+    if (chip > board_chip_max_dbm(b)) {
+        chip = board_chip_max_dbm(b);
     }
     return (int8_t)chip;
 }

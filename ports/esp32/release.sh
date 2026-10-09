@@ -15,7 +15,8 @@
 #   tern-<board>-<region>-<version>-app.bin     the firmware alone: what a phone sends over the
 #                                               companion link to update a node
 #
-# Every board has the same layout of its flash (partitions.csv), so the addresses are the same.
+# Every board has the same layout of its flash (partitions.csv, or partitions-4mb.csv for a board
+# with 4 MB, whose slots are smaller), so the addresses are the same.
 #
 # -boot.bin and -update.bin, written together over USB, update a board and leave NVS, and with it
 # its identity, sessions, contacts and bonds, alone. They are the whole image cut either side of
@@ -35,6 +36,9 @@ mkdir release
 
 for board in "$@"; do
     test -f "boards/$board.defaults" || { echo "no board $board: see boards/" >&2; exit 1; }
+    # The chip is the board's (boards/<board>.defaults), whatever the shell or CI had set.
+    target=$(sed -n 's/^CONFIG_IDF_TARGET="\(.*\)"$/\1/p' "boards/$board.defaults")
+    export IDF_TARGET="${target:-esp32s3}"
     for region in us915 eu868; do
         build=build-$board-$region
         upper=$(echo "$region" | tr a-z A-Z)

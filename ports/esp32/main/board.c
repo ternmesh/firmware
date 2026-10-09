@@ -19,6 +19,8 @@
 #include "freertos/task.h"
 #include "power.h"
 #include "tern/err.h"
+#include "tern/sx126x.h"
+#include "tern/sx127x.h"
 
 #if CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
 #include "driver/usb_serial_jtag.h"
@@ -42,6 +44,8 @@
 #define BUSY_TIMEOUT_US 100000 /* far longer than any command; calibration takes a few ms */
 
 static spi_device_handle_t spi;
+static struct tern_sx126x sx126x;
+static struct tern_sx127x sx127x;
 static i2c_master_dev_handle_t oled;
 static adc_oneshot_unit_handle_t adc;
 static adc_cali_handle_t adc_cali;
@@ -93,12 +97,14 @@ static tern_time bus_now(void *ctx) {
     return board_now();
 }
 
+static bool is_sx127x(void) { return B->lora.chip != BOARD_SX1262; }
+
 static int bus_transfer(void *ctx, const uint8_t *tx, uint8_t *rx, size_t len) {
     (void)ctx;
-    /* The chip raises BUSY while it works on the last command and takes no new one until it
-     * drops (datasheet section 8.3.1). */
+    /* The SX1262 raises BUSY while it works on the last command and takes no new one until it
+     * drops (datasheet section 8.3.1). An SX127x has no BUSY, and takes each access at once. */
     int64_t start = esp_timer_get_time();
-    while (gpio_get_level(B->lora.busy)) {
+    while (B->lora.busy != BOARD_NO_PIN && gpio_get_level(B->lora.busy)) {
         if (esp_timer_get_time() - start > BUSY_TIMEOUT_US) {
             return TERN_EIO;
         }
@@ -107,11 +113,11 @@ static int bus_transfer(void *ctx, const uint8_t *tx, uint8_t *rx, size_t len) {
     return spi_device_polling_transmit(spi, &t) == ESP_OK ? TERN_OK : TERN_EIO;
 }
 
-int board_init(struct tern_sx126x *radio) {
+int board_init(void) {
     gpio_config_t out = {.pin_bit_mask = bit(B->lora.reset) | bit(B->led),
                          .mode = GPIO_MODE_OUTPUT};
     gpio_config_t in = {.pin_bit_mask = bit(B->lora.busy), .mode = GPIO_MODE_INPUT};
-    if (gpio_config(&out) != ESP_OK || gpio_config(&in) != ESP_OK) {
+    if (gpio_config(&out) != ESP_OK || (in.pin_bit_mask != 0 && gpio_config(&in) != ESP_OK)) {
         return TERN_EIO;
     }
     board_led(false);
@@ -122,16 +128,16 @@ int board_init(struct tern_sx126x *radio) {
                             .quadwp_io_num = -1,
                             .quadhd_io_num = -1,
                             .max_transfer_sz = 300};
-    spi_device_interface_config_t dev = {.clock_speed_hz = 8 * 1000 * 1000, /* the chip's 16 */
-                                         .mode = 0,
-                                         .spics_io_num = B->lora.nss,
-                                         .queue_size = 1};
+    /* 8 MHz: the SX1262 takes 16, an SX127x 10 (their datasheets' SPI timing). */
+    spi_device_interface_config_t dev = {
+        .clock_speed_hz = 8 * 1000 * 1000, .mode = 0, .spics_io_num = B->lora.nss, .queue_size = 1};
     if (spi_bus_initialize(SPI2_HOST, &bus, SPI_DMA_CH_AUTO) != ESP_OK ||
         spi_bus_add_device(SPI2_HOST, &dev, &spi) != ESP_OK) {
         return TERN_EIO;
     }
 
-    /* Hold NRESET low for over 100 us (section 8.1), then let the chip start. */
+    /* Hold NRESET low for over 100 us, then let the chip start: 5 ms is what an SX127x asks
+     * (its datasheet, page 117), and an SX1262 is ready sooner (its section 8.1). */
     gpio_set_level(B->lora.reset, 0);
     esp_rom_delay_us(1000);
     gpio_set_level(B->lora.reset, 1);
@@ -141,15 +147,55 @@ int board_init(struct tern_sx126x *radio) {
         return TERN_EIO;
     }
 
+    if (is_sx127x()) {
+        struct tern_sx127x_bus sb = {.ctx = NULL, .transfer = bus_transfer, .now = bus_now};
+        struct tern_sx127x_board wiring = {.chip = B->lora.chip == BOARD_SX1278 ? TERN_SX1278
+                                                                                : TERN_SX1276,
+                                           .pa_boost = B->lora.pa_boost,
+                                           .tcxo = B->lora.tcxo_mv != 0};
+        return tern_sx127x_init(&sx127x, &sb, &wiring);
+    }
     struct tern_sx126x_bus sb = {.ctx = NULL, .transfer = bus_transfer, .now = bus_now};
     struct tern_sx126x_board wiring = {
         .tcxo_mv = B->lora.tcxo_mv, .dio2_rf_switch = B->lora.dio2_rf_switch, .dcdc = true};
-    return tern_sx126x_init(radio, &sb, &wiring);
+    return tern_sx126x_init(&sx126x, &sb, &wiring);
+}
+
+void board_radio_counts(struct board_radio_counts *c) {
+    if (is_sx127x()) {
+        const struct tern_sx127x_counts *k = &sx127x.counts;
+        *c = (struct board_radio_counts){k->preambles, k->headers, k->header_errors, k->crc_errors,
+                                         k->frames};
+    } else {
+        const struct tern_sx126x_counts *k = &sx126x.counts;
+        *c = (struct board_radio_counts){k->preambles, k->headers, k->header_errors, k->crc_errors,
+                                         k->frames};
+    }
+}
+
+void board_radio_counts_reset(void) {
+    sx126x.counts = (struct tern_sx126x_counts){0};
+    sx127x.counts = (struct tern_sx127x_counts){0};
+}
+
+/* Whether board_init() has given the driver its bus, which it does before it first speaks to the
+ * chip. */
+static bool radio_started(void) {
+    return is_sx127x() ? sx127x.bus.transfer != NULL : sx126x.bus.transfer != NULL;
+}
+
+void board_radio_sleep(void) {
+    if (!radio_started()) {
+        (void)board_init();
+    }
+    if (radio_started()) {
+        (void)(is_sx127x() ? tern_sx127x_sleep(&sx127x) : tern_sx126x_sleep(&sx126x));
+    }
 }
 
 /* --- The amplifier --------------------------------------------------------------------------- */
 
-/* A board with an amplifier after its SX1262 (boards.h) is driven through a radio that wraps the
+/* A board with an amplifier after its radio (boards.h) is driven through a radio that wraps the
  * chip's: it asks the chip for less power, by the amplifier's gain, so that the core's powers are
  * the antenna's, and it raises the amplifier's transmit lines for as long as a frame is going. */
 
@@ -262,8 +308,8 @@ static const struct tern_radio_ops amp_ops = {
     .receiving = amp_receiving,
 };
 
-struct tern_radio board_radio(struct tern_sx126x *radio) {
-    chip = tern_sx126x_radio(radio);
+struct tern_radio board_radio(void) {
+    chip = is_sx127x() ? tern_sx127x_radio(&sx127x) : tern_sx126x_radio(&sx126x);
     if (!has_amp()) {
         return chip;
     }
@@ -274,6 +320,9 @@ struct tern_radio board_radio(struct tern_sx126x *radio) {
  * never does (main.c's halt()). */
 bool board_button(void) {
     static bool ready;
+    if (B->button == BOARD_NO_PIN) {
+        return false;
+    }
     if (!ready) {
         /* After board_off(), PRG woke the board as an RTC pin, and stays one until it is given
          * back. */
@@ -393,17 +442,21 @@ bool board_screen_power(bool on) {
     return on ? oled_send(on_seq, sizeof on_seq) : oled_send(off_seq, sizeof off_seq);
 }
 
-/* The ADC's ranges on the ESP32-S3, each the most it reads at that attenuation (ESP-IDF's ADC
- * oneshot guide), the least first: a battery is read in the narrowest that holds a full cell
- * through the board's divider, with a tenth to spare. 390k over 100k, the Heltecs', puts 4.2 V at
- * 0.86 V; an even divider, at 2.1 V. */
+/* The ADC's ranges, each the most it reads at that attenuation (ESP-IDF's ADC oneshot guide, for
+ * each chip), the least first: a battery is read in the narrowest that holds a full cell through
+ * the board's divider, with a tenth to spare. 390k over 100k, the Heltecs', puts 4.2 V at 0.86 V;
+ * an even divider, at 2.1 V. */
 static const struct {
     adc_atten_t atten;
     uint16_t most_mv;
 } adc_ranges[] = {
     {ADC_ATTEN_DB_2_5, 1250},
     {ADC_ATTEN_DB_6, 1750},
+#if CONFIG_IDF_TARGET_ESP32
+    {ADC_ATTEN_DB_12, 2450},
+#else
     {ADC_ATTEN_DB_12, 3100},
+#endif
 };
 
 static adc_atten_t battery_atten;
@@ -430,11 +483,21 @@ bool board_battery_init(void) {
         adc_oneshot_config_channel(adc, battery_channel, &chan) != ESP_OK) {
         return false;
     }
+#if ADC_CALI_SCHEME_CURVE_FITTING_SUPPORTED
     adc_cali_curve_fitting_config_t cal = {.unit_id = unit,
                                            .chan = battery_channel,
                                            .atten = battery_atten,
                                            .bitwidth = ADC_BITWIDTH_DEFAULT};
     have_cali = adc_cali_create_scheme_curve_fitting(&cal, &adc_cali) == ESP_OK;
+#else
+    /* The classic ESP32 fits a line, through what its eFuses hold, or failing those its nominal
+     * 1.1 V reference. */
+    adc_cali_line_fitting_config_t cal = {.unit_id = unit,
+                                          .atten = battery_atten,
+                                          .bitwidth = ADC_BITWIDTH_DEFAULT,
+                                          .default_vref = 1100};
+    have_cali = adc_cali_create_scheme_line_fitting(&cal, &adc_cali) == ESP_OK;
+#endif
     have_adc = true;
     return true;
 }
@@ -495,9 +558,11 @@ void board_off(uint32_t wake_after_s) {
         vTaskDelay(pdMS_TO_TICKS(10));
     }
     vTaskDelay(pdMS_TO_TICKS(50)); /* the contacts settle */
-    rtc_gpio_pullup_en(B->button);
-    rtc_gpio_pulldown_dis(B->button);
-    esp_sleep_enable_ext0_wakeup(B->button, 0);
+    if (B->button != BOARD_NO_PIN) {
+        rtc_gpio_pullup_en(B->button);
+        rtc_gpio_pulldown_dis(B->button);
+        esp_sleep_enable_ext0_wakeup(B->button, 0);
+    }
     if (wake_after_s != 0) {
         esp_sleep_enable_timer_wakeup((uint64_t)wake_after_s * 1000000u);
     }

@@ -6,23 +6,30 @@ menu "Tern demo"
         help
             The board the image is for: its pins and what it has fitted (main/boards.c). An
             image for one board does not run on another. boards/<name>.defaults sets this with
-            the rest of what the board needs, such as its console: build with
-            ./build.sh <name>.
+            the rest of what the board needs, such as its chip and console: build with
+            ./build.sh <name>. Only the boards with the chip the build is for are offered.
 
         config TERN_BOARD_HELTEC_V3
             bool "Heltec WiFi LoRa 32 V3"
+            depends on IDF_TARGET_ESP32S3
         config TERN_BOARD_HELTEC_V4
             bool "Heltec WiFi LoRa 32 V4 (V4.2 and V4.3)"
+            depends on IDF_TARGET_ESP32S3
         config TERN_BOARD_HELTEC_WSL_V3
             bool "Heltec Wireless Stick Lite V3"
+            depends on IDF_TARGET_ESP32S3
         config TERN_BOARD_HELTEC_TRACKER
             bool "Heltec Wireless Tracker (V1.0 and V1.1)"
+            depends on IDF_TARGET_ESP32S3
         config TERN_BOARD_HELTEC_VME290
             bool "Heltec Vision Master E290"
+            depends on IDF_TARGET_ESP32S3
         config TERN_BOARD_HELTEC_VME213
             bool "Heltec Vision Master E213"
+            depends on IDF_TARGET_ESP32S3
         config TERN_BOARD_HELTEC_PAPER
             bool "Heltec Wireless Paper"
+            depends on IDF_TARGET_ESP32S3
     endchoice
 
     config TERN_BOARD_NAME

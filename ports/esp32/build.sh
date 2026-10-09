@@ -15,5 +15,8 @@ if [ ! -f "boards/$board.defaults" ]; then
     exit 1
 fi
 shift
+# The chip is the board's (boards/<board>.defaults), whatever the shell had set.
+target=$(sed -n 's/^CONFIG_IDF_TARGET="\(.*\)"$/\1/p' "boards/$board.defaults")
+export IDF_TARGET="${target:-esp32s3}"
 idf.py -B "build-$board" -D TERN_BOARD="$board" -D SDKCONFIG="build-$board/sdkconfig" \
     -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;boards/$board.defaults" build "$@"

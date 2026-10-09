@@ -14,6 +14,7 @@
 
 #include "power.h"
 #include "tern/err.h"
+#include "tern/sx126x.h"
 
 /* The Heltec Mesh Node T114 V2, an nRF52840 wired to an SX1262, as Zephyr's board for it
  * (heltec_t114_v2) describes it and Heltec's schematic (MeshNode-T114_V2.1) shows: the radio on
@@ -51,6 +52,7 @@ static const struct device *const console = DEVICE_DT_GET(DT_CHOSEN(zephyr_conso
 
 static struct power_sense sense;
 static bool have_adc;
+static struct tern_sx126x sx;
 
 const char *board_title(void) { return "Heltec Mesh Node T114"; }
 int8_t board_power_min(void) { return POWER_MIN_DBM; }
@@ -84,7 +86,7 @@ static int bus_transfer(void *ctx, const uint8_t *tx, uint8_t *rx, size_t len) {
                                                                                    : TERN_EIO;
 }
 
-int board_init(struct tern_sx126x *radio) {
+int board_init(void) {
     if (!spi_is_ready_dt(&lora_spi) || !gpio_is_ready_dt(&lora_reset) ||
         gpio_pin_configure_dt(&lora_reset, GPIO_OUTPUT_INACTIVE) != 0 ||
         gpio_pin_configure_dt(&lora_busy, GPIO_INPUT) != 0 ||
@@ -99,10 +101,29 @@ int board_init(struct tern_sx126x *radio) {
 
     struct tern_sx126x_bus sb = {.ctx = NULL, .transfer = bus_transfer, .now = bus_now};
     struct tern_sx126x_board wiring = {.tcxo_mv = 1800, .dio2_rf_switch = true, .dcdc = true};
-    return tern_sx126x_init(radio, &sb, &wiring);
+    return tern_sx126x_init(&sx, &sb, &wiring);
 }
 
-struct tern_radio board_radio(struct tern_sx126x *radio) { return tern_sx126x_radio(radio); }
+struct tern_radio board_radio(void) { return tern_sx126x_radio(&sx); }
+
+void board_radio_counts(struct board_radio_counts *c) {
+    *c = (struct board_radio_counts){.preambles = sx.counts.preambles,
+                                     .headers = sx.counts.headers,
+                                     .header_errors = sx.counts.header_errors,
+                                     .crc_errors = sx.counts.crc_errors,
+                                     .frames = sx.counts.frames};
+}
+
+void board_radio_counts_reset(void) { sx.counts = (struct tern_sx126x_counts){0}; }
+
+void board_radio_sleep(void) {
+    if (sx.bus.transfer == NULL) {
+        (void)board_init();
+    }
+    if (sx.bus.transfer != NULL) {
+        (void)tern_sx126x_sleep(&sx);
+    }
+}
 
 /* --- The button and the LED ------------------------------------------------------------------ */
 
