@@ -23,7 +23,9 @@ TYPES = {
     "MAKE_GROUP": 0x20, "LEAVE_GROUP": 0x21, "NAME_GROUP": 0x22, "SEND_GROUP": 0x23,
     "SEND_INVITE": 0x24, "JOIN": 0x25, "MADE": 0x45, "GROUP": 0x8A, "GROUP_GONE": 0x8B,
     "GROUP_MESSAGE": 0x8C, "INVITE": 0x8D, "UPDATE_BEGIN": 0x30, "UPDATE_DATA": 0x31,
-    "UPDATE_END": 0x32, "UPDATING": 0x46,
+    "UPDATE_END": 0x32, "UPDATING": 0x46, "SET_POSITION": 0x33, "SHARE": 0x34,
+    "SHARE_GROUP": 0x35, "POSITION": 0x8E, "GROUP_POSITION": 0x8F, "SHARING": 0x90,
+    "GROUP_SHARING": 0x91,
 }
 STRINGS = ("text", "name", "firmware", "region")
 ADDRESSES = ("to", "address", "contact")

@@ -77,6 +77,7 @@
 #include "tern/forward.h"
 #include "tern/group.h"
 #include "tern/lora.h"
+#include "tern/position.h"
 #include "tern/radio.h"
 #include "tern/region.h"
 #include "tern/route.h"
@@ -161,13 +162,18 @@ static uint8_t forward_handle; /* and this is the forwarder's name for it */
 static tern_time forward_retry;
 static tern_time forward_quiet; /* how long to listen once the frame on the air has gone */
 /* This board's messages that the forwarder has and that are not yet acknowledged or given up. */
+/* A position's place among the pending: it has no message id, and what becomes of it is the
+ * link's to know (link_position_done()), not news. */
+#define PENDING_POSITION UINT32_MAX
+
 static struct pending {
-    uint32_t id; /* the link's, or 0 for a free place */
+    uint32_t id; /* the link's, PENDING_POSITION, or 0 for a free place */
     uint32_t counter;
     int slot; /* the session it was sealed in (demo.s) */
     uint8_t tag[TERN_FORWARD_TAG];
-    uint8_t goes; /* times it has gone on the air */
-    tern_time at; /* when it was handed over */
+    uint8_t goes;                 /* times it has gone on the air */
+    tern_time at;                 /* when it was handed over */
+    uint8_t to[TERN_ADDRESS_LEN]; /* a position's: whose it is, though its session be replaced */
 } pending[PENDING];
 /* The handshake frame of this board's that the forwarder keeps, and sends again until its answer
  * comes: message_1 or message_3 of a handshake this board began. */
@@ -613,7 +619,9 @@ static void pending_drop(int slot, bool tell) {
         if (pending[i].id != 0 && pending[i].slot == slot) {
             /* The forwarder's only way to let a message go: as if it had been acknowledged. */
             (void)tern_forward_acked(&forward, pending[i].tag);
-            if (tell) {
+            if (pending[i].id == PENDING_POSITION) {
+                link_position_done(&companion, pending[i].to);
+            } else if (tell) {
                 link_state(&companion, pending[i].id, TERN_C_NOT_DELIVERED, 0, 0);
             }
             pending[i].id = 0;
@@ -701,7 +709,11 @@ static void heard_ack(const struct tern_radio_event *ev) {
            "time%s\n",
            (unsigned long)p->counter, (long long)((board_now() - p->at) / 1000000), p->goes,
            p->goes == 1 ? "" : "s");
-    link_state(&companion, p->id, TERN_C_DELIVERED, 0, 0);
+    if (p->id == PENDING_POSITION) {
+        link_position_done(&companion, p->to);
+    } else {
+        link_state(&companion, p->id, TERN_C_DELIVERED, 0, 0);
+    }
     p->id = 0;
 }
 
@@ -731,12 +743,18 @@ static void heard_flood(const struct tern_radio_event *ev) {
     }
 }
 
-/* A message for this board itself, from a peer it shares a session with. The one kind there is
- * is an invite to a group, which is kept for the user to take or leave: the board holds no group
- * it was not told to. Anything else is acknowledged, as the specification has it, and let go. */
-static void heard_for_node(const uint8_t *plain, size_t len, const uint8_t peer[TERN_ADDRESS_LEN]) {
+/* A message for this board itself, from a peer it shares a session with. Its first byte says
+ * what it is: a position, which the link keeps if the peer is a contact, or an invite to a group,
+ * which is kept for the user to take or leave: the board holds no group it was not told to.
+ * Anything else is acknowledged, as the specification has it, and let go. */
+static void heard_for_node(const uint8_t *plain, size_t len, const uint8_t peer[TERN_ADDRESS_LEN],
+                           uint32_t counter) {
     uint8_t secret[TERN_GROUP_SECRET], name[TERN_GROUP_NAME_MAX];
     size_t name_len;
+    if (len > 0 && plain[0] == TERN_POSITION_KIND) {
+        link_position_received(&companion, board_now(), peer, counter, plain, len);
+        return;
+    }
     if (!tern_group_invite_read(plain, len, secret, name, &name_len)) {
         printf("(a message for this board that it does not know what to do with)\n");
         return;
@@ -794,7 +812,7 @@ static void heard(const struct tern_radio_event *ev) {
     case DEMO_HEARD_MESSAGE:
         flash_led();
         if (got.node) {
-            heard_for_node(msg, got.msg_len, got.peer);
+            heard_for_node(msg, got.msg_len, got.peer, got.counter);
             break;
         }
         msg[got.msg_len] = '\0';
@@ -1013,9 +1031,46 @@ static void send_group(struct link_message *x) {
     link_taken(&companion, x->id);
 }
 
+/* Seals the position the link says is due to a contact, as a message for its node, and hands it
+ * to the forwarder, which sends it until it is acknowledged or given up, as it does a message.
+ * Group positions wait for the group frame's node flag (ternmesh/spec#28). */
+static void send_position(void) {
+    static uint8_t frame[TERN_FORWARD_FRAME_MAX];
+    struct link_position_out out;
+    struct pending *p = pending_free();
+    if (p == NULL || board_now() < outgoing_retry ||
+        !link_position_next(&companion, board_now(), false, &out)) {
+        return;
+    }
+    int slot = demo_peer(&demo, out.address);
+    if (slot < 0) {
+        return; /* no session: a position does not begin first contact */
+    }
+    uint32_t counter = demo.s[slot].session.tx.next;
+    if (demo_seal_node(&demo, slot, out.plaintext, out.len, frame) != DEMO_OK) {
+        outgoing_retry = board_now() + 1000000000LL;
+        return;
+    }
+    size_t len = out.len + TERN_UNICAST_OVERHEAD;
+    if (pending_tagged(&frame[TERN_FORWARD_HEAD]) != NULL ||
+        !tern_forward_send(&forward, board_now(), tern_route_id(out.address), frame, len, true,
+                           INT8_MIN)) {
+        outgoing_retry = board_now() + 1000000000LL; /* sealed again when next due */
+        return;
+    }
+    *p = (struct pending){
+        .id = PENDING_POSITION, .counter = counter, .slot = slot, .at = board_now()};
+    memcpy(p->tag, &frame[TERN_FORWARD_HEAD], TERN_FORWARD_TAG);
+    memcpy(p->to, out.address, TERN_ADDRESS_LEN);
+    link_position_sent(&companion, &out, board_now());
+    printf("position #%lu to share: %u bytes, precision %u\n", (unsigned long)counter,
+           (unsigned)len, (unsigned)out.cell.precision);
+}
+
 static void poll_outgoing(void) {
     struct link_message *x = link_outgoing(&companion);
     if (x == NULL) {
+        send_position(); /* words first */
         return;
     }
     if (x->kind == LINK_KIND_GROUP) {
@@ -1089,11 +1144,18 @@ static void poll_forward(void) {
             printf("not delivered #%lu: no acknowledgement, having gone %u time%s. Is the other "
                    "board on and in range? 'routes' shows whether there is a route to it.\n",
                    (unsigned long)p->counter, p->goes, p->goes == 1 ? "" : "s");
-            link_state(&companion, p->id, TERN_C_NOT_DELIVERED, 0, 0);
+            if (p->id == PENDING_POSITION) {
+                link_position_done(&companion, p->to);
+            } else {
+                link_state(&companion, p->id, TERN_C_NOT_DELIVERED, 0, 0);
+            }
             p->id = 0;
         }
     }
     for (int i = 0; i < PENDING; i++) {
+        if (pending[i].id == PENDING_POSITION) {
+            continue; /* not a message: nothing to tell of it */
+        }
         if (pending[i].id != 0 && !link_wanted(&companion, pending[i].id)) {
             /* An invite whose group was left since it was handed over: the forwarder lets go of
              * it as if it had been acknowledged, and it is not sent again. */

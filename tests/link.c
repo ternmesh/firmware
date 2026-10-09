@@ -380,6 +380,18 @@ static void bob_writes_and_invites(void) {
                           sizeof ridge - 1) != 0);
 }
 
+/* A position from Bob, as main.c hands one over from the air: the cell whose centre a POSITION
+ * record gives, and the age it gives, at the time the record is made. */
+static void bob_is_at(const struct tern_companion_msg *m, tern_time now) {
+    struct tern_position p = {0};
+    tern_position_locate(&p, m->lat, m->lon, m->precision);
+    p.fields = TERN_POSITION_AGE;
+    p.age = m->age;
+    uint8_t plain[TERN_POSITION_MAX];
+    size_t len = tern_position_write(&p, plain);
+    link_position_received(&companion, now, bob, 7, plain, len);
+}
+
 /* Plays one of the specification's connections from where the node stands. What the board does
  * of itself comes where the connection has the news of it, or, for a client too old to be told,
  * before the step `before`: `unseen` is called there. */
@@ -412,6 +424,8 @@ static void follow(const char *name, const struct step *steps, size_t n, size_t 
                 link_asked(&companion, TERN_S(100), m.address, m.why);
             } else if (m.type == TERN_C_GROUP_MESSAGE && m.state == TERN_C_RECEIVED) {
                 bob_writes_and_invites();
+            } else if (m.type == TERN_C_POSITION && m.precision != 0) {
+                bob_is_at(&m, TERN_S(100));
             }
         }
         bool ok = expected < board.n_out && board.out_len[expected] == s->len &&
@@ -439,6 +453,368 @@ static void the_exchange_is_followed_frame_for_frame(void) {
     follow("exchange", exchange, COUNT(exchange), COUNT(exchange), NULL);
     /* It ends with the group it joined held, and the one it made left. */
     CHECK(companion.groups[0].used != companion.groups[1].used);
+}
+
+/* Clients of versions 3 and 4, to a node that holds a position from Bob and shares its own with
+ * him: neither is told of either, and each is refused the request its version lacks. */
+static void an_older_client_is_told_no_positions(void) {
+    const struct step *runs[] = {older_3, older_4};
+    const size_t lengths[] = {COUNT(older_3), COUNT(older_4)};
+    for (size_t r = 0; r < 2; r++) {
+        begin();
+        companion.fix = (struct link_fix){.have = true, .lat = 458325000, .lon = 68644000};
+        companion.contact_shares[0] =
+            (struct link_share){.precision = 20, .interval = 900, .until = 0};
+        memcpy(companion.contact_shares[0].address, bob, TERN_ADDRESS_LEN);
+        static const uint8_t town[] = {0x02, 0x60, 0xc1, 0x30, 0x9c};
+        link_position_received(&companion, TERN_S(50), bob, 1, town, sizeof town);
+        CHECK(companion.contact_positions[0].holds);
+        follow(r == 0 ? "older 3" : "older 4", runs[r], lengths[r], lengths[r], NULL);
+    }
+}
+
+/* --- Positions -------------------------------------------------------------------------------- */
+
+static const uint8_t no_wait[16]; /* random bytes of zero: a due position goes at once */
+
+/* Bob as a contact, a client said HELLO and synced, and the node at the summit. */
+static void sharing_start(void) {
+    start();
+    board.random = no_wait;
+    companion.contacts[0] = (struct link_contact){.used = true, .name_len = 3, .name = "Bob"};
+    memcpy(companion.contacts[0].address, bob, TERN_ADDRESS_LEN);
+    hello();
+    request(&(struct tern_companion_msg){.type = TERN_C_SYNC, .seq = 2});
+    request(&(struct tern_companion_msg){.type = TERN_C_SET_POSITION,
+                                         .seq = 3,
+                                         .lat = 458325000,
+                                         .lon = 68644000,
+                                         .altitude = 4806,
+                                         .accuracy = 4,
+                                         .age = 0});
+    CHECK_EQ_I64(sent(0).type, TERN_C_OK);
+}
+
+static void share_with_bob(tern_time now, uint8_t precision, uint8_t fields, uint16_t interval,
+                           uint16_t minutes) {
+    struct tern_companion_msg q = {.type = TERN_C_SHARE,
+                                   .seq = 4,
+                                   .precision = precision,
+                                   .fields = fields,
+                                   .interval = interval,
+                                   .minutes = minutes};
+    memcpy(q.address, bob, TERN_ADDRESS_LEN);
+    request_at(now, &q);
+}
+
+static void a_position_goes_when_due_and_one_at_a_time(void) {
+    sharing_start();
+    struct link_position_out out;
+    CHECK(!link_position_next(&companion, TERN_S(100), false, &out)); /* not shared yet */
+    share_with_bob(TERN_S(100), 20, TERN_C_SHARE_ALTITUDE, 900, 0);
+    CHECK_EQ_I64(sent(0).type, TERN_C_OK);
+    CHECK_EQ_I64(sent(1).type, TERN_C_SHARING);
+    CHECK_EQ_I64(sent(1).precision, 20);
+
+    /* The first goes at once, a street with its altitude and not its accuracy, which the user
+     * did not choose. */
+    CHECK(link_position_next(&companion, TERN_S(100), false, &out));
+    CHECK(!out.group && memcmp(out.address, bob, TERN_ADDRESS_LEN) == 0);
+    struct tern_position p;
+    CHECK(tern_position_read(&p, out.plaintext, out.len));
+    CHECK_EQ_I64(p.precision, 20);
+    CHECK_EQ_U64(p.fields, TERN_POSITION_ALTITUDE);
+    CHECK_EQ_I64(p.altitude, 4806);
+    link_position_sent(&companion, &out, TERN_S(100));
+
+    /* The node moves to the harbour, and the interval passes: due, but not while the last is
+     * still on its way. */
+    request_at(TERN_S(1000), &(struct tern_companion_msg){.type = TERN_C_SET_POSITION,
+                                                          .seq = 5,
+                                                          .lat = 603946000,
+                                                          .lon = 52878000,
+                                                          .altitude = TERN_C_NO_ALTITUDE});
+    CHECK(!link_position_next(&companion, TERN_S(1000), false, &out));
+    link_position_done(&companion, bob);
+    CHECK(link_position_next(&companion, TERN_S(1000), false, &out));
+    link_position_sent(&companion, &out, TERN_S(1000));
+    link_position_done(&companion, bob);
+
+    /* Not moved since: not before the interval, nor after it, until the hour's refresh. */
+    CHECK(!link_position_next(&companion, TERN_S(1899), false, &out));
+    CHECK(!link_position_next(&companion, TERN_S(1900), false, &out));
+    CHECK(link_position_next(&companion, TERN_S(4600), false, &out));
+    /* By then the fix is an hour old: it says so, and a fix older still is not sent. */
+    CHECK(tern_position_read(&p, out.plaintext, out.len));
+    CHECK(p.fields & TERN_POSITION_AGE);
+    CHECK(!link_position_next(&companion, TERN_S(4601), false, &out));
+
+    /* No session, no position: first contact is not made for one. */
+    request_at(TERN_S(3700), &(struct tern_companion_msg){.type = TERN_C_SET_POSITION,
+                                                          .seq = 5,
+                                                          .lat = 458325000,
+                                                          .lon = 68644000,
+                                                          .altitude = TERN_C_NO_ALTITUDE});
+    board.session_with_bob = false;
+    CHECK(!link_position_next(&companion, TERN_S(3700), false, &out));
+}
+
+static void a_move_within_a_quarter_cell_is_not_a_move(void) {
+    sharing_start();
+    share_with_bob(TERN_S(100), 12, 0, 60, 0);
+    struct link_position_out out;
+    CHECK(link_position_next(&companion, TERN_S(100), false, &out));
+    link_position_sent(&companion, &out, TERN_S(100));
+    link_position_done(&companion, bob);
+    int32_t south, west;
+    tern_position_corner(&out.cell, &south, &west);
+    /* A town is about 9.8 km a side, 878906 in 10^-7 degree: just over its southern edge. */
+    request_at(TERN_S(200), &(struct tern_companion_msg){.type = TERN_C_SET_POSITION,
+                                                         .seq = 6,
+                                                         .lat = south - 1000,
+                                                         .lon = west + 1000,
+                                                         .altitude = TERN_C_NO_ALTITUDE});
+    CHECK(!link_position_next(&companion, TERN_S(200), false, &out));
+    /* Half a cell over it is a move. */
+    request_at(TERN_S(200), &(struct tern_companion_msg){.type = TERN_C_SET_POSITION,
+                                                         .seq = 7,
+                                                         .lat = south - 439453,
+                                                         .lon = west + 1000,
+                                                         .altitude = TERN_C_NO_ALTITUDE});
+    CHECK(link_position_next(&companion, TERN_S(200), false, &out));
+    CHECK(out.cell.row + 1 == companion.contact_shares[0].cell.row);
+}
+
+static void sharing_turned_off_sends_a_stopped_position_once(void) {
+    sharing_start();
+    struct link_position_out out;
+    /* Turned off before anything went: nothing is owed. */
+    share_with_bob(TERN_S(100), 16, 0, 900, 0);
+    share_with_bob(TERN_S(100), 0, 0, 0, 0);
+    CHECK_EQ_I64(sent(1).type, TERN_C_SHARING);
+    CHECK_EQ_I64(sent(1).precision, 0);
+    CHECK(!link_position_next(&companion, TERN_S(100), false, &out));
+    /* Off when it is off already: OK, and no news. */
+    share_with_bob(TERN_S(100), 0, 0, 0, 0);
+    CHECK_EQ_U64(board.n_out, 1);
+
+    share_with_bob(TERN_S(100), 16, 0, 900, 0);
+    CHECK(link_position_next(&companion, TERN_S(100), false, &out));
+    link_position_sent(&companion, &out, TERN_S(100));
+    /* Turned off while that one is on its way: the stopped one waits for it, to arrive after. */
+    share_with_bob(TERN_S(200), 0, 0, 0, 0);
+    CHECK(!link_position_next(&companion, TERN_S(200), false, &out));
+    link_position_done(&companion, bob);
+    CHECK(link_position_next(&companion, TERN_S(200), false, &out));
+    CHECK_EQ_U64(out.len, 2);
+    CHECK(out.plaintext[0] == TERN_POSITION_KIND && out.plaintext[1] == 0);
+    link_position_sent(&companion, &out, TERN_S(200));
+    link_position_done(&companion, bob);
+    CHECK(!link_position_next(&companion, TERN_S(5000), false, &out));
+}
+
+static void sharing_runs_out_after_its_minutes(void) {
+    sharing_start();
+    share_with_bob(TERN_S(100), 16, 0, 900, 2);
+    CHECK_EQ_I64(sent(1).minutes, 2);
+    struct link_position_out out;
+    CHECK(link_position_next(&companion, TERN_S(100), false, &out));
+    link_position_sent(&companion, &out, TERN_S(100));
+    link_position_done(&companion, bob);
+    /* A sync half a minute on rounds what is left up. */
+    request_at(TERN_S(130), &(struct tern_companion_msg){.type = TERN_C_SYNC, .seq = 8});
+    bool told = false;
+    for (size_t i = 0; i < board.n_out; i++) {
+        if (sent(i).type == TERN_C_SHARING) {
+            told = sent(i).minutes == 2 && sent(i).precision == 16;
+        }
+    }
+    CHECK(told);
+    board.n_out = 0;
+    link_tick(&companion, TERN_S(219));
+    CHECK_EQ_U64(board.n_out, 0);
+    link_tick(&companion, TERN_S(220));
+    CHECK_EQ_I64(sent(0).type, TERN_C_SHARING);
+    CHECK_EQ_I64(sent(0).precision, 0);
+    CHECK(link_position_next(&companion, TERN_S(220), false, &out));
+    CHECK_EQ_U64(out.len, 2); /* the stopped one */
+}
+
+static void share_requests_are_refused_as_the_draft_says(void) {
+    sharing_start();
+    struct tern_companion_msg q = {
+        .type = TERN_C_SHARE, .seq = 9, .precision = 16, .interval = 900};
+    memcpy(q.address, alice, TERN_ADDRESS_LEN);
+    request(&q);
+    CHECK_EQ_I64(sent(0).code, TERN_C_ERR_ADDRESS);
+    memcpy(q.address, carol, TERN_ADDRESS_LEN);
+    request(&q);
+    CHECK_EQ_I64(sent(0).code, TERN_C_ERR_NOT_CONTACT);
+    memcpy(q.address, bob, TERN_ADDRESS_LEN);
+    q.interval = 59;
+    request(&q);
+    CHECK_EQ_I64(sent(0).code, TERN_C_ERR_REFUSED);
+    q.interval = 60;
+    q.fields = 4;
+    request(&q);
+    CHECK_EQ_I64(sent(0).code, TERN_C_ERR_REFUSED);
+    q.fields = 0;
+    q.precision = 25;
+    request(&q);
+    CHECK_EQ_I64(sent(0).code, TERN_C_ERR_REFUSED);
+    /* Off ignores the rest. */
+    q.precision = 0;
+    q.fields = 0xFF;
+    request(&q);
+    CHECK_EQ_I64(sent(0).type, TERN_C_OK);
+
+    struct tern_companion_msg g = {
+        .type = TERN_C_SHARE_GROUP, .seq = 10, .precision = 12, .interval = 300};
+    request(&g);
+    CHECK_EQ_I64(sent(0).code, TERN_C_ERR_NOT_HELD);
+    request(&(struct tern_companion_msg){.type = TERN_C_MAKE_GROUP, .seq = 11});
+    memcpy(g.group, sent(0).group, sizeof g.group);
+    g.interval = 299;
+    request(&g);
+    CHECK_EQ_I64(sent(0).code, TERN_C_ERR_REFUSED);
+    g.interval = 300;
+    request(&g);
+    CHECK_EQ_I64(sent(0).type, TERN_C_OK);
+    CHECK_EQ_I64(sent(1).type, TERN_C_GROUP_SHARING);
+
+    request(&(struct tern_companion_msg){.type = TERN_C_SET_POSITION, .seq = 12, .lat = 900000001});
+    CHECK_EQ_I64(sent(0).code, TERN_C_ERR_REFUSED);
+    request(
+        &(struct tern_companion_msg){.type = TERN_C_SET_POSITION, .seq = 13, .lon = -1800000001});
+    CHECK_EQ_I64(sent(0).code, TERN_C_ERR_REFUSED);
+}
+
+static void a_received_position_is_news_and_forgotten(void) {
+    sharing_start();
+    static const uint8_t town[] = {0x02, 0x60, 0xc1, 0x30, 0x9c};
+    static const uint8_t stop[] = {0x02, 0x00};
+    board.n_out = 0;
+    /* From a stranger, nothing. */
+    link_position_received(&companion, TERN_S(100), carol, 1, town, sizeof town);
+    CHECK_EQ_U64(board.n_out, 0);
+    link_position_received(&companion, TERN_S(100), bob, 5, town, sizeof town);
+    CHECK_EQ_I64(sent(0).type, TERN_C_POSITION);
+    CHECK_EQ_I64(sent(0).precision, 12);
+    CHECK_EQ_I64(sent(0).lat, 458349609);
+    CHECK_EQ_I64(sent(0).altitude, TERN_C_NO_ALTITUDE);
+    /* An older one changes nothing; a stopped one forgets it. */
+    link_position_received(&companion, TERN_S(101), bob, 4, stop, sizeof stop);
+    CHECK_EQ_U64(board.n_out, 1);
+    link_position_received(&companion, TERN_S(102), bob, 6, stop, sizeof stop);
+    CHECK_EQ_I64(sent(1).type, TERN_C_POSITION);
+    CHECK_EQ_I64(sent(1).precision, 0);
+    /* A day after it came, a position is forgotten, and that is news. */
+    link_position_received(&companion, TERN_S(200), bob, 7, town, sizeof town);
+    board.n_out = 0;
+    link_tick(&companion, TERN_S(200) + TERN_POSITION_KEEP - 1);
+    CHECK_EQ_U64(board.n_out, 0);
+    link_tick(&companion, TERN_S(200) + TERN_POSITION_KEEP);
+    CHECK_EQ_I64(sent(0).type, TERN_C_POSITION);
+    CHECK_EQ_I64(sent(0).precision, 0);
+    /* A new session starts with no counter: its first message's position is taken. */
+    link_position_received(&companion, TERN_S(300), bob, 9, town, sizeof town);
+    link_session_changed(&companion, bob);
+    board.n_out = 0;
+    link_position_received(&companion, TERN_S(301), bob, 0, stop, sizeof stop);
+    CHECK_EQ_I64(sent(0).type, TERN_C_POSITION);
+    CHECK_EQ_I64(sent(0).precision, 0);
+}
+
+static void a_removed_contact_takes_its_positions_with_it(void) {
+    sharing_start();
+    static const uint8_t town[] = {0x02, 0x60, 0xc1, 0x30, 0x9c};
+    share_with_bob(TERN_S(100), 16, 0, 900, 0);
+    struct link_position_out out;
+    CHECK(link_position_next(&companion, TERN_S(100), false, &out));
+    link_position_sent(&companion, &out, TERN_S(100));
+    link_position_done(&companion, bob);
+    link_position_received(&companion, TERN_S(100), bob, 1, town, sizeof town);
+    struct tern_companion_msg q = {.type = TERN_C_REMOVE_CONTACT, .seq = 14};
+    memcpy(q.address, bob, TERN_ADDRESS_LEN);
+    request(&q);
+    CHECK_EQ_I64(sent(0).type, TERN_C_OK);
+    CHECK_EQ_I64(sent(1).type, TERN_C_CONTACT_GONE);
+    CHECK_EQ_I64(sent(2).type, TERN_C_POSITION);
+    CHECK_EQ_I64(sent(2).precision, 0);
+    CHECK_EQ_I64(sent(3).type, TERN_C_SHARING);
+    CHECK_EQ_I64(sent(3).precision, 0);
+    /* A position went to Bob, so a stopped one follows while the session lasts. */
+    CHECK(link_position_next(&companion, TERN_S(200), false, &out));
+    CHECK_EQ_U64(out.len, 2);
+    link_position_sent(&companion, &out, TERN_S(200));
+    CHECK(!link_position_next(&companion, TERN_S(300), false, &out));
+}
+
+static void group_positions_are_held_for_each_member(void) {
+    sharing_start();
+    request(&(struct tern_companion_msg){.type = TERN_C_MAKE_GROUP, .seq = 15});
+    uint8_t id[TERN_COMPANION_GROUP];
+    memcpy(id, sent(0).group, sizeof id);
+    static const uint8_t town[] = {0x02, 0x60, 0xc1, 0x30, 0x9c};
+    static const uint8_t stop[] = {0x02, 0x00};
+    board.n_out = 0;
+    link_group_position_received(&companion, TERN_S(100), 0, 0x11111111, town, sizeof town);
+    CHECK_EQ_I64(sent(0).type, TERN_C_GROUP_POSITION);
+    CHECK_EQ_U64(sent(0).from, 0x11111111);
+    CHECK(memcmp(sent(0).group, id, sizeof id) == 0);
+    /* As many members as there is room for; the one heard from longest ago makes room. */
+    for (uint32_t k = 0; k < LINK_GROUP_POSITIONS; k++) {
+        link_group_position_received(&companion, TERN_S(101 + k), 0, 0x20000000 + k, town,
+                                     sizeof town);
+    }
+    bool first = false;
+    for (size_t k = 0; k < LINK_GROUP_POSITIONS; k++) {
+        first = first || companion.group_positions[0][k].from == 0x11111111;
+    }
+    CHECK(!first);
+    board.n_out = 0;
+    link_group_position_received(&companion, TERN_S(200), 0, 0x20000001, stop, sizeof stop);
+    CHECK_EQ_I64(sent(0).type, TERN_C_GROUP_POSITION);
+    CHECK_EQ_I64(sent(0).precision, 0);
+    /* Sharing with the group is a group's to have: the board sends to it only when told it can. */
+    struct tern_companion_msg g = {
+        .type = TERN_C_SHARE_GROUP, .seq = 16, .precision = 8, .interval = 300};
+    memcpy(g.group, id, sizeof id);
+    request(&g);
+    struct link_position_out out;
+    CHECK(!link_position_next(&companion, TERN_S(300), false, &out));
+    CHECK(link_position_next(&companion, TERN_S(300), true, &out));
+    CHECK(out.group && out.place == 0);
+    /* Leaving forgets the positions and ends the sharing, as news. */
+    struct tern_companion_msg leave = {.type = TERN_C_LEAVE_GROUP, .seq = 17};
+    memcpy(leave.group, id, sizeof id);
+    request(&leave);
+    size_t positions = 0, sharing = 0;
+    for (size_t i = 0; i < board.n_out; i++) {
+        positions += sent(i).type == TERN_C_GROUP_POSITION && sent(i).precision == 0;
+        sharing += sent(i).type == TERN_C_GROUP_SHARING && sent(i).precision == 0;
+    }
+    CHECK_EQ_U64(positions, LINK_GROUP_POSITIONS - 1);
+    CHECK_EQ_U64(sharing, 1);
+    CHECK(!link_position_next(&companion, TERN_S(300), true, &out));
+}
+
+static void a_sync_tells_positions_and_sharing(void) {
+    sharing_start();
+    static const uint8_t town[] = {0x02, 0x60, 0xc1, 0x30, 0x9c};
+    share_with_bob(TERN_S(100), 16, 0, 900, 0);
+    link_position_received(&companion, TERN_S(100), bob, 1, town, sizeof town);
+    request_at(TERN_S(130), &(struct tern_companion_msg){.type = TERN_C_SYNC, .seq = 18});
+    size_t neighbour = 0, position = 0, sharing = 0, airtime = 0;
+    for (size_t i = 0; i < board.n_out; i++) {
+        uint8_t t = sent(i).type;
+        neighbour = t == TERN_C_NEIGHBOUR ? i : neighbour;
+        position = t == TERN_C_POSITION ? i : position;
+        sharing = t == TERN_C_SHARING ? i : sharing;
+        airtime = t == TERN_C_AIRTIME ? i : airtime;
+    }
+    CHECK(neighbour < position && position < sharing && sharing < airtime);
+    CHECK_EQ_U64(sent(position).age, 30); /* how old it is now, not when it came */
 }
 
 static void carol_asks(void) {
@@ -1648,6 +2024,16 @@ static void what_flash_holds_that_is_no_message_is_not_loaded(void) {
 int main(void) {
     RUN(the_exchange_is_followed_frame_for_frame);
     RUN(an_older_client_is_not_told_who_asked);
+    RUN(an_older_client_is_told_no_positions);
+    RUN(a_position_goes_when_due_and_one_at_a_time);
+    RUN(a_move_within_a_quarter_cell_is_not_a_move);
+    RUN(sharing_turned_off_sends_a_stopped_position_once);
+    RUN(sharing_runs_out_after_its_minutes);
+    RUN(share_requests_are_refused_as_the_draft_says);
+    RUN(a_received_position_is_news_and_forgotten);
+    RUN(a_removed_contact_takes_its_positions_with_it);
+    RUN(group_positions_are_held_for_each_member);
+    RUN(a_sync_tells_positions_and_sharing);
     RUN(an_update_goes_on_from_where_the_link_was_lost);
     RUN(an_update_refuses_what_it_should);
     RUN(an_update_needs_a_board_and_room);

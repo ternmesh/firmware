@@ -137,6 +137,68 @@ static struct tern_companion_msg power_of(const struct link_view *v) {
                                        .flags = v->power_flags};
 }
 
+/* A position held, as a POSITION or GROUP_POSITION record: the centre of its cell, and its age
+ * as of now. Precision 0 when nothing is held. */
+static void put_position(struct tern_companion_msg *m, const struct tern_position *p, bool holds,
+                         tern_time at, tern_time now) {
+    m->altitude = 0;
+    if (!holds || p->precision == 0) {
+        return;
+    }
+    m->precision = p->precision;
+    tern_position_centre(p, &m->lat, &m->lon);
+    m->altitude = p->fields & TERN_POSITION_ALTITUDE ? p->altitude : TERN_C_NO_ALTITUDE;
+    m->accuracy = p->fields & TERN_POSITION_ACCURACY ? p->accuracy : 0;
+    tern_time since = now > at ? (now - at) / TERN_S(1) : 0;
+    uint64_t age = (uint64_t)(p->fields & TERN_POSITION_AGE ? p->age : 0) + (uint64_t)since;
+    m->age = age > UINT32_MAX ? UINT32_MAX : (uint32_t)age;
+}
+
+static void news_position(struct link *l, struct link_conn *to, size_t place, tern_time now) {
+    const struct tern_position_held *h = &l->contact_positions[place];
+    struct tern_companion_msg m = {.type = TERN_C_POSITION};
+    memcpy(m.address, l->contacts[place].address, TERN_ADDRESS_LEN);
+    put_position(&m, &h->position, h->holds, h->at, now);
+    news(l, to, &m);
+}
+
+static void news_group_position(struct link *l, struct link_conn *to, size_t place,
+                                const struct link_member_position *x, tern_time now) {
+    struct tern_companion_msg m = {.type = TERN_C_GROUP_POSITION, .from = x->from};
+    memcpy(m.group, l->groups[place].id, sizeof m.group);
+    put_position(&m, &x->position, x->used, x->at, now);
+    news(l, to, &m);
+}
+
+/* SHARING or GROUP_SHARING: minutes left rounded up, as of now. */
+static void put_share(struct tern_companion_msg *m, const struct link_share *s, tern_time now) {
+    if (s->precision == 0) {
+        return;
+    }
+    m->precision = s->precision;
+    m->fields = s->fields;
+    m->interval = s->interval;
+    if (s->until != 0) {
+        tern_time left = s->until > now ? s->until - now : 0;
+        tern_time minutes = (left + TERN_S(60) - 1) / TERN_S(60);
+        m->minutes = (uint16_t)(minutes > UINT16_MAX ? UINT16_MAX : minutes);
+    }
+}
+
+static void news_sharing(struct link *l, struct link_conn *to, size_t place, tern_time now) {
+    struct tern_companion_msg m = {.type = TERN_C_SHARING};
+    memcpy(m.address, l->contact_shares[place].address, TERN_ADDRESS_LEN);
+    put_share(&m, &l->contact_shares[place], now);
+    news(l, to, &m);
+}
+
+static void news_group_sharing(struct link *l, struct link_conn *to, size_t place, tern_time now) {
+    struct tern_companion_msg m = {.type = TERN_C_GROUP_SHARING};
+    memcpy(m.group, l->groups[place].id, sizeof m.group);
+    put_share(&m, &l->group_shares[place], now);
+    news(l, to, &m);
+}
+
 /* --- Contacts and messages ------------------------------------------------------------------- */
 
 static struct link_contact *find_contact(struct link *l, const uint8_t address[TERN_ADDRESS_LEN]) {
@@ -567,6 +629,10 @@ void link_unreachable(struct link *l, const uint8_t address[TERN_ADDRESS_LEN]) {
 void link_session_changed(struct link *l, const uint8_t address[TERN_ADDRESS_LEN]) {
     const struct link_contact *c = find_contact(l, address);
     if (c != NULL) {
+        /* The old session's messages can no longer be opened, so a new one starts with no
+         * counter to hold a position to (draft/positions.md, "Older positions"). */
+        l->contact_positions[c - l->contacts].counted = false;
+        l->contact_positions[c - l->contacts].counter = 0;
         news_contact(l, NULL, c);
     }
 }
@@ -636,6 +702,28 @@ static void sync(struct link *l, const struct tern_companion_msg *q, tern_time n
     for (size_t i = 0; i < l->view.n_neighbours && i < LINK_NEIGHBOURS; i++) {
         news_neighbour(l, c, &l->view.neighbours[i]);
         c->told[c->n_told++] = (struct link_told){l->view.neighbours[i], now};
+    }
+    for (size_t i = 0; i < LINK_CONTACTS; i++) {
+        if (l->contacts[i].used && l->contact_positions[i].holds) {
+            news_position(l, c, i, now);
+        }
+    }
+    for (size_t i = 0; i < LINK_GROUPS; i++) {
+        for (size_t k = 0; l->groups[i].used && k < LINK_GROUP_POSITIONS; k++) {
+            if (l->group_positions[i][k].used) {
+                news_group_position(l, c, i, &l->group_positions[i][k], now);
+            }
+        }
+    }
+    for (size_t i = 0; i < LINK_CONTACTS; i++) {
+        if (l->contacts[i].used && l->contact_shares[i].precision != 0) {
+            news_sharing(l, c, i, now);
+        }
+    }
+    for (size_t i = 0; i < LINK_GROUPS; i++) {
+        if (l->groups[i].used && l->group_shares[i].precision != 0) {
+            news_group_sharing(l, c, i, now);
+        }
     }
     c->air = airtime_of(&l->view);
     tell(l, c, &c->air);
@@ -738,11 +826,19 @@ static void save_contact(struct link *l, const struct tern_companion_msg *q) {
         return;
     }
     struct link_contact *c = find_contact(l, q->address);
+    /* A free place, one that owes no stopped position to whoever was there before if there is
+     * one: the stop is given up if its place is taken. */
+    for (size_t i = 0; c == NULL && i < LINK_CONTACTS; i++) {
+        if (!l->contacts[i].used && !l->contact_shares[i].stop) {
+            c = &l->contacts[i];
+        }
+    }
     for (size_t i = 0; c == NULL && i < LINK_CONTACTS; i++) {
         if (!l->contacts[i].used) {
             c = &l->contacts[i];
         }
     }
+    bool fresh = c != NULL && !c->used;
     if (c == NULL) {
         error(l, q->seq, TERN_C_ERR_FULL);
         return;
@@ -757,6 +853,11 @@ static void save_contact(struct link *l, const struct tern_companion_msg *q) {
         return;
     }
     answer(l, TERN_C_OK, q->seq);
+    if (fresh) {
+        size_t place = (size_t)(c - l->contacts);
+        l->contact_shares[place] = (struct link_share){0};
+        tern_position_held_init(&l->contact_positions[place]);
+    }
     news_contact(l, NULL, c);
 }
 
@@ -776,6 +877,23 @@ static void remove_contact(struct link *l, const struct tern_companion_msg *q) {
         struct tern_companion_msg m = {.type = TERN_C_CONTACT_GONE};
         memcpy(m.address, q->address, TERN_ADDRESS_LEN);
         news(l, NULL, &m);
+        /* Sharing with it ends, and the position held from it is forgotten. */
+        size_t place = (size_t)(c - l->contacts);
+        struct link_share *s = &l->contact_shares[place];
+        struct tern_position_held *h = &l->contact_positions[place];
+        bool shared = s->precision != 0, held = h->holds;
+        *s = (struct link_share){.stop = s->gone || s->stop, .in_flight = s->in_flight};
+        memcpy(s->address, q->address, TERN_ADDRESS_LEN);
+        tern_position_held_init(h);
+        struct tern_companion_msg r = {.type = TERN_C_POSITION};
+        memcpy(r.address, q->address, TERN_ADDRESS_LEN);
+        if (held) {
+            news(l, NULL, &r);
+        }
+        if (shared) {
+            r.type = TERN_C_SHARING;
+            news(l, NULL, &r);
+        }
     }
 }
 
@@ -877,6 +995,24 @@ static void leave_group(struct link *l, const struct tern_companion_msg *q) {
     struct tern_companion_msg m = {.type = TERN_C_GROUP_GONE};
     memcpy(m.group, q->group, sizeof m.group);
     news(l, NULL, &m);
+    /* Sharing with it ends, and the positions held from it are forgotten. Its keys are gone, so
+     * no stopped position can follow. */
+    size_t place = (size_t)(g - l->groups);
+    for (size_t k = 0; k < LINK_GROUP_POSITIONS; k++) {
+        struct link_member_position *x = &l->group_positions[place][k];
+        if (x->used) {
+            struct tern_companion_msg r = {.type = TERN_C_GROUP_POSITION, .from = x->from};
+            memcpy(r.group, q->group, sizeof r.group);
+            news(l, NULL, &r);
+        }
+        *x = (struct link_member_position){0};
+    }
+    if (l->group_shares[place].precision != 0) {
+        struct tern_companion_msg r = {.type = TERN_C_GROUP_SHARING};
+        memcpy(r.group, q->group, sizeof r.group);
+        news(l, NULL, &r);
+    }
+    l->group_shares[place] = (struct link_share){0};
     /* What was still to go to the group, or to invite someone to it, never will: with the board
      * already or not, since it asks whether each is still wanted (link_wanted()) and lets go of
      * the frame of one that is not. */
@@ -941,6 +1077,296 @@ static void send_invite(struct link *l, const struct tern_companion_msg *q) {
 
 /* The same image as the update under way goes on from where the node's bytes end, so a client
  * whose link dropped need not send it all again; any other begins afresh. */
+/* --- Positions ------------------------------------------------------------------------------ */
+
+static void set_position(struct link *l, const struct tern_companion_msg *q, tern_time now) {
+    if (q->lat < -TERN_POSITION_LAT_MAX || q->lat > TERN_POSITION_LAT_MAX ||
+        q->lon < -TERN_POSITION_LON_MAX || q->lon > TERN_POSITION_LON_MAX) {
+        error(l, q->seq, TERN_C_ERR_REFUSED);
+        return;
+    }
+    l->fix = (struct link_fix){.have = true,
+                               .lat = q->lat,
+                               .lon = q->lon,
+                               .altitude = q->altitude,
+                               .accuracy = q->accuracy,
+                               .at = now - TERN_S(q->age)};
+    answer(l, TERN_C_OK, q->seq);
+}
+
+/* What SHARE and SHARE_GROUP set: 0, or the ERROR code to answer with. Turning off sharing that
+ * is off changes nothing; turning off sharing that sent a position owes a stopped one. */
+static uint8_t share(struct link_share *s, const struct tern_companion_msg *q, tern_time least,
+                     tern_time now, bool *changed) {
+    *changed = false;
+    if (q->precision == 0) {
+        if (s->precision != 0) {
+            s->stop = s->stop || s->gone;
+            s->precision = 0;
+            s->sent = s->gone = false; /* one on its way still is: the stopped one waits for it */
+            *changed = true;
+        }
+        return 0;
+    }
+    if (q->precision > TERN_POSITION_PRECISION_MAX ||
+        (q->fields & ~(TERN_C_SHARE_ALTITUDE | TERN_C_SHARE_ACCURACY)) != 0 ||
+        TERN_S(q->interval) < least) {
+        return TERN_C_ERR_REFUSED;
+    }
+    bool on = s->precision != 0;
+    s->precision = q->precision;
+    s->fields = q->fields;
+    s->interval = q->interval;
+    s->until = q->minutes == 0 ? 0 : now + TERN_S((tern_time)q->minutes * 60);
+    s->sent = false; /* changed: the next goes as the first does */
+    s->go_at = 0;
+    s->stop = false; /* a position on its way says more than a stopped one would */
+    if (!on) {
+        s->gone = false;
+    }
+    *changed = true;
+    return 0;
+}
+
+static void share_request(struct link *l, const struct tern_companion_msg *q, tern_time now) {
+    l->host.view(l->host.ctx, &l->view);
+    if (!usable_address(l, q->address)) {
+        error(l, q->seq, TERN_C_ERR_ADDRESS);
+        return;
+    }
+    struct link_contact *c = find_contact(l, q->address);
+    if (c == NULL) {
+        error(l, q->seq, TERN_C_ERR_NOT_CONTACT);
+        return;
+    }
+    size_t place = (size_t)(c - l->contacts);
+    struct link_share *s = &l->contact_shares[place];
+    memcpy(s->address, q->address, TERN_ADDRESS_LEN);
+    bool changed;
+    uint8_t code = share(s, q, TERN_POSITION_MIN, now, &changed);
+    if (code != 0) {
+        error(l, q->seq, code);
+        return;
+    }
+    answer(l, TERN_C_OK, q->seq);
+    if (changed) {
+        news_sharing(l, NULL, place, now);
+    }
+}
+
+static void share_group(struct link *l, const struct tern_companion_msg *q, tern_time now) {
+    struct link_group *g = find_group(l, q->group);
+    if (g == NULL) {
+        error(l, q->seq, TERN_C_ERR_NOT_HELD);
+        return;
+    }
+    size_t place = (size_t)(g - l->groups);
+    bool changed;
+    uint8_t code = share(&l->group_shares[place], q, TERN_POSITION_GROUP_MIN, now, &changed);
+    if (code != 0) {
+        error(l, q->seq, code);
+        return;
+    }
+    answer(l, TERN_C_OK, q->seq);
+    if (changed) {
+        news_group_sharing(l, NULL, place, now);
+    }
+}
+
+/* Whether a position is due to one destination: the cell the fix is in at its precision (the
+ * last sent, while the fix is near it), and whether it is the last's. */
+static bool due(struct link *l, struct link_share *s, tern_time now, struct tern_position *cell) {
+    if (!l->fix.have) {
+        return false;
+    }
+    bool near = s->sent && tern_position_near(&s->cell, l->fix.lat, l->fix.lon) &&
+                s->cell.precision == s->precision;
+    if (near) {
+        *cell = s->cell;
+    } else {
+        tern_position_locate(cell, l->fix.lat, l->fix.lon, s->precision);
+    }
+    tern_time age = now - l->fix.at;
+    if (!tern_position_due(TERN_S(s->interval), s->sent, s->last, !near, age, now)) {
+        s->go_at = 0;
+        return false;
+    }
+    /* A random wait, of up to an eighth of the interval, drawn once it is due. */
+    if (s->go_at == 0) {
+        uint32_t r = 0;
+        if (!l->host.random(l->host.ctx, (uint8_t *)&r, sizeof r)) {
+            r = 0;
+        }
+        tern_time spread = TERN_S(s->interval) / 8;
+        s->go_at = now + (spread > 0 ? (tern_time)(r % (uint64_t)spread) : 0);
+        if (s->go_at == 0) {
+            s->go_at = 1;
+        }
+    }
+    return now >= s->go_at;
+}
+
+/* The plaintext of a position to one destination, from the fix and what the user chose. */
+static void write_position(struct link *l, const struct link_share *s, tern_time now,
+                           struct link_position_out *out) {
+    struct tern_position p = out->cell;
+    p.fields = 0;
+    if ((s->fields & TERN_C_SHARE_ALTITUDE) && l->fix.altitude != TERN_C_NO_ALTITUDE) {
+        p.fields |= TERN_POSITION_ALTITUDE;
+        p.altitude = l->fix.altitude;
+    }
+    if ((s->fields & TERN_C_SHARE_ACCURACY) && l->fix.accuracy != 0) {
+        p.fields |= TERN_POSITION_ACCURACY;
+        p.accuracy = tern_position_accuracy_byte(l->fix.accuracy);
+    }
+    tern_time age = (now - l->fix.at) / TERN_S(1);
+    if (age >= 60) {
+        p.fields |= TERN_POSITION_AGE;
+        p.age = age > UINT32_MAX ? UINT32_MAX : (uint32_t)age;
+    }
+    out->len = tern_position_write(&p, out->plaintext);
+}
+
+static void stopped(struct link_position_out *out) {
+    out->cell = (struct tern_position){0};
+    out->len = tern_position_write(&out->cell, out->plaintext);
+}
+
+bool link_position_next(struct link *l, tern_time now, bool groups, struct link_position_out *out) {
+    for (size_t i = 0; i < LINK_CONTACTS; i++) {
+        struct link_share *s = &l->contact_shares[i];
+        if ((s->precision == 0 && !s->stop) || s->in_flight ||
+            !l->host.session(l->host.ctx, s->address)) {
+            continue; /* no first contact for a position */
+        }
+        *out = (struct link_position_out){.place = i};
+        memcpy(out->address, s->address, TERN_ADDRESS_LEN);
+        if (s->precision == 0) {
+            stopped(out);
+            return true;
+        }
+        if (due(l, s, now, &out->cell)) {
+            write_position(l, s, now, out);
+            return true;
+        }
+    }
+    for (size_t i = 0; groups && i < LINK_GROUPS; i++) {
+        struct link_share *s = &l->group_shares[i];
+        if (!l->groups[i].used || (s->precision == 0 && !s->stop)) {
+            continue;
+        }
+        *out = (struct link_position_out){.group = true, .place = i};
+        if (s->precision == 0) {
+            stopped(out);
+            return true;
+        }
+        if (due(l, s, now, &out->cell)) {
+            write_position(l, s, now, out);
+            return true;
+        }
+    }
+    return false;
+}
+
+void link_position_sent(struct link *l, const struct link_position_out *out, tern_time now) {
+    struct link_share *s =
+        out->group ? &l->group_shares[out->place] : &l->contact_shares[out->place];
+    if (out->cell.precision == 0) {
+        s->stop = false;
+    } else {
+        s->sent = s->gone = true;
+        s->last = now;
+        s->cell = out->cell;
+        s->go_at = 0;
+    }
+    s->in_flight = !out->group;
+}
+
+void link_position_done(struct link *l, const uint8_t address[TERN_ADDRESS_LEN]) {
+    for (size_t i = 0; i < LINK_CONTACTS; i++) {
+        if (memcmp(l->contact_shares[i].address, address, TERN_ADDRESS_LEN) == 0) {
+            l->contact_shares[i].in_flight = false;
+        }
+    }
+}
+
+void link_position_received(struct link *l, tern_time now, const uint8_t from[TERN_ADDRESS_LEN],
+                            uint32_t counter, const uint8_t *plaintext, size_t len) {
+    struct link_contact *c = find_contact(l, from);
+    if (c == NULL) {
+        return; /* whose position a user is shown is theirs to choose */
+    }
+    size_t place = (size_t)(c - l->contacts);
+    if (tern_position_receive(&l->contact_positions[place], true, counter, plaintext, len, now)) {
+        news_position(l, NULL, place, now);
+    }
+}
+
+void link_group_position_received(struct link *l, tern_time now, size_t place, uint32_t from,
+                                  const uint8_t *plaintext, size_t len) {
+    struct tern_position p;
+    if (place >= LINK_GROUPS || !l->groups[place].used || !tern_position_read(&p, plaintext, len)) {
+        return;
+    }
+    struct link_member_position *at = NULL, *oldest = NULL;
+    for (size_t k = 0; k < LINK_GROUP_POSITIONS; k++) {
+        struct link_member_position *x = &l->group_positions[place][k];
+        if (x->used && x->from == from) {
+            at = x;
+            break;
+        }
+        if (oldest == NULL || (oldest->used && (!x->used || x->at < oldest->at))) {
+            oldest = x;
+        }
+    }
+    if (p.precision == 0) {
+        if (at != NULL) {
+            at->used = false;
+            news_group_position(l, NULL, place, at, now);
+            *at = (struct link_member_position){0};
+        }
+        return;
+    }
+    if (at == NULL) {
+        at = oldest; /* the one heard from longest ago makes room */
+    }
+    *at = (struct link_member_position){.used = true, .from = from, .position = p, .at = now};
+    news_group_position(l, NULL, place, at, now);
+}
+
+/* Sharing that has run out, and positions received a day ago, as time goes on. */
+static void positions_tick(struct link *l, tern_time now) {
+    for (size_t i = 0; i < LINK_CONTACTS; i++) {
+        struct link_share *s = &l->contact_shares[i];
+        if (l->contacts[i].used && s->precision != 0 && s->until != 0 && now >= s->until) {
+            s->stop = s->stop || s->gone;
+            s->precision = 0;
+            s->sent = s->gone = false;
+            news_sharing(l, NULL, i, now);
+        }
+        if (l->contacts[i].used && tern_position_expire(&l->contact_positions[i], now)) {
+            news_position(l, NULL, i, now);
+        }
+    }
+    for (size_t i = 0; i < LINK_GROUPS; i++) {
+        struct link_share *s = &l->group_shares[i];
+        if (l->groups[i].used && s->precision != 0 && s->until != 0 && now >= s->until) {
+            s->stop = s->stop || s->gone;
+            s->precision = 0;
+            s->sent = s->gone = false;
+            news_group_sharing(l, NULL, i, now);
+        }
+        for (size_t k = 0; l->groups[i].used && k < LINK_GROUP_POSITIONS; k++) {
+            struct link_member_position *x = &l->group_positions[i][k];
+            if (x->used && now - x->at >= TERN_POSITION_KEEP) {
+                x->used = false;
+                news_group_position(l, NULL, i, x, now);
+                *x = (struct link_member_position){0};
+            }
+        }
+    }
+}
+
 static void update_begin(struct link *l, const struct tern_companion_msg *q) {
     struct link_update *u = &l->update;
     if (q->size == 0) {
@@ -1137,6 +1563,15 @@ void link_receive(struct link *l, unsigned conn, tern_time now, const uint8_t *f
     case TERN_C_UPDATE_END:
         update_end(l, &q);
         break;
+    case TERN_C_SET_POSITION:
+        set_position(l, &q, now);
+        break;
+    case TERN_C_SHARE:
+        share_request(l, &q, now);
+        break;
+    case TERN_C_SHARE_GROUP:
+        share_group(l, &q, now);
+        break;
     default:
         error(l, q.seq, TERN_C_ERR_UNKNOWN);
         break;
@@ -1217,6 +1652,7 @@ static void look(struct link *l, struct link_conn *c, tern_time now) {
 }
 
 void link_tick(struct link *l, tern_time now) {
+    positions_tick(l, now);
     bool viewed = false;
     for (size_t i = 0; i < LINK_CONNS; i++) {
         struct link_conn *c = &l->conns[i];

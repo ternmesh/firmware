@@ -35,7 +35,8 @@ into a header for `tests/forward.c`, and its listens alone into one for `tests/l
 
 `companion.json` is a copy of
 [`vectors/companion.json`](https://github.com/ternmesh/spec/blob/main/vectors/companion.json), as
-of the companion protocol's version 4, which adds firmware updates. `companion_to_c.py` turns it into a
+of the companion protocol's version 5, which adds positions
+([ternmesh/spec#27](https://github.com/ternmesh/spec/pull/27)). `companion_to_c.py` turns it into a
 header for `tests/companion.c`, and its connections alone into one for `tests/link.c`.
 `tools/companion.py selftest` reads it directly.
 
@@ -54,6 +55,12 @@ header for `tests/companion.c`, and its connections alone into one for `tests/li
 [ternmesh/spec#21](https://github.com/ternmesh/spec/pull/21) (sharing an address: the text form,
 the `ternmesh.org` link with the address in base32, and the short code). `sharing_to_c.py` turns it into a header for
 `tests/share.c`.
+
+`positions.json` is a copy of
+[`vectors/positions.json`](https://github.com/ternmesh/spec/blob/main/vectors/positions.json), as
+of [ternmesh/spec#27](https://github.com/ternmesh/spec/pull/27) (positions, draft 0).
+`positions_to_c.py` turns it into a header for `tests/position.c`, without its frames, which are
+the unicast and group frames' own, and its sizes.
 
 When the specification's vectors change, copy the new file here in the same pull request that
 changes the code to match, and update the commit above.
