@@ -9,6 +9,7 @@
 #include "tern/companion.h"
 #include "tern/crypto.h"
 #include "tern/group.h"
+#include "tern/position.h"
 #include "tern/time.h"
 
 /* The node as a client sees it over the companion link (draft/companion.md in ternmesh/spec), and
@@ -30,6 +31,12 @@
  * received from one, and each invite, is a message among the rest, with an id from the same
  * count.
  *
+ * Positions are here too (draft/positions.md): the fix a client gives, whom the user shares it
+ * with and how exactly, and the last position received from each contact and from each member of
+ * each group. The link decides which position is due where (link_position_next()) and writes it;
+ * main.c seals it, hands it over and says what became of it. None of this is saved: after a
+ * restart the node shares with nobody until a client turns sharing on again, and a sync says so.
+ *
  * Several clients may drive the node at once, one on each connection: the USB port and a
  * Bluetooth central. Each has its own HELLO, sync and news count, and is answered alone; the
  * contacts and messages are the node's, and news of a change to them goes to every client.
@@ -49,10 +56,11 @@
 #define LINK_UNSAVE 2
 #define LINK_ASKED 8 /* addresses lately refused, remembered so each is news once a LINK_QUIET */
 #define LINK_NEIGHBOURS 64
-#define LINK_QUIET TERN_S(10) /* the least time between two news frames about one thing */
-#define LINK_LOOK TERN_S(1)   /* how often the link looks for changes to tell */
-#define LINK_SNR_STEP 4       /* quarter-dB: a neighbour's SNR moved this much is news */
-#define LINK_LAPSE TERN_S(60) /* a serial client silent this long since its last answer is gone */
+#define LINK_QUIET TERN_S(10)  /* the least time between two news frames about one thing */
+#define LINK_LOOK TERN_S(1)    /* how often the link looks for changes to tell */
+#define LINK_SNR_STEP 4        /* quarter-dB: a neighbour's SNR moved this much is news */
+#define LINK_LAPSE TERN_S(60)  /* a serial client silent this long since its last answer is gone */
+#define LINK_GROUP_POSITIONS 8 /* members' positions held for each group */
 
 /* The connections: where a frame came from, and where one goes. The third is the board's own:
  * what is typed at its console is asked of the link as a client would ask it, so that a group
@@ -212,6 +220,50 @@ struct link_told {
     tern_time at;
 };
 
+/* The node's own position, as a client last gave it (SET_POSITION). */
+struct link_fix {
+    bool have;
+    int32_t lat, lon;  /* 10^-7 degree */
+    int16_t altitude;  /* TERN_C_NO_ALTITUDE for none */
+    uint16_t accuracy; /* metres, 0 for none */
+    tern_time at;      /* when the fix was taken: when it came, less its age */
+};
+
+/* Sharing the node's position with one contact or group (SHARE, SHARE_GROUP), and what has gone
+ * to it. */
+struct link_share {
+    uint8_t precision; /* 1 to 24, or 0 when off */
+    uint8_t fields;    /* TERN_C_SHARE_ALTITUDE and _ACCURACY */
+    uint16_t interval; /* seconds */
+    tern_time until;   /* when it ends, or 0 for when it is turned off */
+    bool sent;         /* a position has gone since it was turned on or last changed */
+    bool gone;         /* a position has gone since it was turned on: a stopped one is owed */
+    bool stop;         /* sharing ended after a position went: a stopped one is to go, once */
+    bool in_flight;    /* a contact's: the last that went is neither acknowledged nor given up */
+    tern_time last;    /* when the last went */
+    tern_time go_at;   /* when one that is due goes, after its random wait; 0 for not yet drawn */
+    struct tern_position cell;         /* the last that went: its cell */
+    uint8_t address[TERN_ADDRESS_LEN]; /* a contact's, kept so a stopped one can follow removal */
+};
+
+/* A position received in a group, from a routing id: what a member claimed. */
+struct link_member_position {
+    bool used;
+    uint32_t from;
+    struct tern_position position;
+    tern_time at;
+};
+
+/* A position due to go, as link_position_next() gives it: where, and its plaintext. */
+struct link_position_out {
+    bool group;   /* else a contact's */
+    size_t place; /* among the contacts, or the groups */
+    uint8_t address[TERN_ADDRESS_LEN];
+    uint8_t plaintext[TERN_POSITION_MAX];
+    size_t len;
+    struct tern_position cell;
+};
+
 /* One client's connection, and what that client was last told, to tell it what changed. */
 struct link_conn {
     bool open;
@@ -252,6 +304,12 @@ struct link {
      * of sooner. */
     struct link_asked asked[LINK_ASKED];
     struct link_update update; /* what a screen may show of it, too */
+
+    struct link_fix fix;
+    struct link_share contact_shares[LINK_CONTACTS]; /* by the contact's place */
+    struct tern_position_held contact_positions[LINK_CONTACTS];
+    struct link_share group_shares[LINK_GROUPS];
+    struct link_member_position group_positions[LINK_GROUPS][LINK_GROUP_POSITIONS];
 
     struct link_view view; /* scratch, filled by the host */
 };
@@ -360,5 +418,31 @@ bool link_contact(const struct link *l, const uint8_t address[TERN_ADDRESS_LEN])
  * reason: news, for a client to offer to let it in. */
 void link_asked(struct link *l, tern_time now, const uint8_t address[TERN_ADDRESS_LEN],
                 uint8_t why);
+
+/* --- Positions ------------------------------------------------------------------------------ */
+
+/* The next position due to go, if any, at `now`: to a contact the node shares a session with
+ * whose last is not still on its way, or, with `groups`, to a group. A position is due as
+ * draft/positions.md says, after a random wait of up to an eighth of the interval, and a stopped
+ * one is due once sharing that sent one has ended. Nothing is marked as gone until
+ * link_position_sent(). */
+bool link_position_next(struct link *l, tern_time now, bool groups, struct link_position_out *out);
+
+/* A position from link_position_next() went to the forwarder or the flooder at `now`. */
+void link_position_sent(struct link *l, const struct link_position_out *out, tern_time now);
+
+/* The last position to a contact was acknowledged, or given up: the next may go. */
+void link_position_done(struct link *l, const uint8_t address[TERN_ADDRESS_LEN]);
+
+/* A message for the node whose first byte is TERN_POSITION_KIND, from an address the node shares
+ * a session with, at the session's `counter`. Taken only from a contact; news if what is held
+ * changes. */
+void link_position_received(struct link *l, tern_time now, const uint8_t from[TERN_ADDRESS_LEN],
+                            uint32_t counter, const uint8_t *plaintext, size_t len);
+
+/* The same from a group frame for the node: `place` is the group's among link_groups(), and
+ * `from` the routing id the frame gave. */
+void link_group_position_received(struct link *l, tern_time now, size_t place, uint32_t from,
+                                  const uint8_t *plaintext, size_t len);
 
 #endif
