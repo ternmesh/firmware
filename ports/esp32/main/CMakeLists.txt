@@ -19,6 +19,7 @@ idf_component_register(
         ${node}/power.c
         ${root}/src/address.c
         ${root}/src/aes.c
+        ${root}/src/card.c
         ${root}/src/ccm.c
         ${root}/src/companion.c
         ${root}/src/contact.c
