@@ -20,6 +20,14 @@ def blob(h):
     return f"(const uint8_t[]){hexbytes(h) if h else '{0}'}, {len(h) // 2}"
 
 
+def cstr(s):
+    """A C string literal of text's UTF-8, every byte past ASCII's printable range escaped."""
+    out = ""
+    for byte in s.encode("utf-8"):
+        out += chr(byte) if 0x20 <= byte < 0x7F and chr(byte) not in '"\\?' else f"\\{byte:03o}"
+    return f'"{out}"'
+
+
 def b(v):
     return "true" if v else "false"
 
@@ -72,6 +80,17 @@ def main():
 
     L.append("static const struct bad_invite_case bad_invites[] = {")
     L += [f"    {{\"{c['name']}\", {blob(c['plaintext'])}}}," for c in v["bad_invites"]]
+    L.append("};")
+
+    L.append("static const struct join_case join_codes[] = {")
+    for c in v["join_codes"]:
+        reads = ", ".join(cstr(r) for r in c["reads"])
+        L.append(f"    {{{hexbytes(c['group_secret'])}, {blob(c['name'].encode().hex())}, "
+                 f"{blob(c['payload'])}, {cstr(c['link'])}, {{{reads}}}, {len(c['reads'])}}},")
+    L.append("};")
+
+    L.append("static const struct bad_join_case bad_join_codes[] = {")
+    L += [f"    {{{cstr(c['why'])}, {cstr(c['link'])}}}," for c in v["bad_join_codes"]]
     L.append("};")
 
     with open(out, "w", encoding="utf-8") as f:

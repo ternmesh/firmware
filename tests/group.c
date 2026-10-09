@@ -77,6 +77,21 @@ struct bad_invite_case {
     size_t len;
 };
 
+struct join_case {
+    uint8_t secret[16];
+    const uint8_t *name;
+    size_t name_len;
+    const uint8_t *payload;
+    size_t payload_len;
+    const char *link;
+    const char *reads[3];
+    size_t n_reads;
+};
+struct bad_join_case {
+    const char *why;
+    const char *link;
+};
+
 #include "groups.h"
 
 #define COUNT(a) (sizeof(a) / sizeof(a)[0])
@@ -280,6 +295,66 @@ static void test_invites(void) {
     CHECK(tern_group_invite_write(g, bad, sizeof bad, out) == 0);
 }
 
+static size_t text_len(const char *s) {
+    size_t n = 0;
+    while (s[n] != '\0') {
+        n++;
+    }
+    return n;
+}
+
+/* A join code is made as the specification's, and read from it however it is written. */
+static void test_join_codes(void) {
+    for (size_t i = 0; i < COUNT(join_codes); i++) {
+        const struct join_case *c = &join_codes[i];
+        char link[TERN_GROUP_LINK_MAX + 1];
+        size_t len = tern_group_link(c->secret, c->name, c->name_len, link);
+        CHECK(len == text_len(c->link) && memcmp(link, c->link, len + 1) == 0);
+        CHECK(len >= TERN_GROUP_LINK_MIN && len <= TERN_GROUP_LINK_MAX);
+        /* The payload is what is after the #. */
+        uint8_t payload[TERN_GROUP_CODE_MAX];
+        size_t n = 0;
+        CHECK(tern_base32_read(link + 23, len - 23, payload, sizeof payload, &n));
+        CHECK(bytes_eq(payload, n, c->payload, c->payload_len));
+        for (size_t r = 0; r <= c->n_reads; r++) {
+            const char *text = r == 0 ? c->link : c->reads[r - 1];
+            uint8_t secret[16], name[TERN_GROUP_NAME_MAX];
+            size_t name_len = 99;
+            CHECK(tern_group_link_read(text, text_len(text), secret, name, &name_len));
+            CHECK(memcmp(secret, c->secret, 16) == 0 &&
+                  bytes_eq(name, name_len, c->name, c->name_len));
+        }
+    }
+    for (size_t i = 0; i < COUNT(bad_join_codes); i++) {
+        const struct bad_join_case *c = &bad_join_codes[i];
+        uint8_t secret[16] = {0}, name[TERN_GROUP_NAME_MAX];
+        size_t name_len = 99;
+        if (tern_group_link_read(c->link, text_len(c->link), secret, name, &name_len)) {
+            fprintf(stderr, "bad join code %s: read\n", c->why);
+            check_failures++;
+        }
+        /* Nothing is written for one refused. */
+        static const uint8_t none[16];
+        CHECK(memcmp(secret, none, 16) == 0 && name_len == 99);
+    }
+    /* A name too long, or not UTF-8, makes no code. */
+    char link[TERN_GROUP_LINK_MAX + 1];
+    uint8_t long_name[TERN_GROUP_NAME_MAX + 1];
+    static const uint8_t g[16] = {1}, bad[] = {0xff};
+    memset(long_name, 'x', sizeof long_name);
+    CHECK(tern_group_link(g, long_name, sizeof long_name, link) == 0);
+    CHECK(tern_group_link(g, bad, sizeof bad, link) == 0);
+    CHECK(tern_group_link(g, long_name, TERN_GROUP_NAME_MAX, link) == TERN_GROUP_LINK_MAX);
+    /* The text read is its length, not to a NUL: a link with more after it is not the link. */
+    size_t len = tern_group_link(g, NULL, 0, link);
+    uint8_t secret[16], name[TERN_GROUP_NAME_MAX];
+    size_t name_len;
+    CHECK(len == TERN_GROUP_LINK_MIN);
+    CHECK(tern_group_link_read(link, len, secret, name, &name_len) && name_len == 0);
+    CHECK(!tern_group_link_read(link, len - 1, secret, name, &name_len));
+    CHECK(!tern_group_link_read(link, 10, secret, name, &name_len));
+}
+
 static void test_arguments(void) {
     struct tern_group g;
     static const uint8_t secret[16] = {7}, nonce[8] = {1};
@@ -308,6 +383,7 @@ int main(void) {
     RUN(test_counts);
     RUN(test_kept);
     RUN(test_invites);
+    RUN(test_join_codes);
     RUN(test_arguments);
     return CHECK_DONE();
 }

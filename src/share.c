@@ -19,20 +19,9 @@ void tern_address_text(const uint8_t address[TERN_ADDRESS_LEN],
 
 void tern_address_link(const uint8_t address[TERN_ADDRESS_LEN],
                        char out[TERN_ADDRESS_LINK_LEN + 1]) {
-    char *b = out + sizeof link - 1;
-    unsigned n = 0, bits = 0;
     memcpy(out, link, sizeof link - 1);
-    /* Five bits a character, most significant first; the last carries one bit and four zeros. */
-    for (size_t i = 0; i < TERN_ADDRESS_LEN; i++) {
-        n = (n << 8 | address[i]) & 0xFFF;
-        bits += 8;
-        while (bits >= 5) {
-            bits -= 5;
-            *b++ = base32[n >> bits & 31];
-        }
-    }
-    *b++ = base32[n << (5 - bits) & 31];
-    *b = '\0';
+    tern_base32_write(address, TERN_ADDRESS_LEN, out + sizeof link - 1);
+    out[TERN_ADDRESS_LINK_LEN] = '\0';
 }
 
 void tern_short_code(const uint8_t address[TERN_ADDRESS_LEN], char out[TERN_SHORT_CODE_LEN + 1]) {
@@ -78,25 +67,56 @@ static int base32_value(char c) {
     return c >= 'A' && c <= 'Z' ? c - 'A' : c >= '2' && c <= '7' ? c - '2' + 26 : -1;
 }
 
-/* The base32 of a link: exactly 52 characters, either case, the last four bits zero. */
-static bool read_base32(const char *text, uint8_t address[TERN_ADDRESS_LEN]) {
-    uint8_t got[TERN_ADDRESS_LEN];
-    unsigned n = 0, bits = 0;
+void tern_base32_write(const uint8_t *data, size_t n, char *out) {
+    unsigned acc = 0, bits = 0;
+    for (size_t i = 0; i < n; i++) {
+        acc = (acc << 8 | data[i]) & 0xFFF; /* at most four bits pending, and eight more */
+        bits += 8;
+        while (bits >= 5) {
+            bits -= 5;
+            *out++ = base32[acc >> bits & 31];
+        }
+    }
+    if (bits > 0) {
+        *out = base32[acc << (5 - bits) & 31];
+    }
+}
+
+bool tern_base32_read(const char *text, size_t len, uint8_t *out, size_t cap, size_t *n) {
+    /* A length whose last character would carry no bit of any byte is not one base32 has. */
+    if (len * 5 % 8 >= 5 || len * 5 / 8 > cap) {
+        return false;
+    }
+    unsigned acc = 0, bits = 0;
     size_t k = 0;
-    for (size_t i = 0; i < TERN_ADDRESS_BASE32_LEN; i++) {
-        int v = base32_value(text[i]); /* a NUL here, too short, is not base32 */
+    for (size_t i = 0; i < len; i++) {
+        int v = base32_value(text[i]);
         if (v < 0) {
             return false;
         }
-        n = (n << 5 | (unsigned)v) & 0xFFF; /* at most seven bits pending, and five more */
+        acc = (acc << 5 | (unsigned)v) & 0xFFF; /* at most seven bits pending, and five more */
         bits += 5;
         if (bits >= 8) {
             bits -= 8;
-            got[k++] = (uint8_t)(n >> bits);
+            out[k++] = (uint8_t)(acc >> bits);
         }
     }
-    if (text[TERN_ADDRESS_BASE32_LEN] != '\0' || (n & ((1u << bits) - 1)) != 0) {
-        return false; /* a spare bit set: not the one link this address has */
+    if ((acc & ((1u << bits) - 1)) != 0) {
+        return false; /* a spare bit set: not the one way these bytes are written */
+    }
+    *n = k;
+    return true;
+}
+
+/* The base32 of a link: exactly 52 characters, either case, the last four bits zero. */
+static bool read_base32(const char *text, uint8_t address[TERN_ADDRESS_LEN]) {
+    uint8_t got[TERN_ADDRESS_LEN];
+    size_t len = 0, n;
+    while (len <= TERN_ADDRESS_BASE32_LEN && text[len] != '\0') {
+        len++;
+    }
+    if (len != TERN_ADDRESS_BASE32_LEN || !tern_base32_read(text, len, got, sizeof got, &n)) {
+        return false;
     }
     memcpy(address, got, TERN_ADDRESS_LEN);
     return true;

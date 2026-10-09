@@ -2,6 +2,7 @@
 #define TERN_SHARE_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include "tern/address.h"
@@ -39,5 +40,20 @@ void tern_short_code_text(uint64_t value, char out[TERN_SHORT_CODE_LEN + 1]);
  * writing nothing, for anything else. Whether the address is valid is not checked here: a caller
  * that keeps it as a contact checks that (tern_address_valid()). */
 bool tern_address_read(const char *text, uint8_t address[TERN_ADDRESS_LEN]);
+
+/* --- Base32, as the links write it ---------------------------------------------------------
+ *
+ * RFC 4648's alphabet, upper-case, without padding: five bits a character, most significant first,
+ * the last character's spare bits zero. A group's join code (tern/group.h) is written the same. */
+
+#define TERN_BASE32_LEN(bytes) (((bytes) * 8 + 4) / 5)
+
+/* Writes n bytes as TERN_BASE32_LEN(n) characters, with no NUL after them. */
+void tern_base32_write(const uint8_t *data, size_t n, char *out);
+
+/* Reads len characters of base32, each in either case, into out, which holds cap bytes, and sets
+ * *n to how many it wrote. False, for anything but the one way some number of bytes is written:
+ * a character that is not base32, a length no number of bytes has, or a spare bit set. */
+bool tern_base32_read(const char *text, size_t len, uint8_t *out, size_t cap, size_t *n);
 
 #endif
