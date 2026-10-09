@@ -7,7 +7,9 @@ The node is the port's own link.c on a pseudo-terminal, with console text in bet
 so this checks the script, the framing and the link together, everything but the radio and USB.
 """
 
+import os
 import subprocess
+import tempfile
 import sys
 import time
 
@@ -54,6 +56,13 @@ def main():
         run(port, "state", expect=["tern host test", "a relay in EU868, at 14 dBm",
                                    "neighbour 1d2e3f40", "air: 1234 of 360000 ms used in 3600 s"])
         run(port, "contact", BOB, "Bob", expect=["saved"])
+        image = tempfile.NamedTemporaryFile(suffix=".bin", delete=False)
+        image.write(bytes(i * 7 & 0xFF for i in range(5000)))
+        image.close()
+        run(port, "update", image.name,
+            expect=["updating host from 0.2.0: 5000 bytes", "100%",
+                    "the node has the image, and restarts into it"])
+        os.unlink(image.name)
         run(port, "send", BOB, "On the ridge by six", "--wait", "2",
             expect=["queued as message #1",
                     "to 3d4017c3e843895a: 'On the ridge by six' (waiting for the radio)",

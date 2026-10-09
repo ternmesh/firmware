@@ -523,6 +523,18 @@ void ui_pairing(uint32_t passkey, struct display *d) {
     draw(&f, d);
 }
 
+void ui_updating(uint32_t held, uint32_t size, struct display *d) {
+    struct frame f;
+    blank(&f);
+    line(f.rows[0], "Updating");
+    line(f.rows[2], "New firmware is");
+    line(f.rows[3], "arriving:");
+    f.big = 5;
+    snprintf(f.big_text, sizeof f.big_text, "%lu%%",
+             (unsigned long)(size == 0 ? 0 : (uint64_t)held * 100 / size));
+    draw(&f, d);
+}
+
 void ui_boot(const struct ui_start *s, struct display *d) {
     struct frame f;
     blank(&f);

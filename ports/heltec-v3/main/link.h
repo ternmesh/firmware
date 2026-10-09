@@ -7,6 +7,7 @@
 
 #include "tern/address.h"
 #include "tern/companion.h"
+#include "tern/crypto.h"
 #include "tern/group.h"
 #include "tern/time.h"
 
@@ -87,6 +88,12 @@ enum link_saved { LINK_SAVED, LINK_NO_ROOM, LINK_NOT_SAVED };
 struct link_host {
     void *ctx;
     const char *firmware;
+    /* INFO's board and release: the hardware a client finds an image for, and the version of the
+     * firmware, empty if it has none. The board is NULL or empty if the node cannot be updated
+     * over the link. */
+    const char *board, *release;
+    /* The longest image the node has room for: 0 if it cannot be updated over the link. */
+    uint32_t update_room;
     /* One frame to the client on a connection. */
     void (*out)(void *ctx, unsigned conn, const uint8_t *frame, size_t len);
     void (*view)(void *ctx, struct link_view *v);
@@ -123,6 +130,23 @@ struct link_host {
     enum link_saved (*save_message)(void *ctx, size_t place, const uint8_t *buf, size_t len);
     bool (*load_state)(void *ctx, size_t place, uint64_t *state);
     bool (*save_state)(void *ctx, size_t place, uint64_t state);
+    /* An update (draft/companion.md, "Updating the firmware"). Begin readies room for an image of
+     * `size` bytes, abandoning any update begun before, and is false if it cannot; write puts
+     * bytes of it in place, in order, and is false if they could not be written, when the update
+     * is abandoned; run is asked once the image is whole and its digest right, and is 0 if the
+     * board will run it, restarting once the answer is out, or the ERROR code to answer with. */
+    bool (*update_begin)(void *ctx, uint32_t size);
+    bool (*update_write)(void *ctx, uint32_t offset, const uint8_t *data, size_t len);
+    uint8_t (*update_run)(void *ctx);
+};
+
+/* An update under way: the image's size and digest, how much of it the node holds, and the digest
+ * of that much. */
+struct link_update {
+    bool on;
+    uint32_t size, held;
+    uint8_t digest[TERN_SHA256_LEN];
+    struct tern_sha256 sha;
 };
 
 struct link_contact {
@@ -227,6 +251,7 @@ struct link {
      * LINK_QUIET. When more than LINK_ASKED ask at once the oldest is forgotten, and may be told
      * of sooner. */
     struct link_asked asked[LINK_ASKED];
+    struct link_update update; /* what a screen may show of it, too */
 
     struct link_view view; /* scratch, filled by the host */
 };

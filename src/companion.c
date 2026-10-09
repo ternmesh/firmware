@@ -40,12 +40,18 @@ enum field {
     WAIT32,   /* u32, into wait */
     PASSKEY,  /* u32 */
     FROM,     /* u32 */
+    SIZE,     /* u32 */
+    OFFSET,   /* u32 */
     ADDRESS,  /* 32 bytes */
     GROUP,    /* 8 bytes: a group's id */
+    DIGEST,   /* 32 bytes: a SHA-256 */
     TEXT,     /* a string of up to TERN_COMPANION_TEXT_MAX */
     NAME,     /* a string of up to TERN_COMPANION_NAME_MAX, into text */
     FIRMWARE, /* a string of up to TERN_COMPANION_FIRMWARE_MAX, into text */
     REGION,   /* a string of up to TERN_COMPANION_REGION_MAX, into text */
+    BOARD,    /* a string of up to TERN_COMPANION_BOARD_MAX, into board */
+    RELEASE,  /* a string of up to TERN_COMPANION_RELEASE_MAX, into release */
+    DATA,     /* up to TERN_COMPANION_UPDATE_CHUNK bytes of anything, into data */
 };
 
 struct layout {
@@ -70,12 +76,16 @@ static const struct layout layouts[] = {
     {TERN_C_SEND_GROUP, {REF, GROUP, TEXT}},
     {TERN_C_SEND_INVITE, {GROUP, ADDRESS}},
     {TERN_C_JOIN, {ID}},
+    {TERN_C_UPDATE_BEGIN, {SIZE, DIGEST}},
+    {TERN_C_UPDATE_DATA, {OFFSET, DATA}},
+    {TERN_C_UPDATE_END, {END}},
     {TERN_C_OK, {END}},
     {TERN_C_ERROR, {CODE}},
-    {TERN_C_INFO, {VERSION, FIRMWARE}},
+    {TERN_C_INFO, {VERSION, FIRMWARE, BOARD, RELEASE}},
     {TERN_C_SYNCED, {NEWS}},
     {TERN_C_QUEUED, {ID}},
     {TERN_C_MADE, {GROUP}},
+    {TERN_C_UPDATING, {OFFSET}},
     {TERN_C_SELF, {ADDRESS, ROLE, REGION, POWER, TIME}},
     {TERN_C_CONTACT, {ADDRESS, SESSION, NAME}},
     {TERN_C_CONTACT_GONE, {ADDRESS}},
@@ -98,6 +108,7 @@ static const struct {
     uint8_t type, from, since;
 } later_fields[] = {
     {TERN_C_SYNCED, 0, 3},
+    {TERN_C_INFO, 2, 4},
 };
 
 static bool added_later(uint8_t type, size_t i, uint8_t version) {
@@ -136,6 +147,9 @@ static const struct layout *layout_of(uint8_t type) {
 }
 
 uint8_t tern_companion_since(uint8_t type) {
+    if ((type >= TERN_C_UPDATE_BEGIN && type <= TERN_C_UPDATE_END) || type == TERN_C_UPDATING) {
+        return 4;
+    }
     if ((type >= TERN_C_MAKE_GROUP && type <= TERN_C_JOIN) || type == TERN_C_MADE ||
         (type >= TERN_C_GROUP && type <= TERN_C_INVITE)) {
         return 2;
@@ -154,9 +168,10 @@ bool tern_companion_news(uint8_t type) { return type >= 0x80 && type <= 0xBF; }
 
 static size_t width(enum field f) {
     if (f >= ADDRESS) {
-        return f == ADDRESS ? TERN_ADDRESS_LEN
-               : f == GROUP ? TERN_COMPANION_GROUP
-                            : 0; /* strings vary */
+        return f == ADDRESS  ? TERN_ADDRESS_LEN
+               : f == GROUP  ? TERN_COMPANION_GROUP
+               : f == DIGEST ? TERN_COMPANION_DIGEST
+                             : 0; /* strings and data vary */
     }
     if (f >= AFTER) {
         return 4;
@@ -172,6 +187,12 @@ static size_t string_max(enum field f) {
         return TERN_COMPANION_NAME_MAX;
     case FIRMWARE:
         return TERN_COMPANION_FIRMWARE_MAX;
+    case BOARD:
+        return TERN_COMPANION_BOARD_MAX;
+    case RELEASE:
+        return TERN_COMPANION_RELEASE_MAX;
+    case DATA:
+        return TERN_COMPANION_UPDATE_CHUNK;
     default:
         return TERN_COMPANION_REGION_MAX;
     }
@@ -235,8 +256,35 @@ static void *member(struct tern_companion_msg *m, enum field f) {
         return &m->passkey;
     case FROM:
         return &m->from;
+    case SIZE:
+        return &m->size;
+    case OFFSET:
+        return &m->offset;
     default:
         return NULL;
+    }
+}
+
+/* Where a field of fixed bytes lives in the message. */
+static uint8_t *bytes_of(struct tern_companion_msg *m, enum field f) {
+    return f == ADDRESS ? m->address : f == GROUP ? m->group : m->digest;
+}
+
+/* Where a field of varying length lives in the message, and its length. */
+static uint8_t *variable_of(struct tern_companion_msg *m, enum field f, uint8_t **len) {
+    switch (f) {
+    case BOARD:
+        *len = &m->board_len;
+        return m->board;
+    case RELEASE:
+        *len = &m->release_len;
+        return m->release;
+    case DATA:
+        *len = &m->data_len;
+        return m->data;
+    default:
+        *len = &m->text_len;
+        return m->text;
     }
 }
 
@@ -325,22 +373,23 @@ enum tern_companion_read tern_companion_read_as(struct tern_companion_msg *m, co
             return TERN_C_READ_OK;
         }
         size_t w = width(f);
-        if (f == ADDRESS || f == GROUP) {
+        if (f == ADDRESS || f == GROUP || f == DIGEST) {
             if (at + w > len) {
                 return TERN_C_READ_MALFORMED;
             }
-            memcpy(f == ADDRESS ? m->address : m->group, frame + at, w);
+            memcpy(bytes_of(m, f), frame + at, w);
             at += w;
         } else if (w == 0) {
             if (at + 1 > len || at + 1 + frame[at] > len) {
                 return TERN_C_READ_MALFORMED;
             }
             size_t n = frame[at];
-            if (n > string_max(f) || !tern_companion_utf8(frame + at + 1, n)) {
+            if (n > string_max(f) || (f != DATA && !tern_companion_utf8(frame + at + 1, n))) {
                 return TERN_C_READ_MALFORMED;
             }
-            memcpy(m->text, frame + at + 1, n);
-            m->text_len = (uint8_t)n;
+            uint8_t *len_of;
+            memcpy(variable_of(m, f, &len_of), frame + at + 1, n);
+            *len_of = (uint8_t)n;
             at += 1 + n;
         } else {
             if (at + w > len) {
@@ -374,16 +423,18 @@ size_t tern_companion_write_as(const struct tern_companion_msg *m, uint8_t *out,
             return l->type == TERN_C_SET && i == 1 ? 0 : at;
         }
         size_t w = width(f);
-        if (f == ADDRESS || f == GROUP) {
-            memcpy(out + at, f == ADDRESS ? m->address : m->group, w);
+        if (f == ADDRESS || f == GROUP || f == DIGEST) {
+            memcpy(out + at, bytes_of((struct tern_companion_msg *)m, f), w);
             at += w;
         } else if (w == 0) {
-            if (m->text_len > string_max(f)) {
+            uint8_t *n;
+            const uint8_t *v = variable_of((struct tern_companion_msg *)m, f, &n);
+            if (*n > string_max(f)) {
                 return 0;
             }
-            out[at] = m->text_len;
-            memcpy(out + at + 1, m->text, m->text_len);
-            at += 1 + m->text_len;
+            out[at] = *n;
+            memcpy(out + at + 1, v, *n);
+            at += 1 + *n;
         } else {
             uint32_t v = get_member(m, f);
             for (size_t k = 0; k < w; k++) {

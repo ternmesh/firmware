@@ -22,10 +22,12 @@ TYPES = {
     "NEIGHBOUR_GONE": 0x86, "AIRTIME": 0x87, "POWER": 0x88, "ASKED": 0x89,
     "MAKE_GROUP": 0x20, "LEAVE_GROUP": 0x21, "NAME_GROUP": 0x22, "SEND_GROUP": 0x23,
     "SEND_INVITE": 0x24, "JOIN": 0x25, "MADE": 0x45, "GROUP": 0x8A, "GROUP_GONE": 0x8B,
-    "GROUP_MESSAGE": 0x8C, "INVITE": 0x8D,
+    "GROUP_MESSAGE": 0x8C, "INVITE": 0x8D, "UPDATE_BEGIN": 0x30, "UPDATE_DATA": 0x31,
+    "UPDATE_END": 0x32, "UPDATING": 0x46,
 }
 STRINGS = ("text", "name", "firmware", "region")
 ADDRESSES = ("to", "address", "contact")
+OWN_STRINGS = ("board", "release")  # strings with members of their own
 RENAMED = {"snr_quarter_db": "snr"}
 SET_VALUE = {1: "region", 2: "role", 3: "power", 4: "passkey"}
 
@@ -46,6 +48,17 @@ def msg(kind, seq, fields):
             parts.append(f".text_len = {len(raw) // 2}")
             if raw:
                 parts.append(f".text = {hexbytes(raw)}")
+        elif name in OWN_STRINGS:
+            raw = value.encode("utf-8").hex()
+            parts.append(f".{name}_len = {len(raw) // 2}")
+            if raw:
+                parts.append(f".{name} = {hexbytes(raw)}")
+        elif name == "data":
+            parts.append(f".data_len = {len(value) // 2}")
+            if value:
+                parts.append(f".data = {hexbytes(value)}")
+        elif name == "digest":
+            parts.append(f".digest = {hexbytes(value)}")
         elif name in ADDRESSES:
             parts.append(f".address = {hexbytes(value)}")
         elif name == "group":
@@ -117,10 +130,14 @@ def cases(L, v):
 
 def exchange(L, v):
     """The exchange, and each earlier version's connection as older_<version>, with the two
-    groups' secrets."""
+    groups' secrets; and the update's two connections as update_0 and update_1, its refusals,
+    and its image."""
     L.append(f"static const uint8_t made_secret[16] = {hexbytes(v['made'])};")
     L.append(f"static const uint8_t invited_secret[16] = {hexbytes(v['invited'])};")
+    L.append(f"static const uint8_t update_image[] = {hexbytes(v['image'])};")
+    L.append(f"static const uint8_t update_digest[32] = {hexbytes(v['image_digest'])};")
     runs = [("exchange", v["exchange"])] + [(f"older_{o['version']}", o["frames"]) for o in v["older"]]
+    runs += [(f"update_{i}", c) for i, c in enumerate(v["update"])] + [("refusals", v["refusals"])]
     for name, frames in runs:
         L.append(f"static const struct step {name}[] = {{")
         L += [

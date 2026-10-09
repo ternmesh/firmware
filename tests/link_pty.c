@@ -196,6 +196,29 @@ static bool save_state(void *ctx, size_t place, uint64_t state) {
     return false;
 }
 
+/* An update is kept in memory, and run by saying so: the script sees the whole of one. */
+static uint8_t image[16384];
+static uint32_t image_size;
+
+static bool update_begin(void *ctx, uint32_t size) {
+    (void)ctx;
+    image_size = size;
+    return size <= sizeof image;
+}
+
+static bool update_write(void *ctx, uint32_t offset, const uint8_t *data, size_t len) {
+    (void)ctx;
+    memcpy(image + offset, data, len);
+    return true;
+}
+
+static uint8_t update_run(void *ctx) {
+    (void)ctx;
+    static const char line[] = "(the update is whole)\r\n";
+    to_port(line, sizeof line - 1);
+    return 0;
+}
+
 int main(int argc, char **argv) {
     master = posix_openpt(O_RDWR | O_NOCTTY);
     if (master < 0 || grantpt(master) != 0 || unlockpt(master) != 0) {
@@ -235,7 +258,13 @@ int main(int argc, char **argv) {
                              .load_message = load_message,
                              .save_message = save_message,
                              .load_state = load_state,
-                             .save_state = save_state};
+                             .save_state = save_state,
+                             .board = "host",
+                             .release = "0.2.0",
+                             .update_room = sizeof image,
+                             .update_begin = update_begin,
+                             .update_write = update_write,
+                             .update_run = update_run};
     link_init(&node, &host);
     link_open(&node, LINK_SERIAL, lapse, 0);
     struct tern_companion_parser parser;

@@ -1,0 +1,14 @@
+# The flash's layout: two slots for the firmware, so that an update over the companion link is
+# written to the one not running and the board goes back to the other if it does not start.
+#
+# NVS stays where ESP-IDF's single-app layout, which the first releases used, put it: 0x9000, 24
+# KB. A board moved to this layout over USB (release.sh's -boot.bin at 0x0 and -update.bin at
+# 0xF000) keeps its identity, sessions, contacts and bonds, since neither image reaches it. The
+# old layout's phy_init at 0xF000 was never used (CONFIG_ESP_PHY_INIT_DATA_IN_PARTITION is off),
+# so otadata takes its place, and the first slot starts at 0x20000, past it.
+#
+# Name,   Type, SubType, Offset,   Size
+nvs,      data, nvs,     0x9000,   0x6000
+otadata,  data, ota,     0xF000,   0x2000
+ota_0,    app,  ota_0,   0x20000,  0x200000
+ota_1,    app,  ota_1,   0x220000, 0x200000
