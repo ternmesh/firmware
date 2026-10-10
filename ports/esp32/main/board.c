@@ -781,12 +781,42 @@ static bool epd_power(bool on) {
     return true;
 }
 
+/* A refresh that has held BUSY far longer than one takes: the panel is reset before the next, and
+ * the picture is drawn again, so a fault costs a picture rather than the screen. */
+static bool epd_stuck(void) {
+    if (board_now() - epd_drawn_at < (tern_time)EPD_REFRESH_TIMEOUT_US * 1000) {
+        return false;
+    }
+    epd_awake = false;
+    epd_changed = true;
+    return true;
+}
+
+void board_screen_show(bool wait) {
+    if (!board_epaper(B) || !epd_open || epd_dark) {
+        return;
+    }
+    if (epd_refreshing && epd_busy()) {
+        if (!wait && !epd_stuck()) {
+            return; /* drawn when the next flush or poll finds it done */
+        }
+        if (wait && !epd_wait(EPD_REFRESH_TIMEOUT_US)) {
+            epd_stuck();
+        }
+    }
+    epd_refreshing = false;
+    if (epd_changed && epd_draw() && wait) {
+        (void)epd_wait(EPD_REFRESH_TIMEOUT_US);
+        epd_refreshing = false;
+    }
+}
+
 void board_screen_poll(bool prompt) {
     if (!board_epaper(B) || !epd_open) {
         return;
     }
     if (epd_refreshing) {
-        if (epd_busy()) {
+        if (epd_busy() && !epd_stuck()) {
             return;
         }
         epd_refreshing = false;

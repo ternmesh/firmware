@@ -384,6 +384,7 @@ bool board_screen_power(bool on) { return false; }
 
 /* The panels here show each page as it arrives. */
 void board_screen_poll(bool prompt) { (void)prompt; }
+void board_screen_show(bool wait) { (void)wait; }
 
 /* --- The battery ----------------------------------------------------------------------------- */
 

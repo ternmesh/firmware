@@ -64,6 +64,11 @@ bool board_screen_page(int page, const uint8_t data[128]);
  * or there is something new to see), and otherwise when it can bear to. Others do nothing. */
 void board_screen_poll(bool prompt);
 
+/* The picture as sent is all of it, drawn outside the loop: such a screen draws it now, once one
+ * it is drawing is done, and if `wait`, waits for this one too, as before the board restarts.
+ * Others, which have shown it already, do nothing. */
+void board_screen_show(bool wait);
+
 /* Turns the panel and its charge pump off, or on again. Off, it draws a few microamps and keeps
  * its picture, so it comes back showing what it showed. */
 bool board_screen_power(bool on);

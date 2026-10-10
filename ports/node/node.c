@@ -2939,6 +2939,9 @@ static void screen_flush(void) {
             return;
         }
     }
+    if (have_screen) {
+        board_screen_show(false);
+    }
 }
 
 /* Turns the board off, saying why on the screen for long enough to read. Nothing need be saved
@@ -3035,6 +3038,7 @@ __attribute__((noreturn)) static void erase_and_restart(void) {
     if (have_screen) {
         ui_erasing(&screen);
         screen_flush();
+        board_screen_show(true); /* before the restart cuts its supply */
     }
     plat_erase_and_restart();
 }
