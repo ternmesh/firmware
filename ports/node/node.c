@@ -130,6 +130,9 @@ static struct tern_route route;
 static struct tern_route_neighbour neighbours[NEIGHBOURS];
 static struct tern_route_dest destinations[DESTINATIONS];
 static uint16_t route_seq_saved;
+/* Announce numbers are stored this far ahead, so that none is sent twice across a restart: the
+ * specification's NUMBER_SAVE. */
+#define NUMBER_SAVE 256
 static bool route_out;   /* the frame on the air is the router's */
 static int8_t power_now; /* what the radio is set to send at, or POWER_UNSET */
 static uint8_t route_frame[TERN_ROUTE_FRAME_MAX]; /* the router's, until it has gone */
@@ -1407,6 +1410,12 @@ static void poll_card(void) {
  * another while the region's limit would refuse one. */
 static void poll_route(void) {
     tern_time now = board_now();
+    if (tern_route_numbers_left(&route) < NUMBER_SAVE / 2) {
+        uint16_t kept = (uint16_t)(route.number + NUMBER_SAVE);
+        if (store_save(NULL, "number", &kept, sizeof kept)) {
+            tern_route_kept(&route, kept);
+        }
+    }
     if (transmitting) {
         return;
     }
@@ -3401,6 +3410,15 @@ void node_main(void) {
     (void)store_load(NULL, "seq", &route_seq_saved, sizeof route_seq_saved);
     tern_route_init(&route, &rc, tern_route_id(demo.id.address), neighbours, NEIGHBOURS,
                     destinations, DESTINATIONS, route_seq_saved, seed, board_now());
+    {
+        /* The first number is the one stored ahead last time, and the next is stored before the
+         * first announce goes. With none stored, any will do. Until one is, nothing is sent. */
+        uint16_t first = (uint16_t)seed, kept;
+        (void)store_load(NULL, "number", &first, sizeof first);
+        kept = (uint16_t)(first + NUMBER_SAVE);
+        tern_route_numbering_from(&route, first,
+                                  store_save(NULL, "number", &kept, sizeof kept) ? kept : first);
+    }
     tern_route_auth(&route, &(struct tern_route_auth){.address = demo.id.address,
                                                       .ctx = &demo.id,
                                                       .sign = route_sign,

@@ -326,6 +326,8 @@ struct tern_route {
     uint16_t cost;    /* a link's */
     uint8_t starting; /* announces it has still to send before it selects routes through others */
     uint8_t address_owed;  /* announces still to carry the address for a neighbour just found */
+    bool numbers_kept;     /* tern_route_numbering_from() was called */
+    uint16_t kept;         /* the first number a restart could lose: none is sent before it moves */
     uint8_t since_address; /* announces since the last that carried it */
 
     struct tern_route_neighbour *nb;
@@ -389,6 +391,15 @@ void tern_route_init(struct tern_route *r, const struct tern_route_config *confi
  * the auth is copied, and the address it points to must outlive the router. Called once, before
  * the first frame is heard or polled. */
 void tern_route_auth(struct tern_route *r, const struct tern_route_auth *auth);
+
+/* Announce numbers that survive a restart (the specification's `number`): the next announce is
+ * numbered `first`, and none is sent numbered `kept` or newer until tern_route_kept() moves it on.
+ * The caller keeps `kept` where a restart does not lose it, stores a later one while
+ * tern_route_numbers_left() is still well above 0, and after a restart starts from the one it
+ * stored. A router never told starts its numbers at random, and nothing holds them back. */
+void tern_route_numbering_from(struct tern_route *r, uint16_t first, uint16_t kept);
+void tern_route_kept(struct tern_route *r, uint16_t kept);
+uint16_t tern_route_numbers_left(const struct tern_route *r);
 
 /* A routing frame was received, with this signal-to-noise ratio in quarters of a decibel. Frames
  * that are not this layer's, or that the specification says to discard, are ignored. */

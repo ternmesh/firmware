@@ -260,6 +260,84 @@ static void frames_the_specification_rejects_change_nothing(void) {
     }
 }
 
+/* A starting announce recorded and sent again later is late, as any other: numbers survive a
+ * restart, so it no longer makes a neighbour drop every route through its sender. */
+static void a_recorded_starting_announce_changes_nothing(void) {
+    const struct tern_region *us = tern_region(TERN_REGION_US915);
+    struct tern_lora lora = tern_region_lora(us);
+    struct tern_route_config config = tern_route_defaults(&lora, 22, -9, true);
+    static const uint8_t seed_a[32] = {0x0A}, seed_b[32] = {0x0B};
+    struct tern_route_neighbour nb_a[4], nb_b[4], held[4];
+    struct tern_route_dest dest_a[4], dest_b[4];
+    struct tern_route a, b;
+    struct tern_identity id_a, id_b;
+    uint8_t frame[TERN_ROUTE_FRAME_MAX], recorded[TERN_ROUTE_FRAME_MAX];
+    size_t len, recorded_len = 0;
+    int8_t dbm;
+    tern_time now = 0;
+    tern_identity_init(&id_a, seed_a);
+    tern_identity_init(&id_b, seed_b);
+    tern_route_init(&a, &config, tern_route_id(id_a.address), nb_a, 4, dest_a, 4, 0, 1, 0);
+    tern_route_init(&b, &config, tern_route_id(id_b.address), nb_b, 4, dest_b, 4, 0, 2, 0);
+    route_signed(&a, &id_a, seed_a);
+    route_signed(&b, &id_b, seed_b);
+    for (int step = 0; step < 400; step++) {
+        struct tern_route *from = step % 2 ? &b : &a, *to = step % 2 ? &a : &b;
+        tern_time due = tern_route_due(from);
+        now = due > now ? due : now;
+        while ((len = tern_route_poll(from, now, frame, &dbm)) != 0) {
+            tern_route_sent(from, now);
+            if (from == &a && frame[0] == TERN_HDR_ANNOUNCE && (frame[9] & 0x02) && !recorded_len) {
+                memcpy(recorded, frame, len);
+                recorded_len = len;
+            }
+            tern_route_heard(to, now, frame, len, 40);
+        }
+    }
+    CHECK(recorded_len > 0 && !a.starting && nb_b[0].used && nb_b[0].up && !nb_b[0].starting);
+    memcpy(held, nb_b, sizeof held);
+    tern_route_heard(&b, now + TERN_S(1), recorded, recorded_len, 40);
+    CHECK(memcmp(held, nb_b, sizeof held) == 0);
+}
+
+/* A router told where its numbers are kept sends none past them until a later one is kept. */
+static void no_announce_goes_with_a_number_not_kept(void) {
+    const struct tern_region *us = tern_region(TERN_REGION_US915);
+    struct tern_lora lora = tern_region_lora(us);
+    struct tern_route_config config = tern_route_defaults(&lora, 22, -9, false);
+    struct tern_route_neighbour nb[4];
+    struct tern_route_dest dest[4];
+    struct tern_route r;
+    uint8_t frame[TERN_ROUTE_FRAME_MAX];
+    int8_t dbm;
+    tern_time now = 0;
+    int sent = 0;
+    tern_route_init(&r, &config, 0x1234, nb, 4, dest, 4, 0, 3, 0);
+    tern_route_numbering_from(&r, 0xFFFE, 0x0001);
+    CHECK_EQ_I64(tern_route_numbers_left(&r), 3);
+    for (int step = 0; step < 200; step++) {
+        now = tern_route_due(&r) > now ? tern_route_due(&r) : now + TERN_S(1);
+        size_t len;
+        while ((len = tern_route_poll(&r, now, frame, &dbm)) != 0) {
+            tern_route_sent(&r, now);
+            sent += frame[0] == TERN_HDR_ANNOUNCE;
+            CHECK(frame[0] != TERN_HDR_ANNOUNCE ||
+                  tern_route_newer(0x0001, (uint16_t)(frame[5] << 8 | frame[6])));
+        }
+    }
+    CHECK_EQ_I64(sent, 3); /* 0xFFFE, 0xFFFF and 0x0000 */
+    tern_route_kept(&r, 0x0010);
+    for (int step = 0; step < 2000 && r.number != 0x0010; step++) {
+        now = tern_route_due(&r) > now ? tern_route_due(&r) : now + TERN_S(1);
+        size_t len;
+        while ((len = tern_route_poll(&r, now, frame, &dbm)) != 0) {
+            tern_route_sent(&r, now);
+        }
+    }
+    CHECK_EQ_I64(r.number, 0x0010);
+    CHECK_EQ_I64(tern_route_numbers_left(&r), 0);
+}
+
 /* Whether an announce is taken depends on the address held for its sender: one that carries none
  * is checked with the one held, and with none held there is nothing to check it with. */
 static void an_announce_is_taken_only_if_it_can_be_checked(void) {
@@ -535,6 +613,8 @@ int main(void) {
     RUN(requests_are_written_and_read);
     RUN(frames_the_specification_rejects_change_nothing);
     RUN(an_announce_is_taken_only_if_it_can_be_checked);
+    RUN(a_recorded_starting_announce_changes_nothing);
+    RUN(no_announce_goes_with_a_number_not_kept);
     RUN(a_router_signs_and_carries_its_address_while_it_is_needed);
     RUN(floors_average_and_margins_round_down);
     RUN(links_come_up_and_stay_within_the_band);

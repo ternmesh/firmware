@@ -442,7 +442,7 @@
       "announce": 1,
       "held_address": "dfc0ccb9e5961a0350bbb875ccce76e6947e7ad64643b3796d07f27e09a6f054",
       "takes": false,
-      "holds_address": null
+      "holds_address": "dfc0ccb9e5961a0350bbb875ccce76e6947e7ad64643b3796d07f27e09a6f054"
     },
     {
       "announce": 0,
@@ -932,7 +932,7 @@
       "promise_passed": false,
       "starting": true,
       "was_starting": false,
-      "does": "again"
+      "does": "discard"
     },
     {
       "last": 10,
@@ -940,7 +940,7 @@
       "promise_passed": false,
       "starting": true,
       "was_starting": false,
-      "does": "again"
+      "does": "discard"
     },
     {
       "last": 10,
@@ -956,7 +956,7 @@
       "promise_passed": false,
       "starting": true,
       "was_starting": true,
-      "does": "take"
+      "does": "discard"
     },
     {
       "last": 10,

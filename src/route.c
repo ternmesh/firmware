@@ -225,15 +225,12 @@ bool tern_route_withdrawn(uint16_t named, uint16_t number, uint16_t round) {
 
 enum tern_route_numbering tern_route_numbering(uint16_t last, uint16_t number, bool promise_passed,
                                                bool starting, bool was_starting) {
-    uint16_t gap = (uint16_t)(number - last);
-    if (starting) {
-        return was_starting ? TERN_ROUTE_TAKE : TERN_ROUTE_AGAIN;
-    }
-    if (gap == 0 || gap >= 0x8000) {
-        /* A copy, or late; or, after a promise of silence, it started again unheard. */
+    if (!tern_route_newer(number, last)) {
+        /* A copy, late, or recorded and sent again, starting or not: numbers survive a restart.
+         * After a promise of silence, though, its sender may have gone and come back unheard. */
         return promise_passed ? TERN_ROUTE_AGAIN : TERN_ROUTE_DISCARD;
     }
-    return TERN_ROUTE_TAKE;
+    return starting && !was_starting ? TERN_ROUTE_AGAIN : TERN_ROUTE_TAKE;
 }
 
 uint16_t tern_route_link_cost(const struct tern_lora *lora) {
@@ -926,6 +923,11 @@ static size_t announce(struct tern_route *r, uint8_t *frame, int8_t *power) {
         r->announcing = false; /* a burst lasts only while changed routes remain, and can go */
         return 0;
     }
+    if (r->numbers_kept && !tern_route_newer(r->kept, r->number)) {
+        /* No announce with a number not yet kept: a restart would send it again. */
+        r->announce_at = r->now + TERN_S(1);
+        return 0;
+    }
     refill(b, r->now);
     if (b->have < cost) {
         r->announce_at = r->now + (cost - b->have) / b->ppm + 1;
@@ -1128,6 +1130,18 @@ static const uint8_t *check(const struct tern_route *r, const struct tern_announ
 }
 
 void tern_route_auth(struct tern_route *r, const struct tern_route_auth *auth) { r->auth = *auth; }
+
+void tern_route_numbering_from(struct tern_route *r, uint16_t first, uint16_t kept) {
+    r->number = first;
+    r->kept = kept;
+    r->numbers_kept = true;
+}
+
+void tern_route_kept(struct tern_route *r, uint16_t kept) { r->kept = kept; }
+
+uint16_t tern_route_numbers_left(const struct tern_route *r) {
+    return r->numbers_kept ? (uint16_t)(r->kept - r->number) : UINT16_MAX;
+}
 
 void tern_route_heard(struct tern_route *r, tern_time now, const uint8_t *frame, size_t len,
                       int16_t snr_q) {

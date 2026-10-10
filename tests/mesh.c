@@ -24,7 +24,11 @@ struct node {
     bool relay;
     tern_time airtime;
     int announces, requests;
+    bool has_kept; /* its announce numbers, kept as a board keeps them across a restart */
+    uint16_t kept;
 };
+
+#define NUMBER_SAVE 256
 
 struct net {
     int n;
@@ -48,7 +52,19 @@ static void start(struct net *net, int i, uint16_t seq) {
     c.silent_max = net->silent_max ? net->silent_max : c.silent_max;
     tern_route_init(&x->r, &c, id_of(i), x->nb, net->nb_cap, x->dest, net->dest_cap, seq,
                     0x9E3779B97F4A7C15ULL * (uint64_t)(i + 1) + (uint64_t)net->now, net->now);
+    uint16_t first = x->has_kept ? x->kept : x->r.number;
+    x->kept = (uint16_t)(first + NUMBER_SAVE);
+    x->has_kept = true;
+    tern_route_numbering_from(&x->r, first, x->kept);
     x->on = true;
+}
+
+/* Stores numbers ahead, as a board does before it runs out. */
+static void keep_numbers(struct node *x) {
+    if (tern_route_numbers_left(&x->r) < NUMBER_SAVE / 2) {
+        x->kept = (uint16_t)(x->r.number + NUMBER_SAVE);
+        tern_route_kept(&x->r, x->kept);
+    }
 }
 
 static void net_init(struct net *net, int n) {
@@ -126,6 +142,7 @@ static void run(struct net *net, tern_time until) {
             uint8_t frame[TERN_ROUTE_FRAME_MAX];
             int8_t dbm = 0;
             size_t len;
+            keep_numbers(x);
             while (x->on && tern_route_due(&x->r) <= net->now &&
                    (len = tern_route_poll(&x->r, net->now, frame, &dbm)) != 0) {
                 x->airtime += tern_lora_airtime(&net->lora, (uint32_t)len);
