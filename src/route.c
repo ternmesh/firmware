@@ -313,7 +313,8 @@ struct tern_route_config tern_route_defaults(const struct tern_lora *lora, int8_
         .dead_hops = 24,
         .jitter = 2,
         .start_announces = 4,
-        .default_busy_ppm = 1000000,
+        .default_hops = 6,
+        .default_busy_ppm = 500000,
     };
 }
 
@@ -1184,21 +1185,35 @@ static bool tried_already(uint32_t id, const uint32_t *tried, int n) {
     return false;
 }
 
-/* A leaf's default: the nearest relay it has a link up with that is not in `tried`, or 0. */
-static uint8_t nearest_relay(const struct tern_route *r, const uint32_t *tried, int tried_count) {
-    uint8_t best = 0;
-    if (r->config.relay || !r->config.default_hops || r->starting ||
-        r->busy >= r->config.default_busy_ppm) {
-        return 0;
+int tern_route_default(const struct tern_route_neighbour *n, size_t count, bool leaf, bool starting,
+                       uint32_t busy_ppm, uint32_t busy_max, const uint32_t *tried,
+                       int tried_count) {
+    int best = -1;
+    if (!leaf || starting || busy_ppm >= busy_max) {
+        return -1;
     }
-    for (size_t i = 0; i < r->nb_cap; i++) {
-        const struct tern_route_neighbour *n = &r->nb[i];
-        if (n->used && n->up && n->relay && !tried_already(n->id, tried, tried_count) &&
-            (!best || n->floor < r->nb[best - 1].floor)) {
-            best = (uint8_t)(i + 1);
+    for (size_t i = 0; i < count; i++) {
+        if (n[i].used && n[i].up && n[i].relay && !tried_already(n[i].id, tried, tried_count) &&
+            (best < 0 || n[i].floor < n[best].floor)) {
+            best = (int)i;
         }
     }
     return best;
+}
+
+uint16_t tern_route_default_metric(uint8_t hops, uint16_t cost) {
+    uint32_t t = (uint32_t)hops * cost;
+    return t >= INF ? INF - 1 : (uint16_t)t;
+}
+
+/* A leaf's default: the slot of its nearest relay not in `tried`, or 0. */
+static uint8_t nearest_relay(const struct tern_route *r, const uint32_t *tried, int tried_count) {
+    if (!r->config.default_hops) {
+        return 0;
+    }
+    int i = tern_route_default(r->nb, r->nb_cap, !r->config.relay, r->starting != 0, r->busy,
+                               r->config.default_busy_ppm, tried, tried_count);
+    return i < 0 ? 0 : (uint8_t)(i + 1);
 }
 
 void tern_route_busy(struct tern_route *r, uint32_t busy_ppm) { r->busy = busy_ppm; }
@@ -1213,9 +1228,7 @@ bool tern_route_next(const struct tern_route *r, uint32_t destination, uint32_t 
             return false;
         }
         *next = slot(r, s)->id;
-        /* default_hops links' worth, kept short of a retraction however slow the profile. */
-        uint32_t t = (uint32_t)r->config.default_hops * r->cost;
-        *metric = t >= INF ? INF - 1 : (uint16_t)t;
+        *metric = tern_route_default_metric(r->config.default_hops, r->cost);
         return true;
     }
     *next = slot(r, d->sel)->id;

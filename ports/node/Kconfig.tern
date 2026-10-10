@@ -42,6 +42,17 @@
             The gain of the antenna fitted, which counts towards the power the region allows.
             The small antenna sold with the board is 2 to 3 dBi.
 
+    config TERN_DESTINATIONS
+        int "Destinations the board keeps routes for"
+        range 32 4096
+        default 128
+        help
+            How many nodes a relay can pass frames on toward, at 64 bytes of RAM each: the
+            specification's RELAY_PLACES is 1024. The ESP32-S3 builds set 1024
+            (sdkconfig.defaults.esp32s3); the classic ESP32 has no room for it, and the
+            nRF52840 has not been measured. A leaf needs few: it hands a frame it has no route
+            for to its nearest relay.
+
     config TERN_SCREEN_FLIP
         bool "Turn the screen upside down"
         default n

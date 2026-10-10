@@ -199,14 +199,12 @@ struct tern_route_config {
     uint8_t dead_hops;       /* frames given up on running, unheard between, that forget one */
     uint8_t jitter;          /* airtimes a request waits, at most */
     uint8_t start_announces; /* announces a node is starting for */
-    /* A leaf with no route to a destination hands its frame to its nearest relay, which holds
-     * routes to every node: the leaf then needs a place only for what it is told of, not for
-     * every node. 0 for none, else the hops a frame so sent is taken to go, for its wait. An
-     * experiment, not the specification's. */
+    /* A leaf's default route (the specification's): with no route to a destination, a leaf
+     * hands its frame to its nearest relay, which holds routes to every node, so the leaf needs
+     * places only for what it sends to. default_hops is DEFAULT_HOPS, the links the route is
+     * taken to have for its waits, and 0 for no default route; default_busy_ppm is DEFAULT_BUSY,
+     * the busy share (tern_route_busy()) from which a leaf takes none. */
     uint8_t default_hops;
-    /* And only while the radio's busy share (tern_route_busy()) is under this, in millionths: on
-     * a full channel every frame sent toward a relay with no route on is one more collision.
-     * 1000000 for always. */
     uint32_t default_busy_ppm;
 };
 
@@ -240,6 +238,17 @@ struct tern_route_neighbour {
  * heard is 6 dB nearer; an index, or -1. A link that is up is never given up for one that might
  * come up. */
 int tern_route_place(const struct tern_route_neighbour *full, size_t n, int32_t floor);
+
+/* The neighbour of `n` a leaf hands a frame with no route to: the relay with the lowest floor of
+ * those whose links are up and whose ids are not among the `tried_count` in `tried`; an index, or
+ * -1 for none, and none for a relay (`leaf` false), a node starting, or one whose busy share
+ * `busy_ppm` is `busy_max` or more. */
+int tern_route_default(const struct tern_route_neighbour *n, size_t count, bool leaf, bool starting,
+                       uint32_t busy_ppm, uint32_t busy_max, const uint32_t *tried,
+                       int tried_count);
+
+/* A default route's metric: `hops` links of `cost`, at most 0xFFFE. */
+uint16_t tern_route_default_metric(uint8_t hops, uint16_t cost);
 
 struct tern_route_entry {
     uint8_t slot; /* the neighbour's place in the table plus 1; 0 for none */

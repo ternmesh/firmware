@@ -88,7 +88,14 @@
 #endif
 #define ACCEPT_S 120
 #define NEIGHBOURS 64 /* 2.5 kB; in a crowd, 32 held a tenth fewer routes in the simulator */
+/* A relay's table is how large a network it can carry: RELAY_PLACES, 1024, in the specification's
+ * routing draft, at 64 bytes each. A board with the RAM for it says so in its build; the rest keep
+ * 128 until they are measured, which with the default route is room enough for a leaf. */
+#ifdef CONFIG_TERN_DESTINATIONS
+#define DESTINATIONS CONFIG_TERN_DESTINATIONS
+#else
 #define DESTINATIONS 128
+#endif
 #define FORWARD_SLOTS 8 /* frames in hand at once, this board's and those it passes on: 2.4 kB */
 #define PENDING 4       /* of them, this board's own messages not yet acknowledged */
 #define TX_MIN_DBM board_power_min() /* the least this board puts into its antenna */

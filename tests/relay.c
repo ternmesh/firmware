@@ -394,10 +394,11 @@ static void a_board_that_refuses_is_asked_no_more_than_a_message_is_sent(void) {
 }
 
 /* With nobody to pass its frames on, a board that begins a handshake asks for a route as often
- * as it would have sent, and gives up. */
+ * as it would have sent, and gives up. Here it takes no default route. */
 static void a_board_with_no_route_gives_up(void) {
     static const bool relay[NODES] = {false, true, false};
     net_init(relay);
+    net.node[0].r.config.default_hops = 0;
     link(0, 1);
     run(TERN_S(1200));
     contact(0, 2);
@@ -407,10 +408,26 @@ static void a_board_with_no_route_gives_up(void) {
     CHECK_EQ_I64(in_hand(0), 0);
 }
 
+/* A leaf with no route hands its frames to its nearest relay, which has none on: the relay passes
+ * nothing on, and the leaf gives up all the same, holding nothing. */
+static void a_leaf_with_no_route_tries_its_relay_and_gives_up(void) {
+    static const bool relay[NODES] = {false, true, false};
+    net_init(relay);
+    link(0, 1);
+    run(TERN_S(1200));
+    contact(0, 2);
+    run(net.now + TERN_S(120));
+    CHECK(net.node[0].contact_sent[1] > 0);
+    CHECK_EQ_I64(net.node[0].gave_up, 1);
+    CHECK_EQ_I64(in_hand(0), 0);
+    CHECK_EQ_I64(in_hand(1), 0);
+}
+
 int main(void) {
     RUN(two_boards_out_of_earshot_make_a_session_through_a_relay);
     RUN(a_frame_lost_on_its_last_hop_is_made_good_from_the_start);
     RUN(a_board_that_refuses_is_asked_no_more_than_a_message_is_sent);
     RUN(a_board_with_no_route_gives_up);
+    RUN(a_leaf_with_no_route_tries_its_relay_and_gives_up);
     return CHECK_DONE();
 }
