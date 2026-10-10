@@ -772,11 +772,21 @@ static void heard(const struct tern_radio_event *ev) {
     int snr_whole = snr_abs / 100, snr_frac = snr_abs % 100;
 
     if (tern_route_frame(ev->data, ev->len)) {
-        if (ev->len >= 5 && ev->data[0] == 0x59) {
-            note_snr(ev->data, (int8_t)(ev->snr_cdb / 25));
-        }
         /* The router takes quarters of a decibel, as the radio measures. */
-        tern_route_heard(&route, board_now(), ev->data, ev->len, (int16_t)(ev->snr_cdb / 25));
+        tern_time now = board_now();
+        tern_route_heard(&route, now, ev->data, ev->len, (int16_t)(ev->snr_cdb / 25));
+        /* Shown for a neighbour only once the router has taken its announce: one it could not
+         * check says nothing of who sent it. */
+        if (ev->len >= 5 && ev->data[0] == TERN_HDR_ANNOUNCE) {
+            uint32_t id = (uint32_t)ev->data[1] << 24 | (uint32_t)ev->data[2] << 16 |
+                          (uint32_t)ev->data[3] << 8 | ev->data[4];
+            for (size_t i = 0; i < NEIGHBOURS; i++) {
+                if (neighbours[i].used && neighbours[i].id == id && neighbours[i].heard == now) {
+                    note_snr(ev->data, (int8_t)(ev->snr_cdb / 25));
+                    break;
+                }
+            }
+        }
         if (route.seq != route_seq_saved && store_save(NULL, "seq", &route.seq, sizeof route.seq)) {
             route_seq_saved = route.seq;
         }
