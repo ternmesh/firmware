@@ -3,7 +3,8 @@
 
     python3 tests/vectors/companion_to_c.py tests/vectors/companion.json OUT.h [exchange]
 
-With `exchange`, it writes the exchange alone, for tests/link.c, which needs nothing else.
+With `exchange`, it writes the exchange and the frames unknown to older versions alone, for
+tests/link.c, which needs nothing else.
 
 The build runs this; nothing it writes is checked in. Like the other converters it only
 reformats: every value in the header is copied from the JSON, none is computed. A frame's fields
@@ -82,6 +83,7 @@ def main():
     if sys.argv[3:] != ["exchange"]:
         cases(L, v)
     exchange(L, v)
+    unknown_to_older(L, v)
     with open(out, "w", encoding="utf-8") as f:
         f.write("\n".join(L) + "\n")
 
@@ -148,6 +150,18 @@ def exchange(L, v):
             for e in frames
         ]
         L.append("};")
+
+
+def unknown_to_older(L, v):
+    """Each frame of a type, or naming a setting, that a version does not define, with that
+    version, and the ERROR code a node answers it with, or -1 for none."""
+    L.append("static const struct unknown_case unknown_to_older[] = {")
+    L += [
+        f"    {{\"{u['type']}: {u['why']}\", {u['version']}, {blob(u['frame'])}, "
+        f"{-1 if u['answer'] is None else u['answer']}}},"
+        for u in v["unknown_to_older"]
+    ]
+    L.append("};")
 
 
 if __name__ == "__main__":

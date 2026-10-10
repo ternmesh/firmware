@@ -16,9 +16,16 @@ struct step {
     uint8_t frame[BYTES];
     size_t len;
 };
+struct unknown_case {
+    const char *why;
+    uint8_t version; /* the version the client says HELLO with */
+    uint8_t frame[BYTES];
+    size_t len;
+    int answer; /* the ERROR code the node answers with, or -1 for none */
+};
 
-/* The specification's exchange, alone: the build writes it from the same JSON as tests/companion.c
- * reads. */
+/* The specification's exchange, and the frames unknown to older versions, alone: the build writes
+ * them from the same JSON as tests/companion.c reads. */
 #include "companion_exchange.h"
 
 #define COUNT(a) (sizeof(a) / sizeof(a)[0])
@@ -1467,6 +1474,32 @@ static void nothing_but_hello_before_hello(void) {
     CHECK_EQ_I64(sent(0).version, TERN_COMPANION_VERSION);
 }
 
+/* A client of an older version sends a request its version does not define, or a SET naming a
+ * setting it does not: the node answers ERROR with the draft's code, and the seq it was sent. News
+ * and answers are not the node's to take, and it says nothing to them. */
+static void an_older_client_is_answered_as_the_draft_says(void) {
+    for (size_t i = 0; i < COUNT(unknown_to_older); i++) {
+        const struct unknown_case *c = &unknown_to_older[i];
+        start();
+        request(
+            &(struct tern_companion_msg){.type = TERN_C_HELLO, .seq = 1, .version = c->version});
+        /* INFO is as the client's version has it, which the latest may not read. */
+        CHECK(board.n_out == 1 && board.out[0][0] == TERN_C_INFO);
+        board.n_out = 0;
+        link_receive(&companion, LINK_SERIAL, TERN_S(100), c->frame, c->len);
+        size_t want = c->answer < 0 ? 0 : 1;
+        if (board.n_out != want || (want == 1 && sent(0).code != c->answer)) {
+            fprintf(stderr, "unknown_to_older: %s, version %u\n", c->why, c->version);
+        }
+        CHECK_EQ_U64(board.n_out, want);
+        if (want == 1) {
+            CHECK_EQ_I64(sent(0).type, TERN_C_ERROR);
+            CHECK_EQ_I64(sent(0).code, c->answer);
+            CHECK_EQ_I64(sent(0).seq, c->frame[1]);
+        }
+    }
+}
+
 static void requests_it_cannot_read_are_answered(void) {
     start();
     static const uint8_t cut[] = {TERN_C_SYNC, 4, 0, 0};
@@ -2394,6 +2427,7 @@ int main(void) {
     RUN(an_older_clients_read_leaves_what_it_was_not_sent);
     RUN(nothing_but_hello_before_hello);
     RUN(requests_it_cannot_read_are_answered);
+    RUN(an_older_client_is_answered_as_the_draft_says);
     RUN(a_send_sent_again_is_one_message);
     RUN(a_send_it_cannot_take_is_refused);
     RUN(a_message_on_its_way_is_not_overwritten);
