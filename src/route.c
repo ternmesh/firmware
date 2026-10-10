@@ -847,7 +847,7 @@ static size_t build(struct tern_route *r, uint8_t *frame, int8_t *power) {
         .carries_address = carries_address(r),
     };
     size_t room = named_room(r), start = r->nb_cap ? r->named_cursor % r->nb_cap : 0;
-    size_t rotation = room ? (neighbours(r) + room - 1) / room : 0, len, owed;
+    size_t rotation = room ? (neighbours(r) + room - 1) / room : 0, len, owed = 0;
     a.round = (uint16_t)(rotation > AGE_MAX ? AGE_MAX : rotation);
 
     /* Neighbours found since the last frame first, then the rest in turn from where it stopped. */
