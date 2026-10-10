@@ -826,9 +826,22 @@ void board_screen_show(bool wait) {
     }
 }
 
+/* A prompt is kept until what it was for has been drawn, since a refresh can outlast it: a press
+ * made while the panel was drawing, or while it was about to draw what was there before, is still
+ * drawn soon once the panel is free. Its first moments are left for the node to send the page it
+ * is for, so the panel does not spend a refresh on the one before. */
+static bool epd_urgent;
+static tern_time epd_prompt_from;
+#define EPD_PROMPT_HOLD_NS 600000000LL /* longer than the node takes to draw a page again */
+
 void board_screen_poll(bool prompt) {
     if (!board_epaper(B) || !epd_open) {
         return;
+    }
+    tern_time now = board_now();
+    if (prompt && !epd_urgent) {
+        epd_urgent = true;
+        epd_prompt_from = now;
     }
     if (epd_refreshing) {
         if (epd_busy() && !epd_stuck()) {
@@ -840,15 +853,24 @@ void board_screen_poll(bool prompt) {
         epd_sleep();
         return;
     }
-    tern_time now = board_now();
-    if (!epd_changed || now - epd_page_at < EPD_SETTLE_NS) {
+    if (!epd_changed) {
+        epd_urgent = epd_urgent && prompt; /* drawn already, or nothing to draw */
         return;
     }
-    if (!prompt && epd_drawn_at != 0 &&
-        now - epd_drawn_at < (tern_time)CONFIG_TERN_EPAPER_REFRESH_S * 1000000000LL) {
+    if (now - epd_page_at < EPD_SETTLE_NS) {
         return;
     }
-    (void)epd_draw();
+    if (epd_urgent) {
+        if (epd_page_at < epd_prompt_from && now - epd_prompt_from < EPD_PROMPT_HOLD_NS) {
+            return; /* what it is for has not come yet */
+        }
+    } else if (epd_drawn_at != 0 &&
+               now - epd_drawn_at < (tern_time)CONFIG_TERN_EPAPER_REFRESH_S * 1000000000LL) {
+        return;
+    }
+    if (epd_draw() && !prompt) {
+        epd_urgent = false; /* drawn after the prompt was over: what it was for is in it */
+    }
 }
 
 /* Before the board turns off: the last picture drawn and the panel asleep, since its supply is
