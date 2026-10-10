@@ -29,10 +29,13 @@ enum board_soc {
     BOARD_ESP32,
 };
 
-/* The screen's controller. Both take a 128x64 panel a page at a time over I2C at 0x3C. */
-enum board_oled {
+/* The screen's controller. The first two take a 128x64 panel a page at a time over I2C at 0x3C;
+ * the SSD1680 a 296x128 e-paper panel over SPI, on which the 128x64 picture is drawn twice the
+ * size (epd.h). */
+enum board_screen_chip {
     BOARD_SSD1306, /* or one that takes its commands, as the SSD1315 does */
     BOARD_SH1106,  /* 132 columns of RAM, the panel's 128 in the middle; its own DC-DC */
+    BOARD_SSD1680, /* e-paper */
 };
 
 /* The LoRa radio, which board.c drives with tern/sx126x.h or tern/sx127x.h. */
@@ -66,10 +69,14 @@ struct board_def {
     int8_t led;      /* BOARD_NO_PIN for none */
     bool led_low_on; /* lit when low, rather than high */
 
-    /* A 128x64 panel on I2C. */
+    /* The screen: on I2C, or for e-paper on SPI, with a line saying whether a byte is a command
+     * or data, and one the panel holds high while it is busy. None if neither sda nor cs is a
+     * pin. */
     struct {
-        int8_t sda, scl, reset; /* sda BOARD_NO_PIN for none */
-        enum board_oled oled;
+        enum board_screen_chip chip;
+        int8_t sda, scl;
+        int8_t sck, mosi, cs, dc, busy;
+        int8_t reset;
     } screen;
 
     /* The switched supply the screen is on, and whether high turns it on. Where it supplies more
@@ -129,6 +136,10 @@ extern const struct board_def *const board_defs[];
 
 /* The board with that name, or NULL. */
 const struct board_def *board_def_named(const char *name);
+
+/* Whether the board has a screen, and whether it is e-paper. */
+bool board_has_screen(const struct board_def *b);
+bool board_epaper(const struct board_def *b);
 
 /* The least and the most power, in dBm into the antenna, that this board gives. */
 int8_t board_min_dbm(const struct board_def *b);

@@ -108,6 +108,7 @@
 #define OFF_MS 5000        /* and this long, it turns off */
 #define CONFIRM_S 10       /* held once on Phones or Reset, how long it asks to be sure */
 #define EMPTY_CHECK_S 1800 /* turned off for an empty battery, how often it wakes to look again */
+#define PROMPT_MS 2000     /* after something to see, how long a slow screen is prompted */
 #define SCREEN_TRIES 5     /* writes failed in a row before the screen is given up */
 #define FIRMWARE "tern " CONFIG_TERN_VERSION " " CONFIG_TERN_BOARD_NAME
 /* The name a client finds an image by: tern-<board>-<region>-... */
@@ -2865,6 +2866,9 @@ static void poll_screen(void) {
     if (!have_screen || board_now() < screen_retry) {
         return;
     }
+    /* Something to see: just woken, or the boot screen just over. */
+    tern_time prompt = (tern_time)PROMPT_MS * 1000000;
+    board_screen_poll(board_now() - screen_woken < prompt || board_now() < boot_until + prompt);
     if (pairing_passkey != PAIRING_NONE) {
         screen_woken = board_now(); /* the passkey stays up for as long as the pairing takes */
     }
@@ -2941,6 +2945,9 @@ static void screen_flush(void) {
             screen.dirty |= (uint8_t)(1u << page);
             return;
         }
+    }
+    if (have_screen) {
+        board_screen_show(false);
     }
 }
 
@@ -3038,6 +3045,7 @@ __attribute__((noreturn)) static void erase_and_restart(void) {
     if (have_screen) {
         ui_erasing(&screen);
         screen_flush();
+        board_screen_show(true); /* before the restart cuts its supply */
     }
     plat_erase_and_restart();
 }

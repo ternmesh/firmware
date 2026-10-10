@@ -50,6 +50,15 @@ menu "Tern demo"
             depends on IDF_TARGET_ESP32S3
     endchoice
 
+    config TERN_EPAPER_REFRESH_S
+        int "Seconds between e-paper refreshes, unless something was pressed"
+        default 60
+        range 10 3600
+        help
+            An e-paper screen redraws itself whole, which takes a few seconds and flashes it. It
+            is redrawn soon after a press of the button or something new to see, and otherwise,
+            as clocks and counts on it change, no more often than this.
+
     config TERN_SCREEN_SH1106
         bool "The screen is an SH1106 (a 1.3-inch panel)"
         default n

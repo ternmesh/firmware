@@ -148,6 +148,11 @@ static void no_pin_does_two_jobs(void) {
         add_pin(b, used, &n, b->screen.sda);
         add_pin(b, used, &n, b->screen.scl);
         add_pin(b, used, &n, b->screen.reset);
+        add_pin(b, used, &n, b->screen.sck);
+        add_pin(b, used, &n, b->screen.mosi);
+        add_pin(b, used, &n, b->screen.cs);
+        add_pin(b, used, &n, b->screen.dc);
+        add_pin(b, used, &n, b->screen.busy);
         add_pin(b, used, &n, b->vext);
         add_pin(b, used, &n, b->battery.sense);
         add_pin(b, used, &n, b->battery.enable);
@@ -170,9 +175,10 @@ static void no_pin_does_two_jobs(void) {
             }
         }
         /* What the board drives can drive. */
-        const int8_t outputs[] = {b->lora.nss,  b->lora.sck,   b->lora.mosi,    b->lora.reset,
-                                  b->led,       b->vext,       b->screen.reset, b->battery.enable,
-                                  b->amp.power, b->amp.enable, b->amp.tx[0],    b->amp.tx[1]};
+        const int8_t outputs[] = {b->lora.nss,   b->lora.sck,    b->lora.mosi,    b->lora.reset,
+                                  b->led,        b->vext,        b->screen.reset, b->battery.enable,
+                                  b->amp.power,  b->amp.enable,  b->amp.tx[0],    b->amp.tx[1],
+                                  b->screen.sck, b->screen.mosi, b->screen.cs,    b->screen.dc};
         for (size_t o = 0; o < sizeof outputs; o++) {
             if (!output_ok(b, outputs[o])) {
                 fprintf(stderr, "%s drives GPIO%d, which is an input\n", b->name, outputs[o]);
@@ -190,7 +196,22 @@ static void no_pin_does_two_jobs(void) {
         }
         CHECK(b->button == BOARD_NO_PIN || rtc_ok(b, b->button));
         CHECK(!b->vext_always || b->vext != BOARD_NO_PIN);
-        CHECK(b->screen.oled == BOARD_SSD1306 || b->screen.oled == BOARD_SH1106);
+        /* A screen is on I2C or, for e-paper, on SPI with its DC and BUSY lines, never half of
+         * either. */
+        if (board_epaper(b)) {
+            CHECK(b->screen.chip == BOARD_SSD1680);
+            CHECK(b->screen.sda == BOARD_NO_PIN && b->screen.scl == BOARD_NO_PIN);
+            CHECK(!board_has_screen(b) ||
+                  (b->screen.sck != BOARD_NO_PIN && b->screen.mosi != BOARD_NO_PIN &&
+                   b->screen.dc != BOARD_NO_PIN && b->screen.busy != BOARD_NO_PIN &&
+                   b->screen.reset != BOARD_NO_PIN));
+        } else {
+            CHECK(b->screen.chip == BOARD_SSD1306 || b->screen.chip == BOARD_SH1106);
+            CHECK(b->screen.sck == BOARD_NO_PIN && b->screen.mosi == BOARD_NO_PIN &&
+                  b->screen.cs == BOARD_NO_PIN && b->screen.dc == BOARD_NO_PIN &&
+                  b->screen.busy == BOARD_NO_PIN);
+            CHECK((b->screen.sda == BOARD_NO_PIN) == (b->screen.scl == BOARD_NO_PIN));
+        }
         /* Each rail is the chip's, at a voltage it gives, and its battery is the board's. */
         if (b->pmu.chip != AXP_NONE) {
             CHECK(b->pmu.sda != BOARD_NO_PIN && b->pmu.scl != BOARD_NO_PIN);

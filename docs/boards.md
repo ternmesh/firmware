@@ -11,7 +11,8 @@ between the core and a port is [architecture.md](architecture.md); this is about
 | Heltec WiFi LoRa 32 V4 (V4.2, V4.3) | ESP32-S3 | SX1262, 28 dBm amplifier | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board |
 | Heltec Wireless Stick Lite V3 | ESP32-S3 | SX1262 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board |
 | Heltec Wireless Tracker (V1.0, V1.1) | ESP32-S3 | SX1262 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board; no screen yet (an 80x160 TFT) |
-| Heltec Vision Master E290, E213 | ESP32-S3 | SX1262 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board; no screen yet (e-paper) |
+| Heltec Vision Master E290 | ESP32-S3 | SX1262 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board; its e-paper is driven (SSD1680) |
+| Heltec Vision Master E213 | ESP32-S3 | SX1262 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board; no screen yet (e-paper) |
 | Heltec Wireless Paper | ESP32-S3 | SX1262 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board; no screen yet (e-paper) |
 | Heltec WiFi LoRa 32 V2, V2.1 | ESP32 | SX1276 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board |
 | LilyGo T-Beam V1.0, V1.1 (AXP192) and V1.2 (AXP2101), 868/915 MHz | ESP32 | SX1276 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board; its GPS is left off |
@@ -110,7 +111,7 @@ goes a family or a radio at a time, and each one brings a crowd of boards with i
 
 | What | Brings | Needs | Status |
 |---|---|---|---|
-| ESP32-S3 + SX1262 or SX1276 | Heltec V3, V4, Wireless Stick Lite V3, Wireless Tracker, Vision Master, Wireless Paper; LilyGo T3-S3, T-Beam Supreme, T-Deck; Seeed XIAO ESP32S3 kit; B&Q Station G2; RAK3312 | A row each; colour and e-paper screens for the rest | Port exists: V3 runs; V4, Stick Lite V3, Tracker, Vision Master, Paper and the T3-S3 with an SX1276 built; the SH1106 is driven |
+| ESP32-S3 + SX1262 or SX1276 | Heltec V3, V4, Wireless Stick Lite V3, Wireless Tracker, Vision Master, Wireless Paper; LilyGo T3-S3, T-Beam Supreme, T-Deck; Seeed XIAO ESP32S3 kit; B&Q Station G2; RAK3312 | A row each; colour and e-paper screens for the rest | Port exists: V3 runs; V4, Stick Lite V3, Tracker, Vision Master, Paper and the T3-S3 with an SX1276 built; the SH1106 and the E290's SSD1680 e-paper are driven |
 | ESP32 (classic) + SX1276 | Heltec V2, V2.1, Wireless Stick; LilyGo T3 V1.6.1, LoRa32 V1.3, T-Beam to v1.2 | A row each | Port builds for it: V2, V2.1, T3 V1.6.1 and T-Beam built |
 | nRF52840 + SX1262 | Heltec T114, Mesh Pocket; RAK4631 and the WisMesh devices on it; Seeed Wio Tracker L1, XIAO nRF52840 kit; LilyGo T-Echo; Elecrow ThinkNode | An overlay each; e-paper for the T-Echo and others | Port exists: T114, RAK4631 and Wio Tracker L1 built |
 | SX1276/SX1278 driver | The boards above, and other boards of before 2022 | A driver in `src/`, beside the SX1262's | Done (`src/sx127x.c`); the SX1278's 433 MHz waits on a region for it |
@@ -156,7 +157,11 @@ Rows, as above. Those whose makers' documents have been read, and what each stil
   its pins, and links no schematic. It waits on those.
 
 And the screens these boards have, which the port does not drive yet: the Wireless Tracker's
-80x160 TFT, and the Vision Masters' and Wireless Paper's e-paper. Each runs without one today.
+80x160 TFT, and the Vision Master E213's and Wireless Paper's e-paper. Each runs without one today.
+The E290's SSD1680 is driven: Solomon Systech publishes its datasheet and DKE its panel's. The
+E213 and the Wireless Paper changed panels between revisions, to a JD79656 and an SSD1682 whose
+datasheets are not published, and the Wireless Paper's first, an SSD1680, cannot be told from the
+SSD1682 by its chip ID; they wait on those datasheets, or on boards of each revision.
 
 ### More nRF52840 boards
 

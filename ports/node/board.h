@@ -50,13 +50,24 @@ bool board_button(void);
 
 void board_led(bool on);
 
-/* The 128x64 OLED display, an SSD1306 on its own I2C bus. Powers it, resets it and sets it up
- * blank; false if it does not answer, and the board then runs without it. */
+/* The screen: a 128x64 OLED, or a larger panel the board draws the 128x64 picture on. Powers it,
+ * resets it and sets it up blank; false if it does not answer, and the board then runs without
+ * it. */
 bool board_screen_init(void);
 
 /* Sends one page of the picture: eight rows of 128 columns, a byte a column, the lowest bit at
  * the top (display.h). About 3 ms at the bus's 400 kHz. */
 bool board_screen_page(int page, const uint8_t data[128]);
+
+/* Called every turn of the loop. A screen that does not show each page as it arrives, as e-paper
+ * does not, draws what it has been sent here: soon, if `prompt` (the user has just done something,
+ * or there is something new to see), and otherwise when it can bear to. Others do nothing. */
+void board_screen_poll(bool prompt);
+
+/* The picture as sent is all of it, drawn outside the loop: such a screen draws it now, once one
+ * it is drawing is done, and if `wait`, waits for this one too, as before the board restarts.
+ * Others, which have shown it already, do nothing. */
+void board_screen_show(bool wait);
 
 /* Turns the panel and its charge pump off, or on again. Off, it draws a few microamps and keeps
  * its picture, so it comes back showing what it showed. */
