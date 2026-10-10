@@ -373,6 +373,10 @@ static void a_leaf_with_no_route_takes_its_nearest_relay(void) {
                      c->next);
         CHECK_EQ_U64(tern_route_default_metric(d.default_hops, c->link_cost), c->metric);
     }
+    /* A guard of 1000000 is none: a leaf whose radio was never idle still takes its relay. */
+    struct tern_route_neighbour relay = {.id = 1, .used = true, .relay = true, .up = true};
+    CHECK_EQ_I64(tern_route_default(&relay, 1, true, false, 1000000, 1000000, NULL, 0), 0);
+    CHECK_EQ_I64(tern_route_default(&relay, 1, true, false, 999999, 999999, NULL, 0), -1);
 }
 
 int main(void) {

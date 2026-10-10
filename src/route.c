@@ -1189,7 +1189,7 @@ int tern_route_default(const struct tern_route_neighbour *n, size_t count, bool 
                        uint32_t busy_ppm, uint32_t busy_max, const uint32_t *tried,
                        int tried_count) {
     int best = -1;
-    if (!leaf || starting || busy_ppm >= busy_max) {
+    if (!leaf || starting || (busy_max < 1000000 && busy_ppm >= busy_max)) {
         return -1;
     }
     for (size_t i = 0; i < count; i++) {
@@ -1271,7 +1271,7 @@ bool tern_route_other(const struct tern_route *r, uint32_t destination, const ui
     }
     if (!found) {
         uint8_t s = nearest_relay(r, tried, tried_count);
-        if (s && (!d || d->sel == 0)) {
+        if (s) {
             *next = slot(r, s)->id;
             found = true;
         }

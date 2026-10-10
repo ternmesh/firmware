@@ -203,7 +203,8 @@ struct tern_route_config {
      * hands its frame to its nearest relay, which holds routes to every node, so the leaf needs
      * places only for what it sends to. default_hops is DEFAULT_HOPS, the links the route is
      * taken to have for its waits, and 0 for no default route; default_busy_ppm is DEFAULT_BUSY,
-     * the busy share (tern_route_busy()) from which a leaf takes none. */
+     * the busy share (tern_route_busy()) from which a leaf takes none, and 1000000 for a leaf
+     * that takes one however busy its radio. */
     uint8_t default_hops;
     uint32_t default_busy_ppm;
 };
@@ -242,7 +243,7 @@ int tern_route_place(const struct tern_route_neighbour *full, size_t n, int32_t 
 /* The neighbour of `n` a leaf hands a frame with no route to: the relay with the lowest floor of
  * those whose links are up and whose ids are not among the `tried_count` in `tried`; an index, or
  * -1 for none, and none for a relay (`leaf` false), a node starting, or one whose busy share
- * `busy_ppm` is `busy_max` or more. */
+ * `busy_ppm` is `busy_max` or more, unless `busy_max` is 1000000. */
 int tern_route_default(const struct tern_route_neighbour *n, size_t count, bool leaf, bool starting,
                        uint32_t busy_ppm, uint32_t busy_max, const uint32_t *tried,
                        int tried_count);
