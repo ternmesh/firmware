@@ -131,6 +131,13 @@ static struct tern_route route;
 static struct tern_route_neighbour neighbours[NEIGHBOURS];
 static struct tern_route_dest destinations[DESTINATIONS];
 static uint16_t route_seq_saved;
+/* Announce numbers are stored this far ahead, so that none is sent twice across a restart: the
+ * specification's NUMBER_SAVE. */
+#define NUMBER_SAVE 256
+/* Whether a routing frame has gone on the air since the board started: until one has, numbers are
+ * stored ahead one at a time, so that a board that keeps restarting before anything goes uses up
+ * one number a restart, not NUMBER_SAVE. */
+static bool route_on_air;
 static bool route_out;   /* the frame on the air is the router's */
 static int8_t power_now; /* what the radio is set to send at, or POWER_UNSET */
 static uint8_t route_frame[TERN_ROUTE_FRAME_MAX]; /* the router's, until it has gone */
@@ -770,11 +777,21 @@ static void heard(const struct tern_radio_event *ev) {
     int snr_whole = snr_abs / 100, snr_frac = snr_abs % 100;
 
     if (tern_route_frame(ev->data, ev->len)) {
-        if (ev->len >= 5 && ev->data[0] == 0x59) {
-            note_snr(ev->data, (int8_t)(ev->snr_cdb / 25));
-        }
         /* The router takes quarters of a decibel, as the radio measures. */
-        tern_route_heard(&route, board_now(), ev->data, ev->len, (int16_t)(ev->snr_cdb / 25));
+        tern_time now = board_now();
+        tern_route_heard(&route, now, ev->data, ev->len, (int16_t)(ev->snr_cdb / 25));
+        /* Shown for a neighbour only once the router has taken its announce: one it could not
+         * check says nothing of who sent it. */
+        if (ev->len >= 5 && ev->data[0] == TERN_HDR_ANNOUNCE) {
+            uint32_t id = (uint32_t)ev->data[1] << 24 | (uint32_t)ev->data[2] << 16 |
+                          (uint32_t)ev->data[3] << 8 | ev->data[4];
+            for (size_t i = 0; i < NEIGHBOURS; i++) {
+                if (neighbours[i].used && neighbours[i].id == id && neighbours[i].heard == now) {
+                    note_snr(ev->data, (int8_t)(ev->snr_cdb / 25));
+                    break;
+                }
+            }
+        }
         if (route.seq != route_seq_saved && store_save(NULL, "seq", &route.seq, sizeof route.seq)) {
             route_seq_saved = route.seq;
         }
@@ -920,6 +937,7 @@ static void poll_radio(void) {
         if (route_out) {
             tern_route_sent(&route, board_now());
             route_out = false;
+            route_on_air = true;
         }
         if (flood_out) {
             tern_flood_sent(&flood, board_now(), flood_handle);
@@ -1416,6 +1434,16 @@ static void poll_route(void) {
             !tern_duty_allows(&duty, now, tern_lora_airtime(&cfg.mod, TERN_ROUTE_FRAME_MAX))) {
             return;
         }
+        /* Numbers are stored ahead only once something is due, and only one until something has
+         * gone on the air, so that a board restarting over and over without sending uses up at
+         * most one a restart. */
+        if (route_on_air ? tern_route_numbers_left(&route) < NUMBER_SAVE / 2
+                         : tern_route_numbers_left(&route) == 0) {
+            uint16_t kept = (uint16_t)(route.number + (route_on_air ? NUMBER_SAVE : 1));
+            if (store_save(NULL, "number", &kept, sizeof kept)) {
+                tern_route_kept(&route, kept);
+            }
+        }
         route_len = tern_route_poll(&route, now, route_frame, &route_dbm);
         route_retry = 0;
     }
@@ -1488,6 +1516,18 @@ static void poll_beacon(void) {
          * 'bench off' ends a run that cannot finish. */
         beacon_next = board_now() + (beacon_gap > 1000000000LL ? beacon_gap : 1000000000LL);
     }
+}
+
+/* What the router signs its announces with, and checks its neighbours' with: the node's identity
+ * key, Ed25519, as the specification's "Signed" requires. */
+static void route_sign(void *ctx, const uint8_t *m, size_t len, uint8_t sig[TERN_ANNOUNCE_SIG]) {
+    tern_identity_sign(ctx, m, len, sig);
+}
+
+static bool route_verify(void *ctx, const uint8_t address[TERN_ADDRESS_LEN], const uint8_t *m,
+                         size_t len, const uint8_t sig[TERN_ANNOUNCE_SIG]) {
+    (void)ctx;
+    return tern_address_valid(address) && tern_address_verify(address, m, len, sig);
 }
 
 /* The band a region's radios keep to, for a frequency set by hand: New Zealand allows its
@@ -3397,6 +3437,18 @@ void node_main(void) {
     (void)store_load(NULL, "seq", &route_seq_saved, sizeof route_seq_saved);
     tern_route_init(&route, &rc, tern_route_id(demo.id.address), neighbours, NEIGHBOURS,
                     destinations, DESTINATIONS, route_seq_saved, seed, board_now());
+    {
+        /* The first number is the one stored ahead last time, or any with none stored. Nothing is
+         * kept beyond it yet, so the first announce waits for poll_route() to store more: a board
+         * that restarts again before it sends anything has used up no numbers. */
+        uint16_t first = (uint16_t)seed;
+        (void)store_load(NULL, "number", &first, sizeof first);
+        tern_route_numbering_from(&route, first, first);
+    }
+    tern_route_auth(&route, &(struct tern_route_auth){.address = demo.id.address,
+                                                      .ctx = &demo.id,
+                                                      .sign = route_sign,
+                                                      .verify = route_verify});
     power_now = cfg.tx_power_dbm;
     struct tern_forward_config fc = tern_forward_defaults();
     tern_forward_init(&forward, &fc, &route, forward_slots, FORWARD_SLOTS, seed ^ 0x666f7277u);
@@ -3508,6 +3560,12 @@ void node_main(void) {
                 /* Counted as gone: the forwarder listens for it, and sends it again unheard. */
                 tern_forward_sent(&forward, board_now(), forward_handle);
                 forward_out = false;
+            }
+            if (route_out) {
+                /* Counted as gone, as the router has already counted it; but not as on the air,
+                 * so that numbers are still stored ahead one at a time. */
+                tern_route_sent(&route, board_now());
+                route_out = false;
             }
             if (flood_out) {
                 /* Not known to have gone: a frame of this board's goes back to wait its turn,

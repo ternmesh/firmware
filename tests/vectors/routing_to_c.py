@@ -58,11 +58,24 @@ def main():
             ", ".join(f"{{{r['destination']}u, {r['seq']}, {r['metric']}}}" for r in c["routes"])
             or "{0, 0, 0}"
         )
+        address = hexbytes(c["address"]) if c["carries_address"] else "{0}"
         L.append(
-            f"    {{{{{c['sender']}u, {c['number']}, {c['seq']}, {b(c['relay'])}, {b(c['starting'])}, {c['promise']}, "
-            f"{c['round']}, {c['power']}, {len(c['neighbours'])}, {len(c['routes'])}, "
-            f"{{{named}}}, {{{rts}}}}}, {len(c['frame']) // 2}, {hexbytes(c['frame'])}}},"
+            f"    {{{{.sender = {c['sender']}u, .number = {c['number']}, .seq = {c['seq']}, "
+            f".relay = {b(c['relay'])}, .starting = {b(c['starting'])}, .promise = {c['promise']}, "
+            f".round = {c['round']}, .power = {c['power']}, .named_count = {len(c['neighbours'])}, "
+            f".route_count = {len(c['routes'])}, .carries_address = {b(c['carries_address'])}, "
+            f".address = {address}, .named = {{{named}}}, .routes = {{{rts}}}}}, "
+            f"{hexbytes(c['seed'])}, {hexbytes(c['address'])}, "
+            f"{len(c['frame']) // 2}, {hexbytes(c['frame'])}}},"
         )
+    L.append("};")
+
+    L.append("static const struct verified_case verifieds[] = {")
+    L += [
+        f"    {{{c['announce']}, {b(c['held_address'] is not None)}, "
+        f"{hexbytes(c['held_address']) if c['held_address'] else '{0}'}, {b(c['takes'])}}},"
+        for c in v["verified"]
+    ]
     L.append("};")
 
     L.append("static const struct request_case requests[] = {")
@@ -110,7 +123,7 @@ def main():
 
     L.append("static const struct numbering_case numberings[] = {")
     L += [
-        f"    {{{c['last']}, {c['number']}, {b(c['promise_passed'])}, {b(c['starting'])}, "
+        f"    {{{c['last']}, {c['number']}, {b(c['starting'])}, "
         f"{b(c['was_starting'])}, {json.dumps(c['does'])}}},"
         for c in v["numbering"]
     ]

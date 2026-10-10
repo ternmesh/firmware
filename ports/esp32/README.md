@@ -353,7 +353,9 @@ A board is known here by a four-byte routing id made from its address. Routing t
 of a board's time on the air. A build can make a board a leaf, which announces itself and is
 routed to but never through (`menuconfig`, **Relay other nodes' frames**).
 
-Nothing in an announce is authenticated yet, and every number in the draft is the simulator's
+Every announce is signed with the board's identity key, and a board takes nothing from one it
+cannot check: no other radio can speak as it. Its address goes on the air to its neighbours while
+one may not have it, so anyone near can learn it. Every number in the draft is the simulator's
 default, not one measured on radios.
 
 ## Radio settings

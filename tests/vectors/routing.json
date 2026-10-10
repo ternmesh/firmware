@@ -1,5 +1,5 @@
 {
-  "description": "Routing, draft 0 (draft/routing.md). Routing ids, sequence numbers, promise codes and metrics are numbers; addresses and frames are hex. In floors, powers are dBm, snr_quarter_db is the signal-to-noise ratio in quarters of a decibel, as the SX126x reports it, and floor_sixteenths is the floor in sixteenths of a dBm. In links, own_margin_sixteenths is the node's full power less its floor for the neighbour, in sixteenths of a decibel, and their_margin is the margin byte the neighbour gave; either is null when it is missing, and the steps follow one another. In places, neighbours is a full table, each with the node's floor for it and whether its link is up, floor_sixteenths is the floor an announce from a node not in it gives, and replaces is an index into neighbours. In selection and kept, each route's metric is the one its neighbour announced, every link costs link_cost, and selected, selects and replaces are indexes into routes. In defaults, tried and next are indexes into neighbours, busy_ppm is the leaf's busy share in millionths, and metric is the default route's.",
+  "description": "Routing, draft 0 (draft/routing.md). Routing ids, sequence numbers, promise codes and metrics are numbers; addresses and frames are hex. In floors, powers are dBm, snr_quarter_db is the signal-to-noise ratio in quarters of a decibel, as the SX126x reports it, and floor_sixteenths is the floor in sixteenths of a dBm. In links, own_margin_sixteenths is the node's full power less its floor for the neighbour, in sixteenths of a decibel, and their_margin is the margin byte the neighbour gave; either is null when it is missing, and the steps follow one another. In places, neighbours is a full table, each with the node's floor for it and whether its link is up, floor_sixteenths is the floor an announce from a node not in it gives, and replaces is an index into neighbours. In selection and kept, each route's metric is the one its neighbour announced, every link costs link_cost, and selected, selects and replaces are indexes into routes. In defaults, tried and next are indexes into neighbours, busy_ppm is the leaf's busy share in millionths, and metric is the default route's. Each announce is signed with seed, whose address is address, and carries the address in the frame if carries_address is true. A rejected frame MUST be discarded whether or not the receiver holds its sender's address. In verified, announce is an index into announces, held_address is the address the receiver holds for its sender (null for none), takes whether it takes the announce rather than discarding it, and holds_address the address it then holds for the sender.",
   "generator": "vectors/tools/routing.py",
   "ids": [
     {
@@ -125,24 +125,28 @@
   ],
   "announces": [
     {
-      "sender": 289929253,
+      "sender": 488787823,
       "number": 65535,
       "seq": 0,
       "relay": false,
       "starting": true,
+      "carries_address": true,
       "promise": 600,
       "round": 0,
       "power": 22,
       "neighbours": [],
       "routes": [],
-      "frame": "591147f825ffff00000202580000160000"
+      "seed": "67b665228d76c9f4d596e7f1ced6fe1b1bc7dfc77803a56b7da51179d13c4e24",
+      "address": "d6d15fabbc42ce56174a4363e757437a4a7baf421b690caa24676f3f4f17c996",
+      "frame": "591d224f6fffff00000602580000160000d6d15fabbc42ce56174a4363e757437a4a7baf421b690caa24676f3f4f17c996600ae5078613d4a86c68c2ba5b6665e25e56b506fb1c6f2c420371a873c52d7d8b571cc48e57209b2f155139c2229bbc5d869ec37c480dfcb4be9deae0265e0f"
     },
     {
-      "sender": 3167332448,
+      "sender": 2200367567,
       "number": 258,
       "seq": 32769,
       "relay": true,
       "starting": false,
+      "carries_address": false,
       "promise": 33435,
       "round": 2,
       "power": -9,
@@ -168,14 +172,17 @@
           "metric": 65535
         }
       ],
-      "frame": "59bcc9a8600102800101829b0002f702021147f82580536f6411ff536f64110007003668757e77fffeffff"
+      "seed": "e504638ece856468a5fa2dcde22d6488b01e18f5d4b37389fe568b5dee00e4a3",
+      "address": "19dd846009f5b0274b07bc4347a3635a3fee4464f2720f79e233f38ce8f95108",
+      "frame": "598326f1cf0102800101829b0002f702021147f82580536f6411ff536f64110007003668757e77fffeffff150bca074acf0c954a860a4d4435982e613d0823f0fd7cc6617f1dd0f2206e4f9269332d5c2094f1d5a7f48dc82f18b47b69d2ec7581b2742cba793f5d0ab90c"
     },
     {
-      "sender": 1399809041,
+      "sender": 2394961521,
       "number": 5,
       "seq": 9,
       "relay": true,
       "starting": false,
+      "carries_address": false,
       "promise": 65535,
       "round": 1,
       "power": 2,
@@ -285,49 +292,38 @@
           "destination": 65557,
           "seq": 21,
           "metric": 1134
-        },
-        {
-          "destination": 65558,
-          "seq": 22,
-          "metric": 1188
-        },
-        {
-          "destination": 65559,
-          "seq": 23,
-          "metric": 1242
-        },
-        {
-          "destination": 65560,
-          "seq": 24,
-          "metric": 1296
-        },
-        {
-          "destination": 65561,
-          "seq": 25,
-          "metric": 1350
-        },
-        {
-          "destination": 65562,
-          "seq": 26,
-          "metric": 1404
-        },
-        {
-          "destination": 65563,
-          "seq": 27,
-          "metric": 1458
-        },
-        {
-          "destination": 65564,
-          "seq": 28,
-          "metric": 1512
-        },
-        {
-          "destination": 65565,
-          "seq": 29,
-          "metric": 1566
         }
       ],
-      "frame": "59536f64110005000901ffff000102001d0001000100010036000100020002006c00010003000300a200010004000400d8000100050005010e0001000600060144000100070007017a00010008000801b000010009000901e60001000a000a021c0001000b000b02520001000c000c02880001000d000d02be0001000e000e02f40001000f000f032a0001001000100360000100110011039600010012001203cc00010013001304020001001400140438000100150015046e00010016001604a400010017001704da000100180018051000010019001905460001001a001a057c0001001b001b05b20001001c001c05e80001001d001d061e"
+      "seed": "c5bf3d9f0a38850460f4972f3e1c8b2feaed0a33c2d0a748de217bc947e64856",
+      "address": "dfc0ccb9e5961a0350bbb875ccce76e6947e7ad64643b3796d07f27e09a6f054",
+      "frame": "598ec036710005000901ffff00010200150001000100010036000100020002006c00010003000300a200010004000400d8000100050005010e0001000600060144000100070007017a00010008000801b000010009000901e60001000a000a021c0001000b000b02520001000c000c02880001000d000d02be0001000e000e02f40001000f000f032a0001001000100360000100110011039600010012001203cc00010013001304020001001400140438000100150015046e4e6f56c536209006e58a41739c905d15dada8a33af4505753abbf2b8a99c75e837ed69883b6bf84ba354ca3c72d8aacafd42e9b2f15cf57b9d221e8105aef405"
+    },
+    {
+      "sender": 2200367567,
+      "number": 259,
+      "seq": 32769,
+      "relay": true,
+      "starting": false,
+      "carries_address": true,
+      "promise": 600,
+      "round": 1,
+      "power": 14,
+      "neighbours": [
+        {
+          "id": 289929253,
+          "margin": 130
+        }
+      ],
+      "routes": [
+        {
+          "destination": 1399809041,
+          "seq": 7,
+          "metric": 54
+        }
+      ],
+      "seed": "e504638ece856468a5fa2dcde22d6488b01e18f5d4b37389fe568b5dee00e4a3",
+      "address": "19dd846009f5b0274b07bc4347a3635a3fee4464f2720f79e233f38ce8f95108",
+      "frame": "598326f1cf0103800105025800010e010119dd846009f5b0274b07bc4347a3635a3fee4464f2720f79e233f38ce8f951081147f82582536f641100070036e3a0302ee59bfdd259de29affbf5ce90678954be230af9918f66a795b1c3a2684e16473865ab2d6bf0c8db1b91ea4a0cabedd61cf2988a2a1ba4cd81f51ee30c"
     }
   ],
   "requests": [
@@ -362,31 +358,47 @@
   "rejected": [
     {
       "why": "an announce a byte short",
-      "frame": "59bcc9a8600102800101829b0002f702021147f82580536f6411ff536f64110007003668757e77fffeff"
+      "frame": "598326f1cf0102800101829b0002f702021147f82580536f6411ff536f64110007003668757e77fffeffff150bca074acf0c954a860a4d4435982e613d0823f0fd7cc6617f1dd0f2206e4f9269332d5c2094f1d5a7f48dc82f18b47b69d2ec7581b2742cba793f5d0ab9"
     },
     {
       "why": "an announce a byte long",
-      "frame": "59bcc9a8600102800101829b0002f702021147f82580536f6411ff536f64110007003668757e77fffeffff00"
+      "frame": "598326f1cf0102800101829b0002f702021147f82580536f6411ff536f64110007003668757e77fffeffff150bca074acf0c954a860a4d4435982e613d0823f0fd7cc6617f1dd0f2206e4f9269332d5c2094f1d5a7f48dc82f18b47b69d2ec7581b2742cba793f5d0ab90c00"
     },
     {
-      "why": "an announce shorter than its head",
-      "frame": "59bcc9a8600102800101829b0002f702"
+      "why": "an announce shorter than its head and signature",
+      "frame": "598326f1cf0102800101829b0002f702021147f82580536f6411ff536f64110007003668757e77fffeffff150bca074acf0c954a860a4d4435982e613d0823f0fd7cc6617f1dd0f2206e4f9269332d5c"
     },
     {
       "why": "an announce with an unknown flag",
-      "frame": "59bcc9a8600102800105829b0002f702021147f82580536f6411ff536f64110007003668757e77fffeffff"
+      "frame": "598326f1cf0102800109829b0002f702021147f82580536f6411ff536f64110007003668757e77fffeffff150bca074acf0c954a860a4d4435982e613d0823f0fd7cc6617f1dd0f2206e4f9269332d5c2094f1d5a7f48dc82f18b47b69d2ec7581b2742cba793f5d0ab90c"
     },
     {
       "why": "an announce from routing id 0",
-      "frame": "59000000000102800101829b0002f702021147f82580536f6411ff536f64110007003668757e77fffeffff"
+      "frame": "59000000000102800101829b0002f702021147f82580536f6411ff536f64110007003668757e77fffeffff150bca074acf0c954a860a4d4435982e613d0823f0fd7cc6617f1dd0f2206e4f9269332d5c2094f1d5a7f48dc82f18b47b69d2ec7581b2742cba793f5d0ab90c"
     },
     {
       "why": "an announce from routing id ffffffff",
-      "frame": "59ffffffff0102800101829b0002f702021147f82580536f6411ff536f64110007003668757e77fffeffff"
+      "frame": "59ffffffff0102800101829b0002f702021147f82580536f6411ff536f64110007003668757e77fffeffff150bca074acf0c954a860a4d4435982e613d0823f0fd7cc6617f1dd0f2206e4f9269332d5c2094f1d5a7f48dc82f18b47b69d2ec7581b2742cba793f5d0ab90c"
     },
     {
       "why": "an announce from the receiver's own routing id",
-      "frame": "5968757e77ffff00000202580000160000"
+      "frame": "5968757e77ffff000002025800001600005ac31ac662687de500e12d26181c4244fa234c693c1a15a0d4aa292c1bd64b9dd9fcafec27379856facea09f22b10058b90d99bd803fd8b28889dd709afa600d"
+    },
+    {
+      "why": "an announce whose signature is not its sender's",
+      "frame": "598326f1cf0102800101829b0002f702021147f82580536f6411ff536f64110007003668757e77fffeffff150bca074acf0c954a860a4d4435982e613d0823f0fd7cc6617f1dd0f2206e4f9269332d5c2094f1d5a7f48dc82f18b47b69d2ec7581b2742cba793f5d0ab90d"
+    },
+    {
+      "why": "an announce changed after it was signed",
+      "frame": "598326f1cf0102800101829b0002f602021147f82580536f6411ff536f64110007003668757e77fffeffff150bca074acf0c954a860a4d4435982e613d0823f0fd7cc6617f1dd0f2206e4f9269332d5c2094f1d5a7f48dc82f18b47b69d2ec7581b2742cba793f5d0ab90c"
+    },
+    {
+      "why": "an announce carrying an address of small order",
+      "frame": "59245d720a0103800105025800010e010126e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc051147f82582536f6411000700363199f349dff580b7871ba50368e441b5add2b8ab4dc1181633b359a521a0f71f4b00ec5eb312893b7ae609fd58b162dc8cf58c0dc246a82641d2887a3a075d0a"
+    },
+    {
+      "why": "an announce carrying an address not its sender's",
+      "frame": "591d224f6f0103800105025800010e010119dd846009f5b0274b07bc4347a3635a3fee4464f2720f79e233f38ce8f951081147f82582536f641100070036d88460a83ea2995e3720268b2419bf84cca140ccee02b3f69fdc68553dd6e9b3980a659afba12df065800509b066be4e95c9df3ebc25932fe45a137f17b4250c"
     },
     {
       "why": "a request a byte short",
@@ -399,6 +411,44 @@
     {
       "why": "a request with nothing in it",
       "frame": "5abcc9a86000"
+    }
+  ],
+  "verified": [
+    {
+      "announce": 3,
+      "held_address": null,
+      "takes": true,
+      "holds_address": "19dd846009f5b0274b07bc4347a3635a3fee4464f2720f79e233f38ce8f95108"
+    },
+    {
+      "announce": 3,
+      "held_address": "19dd846009f5b0274b07bc4347a3635a3fee4464f2720f79e233f38ce8f95108",
+      "takes": true,
+      "holds_address": "19dd846009f5b0274b07bc4347a3635a3fee4464f2720f79e233f38ce8f95108"
+    },
+    {
+      "announce": 1,
+      "held_address": "19dd846009f5b0274b07bc4347a3635a3fee4464f2720f79e233f38ce8f95108",
+      "takes": true,
+      "holds_address": "19dd846009f5b0274b07bc4347a3635a3fee4464f2720f79e233f38ce8f95108"
+    },
+    {
+      "announce": 1,
+      "held_address": null,
+      "takes": false,
+      "holds_address": null
+    },
+    {
+      "announce": 1,
+      "held_address": "dfc0ccb9e5961a0350bbb875ccce76e6947e7ad64643b3796d07f27e09a6f054",
+      "takes": false,
+      "holds_address": "dfc0ccb9e5961a0350bbb875ccce76e6947e7ad64643b3796d07f27e09a6f054"
+    },
+    {
+      "announce": 0,
+      "held_address": null,
+      "takes": true,
+      "holds_address": "d6d15fabbc42ce56174a4363e757437a4a7baf421b690caa24676f3f4f17c996"
     }
   ],
   "floors": [
@@ -831,7 +881,6 @@
     {
       "last": 10,
       "number": 11,
-      "promise_passed": false,
       "starting": false,
       "was_starting": false,
       "does": "take"
@@ -839,23 +888,6 @@
     {
       "last": 10,
       "number": 10,
-      "promise_passed": false,
-      "starting": false,
-      "was_starting": false,
-      "does": "discard"
-    },
-    {
-      "last": 10,
-      "number": 10,
-      "promise_passed": true,
-      "starting": false,
-      "was_starting": false,
-      "does": "again"
-    },
-    {
-      "last": 10,
-      "number": 9,
-      "promise_passed": false,
       "starting": false,
       "was_starting": false,
       "does": "discard"
@@ -863,15 +895,13 @@
     {
       "last": 10,
       "number": 9,
-      "promise_passed": true,
       "starting": false,
       "was_starting": false,
-      "does": "again"
+      "does": "discard"
     },
     {
       "last": 10,
       "number": 11,
-      "promise_passed": false,
       "starting": true,
       "was_starting": false,
       "does": "again"
@@ -879,23 +909,20 @@
     {
       "last": 10,
       "number": 9,
-      "promise_passed": false,
       "starting": true,
       "was_starting": false,
-      "does": "again"
+      "does": "discard"
     },
     {
       "last": 10,
       "number": 10,
-      "promise_passed": false,
       "starting": true,
       "was_starting": false,
-      "does": "again"
+      "does": "discard"
     },
     {
       "last": 10,
       "number": 11,
-      "promise_passed": false,
       "starting": true,
       "was_starting": true,
       "does": "take"
@@ -903,15 +930,13 @@
     {
       "last": 10,
       "number": 9,
-      "promise_passed": false,
       "starting": true,
       "was_starting": true,
-      "does": "take"
+      "does": "discard"
     },
     {
       "last": 10,
       "number": 11,
-      "promise_passed": false,
       "starting": false,
       "was_starting": true,
       "does": "take"
@@ -919,7 +944,6 @@
     {
       "last": 65535,
       "number": 0,
-      "promise_passed": false,
       "starting": false,
       "was_starting": false,
       "does": "take"
@@ -927,7 +951,6 @@
     {
       "last": 0,
       "number": 32767,
-      "promise_passed": false,
       "starting": false,
       "was_starting": false,
       "does": "take"
@@ -935,7 +958,6 @@
     {
       "last": 0,
       "number": 32768,
-      "promise_passed": false,
       "starting": false,
       "was_starting": false,
       "does": "discard"
@@ -943,10 +965,9 @@
     {
       "last": 0,
       "number": 32768,
-      "promise_passed": true,
-      "starting": false,
+      "starting": true,
       "was_starting": false,
-      "does": "again"
+      "does": "discard"
     }
   ],
   "costs": [
