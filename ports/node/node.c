@@ -1420,12 +1420,6 @@ static void poll_card(void) {
  * another while the region's limit would refuse one. */
 static void poll_route(void) {
     tern_time now = board_now();
-    if (tern_route_numbers_left(&route) < NUMBER_SAVE / 2) {
-        uint16_t kept = (uint16_t)(route.number + NUMBER_SAVE);
-        if (store_save(NULL, "number", &kept, sizeof kept)) {
-            tern_route_kept(&route, kept);
-        }
-    }
     if (transmitting) {
         return;
     }
@@ -1433,6 +1427,14 @@ static void poll_route(void) {
         if (now < tern_route_due(&route) ||
             !tern_duty_allows(&duty, now, tern_lora_airtime(&cfg.mod, TERN_ROUTE_FRAME_MAX))) {
             return;
+        }
+        /* Numbers are stored ahead only once something is due, so that a board restarting over
+         * and over without sending uses none up. */
+        if (tern_route_numbers_left(&route) < NUMBER_SAVE / 2) {
+            uint16_t kept = (uint16_t)(route.number + NUMBER_SAVE);
+            if (store_save(NULL, "number", &kept, sizeof kept)) {
+                tern_route_kept(&route, kept);
+            }
         }
         route_len = tern_route_poll(&route, now, route_frame, &route_dbm);
         route_retry = 0;
