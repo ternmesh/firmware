@@ -155,6 +155,12 @@ static void no_pin_does_two_jobs(void) {
         add_pin(b, used, &n, b->amp.enable);
         add_pin(b, used, &n, b->amp.tx[0]);
         add_pin(b, used, &n, b->amp.tx[1]);
+        /* A power management chip's bus, if the board has one, may be the screen's. */
+        if (b->pmu.chip != AXP_NONE &&
+            (b->pmu.sda != b->screen.sda || b->pmu.scl != b->screen.scl)) {
+            add_pin(b, used, &n, b->pmu.sda);
+            add_pin(b, used, &n, b->pmu.scl);
+        }
         for (size_t x = 0; x < n; x++) {
             for (size_t y = 0; y < x; y++) {
                 if (used[x] == used[y]) {
@@ -184,6 +190,15 @@ static void no_pin_does_two_jobs(void) {
         }
         CHECK(b->button == BOARD_NO_PIN || rtc_ok(b, b->button));
         CHECK(!b->vext_always || b->vext != BOARD_NO_PIN);
+        /* Each rail is the chip's, at a voltage it gives, and its battery is the board's. */
+        if (b->pmu.chip != AXP_NONE) {
+            CHECK(b->pmu.sda != BOARD_NO_PIN && b->pmu.scl != BOARD_NO_PIN);
+            CHECK(b->battery.sense == BOARD_NO_PIN);
+            for (size_t r = 0; r < sizeof b->pmu.rails / sizeof b->pmu.rails[0]; r++) {
+                CHECK(b->pmu.rails[r].rail == AXP_RAIL_NONE ||
+                      axp_rail_ok(b->pmu.chip, b->pmu.rails[r].rail, b->pmu.rails[r].mv));
+            }
+        }
         CHECK(b->battery.sense == BOARD_NO_PIN || b->battery.bottom_k > 0);
     }
 }

@@ -282,6 +282,56 @@ const struct board_def board_lilygo_t3_v161 = {
     .max_dbm = PA_BOOST_MAX_DBM,
 };
 
+/* LilyGo's T-Beam, from its schematics (LilyGo_TBeam_V1.1 and LilyGo_TBeam_V1.2, in
+ * Xinyuan-LilyGO/LilyGo-LoRa-Series) and the pin tables beside them: an ESP32 with 4 MB of flash
+ * and its radio on the module the T3 has, NSS 18, SCK 5, MOSI 27, MISO 19, RESET 23, powered from
+ * a power management chip on I2C at SDA 21 and SCL 22. LilyGo's examples drive its SX1276 on
+ * PA_BOOST. The button marked IO38 is GPIO38, pulled up on the board (the ESP32 has no pull-up
+ * there), and the red LED is GPIO4, lit when low. A 128x64 SSD1306 may be fitted to the header, on
+ * the same I2C bus. The battery, an 18650 in its holder, is measured by the chip. Its GPS is left
+ * unpowered. Each image is for one radio: these are the SX1276's, 868/915 MHz; the SX1278's is
+ * for 433 MHz, and LilyGo does not give the SX1262's TCXO.
+ *
+ * V1.0 and V1.1 have an AXP192: the radio on LDO2, the GPS on LDO3, the header's supply on DC-DC1
+ * (VCC_2.5V, which LilyGo sets to 3.3 V for a screen), the ESP32 on DC-DC3, left alone. */
+const struct board_def board_lilygo_tbeam = {
+    .name = "lilygo-tbeam",
+    .title = "LilyGo T-Beam V1.1",
+    .soc = BOARD_ESP32,
+    .lora = SX1276_ON(23),
+    .button = 38,
+    .led = 4,
+    .led_low_on = true,
+    .screen = {.sda = 21, .scl = 22, .reset = BOARD_NO_PIN},
+    .vext = BOARD_NO_PIN,
+    .battery = {.sense = BOARD_NO_PIN, .enable = BOARD_NO_PIN},
+    .amp = NO_AMP,
+    .pmu = {.chip = AXP192,
+            .sda = 21,
+            .scl = 22,
+            .rails = {{AXP_LDO2, 3300}, {AXP_DCDC1, 3300}, {AXP_LDO3, 0}}},
+    .max_dbm = PA_BOOST_MAX_DBM,
+};
+
+/* V1.2 has an AXP2101 in its place: the radio on ALDO2 and the GPS on ALDO3, the ESP32 on DCDC1.
+ * The header's VCC_2.5V has no rail of its own on it, so a screen there is powered as the board
+ * was built, or not. */
+const struct board_def board_lilygo_tbeam12 = {
+    .name = "lilygo-tbeam12",
+    .title = "LilyGo T-Beam V1.2",
+    .soc = BOARD_ESP32,
+    .lora = SX1276_ON(23),
+    .button = 38,
+    .led = 4,
+    .led_low_on = true,
+    .screen = {.sda = 21, .scl = 22, .reset = BOARD_NO_PIN},
+    .vext = BOARD_NO_PIN,
+    .battery = {.sense = BOARD_NO_PIN, .enable = BOARD_NO_PIN},
+    .amp = NO_AMP,
+    .pmu = {.chip = AXP2101, .sda = 21, .scl = 22, .rails = {{AXP_ALDO2, 3300}, {AXP_ALDO3, 0}}},
+    .max_dbm = PA_BOOST_MAX_DBM,
+};
+
 const struct board_def *const board_defs[] = {&board_heltec_v3,
                                               &board_heltec_v4,
                                               &board_heltec_wsl_v3,
@@ -292,6 +342,8 @@ const struct board_def *const board_defs[] = {&board_heltec_v3,
                                               &board_heltec_v2,
                                               &board_heltec_v21,
                                               &board_lilygo_t3_v161,
+                                              &board_lilygo_tbeam,
+                                              &board_lilygo_tbeam12,
                                               NULL};
 
 const struct board_def *board_def_named(const char *name) {

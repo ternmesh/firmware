@@ -39,7 +39,8 @@
 #define BATTERY_SAMPLES 16
 
 #define OLED_ADDRESS 0x3C
-#define OLED_TIMEOUT_MS 50
+#define I2C_TIMEOUT_MS 50
+#define RAILS_SETTLE_US 10000 /* a rail's coming up, many times over */
 
 #define BUSY_TIMEOUT_US 100000 /* far longer than any command; calibration takes a few ms */
 
@@ -47,6 +48,9 @@ static spi_device_handle_t spi;
 static struct tern_sx126x sx126x;
 static struct tern_sx127x sx127x;
 static i2c_master_dev_handle_t oled;
+static i2c_master_dev_handle_t pmu_dev;
+static struct axp pmu;
+static bool pmu_open_ok, pmu_rails_on;
 static adc_oneshot_unit_handle_t adc;
 static adc_cali_handle_t adc_cali;
 static adc_channel_t battery_channel;
@@ -75,6 +79,7 @@ static void release(int pin) {
 }
 
 static const struct board_def *board_def(void);
+static bool pmu_start(void);
 static bool amp_init(void);
 static void amp_off(void);
 
@@ -138,6 +143,10 @@ int board_init(void) {
     }
     board_led(false);
     if (B->vext_always && !vext_on()) {
+        return TERN_EIO;
+    }
+    /* A radio powered from the power management chip is powered first. */
+    if (B->pmu.chip != AXP_NONE && !pmu_start()) {
         return TERN_EIO;
     }
 
@@ -335,6 +344,10 @@ struct tern_radio board_radio(void) {
     return (struct tern_radio){.ops = &amp_ops, .ctx = NULL};
 }
 
+/* Whether a pin has a pull-up of its own: the ESP32's GPIO34 to GPIO39 have none, and a button on
+ * one has its pull-up on the board. */
+static bool can_pull_up(int pin) { return !(B->soc == BOARD_ESP32 && pin >= 34); }
+
 /* Set up the first time it is read, so that PRG works before the radio has started, or when it
  * never does (main.c's halt()). */
 bool board_button(void) {
@@ -348,7 +361,8 @@ bool board_button(void) {
         rtc_gpio_deinit(B->button);
         gpio_config_t button = {.pin_bit_mask = bit(B->button),
                                 .mode = GPIO_MODE_INPUT,
-                                .pull_up_en = GPIO_PULLUP_ENABLE};
+                                .pull_up_en = can_pull_up(B->button) ? GPIO_PULLUP_ENABLE
+                                                                     : GPIO_PULLUP_DISABLE};
         if (gpio_config(&button) != ESP_OK) {
             return false;
         }
@@ -357,7 +371,99 @@ bool board_button(void) {
     return gpio_get_level(B->button) == 0;
 }
 
-void board_led(bool on) { set(B->led, on ? 1 : 0); }
+void board_led(bool on) { set(B->led, on != B->led_low_on ? 1 : 0); }
+
+/* --- I2C and the power management chip ------------------------------------------------------ */
+
+/* A board's screen and its power management chip may share a bus: each pair of pins is one bus,
+ * made the first time it is asked for. */
+static i2c_master_bus_handle_t i2c_bus(int sda, int scl) {
+    static struct {
+        int sda, scl;
+        i2c_master_bus_handle_t handle;
+    } buses[2];
+    static size_t made;
+    for (size_t i = 0; i < made; i++) {
+        if (buses[i].sda == sda && buses[i].scl == scl) {
+            return buses[i].handle;
+        }
+    }
+    i2c_master_bus_config_t cfg = {.i2c_port = -1,
+                                   .sda_io_num = sda,
+                                   .scl_io_num = scl,
+                                   .clk_source = I2C_CLK_SRC_DEFAULT,
+                                   .glitch_ignore_cnt = 7,
+                                   .flags.enable_internal_pullup = true};
+    i2c_master_bus_handle_t handle;
+    if (made == sizeof buses / sizeof buses[0] || i2c_new_master_bus(&cfg, &handle) != ESP_OK) {
+        return NULL;
+    }
+    buses[made].sda = sda;
+    buses[made].scl = scl;
+    buses[made].handle = handle;
+    made++;
+    return handle;
+}
+
+static bool pmu_read(void *ctx, uint8_t reg, uint8_t *buf, size_t len) {
+    (void)ctx;
+    return i2c_master_transmit_receive(pmu_dev, &reg, 1, buf, len, I2C_TIMEOUT_MS) == ESP_OK;
+}
+
+static bool pmu_write(void *ctx, uint8_t reg, uint8_t value) {
+    (void)ctx;
+    uint8_t buf[] = {reg, value};
+    return i2c_master_transmit(pmu_dev, buf, sizeof buf, I2C_TIMEOUT_MS) == ESP_OK;
+}
+
+/* The chip, spoken to: the first time it is asked for. */
+static bool pmu_open(void) {
+    if (!pmu_open_ok && B->pmu.chip != AXP_NONE) {
+        i2c_master_bus_handle_t bus = i2c_bus(B->pmu.sda, B->pmu.scl);
+        i2c_device_config_t dev = {.dev_addr_length = I2C_ADDR_BIT_LEN_7,
+                                   .device_address = AXP_ADDRESS,
+                                   .scl_speed_hz = 400000};
+        struct axp_bus ab = {.ctx = NULL, .read = pmu_read, .write = pmu_write};
+        pmu_open_ok =
+            bus != NULL &&
+            (pmu_dev != NULL || i2c_master_bus_add_device(bus, &dev, &pmu_dev) == ESP_OK) &&
+            axp_init(&pmu, &ab, B->pmu.chip);
+    }
+    return pmu_open_ok;
+}
+
+/* Its rails as the board lists them, the radio's and the screen's among them: by whichever of the
+ * radio, the screen and the battery starts first. */
+static bool pmu_start(void) {
+    if (pmu_rails_on) {
+        return true;
+    }
+    if (!pmu_open()) {
+        return false;
+    }
+    for (size_t i = 0; i < sizeof B->pmu.rails / sizeof B->pmu.rails[0]; i++) {
+        const struct board_rail *r = &B->pmu.rails[i];
+        if (r->rail != AXP_RAIL_NONE && !axp_set_rail(&pmu, r->rail, r->mv)) {
+            return false;
+        }
+    }
+    esp_rom_delay_us(RAILS_SETTLE_US);
+    pmu_rails_on = true;
+    return true;
+}
+
+/* Every rail the board lists, off, for a board turning itself off. */
+static void pmu_off(void) {
+    if (!pmu_open()) {
+        return;
+    }
+    for (size_t i = 0; i < sizeof B->pmu.rails / sizeof B->pmu.rails[0]; i++) {
+        if (B->pmu.rails[i].rail != AXP_RAIL_NONE) {
+            (void)axp_set_rail(&pmu, B->pmu.rails[i].rail, 0);
+        }
+    }
+    pmu_rails_on = false;
+}
 
 /* --- The display ---------------------------------------------------------------------------- */
 
@@ -366,12 +472,15 @@ void board_led(bool on) { set(B->led, on ? 1 : 0); }
 #define OLED_DATA 0x40
 
 static bool oled_send(const uint8_t *buf, size_t len) {
-    return i2c_master_transmit(oled, buf, len, OLED_TIMEOUT_MS) == ESP_OK;
+    return i2c_master_transmit(oled, buf, len, I2C_TIMEOUT_MS) == ESP_OK;
 }
 
 bool board_screen_init(void) {
     if (B->screen.sda == BOARD_NO_PIN) {
         return false;
+    }
+    if (B->pmu.chip != AXP_NONE && !pmu_start()) {
+        return false; /* the screen may be on one of its rails */
     }
     gpio_config_t out = {.pin_bit_mask = bit(B->screen.reset), .mode = GPIO_MODE_OUTPUT};
     if (!vext_on() || (out.pin_bit_mask != 0 && gpio_config(&out) != ESP_OK)) {
@@ -384,18 +493,11 @@ bool board_screen_init(void) {
     set(B->screen.reset, 1);
     esp_rom_delay_us(10000);
 
-    i2c_master_bus_config_t bus = {.i2c_port = -1,
-                                   .sda_io_num = B->screen.sda,
-                                   .scl_io_num = B->screen.scl,
-                                   .clk_source = I2C_CLK_SRC_DEFAULT,
-                                   .glitch_ignore_cnt = 7,
-                                   .flags.enable_internal_pullup = true};
-    i2c_master_bus_handle_t handle;
+    i2c_master_bus_handle_t handle = i2c_bus(B->screen.sda, B->screen.scl);
     i2c_device_config_t dev = {.dev_addr_length = I2C_ADDR_BIT_LEN_7,
                                .device_address = OLED_ADDRESS,
                                .scl_speed_hz = 400000};
-    if (i2c_new_master_bus(&bus, &handle) != ESP_OK ||
-        i2c_master_probe(handle, OLED_ADDRESS, OLED_TIMEOUT_MS) != ESP_OK ||
+    if (handle == NULL || i2c_master_probe(handle, OLED_ADDRESS, I2C_TIMEOUT_MS) != ESP_OK ||
         i2c_master_bus_add_device(handle, &dev, &oled) != ESP_OK) {
         return false;
     }
@@ -476,6 +578,9 @@ static adc_atten_t battery_atten;
 static uint16_t battery_range_mv;
 
 bool board_battery_init(void) {
+    if (B->pmu.chip != AXP_NONE) {
+        return pmu_start(); /* the chip measures it */
+    }
     adc_unit_t unit;
     gpio_config_t ctrl = {.pin_bit_mask = bit(B->battery.enable), .mode = GPIO_MODE_OUTPUT};
     if (B->battery.sense == BOARD_NO_PIN ||
@@ -537,6 +642,11 @@ static uint16_t battery_at(int level) {
 }
 
 uint16_t board_battery_mv(void) {
+    if (B->pmu.chip != AXP_NONE) {
+        uint16_t mv;
+        bool charging;
+        return pmu_rails_on && axp_battery(&pmu, &mv, &charging) && mv >= POWER_NONE_MV ? mv : 0;
+    }
     if (!have_adc) {
         return 0;
     }
@@ -565,21 +675,25 @@ bool board_woke_by_timer(void) { return esp_sleep_get_wakeup_cause() == ESP_SLEE
 
 /* Deep sleep: only the RTC domain stays up, to watch PRG (an RTC pin, GPIO0 on the Heltecs) and
  * the timer. The display's power is held off through it, since Vext (GPIO36) is not an RTC pin and
- * would otherwise float, and so is an amplifier's. PRG must be let go first, or the press that
- * turned the board off would wake it again. Waking is a restart: app_main() runs from the top. */
+ * would otherwise float, and so is an amplifier's; a power management chip's rails are turned off.
+ * PRG must be let go first, or the press that turned the board off would wake it again. Waking is
+ * a restart: app_main() runs from the top. */
 void board_off(uint32_t wake_after_s) {
-    set(B->led, 0);
+    board_led(false);
     set(B->vext, !VEXT_ON);
     hold(B->vext);
     amp_off();
+    pmu_off();
     gpio_deep_sleep_hold_en();
     while (board_button()) {
         vTaskDelay(pdMS_TO_TICKS(10));
     }
     vTaskDelay(pdMS_TO_TICKS(50)); /* the contacts settle */
     if (B->button != BOARD_NO_PIN) {
-        rtc_gpio_pullup_en(B->button);
-        rtc_gpio_pulldown_dis(B->button);
+        if (can_pull_up(B->button)) {
+            rtc_gpio_pullup_en(B->button);
+            rtc_gpio_pulldown_dis(B->button);
+        }
         esp_sleep_enable_ext0_wakeup(B->button, 0);
     }
     if (wake_after_s != 0) {

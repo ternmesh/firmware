@@ -4,6 +4,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "axp.h"
+
 /* What makes one ESP32 board different from another: which ESP32 it is, which radio, its pins, how
  * the radio is wired, and what else it has fitted. board.c drives whichever one the build chose
  * (Kconfig, "Board"); everything above board.h is the same on every board.
@@ -13,6 +15,12 @@
  * so tests/boards.c checks the table on a host. */
 
 #define BOARD_NO_PIN (-1)
+
+/* A rail of a board's power management chip, at a voltage, or off at 0. */
+struct board_rail {
+    enum axp_rail rail;
+    uint16_t mv;
+};
 
 /* The ESP32 on the board, which the build is for: CONFIG_IDF_TARGET in boards/<name>.defaults,
  * esp32s3 where it does not say (sdkconfig.defaults). */
@@ -49,7 +57,8 @@ struct board_def {
     /* Low while it is pressed; it also wakes the board, so an RTC pin. BOARD_NO_PIN for a board
      * with none but RESET, which board_off() then leaves to wake it. */
     int8_t button;
-    int8_t led; /* lit when high, or BOARD_NO_PIN */
+    int8_t led;      /* BOARD_NO_PIN for none */
+    bool led_low_on; /* lit when low, rather than high */
 
     /* A 128x64 SSD1306 or a controller that takes its commands (the SSD1315), on I2C. */
     struct {
@@ -81,6 +90,16 @@ struct board_def {
         int8_t gain_db;
     } amp;
 
+    /* A power management chip (axp.h) on I2C, or none (chip AXP_NONE). Its rails are set as they
+     * are listed when the board starts, the radio's among them, and each turned off when the
+     * board turns off; the one the ESP32 is on is not listed. Its battery is the board's, rather
+     * than one on an ADC pin. The screen may share its bus. */
+    struct {
+        enum axp_chip chip;
+        int8_t sda, scl;
+        struct board_rail rails[3];
+    } pmu;
+
     int8_t max_dbm; /* the most this board puts into its antenna, as its maker rates it */
 };
 
@@ -94,6 +113,8 @@ extern const struct board_def board_heltec_paper;
 extern const struct board_def board_heltec_v2;
 extern const struct board_def board_heltec_v21;
 extern const struct board_def board_lilygo_t3_v161;
+extern const struct board_def board_lilygo_tbeam;
+extern const struct board_def board_lilygo_tbeam12;
 
 /* Every board this port knows, ending with NULL. */
 extern const struct board_def *const board_defs[];

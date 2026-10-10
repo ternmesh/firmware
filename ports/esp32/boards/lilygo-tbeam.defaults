@@ -1,0 +1,6 @@
+# The LilyGo T-Beam V1.0 and V1.1: a classic ESP32 with 4 MB of flash, so the smaller slots
+# (partitions-4mb.csv). Its console is UART0, through the board's USB-to-serial chip.
+CONFIG_IDF_TARGET="esp32"
+CONFIG_TERN_BOARD_LILYGO_TBEAM=y
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions-4mb.csv"
