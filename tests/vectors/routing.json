@@ -881,7 +881,6 @@
     {
       "last": 10,
       "number": 11,
-      "promise_passed": false,
       "starting": false,
       "was_starting": false,
       "does": "take"
@@ -889,23 +888,6 @@
     {
       "last": 10,
       "number": 10,
-      "promise_passed": false,
-      "starting": false,
-      "was_starting": false,
-      "does": "discard"
-    },
-    {
-      "last": 10,
-      "number": 10,
-      "promise_passed": true,
-      "starting": false,
-      "was_starting": false,
-      "does": "forget"
-    },
-    {
-      "last": 10,
-      "number": 9,
-      "promise_passed": false,
       "starting": false,
       "was_starting": false,
       "does": "discard"
@@ -913,15 +895,13 @@
     {
       "last": 10,
       "number": 9,
-      "promise_passed": true,
       "starting": false,
       "was_starting": false,
-      "does": "forget"
+      "does": "discard"
     },
     {
       "last": 10,
       "number": 11,
-      "promise_passed": false,
       "starting": true,
       "was_starting": false,
       "does": "again"
@@ -929,7 +909,6 @@
     {
       "last": 10,
       "number": 9,
-      "promise_passed": false,
       "starting": true,
       "was_starting": false,
       "does": "discard"
@@ -937,7 +916,6 @@
     {
       "last": 10,
       "number": 10,
-      "promise_passed": false,
       "starting": true,
       "was_starting": false,
       "does": "discard"
@@ -945,7 +923,6 @@
     {
       "last": 10,
       "number": 11,
-      "promise_passed": false,
       "starting": true,
       "was_starting": true,
       "does": "take"
@@ -953,7 +930,6 @@
     {
       "last": 10,
       "number": 9,
-      "promise_passed": false,
       "starting": true,
       "was_starting": true,
       "does": "discard"
@@ -961,7 +937,6 @@
     {
       "last": 10,
       "number": 11,
-      "promise_passed": false,
       "starting": false,
       "was_starting": true,
       "does": "take"
@@ -969,7 +944,6 @@
     {
       "last": 65535,
       "number": 0,
-      "promise_passed": false,
       "starting": false,
       "was_starting": false,
       "does": "take"
@@ -977,7 +951,6 @@
     {
       "last": 0,
       "number": 32767,
-      "promise_passed": false,
       "starting": false,
       "was_starting": false,
       "does": "take"
@@ -985,7 +958,6 @@
     {
       "last": 0,
       "number": 32768,
-      "promise_passed": false,
       "starting": false,
       "was_starting": false,
       "does": "discard"
@@ -993,10 +965,9 @@
     {
       "last": 0,
       "number": 32768,
-      "promise_passed": true,
-      "starting": false,
+      "starting": true,
       "was_starting": false,
-      "does": "forget"
+      "does": "discard"
     }
   ],
   "costs": [

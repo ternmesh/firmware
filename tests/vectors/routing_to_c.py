@@ -123,7 +123,7 @@ def main():
 
     L.append("static const struct numbering_case numberings[] = {")
     L += [
-        f"    {{{c['last']}, {c['number']}, {b(c['promise_passed'])}, {b(c['starting'])}, "
+        f"    {{{c['last']}, {c['number']}, {b(c['starting'])}, "
         f"{b(c['was_starting'])}, {json.dumps(c['does'])}}},"
         for c in v["numbering"]
     ]
