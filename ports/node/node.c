@@ -1276,6 +1276,7 @@ static void poll_flood(void) {
      * received whole. A frame it lost part-way is not counted, the radio not saying how long it
      * was. */
     tern_flood_radio(&flood, now, air_total + heard_total);
+    tern_route_busy(&route, flood.busy);
     tern_time due = tern_flood_due(&flood);
     if (due != INT64_MAX && due > now + 1000000000LL) {
         for (int i = 0; i < FLOODING; i++) {

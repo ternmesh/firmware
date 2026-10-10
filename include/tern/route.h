@@ -203,6 +203,10 @@ struct tern_route_config {
      * every node. 0 for none, else the hops a frame so sent is taken to go, for its wait. An
      * experiment, not the specification's. */
     uint8_t default_hops;
+    /* And only while the radio's busy share (tern_route_busy()) is under this, in millionths: on
+     * a full channel every frame sent toward a relay with no route on is one more collision.
+     * 1000000 for always. */
+    uint32_t default_busy_ppm;
 };
 
 /* The specification's parameters. */
@@ -287,8 +291,9 @@ struct tern_route {
     uint32_t urgent_count;
     uint32_t selected;
     uint32_t retracting;
-    bool changed; /* something this node announces changed: a Trickle inconsistency */
-    bool asked;   /* a request for this node's seq waits on its next announce */
+    bool changed;  /* something this node announces changed: a Trickle inconsistency */
+    uint32_t busy; /* the radio's busy share, in millionths, as the caller last said */
+    bool asked;    /* a request for this node's seq waits on its next announce */
 
     tern_time interval; /* Trickle */
     tern_time interval_end;
@@ -350,6 +355,10 @@ void tern_route_sent(struct tern_route *r, tern_time now);
 
 /* The neighbour to hand a frame for `destination` to, and the route's metric: false if the node
  * has no route. */
+/* The share of its recent time the radio spent sending or receiving, in millionths: the flooder's
+ * (tern_flood.h), told here for a leaf's default route. */
+void tern_route_busy(struct tern_route *r, uint32_t busy_ppm);
+
 bool tern_route_next(const struct tern_route *r, uint32_t destination, uint32_t *next,
                      uint16_t *metric);
 

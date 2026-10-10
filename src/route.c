@@ -313,6 +313,7 @@ struct tern_route_config tern_route_defaults(const struct tern_lora *lora, int8_
         .dead_hops = 24,
         .jitter = 2,
         .start_announces = 4,
+        .default_busy_ppm = 1000000,
     };
 }
 
@@ -1186,7 +1187,8 @@ static bool tried_already(uint32_t id, const uint32_t *tried, int n) {
 /* A leaf's default: the nearest relay it has a link up with that is not in `tried`, or 0. */
 static uint8_t nearest_relay(const struct tern_route *r, const uint32_t *tried, int tried_count) {
     uint8_t best = 0;
-    if (r->config.relay || !r->config.default_hops || r->starting) {
+    if (r->config.relay || !r->config.default_hops || r->starting ||
+        r->busy >= r->config.default_busy_ppm) {
         return 0;
     }
     for (size_t i = 0; i < r->nb_cap; i++) {
@@ -1198,6 +1200,8 @@ static uint8_t nearest_relay(const struct tern_route *r, const uint32_t *tried, 
     }
     return best;
 }
+
+void tern_route_busy(struct tern_route *r, uint32_t busy_ppm) { r->busy = busy_ppm; }
 
 bool tern_route_next(const struct tern_route *r, uint32_t destination, uint32_t *next,
                      uint16_t *metric) {
