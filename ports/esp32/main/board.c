@@ -646,6 +646,7 @@ bool board_screen_power(bool on) {
 #define EPD_RESET_TIMEOUT_US 100000     /* the software reset, a few ms */
 #define EPD_REFRESH_TIMEOUT_US 10000000 /* a refresh, about 4 s at 25 C (DKE, page 9) */
 #define EPD_SETTLE_NS 200000000LL       /* a picture still arriving a page a turn */
+#define EPD_RETRY_NS 10000000000LL      /* after a draw that failed: its reset can take 100 ms */
 
 #if CONFIG_TERN_SCREEN_FLIP
 #define EPD_FLIP true
@@ -664,6 +665,7 @@ static bool epd_changed;    /* the picture differs from what the panel shows */
 static bool epd_refreshing; /* a refresh has been started and BUSY not yet seen low */
 static bool epd_dark;       /* the node has turned the screen off */
 static tern_time epd_page_at, epd_drawn_at;
+static tern_time epd_retry_at; /* after a draw that failed, not before this */
 
 static bool epd_busy(void) { return gpio_get_level(B->screen.busy) == 1; }
 
@@ -714,7 +716,7 @@ static bool epd_wake(void) {
 
 /* Fills the panel's RAM from its first byte and line, and starts a full refresh: the temperature
  * read, the waveform loaded from OTP, the panel driven (0x22 0xF7, section 8.1). */
-static bool epd_draw(void) {
+static bool epd_draw_now(void) {
     if (!epd_awake && !epd_wake()) {
         return false;
     }
@@ -730,6 +732,19 @@ static bool epd_draw(void) {
     epd_refreshing = true;
     epd_drawn_at = board_now();
     return true;
+}
+
+/* A draw that fails is tried again no sooner than EPD_RETRY_NS, so a panel that has stopped
+ * answering costs the loop a reset now and then rather than every turn. */
+static bool epd_draw(void) {
+    if (board_now() < epd_retry_at) {
+        return false;
+    }
+    if (epd_draw_now()) {
+        return true;
+    }
+    epd_retry_at = board_now() + EPD_RETRY_NS;
+    return false;
 }
 
 /* Deep sleep, mode 1, keeping its RAM; only a hardware reset brings it out (section 8.1, 0x10). */
