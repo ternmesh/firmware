@@ -3553,6 +3553,12 @@ void node_main(void) {
                 tern_forward_sent(&forward, board_now(), forward_handle);
                 forward_out = false;
             }
+            if (route_out) {
+                /* Counted as gone, as the router has already counted it; but not as on the air,
+                 * so that numbers are still stored ahead one at a time. */
+                tern_route_sent(&route, board_now());
+                route_out = false;
+            }
             if (flood_out) {
                 /* Not known to have gone: a frame of this board's goes back to wait its turn,
                  * and its message stays waiting; one being passed on is let go. */
