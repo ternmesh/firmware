@@ -190,6 +190,7 @@ static void no_pin_does_two_jobs(void) {
         }
         CHECK(b->button == BOARD_NO_PIN || rtc_ok(b, b->button));
         CHECK(!b->vext_always || b->vext != BOARD_NO_PIN);
+        CHECK(b->screen.oled == BOARD_SSD1306 || b->screen.oled == BOARD_SH1106);
         /* Each rail is the chip's, at a voltage it gives, and its battery is the board's. */
         if (b->pmu.chip != AXP_NONE) {
             CHECK(b->pmu.sda != BOARD_NO_PIN && b->pmu.scl != BOARD_NO_PIN);

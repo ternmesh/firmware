@@ -467,9 +467,19 @@ static void pmu_off(void) {
 
 /* --- The display ---------------------------------------------------------------------------- */
 
-/* The first byte of each I2C write says what follows (SSD1306 datasheet, section 8.1.5). */
+/* The first byte of each I2C write says what follows: the SSD1306's datasheet, section 8.1.5,
+ * and the SH1106's, its I2C interface, agree. */
 #define OLED_COMMANDS 0x00
 #define OLED_DATA 0x40
+
+/* The board's controller, unless the build says an SH1106 is fitted to its header. */
+static enum board_oled oled_chip(void) {
+#if CONFIG_TERN_SCREEN_SH1106
+    return BOARD_SH1106;
+#else
+    return B->screen.oled;
+#endif
+}
 
 static bool oled_send(const uint8_t *buf, size_t len) {
     return i2c_master_transmit(oled, buf, len, I2C_TIMEOUT_MS) == ESP_OK;
@@ -502,10 +512,10 @@ bool board_screen_init(void) {
         return false;
     }
 
-    /* The datasheet's software set-up (its application note's flow), for a 128x64 panel whose
-     * charge pump is on the chip. */
+    /* The SSD1306 datasheet's software set-up (its application note's flow), for a 128x64 panel
+     * whose charge pump is on the chip. */
     /* clang-format off */
-    static const uint8_t setup[] = {
+    static const uint8_t ssd1306_setup[] = {
         OLED_COMMANDS,
         0xAE,       /* display off while it is set up */
         0xD5, 0x80, /* clock: the reset default */
@@ -526,10 +536,35 @@ bool board_screen_init(void) {
         0xA4,       /* show what is in RAM */
         0xA6,       /* light on dark */
     };
+    /* The SH1106's (Sino Wealth's datasheet, V2.6): the same panel, set up only with the commands
+     * it lists, at their reset values where the SSD1306's were tuned for that chip. It has no
+     * addressing modes, only a page at a time, and its DC-DC is set while the display is off. */
+    static const uint8_t sh1106_setup[] = {
+        OLED_COMMANDS,
+        0xAE,       /* display off while it is set up */
+        0xD5, 0x50, /* clock: the reset default */
+        0xA8, 0x3F, /* 64 rows */
+        0xD3, 0x00, /* no vertical offset */
+        0x40,       /* start at row 0 */
+        0xAD, 0x8B, /* DC-DC on with the display */
+#if CONFIG_TERN_SCREEN_FLIP
+        0xA0, 0xC0,
+#else
+        0xA1, 0xC8,
+#endif
+        0xDA, 0x12, /* the panel's rows wired alternately */
+        0x81, 0x80, /* contrast: the reset default */
+        0xD9, 0x22, /* discharge and pre-charge: the reset defaults */
+        0xDB, 0x35, /* VCOM deselect: the reset default */
+        0xA4,       /* show what is in RAM */
+        0xA6,       /* light on dark */
+    };
     /* clang-format on */
     static const uint8_t on[] = {OLED_COMMANDS, 0xAF};
     static const uint8_t blank[128];
-    if (!oled_send(setup, sizeof setup)) {
+    bool sh1106 = oled_chip() == BOARD_SH1106;
+    if (!(sh1106 ? oled_send(sh1106_setup, sizeof sh1106_setup)
+                 : oled_send(ssd1306_setup, sizeof ssd1306_setup))) {
         return false;
     }
     for (int page = 0; page < 8; page++) {
@@ -537,12 +572,24 @@ bool board_screen_init(void) {
             return false;
         }
     }
-    return oled_send(on, sizeof on);
+    if (!oled_send(on, sizeof on)) {
+        return false;
+    }
+    if (sh1106) {
+        esp_rom_delay_us(100000); /* its DC-DC settles before the first frame (its power-on flow) */
+    }
+    return true;
 }
+
+/* The SH1106 has 132 columns of RAM to the panel's 128. Its datasheet does not say which the panel
+ * is bonded to; a panel centred on them starts at column 2, whichever way the columns run. */
+#define SH1106_FIRST_COLUMN 2
 
 bool board_screen_page(int page, const uint8_t data[128]) {
     /* The page, then its first column, low half and high half. */
-    uint8_t where[] = {OLED_COMMANDS, (uint8_t)(0xB0 | (page & 7)), 0x00, 0x10};
+    uint8_t column = oled_chip() == BOARD_SH1106 ? SH1106_FIRST_COLUMN : 0;
+    uint8_t where[] = {OLED_COMMANDS, (uint8_t)(0xB0 | (page & 7)), (uint8_t)(column & 0x0F),
+                       (uint8_t)(0x10 | (column >> 4))};
     uint8_t buf[1 + 128];
     buf[0] = OLED_DATA;
     memcpy(&buf[1], data, 128);
@@ -550,10 +597,17 @@ bool board_screen_page(int page, const uint8_t data[128]) {
 }
 
 bool board_screen_power(bool on) {
-    /* The charge pump goes on before the panel and off after it (the datasheet's application
-     * note on the charge pump). */
+    /* The SSD1306's charge pump goes on before the panel and off after it (the datasheet's
+     * application note on the charge pump). The SH1106's DC-DC follows the display by itself, set
+     * up as it is: off stops it and on starts it. */
     static const uint8_t off_seq[] = {OLED_COMMANDS, 0xAE, 0x8D, 0x10};
     static const uint8_t on_seq[] = {OLED_COMMANDS, 0x8D, 0x14, 0xAF};
+    static const uint8_t sh1106_off[] = {OLED_COMMANDS, 0xAE};
+    static const uint8_t sh1106_on[] = {OLED_COMMANDS, 0xAF};
+    if (oled_chip() == BOARD_SH1106) {
+        return on ? oled_send(sh1106_on, sizeof sh1106_on)
+                  : oled_send(sh1106_off, sizeof sh1106_off);
+    }
     return on ? oled_send(on_seq, sizeof on_seq) : oled_send(off_seq, sizeof off_seq);
 }
 

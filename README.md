@@ -86,7 +86,7 @@ the air it may use. CI builds an image of each that you can flash from a browser
 | Heltec WiFi LoRa 32 V3 (ESP32-S3, SX1262) | [`ports/esp32/`](ports/esp32/) | Runs. |
 | Heltec WiFi LoRa 32 V4 (ESP32-S3, SX1262, 28 dBm amplifier) | [`ports/esp32/`](ports/esp32/) | Built from Heltec's schematics; not yet run on a board. |
 | Heltec Wireless Stick Lite V3, Wireless Tracker, Vision Master E290 and E213, Wireless Paper (ESP32-S3, SX1262) | [`ports/esp32/`](ports/esp32/) | Built from Heltec's schematics; not yet run on a board. Their screens are not driven yet. |
-| Heltec WiFi LoRa 32 V2 and V2.1, LilyGo LoRa32 T3 V1.6.1 and T-Beam V1.0 to V1.2 (ESP32, SX1276) | [`ports/esp32/`](ports/esp32/) | Built from their makers' schematics; not yet run on a board. |
+| Heltec WiFi LoRa 32 V2 and V2.1, LilyGo LoRa32 T3 V1.6.1 and T-Beam V1.0 to V1.2 (ESP32, SX1276); LilyGo T3-S3 (ESP32-S3, SX1276) | [`ports/esp32/`](ports/esp32/) | Built from their makers' schematics; not yet run on a board. |
 | Heltec Mesh Node T114 V2 (nRF52840, SX1262) | [`ports/nrf52/`](ports/nrf52/) | Built on Zephyr; not yet run on a board. |
 | RAKwireless RAK4631, Seeed Wio Tracker L1 (nRF52840, SX1262) | [`ports/nrf52/`](ports/nrf52/) | Built on Zephyr from their makers' documents; not yet run on a board. |
 
