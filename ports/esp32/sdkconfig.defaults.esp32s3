@@ -1,0 +1,4 @@
+# Over sdkconfig.defaults, for a board whose chip is the ESP32-S3 (ESP-IDF reads this file beside
+# sdkconfig.defaults when the build is for that chip). Its 512 KB of RAM holds a relay's table of
+# RELAY_PLACES destinations (the specification's routing draft): 64 KB.
+CONFIG_TERN_DESTINATIONS=1024

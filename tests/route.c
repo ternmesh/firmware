@@ -94,6 +94,20 @@ struct kept_case {
     int replaces;
 };
 
+struct default_case {
+    int n;
+    struct {
+        int32_t floor;
+        bool up, relay;
+    } neighbours[4];
+    bool leaf, starting;
+    uint32_t busy;
+    int tried_count;
+    int tried[4];
+    int next;
+    uint16_t link_cost, metric;
+};
+
 #include "routing.h"
 
 #define COUNT(a) (sizeof(a) / sizeof(a)[0])
@@ -336,8 +350,38 @@ static void the_route_least_worth_keeping_gives_way(void) {
     }
 }
 
+/* A neighbour's id here is its index plus one. */
+static void a_leaf_with_no_route_takes_its_nearest_relay(void) {
+    for (size_t i = 0; i < COUNT(defaults); i++) {
+        const struct default_case *c = &defaults[i];
+        struct tern_route_neighbour nb[4] = {0};
+        uint32_t tried[4];
+        for (int k = 0; k < c->n; k++) {
+            nb[k] = (struct tern_route_neighbour){.id = (uint32_t)k + 1,
+                                                  .used = true,
+                                                  .relay = c->neighbours[k].relay,
+                                                  .up = c->neighbours[k].up,
+                                                  .floor = c->neighbours[k].floor};
+        }
+        for (int k = 0; k < c->tried_count; k++) {
+            tried[k] = (uint32_t)c->tried[k] + 1;
+        }
+        struct tern_lora l = tern_region_lora(tern_region(TERN_REGION_US915));
+        struct tern_route_config d = tern_route_defaults(&l, 20, -9, false);
+        CHECK_EQ_I64(tern_route_default(nb, (size_t)c->n, c->leaf, c->starting, c->busy,
+                                        d.default_busy_ppm, tried, c->tried_count),
+                     c->next);
+        CHECK_EQ_U64(tern_route_default_metric(d.default_hops, c->link_cost), c->metric);
+    }
+    /* A guard of 1000000 is none: a leaf whose radio was never idle still takes its relay. */
+    struct tern_route_neighbour relay = {.id = 1, .used = true, .relay = true, .up = true};
+    CHECK_EQ_I64(tern_route_default(&relay, 1, true, false, 1000000, 1000000, NULL, 0), 0);
+    CHECK_EQ_I64(tern_route_default(&relay, 1, true, false, 999999, 999999, NULL, 0), -1);
+}
+
 int main(void) {
     RUN(ids_come_from_addresses);
+    RUN(a_leaf_with_no_route_takes_its_nearest_relay);
     RUN(sequence_numbers_wrap);
     RUN(promises_round_up);
     RUN(announces_are_written_and_read);

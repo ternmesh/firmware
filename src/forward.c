@@ -470,7 +470,13 @@ static void start_waiting(struct tern_forward *f, struct tern_forward_slot *s, t
     uint32_t next;
     uint16_t metric = 0;
     if (s->tracked && s->deadline < 0) {
-        (void)tern_route_next(f->route, dest_of(s), &next, &metric);
+        const struct tern_route *r = f->route;
+        /* A leaf with no route now sent it by default, or will next: its wait is the default
+         * route's, though the radio grew too busy to take one since. */
+        if (!tern_route_next(r, dest_of(s), &next, &metric) && !r->config.relay &&
+            r->config.default_hops) {
+            metric = tern_route_default_metric(r->config.default_hops, r->cost);
+        }
         s->deadline = now + f->config.ack_wait +
                       (tern_time)f->config.ack_factor * (tern_time)metric * TERN_MS(1);
     }

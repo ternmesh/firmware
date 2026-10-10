@@ -155,6 +155,19 @@ def main():
     ]
     L.append("};")
 
+    L.append("static const struct default_case defaults[] = {")
+    L += [
+        f"    {{{len(c['neighbours'])}, {{"
+        + ", ".join(
+            f"{{{n['floor_sixteenths']}, {b(n['up'])}, {b(n['relay'])}}}" for n in c["neighbours"]
+        )
+        + f"}}, {b(c['leaf'])}, {b(c['starting'])}, {c['busy_ppm']}, {len(c['tried'])}, {{"
+        + (", ".join(str(t) for t in c["tried"]) or "0")
+        + f"}}, {idx(c['next'])}, {c['link_cost']}, {c['metric']}}},"
+        for c in v["defaults"]
+    ]
+    L.append("};")
+
     with open(out, "w", encoding="utf-8") as f:
         f.write("\n".join(L) + "\n")
 

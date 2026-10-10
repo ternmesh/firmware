@@ -1,5 +1,5 @@
 {
-  "description": "Routing, draft 0 (draft/routing.md). Routing ids, sequence numbers, promise codes and metrics are numbers; addresses and frames are hex. In floors, powers are dBm, snr_quarter_db is the signal-to-noise ratio in quarters of a decibel, as the SX126x reports it, and floor_sixteenths is the floor in sixteenths of a dBm. In links, own_margin_sixteenths is the node's full power less its floor for the neighbour, in sixteenths of a decibel, and their_margin is the margin byte the neighbour gave; either is null when it is missing, and the steps follow one another. In places, neighbours is a full table, each with the node's floor for it and whether its link is up, floor_sixteenths is the floor an announce from a node not in it gives, and replaces is an index into neighbours. In selection and kept, each route's metric is the one its neighbour announced, every link costs link_cost, and selected, selects and replaces are indexes into routes.",
+  "description": "Routing, draft 0 (draft/routing.md). Routing ids, sequence numbers, promise codes and metrics are numbers; addresses and frames are hex. In floors, powers are dBm, snr_quarter_db is the signal-to-noise ratio in quarters of a decibel, as the SX126x reports it, and floor_sixteenths is the floor in sixteenths of a dBm. In links, own_margin_sixteenths is the node's full power less its floor for the neighbour, in sixteenths of a decibel, and their_margin is the margin byte the neighbour gave; either is null when it is missing, and the steps follow one another. In places, neighbours is a full table, each with the node's floor for it and whether its link is up, floor_sixteenths is the floor an announce from a node not in it gives, and replaces is an index into neighbours. In selection and kept, each route's metric is the one its neighbour announced, every link costs link_cost, and selected, selects and replaces are indexes into routes. In defaults, tried and next are indexes into neighbours, busy_ppm is the leaf's busy share in millionths, and metric is the default route's.",
   "generator": "vectors/tools/routing.py",
   "ids": [
     {
@@ -1504,6 +1504,277 @@
         "metric": 0
       },
       "replaces": 0
+    }
+  ],
+  "defaults": [
+    {
+      "neighbours": [
+        {
+          "floor_sixteenths": -320,
+          "up": true,
+          "relay": true
+        },
+        {
+          "floor_sixteenths": -80,
+          "up": true,
+          "relay": true
+        },
+        {
+          "floor_sixteenths": -480,
+          "up": true,
+          "relay": false
+        },
+        {
+          "floor_sixteenths": -200,
+          "up": false,
+          "relay": true
+        }
+      ],
+      "leaf": true,
+      "starting": false,
+      "busy_ppm": 0,
+      "tried": [],
+      "next": 0,
+      "link_cost": 70,
+      "metric": 420
+    },
+    {
+      "neighbours": [
+        {
+          "floor_sixteenths": -320,
+          "up": true,
+          "relay": true
+        },
+        {
+          "floor_sixteenths": -80,
+          "up": true,
+          "relay": true
+        },
+        {
+          "floor_sixteenths": -480,
+          "up": true,
+          "relay": false
+        },
+        {
+          "floor_sixteenths": -200,
+          "up": false,
+          "relay": true
+        }
+      ],
+      "leaf": true,
+      "starting": false,
+      "busy_ppm": 499999,
+      "tried": [],
+      "next": 0,
+      "link_cost": 81,
+      "metric": 486
+    },
+    {
+      "neighbours": [
+        {
+          "floor_sixteenths": -320,
+          "up": true,
+          "relay": true
+        },
+        {
+          "floor_sixteenths": -80,
+          "up": true,
+          "relay": true
+        },
+        {
+          "floor_sixteenths": -480,
+          "up": true,
+          "relay": false
+        },
+        {
+          "floor_sixteenths": -200,
+          "up": false,
+          "relay": true
+        }
+      ],
+      "leaf": true,
+      "starting": false,
+      "busy_ppm": 500000,
+      "tried": [],
+      "next": null,
+      "link_cost": 81,
+      "metric": 486
+    },
+    {
+      "neighbours": [
+        {
+          "floor_sixteenths": -320,
+          "up": true,
+          "relay": true
+        },
+        {
+          "floor_sixteenths": -80,
+          "up": true,
+          "relay": true
+        },
+        {
+          "floor_sixteenths": -480,
+          "up": true,
+          "relay": false
+        },
+        {
+          "floor_sixteenths": -200,
+          "up": false,
+          "relay": true
+        }
+      ],
+      "leaf": true,
+      "starting": true,
+      "busy_ppm": 0,
+      "tried": [],
+      "next": null,
+      "link_cost": 70,
+      "metric": 420
+    },
+    {
+      "neighbours": [
+        {
+          "floor_sixteenths": -320,
+          "up": true,
+          "relay": true
+        },
+        {
+          "floor_sixteenths": -80,
+          "up": true,
+          "relay": true
+        },
+        {
+          "floor_sixteenths": -480,
+          "up": true,
+          "relay": false
+        },
+        {
+          "floor_sixteenths": -200,
+          "up": false,
+          "relay": true
+        }
+      ],
+      "leaf": false,
+      "starting": false,
+      "busy_ppm": 0,
+      "tried": [],
+      "next": null,
+      "link_cost": 70,
+      "metric": 420
+    },
+    {
+      "neighbours": [
+        {
+          "floor_sixteenths": -320,
+          "up": true,
+          "relay": true
+        },
+        {
+          "floor_sixteenths": -80,
+          "up": true,
+          "relay": true
+        },
+        {
+          "floor_sixteenths": -480,
+          "up": true,
+          "relay": false
+        },
+        {
+          "floor_sixteenths": -200,
+          "up": false,
+          "relay": true
+        }
+      ],
+      "leaf": true,
+      "starting": false,
+      "busy_ppm": 0,
+      "tried": [
+        0
+      ],
+      "next": 1,
+      "link_cost": 70,
+      "metric": 420
+    },
+    {
+      "neighbours": [
+        {
+          "floor_sixteenths": -320,
+          "up": true,
+          "relay": true
+        },
+        {
+          "floor_sixteenths": -80,
+          "up": true,
+          "relay": true
+        },
+        {
+          "floor_sixteenths": -480,
+          "up": true,
+          "relay": false
+        },
+        {
+          "floor_sixteenths": -200,
+          "up": false,
+          "relay": true
+        }
+      ],
+      "leaf": true,
+      "starting": false,
+      "busy_ppm": 0,
+      "tried": [
+        0,
+        1
+      ],
+      "next": null,
+      "link_cost": 70,
+      "metric": 420
+    },
+    {
+      "neighbours": [
+        {
+          "floor_sixteenths": -100,
+          "up": true,
+          "relay": false
+        }
+      ],
+      "leaf": true,
+      "starting": false,
+      "busy_ppm": 0,
+      "tried": [],
+      "next": null,
+      "link_cost": 70,
+      "metric": 420
+    },
+    {
+      "neighbours": [
+        {
+          "floor_sixteenths": -320,
+          "up": true,
+          "relay": true
+        },
+        {
+          "floor_sixteenths": -80,
+          "up": true,
+          "relay": true
+        },
+        {
+          "floor_sixteenths": -480,
+          "up": true,
+          "relay": false
+        },
+        {
+          "floor_sixteenths": -200,
+          "up": false,
+          "relay": true
+        }
+      ],
+      "leaf": true,
+      "starting": false,
+      "busy_ppm": 0,
+      "tried": [],
+      "next": 0,
+      "link_cost": 11000,
+      "metric": 65534
     }
   ]
 }
