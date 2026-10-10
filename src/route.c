@@ -227,8 +227,9 @@ enum tern_route_numbering tern_route_numbering(uint16_t last, uint16_t number, b
                                                bool starting, bool was_starting) {
     if (!tern_route_newer(number, last)) {
         /* A copy, late, or recorded and sent again, starting or not: numbers survive a restart.
-         * After a promise of silence, though, its sender may have gone and come back unheard. */
-        return promise_passed ? TERN_ROUTE_AGAIN : TERN_ROUTE_DISCARD;
+         * After a promise of silence, though, its sender may have lost the number it kept: it is
+         * forgotten, nothing is taken from this, and its next announce finds it again. */
+        return promise_passed ? TERN_ROUTE_FORGET : TERN_ROUTE_DISCARD;
     }
     return starting && !was_starting ? TERN_ROUTE_AGAIN : TERN_ROUTE_TAKE;
 }
@@ -1005,6 +1006,9 @@ static void on_announce(struct tern_route *r, const struct tern_announce *a, int
         switch (tern_route_numbering(was->number, a->number, r->now - was->heard > was->promise,
                                      a->starting, was->starting)) {
         case TERN_ROUTE_DISCARD:
+            return;
+        case TERN_ROUTE_FORGET:
+            forget(r, s);
             return;
         case TERN_ROUTE_AGAIN:
             forget(r, s); /* what it announced before, it has lost */

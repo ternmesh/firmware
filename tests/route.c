@@ -298,6 +298,10 @@ static void a_recorded_starting_announce_changes_nothing(void) {
     memcpy(held, nb_b, sizeof held);
     tern_route_heard(&b, now + TERN_S(1), recorded, recorded_len, 40);
     CHECK(memcmp(held, nb_b, sizeof held) == 0);
+    /* Sent again once its sender has been silent past its promise, it drops that neighbour, as a
+     * sender that lost its number would, but nothing in it is taken. */
+    tern_route_heard(&b, now + nb_b[0].promise + TERN_S(2), recorded, recorded_len, 40);
+    CHECK(!nb_b[0].used && !nb_b[1].used);
 }
 
 /* A router told where its numbers are kept sends none past them until a later one is kept. */
@@ -530,7 +534,7 @@ static void margins_are_withdrawn_after_eight_rounds(void) {
 }
 
 static void a_neighbour_that_starts_again_is_told_from_a_late_frame(void) {
-    static const char *const names[] = {"take", "discard", "again"};
+    static const char *const names[] = {"take", "discard", "again", "forget"};
     for (size_t i = 0; i < COUNT(numberings); i++) {
         const struct numbering_case *c = &numberings[i];
         CHECK(strcmp(names[tern_route_numbering(c->last, c->number, c->promise_passed, c->starting,

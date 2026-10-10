@@ -154,11 +154,18 @@ bool tern_route_link_up(bool up, int32_t own, uint8_t theirs);
 bool tern_route_withdrawn(uint16_t named, uint16_t number, uint16_t round);
 
 /* What a node does with an announce numbered `number` from a neighbour whose last was `last`:
- * takes it, discards it as a copy or late, or forgets the neighbour and takes it as found again,
- * because it has started again and lost what it announced. `promise_passed` is whether nothing was
- * heard from the neighbour for one of its promises, `starting` whether the announce says its
- * sender is starting, and `was_starting` whether the neighbour's last did. */
-enum tern_route_numbering { TERN_ROUTE_TAKE, TERN_ROUTE_DISCARD, TERN_ROUTE_AGAIN };
+ * takes it; discards it as a copy, late or recorded; forgets the neighbour and takes it as found
+ * again, because it has started again and lost what it announced; or, for one not newer from a
+ * neighbour silent past its promise, forgets the neighbour and takes nothing from it.
+ * `promise_passed` is whether nothing was heard from the neighbour for one of its promises,
+ * `starting` whether the announce says its sender is starting, and `was_starting` whether the
+ * neighbour's last did. */
+enum tern_route_numbering {
+    TERN_ROUTE_TAKE,
+    TERN_ROUTE_DISCARD,
+    TERN_ROUTE_AGAIN,
+    TERN_ROUTE_FORGET
+};
 enum tern_route_numbering tern_route_numbering(uint16_t last, uint16_t number, bool promise_passed,
                                                bool starting, bool was_starting);
 

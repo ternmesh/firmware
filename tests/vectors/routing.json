@@ -900,7 +900,7 @@
       "promise_passed": true,
       "starting": false,
       "was_starting": false,
-      "does": "again"
+      "does": "forget"
     },
     {
       "last": 10,
@@ -916,7 +916,7 @@
       "promise_passed": true,
       "starting": false,
       "was_starting": false,
-      "does": "again"
+      "does": "forget"
     },
     {
       "last": 10,
@@ -996,7 +996,7 @@
       "promise_passed": true,
       "starting": false,
       "was_starting": false,
-      "does": "again"
+      "does": "forget"
     }
   ],
   "costs": [
