@@ -645,6 +645,9 @@ static void reselect_through(struct tern_route *r, uint8_t s) {
 }
 
 static void forget(struct tern_route *r, uint8_t s) {
+    struct tern_route_forgotten *f = &r->forgotten[r->forgotten_next];
+    *f = (struct tern_route_forgotten){slot(r, s)->id, slot(r, s)->number};
+    r->forgotten_next = (uint8_t)((r->forgotten_next + 1) % TERN_ROUTE_FORGOTTEN);
     slot(r, s)->used = false;
     slot(r, s)->up = false;
     for (size_t i = 0; i < r->dest_cap; i++) {
@@ -1014,6 +1017,16 @@ static void on_announce(struct tern_route *r, const struct tern_announce *a, int
         }
     }
     if (fresh) {
+        /* A neighbour forgotten comes back only with a newer announce than its last. */
+        for (size_t k = 0; k < TERN_ROUTE_FORGOTTEN; k++) {
+            struct tern_route_forgotten *f = &r->forgotten[k];
+            if (f->id == a->sender) {
+                if (!tern_route_newer(a->number, f->number)) {
+                    return;
+                }
+                f->id = 0;
+            }
+        }
         s = neighbour_make(r, a->sender,
                            tern_route_floor(true, 0, a->power, snr_q, r->config.lora.sf));
         if (!s) {

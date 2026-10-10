@@ -305,6 +305,8 @@ struct tern_route_bucket {
 };
 
 #define TERN_ROUTE_ASKS 16 /* requests waiting to go */
+#define TERN_ROUTE_FORGOTTEN                                                                       \
+    64 /* forgotten neighbours whose last numbers are kept: FORGOTTEN_KEPT */
 
 /* How a router signs its announces and checks its neighbours'. `verify` says whether the address
  * is valid and sig is its signature over len bytes of m; `sign` signs with the node's own key,
@@ -325,8 +327,15 @@ struct tern_route {
     uint16_t number;  /* of its next announce */
     uint16_t cost;    /* a link's */
     uint8_t starting; /* announces it has still to send before it selects routes through others */
-    uint8_t address_owed;  /* announces still to carry the address for a neighbour just found */
-    bool numbers_kept;     /* tern_route_numbering_from() was called */
+    uint8_t address_owed; /* announces still to carry the address for a neighbour just found */
+    bool numbers_kept;    /* tern_route_numbering_from() was called */
+    /* The last number of each neighbour lately forgotten, so that no recording of it comes back as
+     * a neighbour found. */
+    struct tern_route_forgotten {
+        uint32_t id; /* 0 for none */
+        uint16_t number;
+    } forgotten[TERN_ROUTE_FORGOTTEN];
+    uint8_t forgotten_next;
     uint16_t kept;         /* the first number a restart could lose: none is sent before it moves */
     uint8_t since_address; /* announces since the last that carried it */
 

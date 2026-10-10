@@ -304,6 +304,32 @@ static void a_recorded_starting_announce_changes_nothing(void) {
     CHECK(memcmp(held, nb_b, sizeof held) == 0);
 }
 
+/* A neighbour forgotten, here for a nearer one, comes back only with an announce newer than its
+ * last: a recording of it is late however long ago it was forgotten. */
+static void a_forgotten_neighbour_comes_back_only_with_a_newer_announce(void) {
+    const struct tern_region *us = tern_region(TERN_REGION_US915);
+    struct tern_lora lora = tern_region_lora(us);
+    struct tern_route_config config = tern_route_defaults(&lora, 22, -9, true);
+    struct tern_route_neighbour nb[1];
+    struct tern_route_dest dest[4];
+    struct tern_route r;
+    uint8_t frame[TERN_ROUTE_FRAME_MAX];
+    struct tern_announce a = {.sender = 0xA, .number = 5, .seq = 1, .promise = 60, .round = 1};
+    struct tern_announce b = {.sender = 0xB, .number = 9, .seq = 1, .promise = 60, .round = 1};
+    tern_route_init(&r, &config, VECTOR_OWN_ID, nb, 1, dest, 4, 0, 7, 0);
+    tern_route_heard(&r, TERN_S(1), frame, tern_announce_write(&a, frame), 0);
+    CHECK(nb[0].used && nb[0].id == 0xA);
+    tern_route_heard(&r, TERN_S(2), frame, tern_announce_write(&b, frame), 4 * 10);
+    CHECK(nb[0].used && nb[0].id == 0xB); /* 10 dB nearer: A is forgotten */
+    /* A's announce again, from much nearer still: late, and B stays. */
+    tern_route_heard(&r, TERN_S(3), frame, tern_announce_write(&a, frame), 4 * 30);
+    CHECK(nb[0].used && nb[0].id == 0xB);
+    /* A newer one is A's own, and takes the place. */
+    a.number = 6;
+    tern_route_heard(&r, TERN_S(4), frame, tern_announce_write(&a, frame), 4 * 30);
+    CHECK(nb[0].used && nb[0].id == 0xA && nb[0].number == 6);
+}
+
 /* A router told where its numbers are kept sends none past them until a later one is kept. */
 static void no_announce_goes_with_a_number_not_kept(void) {
     const struct tern_region *us = tern_region(TERN_REGION_US915);
@@ -618,6 +644,7 @@ int main(void) {
     RUN(an_announce_is_taken_only_if_it_can_be_checked);
     RUN(a_recorded_starting_announce_changes_nothing);
     RUN(no_announce_goes_with_a_number_not_kept);
+    RUN(a_forgotten_neighbour_comes_back_only_with_a_newer_announce);
     RUN(a_router_signs_and_carries_its_address_while_it_is_needed);
     RUN(floors_average_and_margins_round_down);
     RUN(links_come_up_and_stay_within_the_band);
