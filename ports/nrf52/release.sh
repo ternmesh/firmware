@@ -33,7 +33,7 @@ for board in "$@"; do
         fi
     done
     test -n "$target" || { echo "no board $board: see release.sh" >&2; exit 1; }
-    for region in us915 eu868; do
+    for region in us915 eu868 au915 nz915; do
         build=build-$board-$region
         upper=$(echo "$region" | tr a-z A-Z)
         rm -rf "$build"

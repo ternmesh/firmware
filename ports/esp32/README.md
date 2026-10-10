@@ -78,7 +78,8 @@ Flashing replaces whatever is on the board, Meshtastic included, along with its 
 
 1. From the latest [release](https://github.com/ternmesh/firmware/releases), download the image
    for your board and where you are: `tern-<board>-us915-<version>.bin` for the United States
-   and Canada, `tern-<board>-eu868-<version>.bin` for Europe, `<board>` being its name in
+   and Canada, `tern-<board>-eu868-<version>.bin` for Europe, `-au915-` for Australia or `-nz915-`
+   for New Zealand, `<board>` being its name in
    [the table](#boards), such as `heltec-v3`. A board sends on its region's frequency as soon as
    it starts, so take the right one.
 2. In Chrome or Edge, open [esptool-js](https://espressif.github.io/esptool-js/), plug in the
@@ -365,6 +366,11 @@ confirmed on a bench.
 |---|---|---|---|---|
 | US915 | 921.25 MHz | 500 kHz | 9 | no limit |
 | EU868 | 869.475 MHz | 125 kHz | 7 | at most 10% of any hour |
+| AU915 | 921.25 MHz | 500 kHz | 9 | no limit |
+| NZ915 | 921.25 MHz | 500 kHz | 9 | no limit |
+
+AU915 and NZ915 are US915's channel at what each country allows a board to radiate: 30 dBm EIRP in
+Australia, 36 dBm in New Zealand, and 36 dBm in the US.
 
 Every frame has a 16-symbol preamble, coding rate 4/5 and the sync word `0x5E`. That is not
 Meshtastic's (`0x2B`), MeshCore's (`0x12`) or LoRaWAN's (`0x34`), so these boards do not decode

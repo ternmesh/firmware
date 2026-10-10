@@ -23,6 +23,8 @@
 enum tern_region_id {
     TERN_REGION_US915 = 1,
     TERN_REGION_EU868,
+    TERN_REGION_AU915,
+    TERN_REGION_NZ915,
     TERN_REGION_END, /* one past the last */
 };
 

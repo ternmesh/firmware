@@ -1489,15 +1489,22 @@ static void poll_beacon(void) {
     }
 }
 
-/* The band a region's radios keep to, for a frequency set by hand. */
+/* The band a region's radios keep to, for a frequency set by hand: New Zealand allows its
+ * profile's power only above 920 MHz. */
 static void bench_band(uint32_t *lo, uint32_t *hi) {
-#if CONFIG_TERN_REGION_EU868
-    *lo = 863000000;
-    *hi = 870000000;
-#else
-    *lo = 902000000;
-    *hi = 928000000;
-#endif
+    if (region == tern_region(TERN_REGION_EU868)) {
+        *lo = 863000000;
+        *hi = 870000000;
+    } else if (region == tern_region(TERN_REGION_AU915)) {
+        *lo = 915000000;
+        *hi = 928000000;
+    } else if (region == tern_region(TERN_REGION_NZ915)) {
+        *lo = 920000000;
+        *hi = 928000000;
+    } else {
+        *lo = 902000000;
+        *hi = 928000000;
+    }
 }
 
 /* The commands that move the board to another channel or modulation. */
@@ -3281,6 +3288,10 @@ void node_main(void) {
 
 #if CONFIG_TERN_REGION_EU868
     region = tern_region(TERN_REGION_EU868);
+#elif CONFIG_TERN_REGION_AU915
+    region = tern_region(TERN_REGION_AU915);
+#elif CONFIG_TERN_REGION_NZ915
+    region = tern_region(TERN_REGION_NZ915);
 #else
     region = tern_region(TERN_REGION_US915);
 #endif

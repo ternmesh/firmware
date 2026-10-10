@@ -208,6 +208,80 @@
           "must_refuse": false
         }
       ]
+    },
+    {
+      "name": "AU915",
+      "frequency_hz": 921250000,
+      "bandwidth_hz": 500000,
+      "spreading_factor": 9,
+      "max_eirp_dbm": 30,
+      "duty_cycle_ppm": 1000000,
+      "duty_window_s": 3600,
+      "low_data_rate_optimisation": false,
+      "airtime_ns": [
+        {
+          "length": 16,
+          "ns": 49408000
+        },
+        {
+          "length": 17,
+          "ns": 49408000
+        },
+        {
+          "length": 45,
+          "ns": 85248000
+        },
+        {
+          "length": 53,
+          "ns": 90368000
+        },
+        {
+          "length": 73,
+          "ns": 115968000
+        },
+        {
+          "length": 255,
+          "ns": 320768000
+        }
+      ],
+      "duty": []
+    },
+    {
+      "name": "NZ915",
+      "frequency_hz": 921250000,
+      "bandwidth_hz": 500000,
+      "spreading_factor": 9,
+      "max_eirp_dbm": 36,
+      "duty_cycle_ppm": 1000000,
+      "duty_window_s": 3600,
+      "low_data_rate_optimisation": false,
+      "airtime_ns": [
+        {
+          "length": 16,
+          "ns": 49408000
+        },
+        {
+          "length": 17,
+          "ns": 49408000
+        },
+        {
+          "length": 45,
+          "ns": 85248000
+        },
+        {
+          "length": 53,
+          "ns": 90368000
+        },
+        {
+          "length": 73,
+          "ns": 115968000
+        },
+        {
+          "length": 255,
+          "ns": 320768000
+        }
+      ],
+      "duty": []
     }
   ]
 }

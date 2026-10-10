@@ -27,7 +27,8 @@ bootloader stays, so going back is copying another image on.
 
 1. From the latest [release](https://github.com/ternmesh/firmware/releases), download
    `tern-<board>-us915-<version>.uf2` for the United States and Canada, or
-   `tern-<board>-eu868-<version>.uf2` for Europe, with the board's name from the table above. A
+   `tern-<board>-eu868-<version>.uf2` for Europe (`-au915-` for Australia, `-nz915-` for New
+   Zealand), with the board's name from the table above. A
    board sends on its region's frequency as soon as it starts, so take the right one.
 2. Plug the board in over USB and press its RST button twice, quickly. A drive appears: `HT-n5262`
    on the T114, `RAK4631` on the RAK4631, and one Seeed names on the Wio Tracker L1.
