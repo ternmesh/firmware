@@ -9,6 +9,18 @@
 #define PA_BOOST_MAX_DBM 17
 #define RFO_MAX_DBM 14 /* and its RFO, from 0 */
 
+/* A screen on I2C: the SPI lines none. */
+#define I2C_SCREEN(sda_, scl_, reset_)                                                             \
+    {                                                                                              \
+        .sda = (sda_), .scl = (scl_), .sck = BOARD_NO_PIN, .mosi = BOARD_NO_PIN,                   \
+        .cs = BOARD_NO_PIN, .dc = BOARD_NO_PIN, .busy = BOARD_NO_PIN, .reset = (reset_)            \
+    }
+#define NO_SCREEN                                                                                  \
+    {                                                                                              \
+        .sda = BOARD_NO_PIN, .scl = BOARD_NO_PIN, .sck = BOARD_NO_PIN, .mosi = BOARD_NO_PIN,       \
+        .cs = BOARD_NO_PIN, .dc = BOARD_NO_PIN, .busy = BOARD_NO_PIN, .reset = BOARD_NO_PIN        \
+    }
+
 /* The Heltec WiFi LoRa 32 V3, from Heltec's pin map and its schematics for the V3, V3.1 and V3.2:
  * a 1.8 V TCXO on DIO3, the antenna switch on DIO2, the screen and the header's 3.3 V on a supply
  * GPIO36 turns on when low, and the battery through 390k over 100k onto GPIO1, switched by GPIO37,
@@ -28,7 +40,7 @@ const struct board_def board_heltec_v3 = {
              .dio2_rf_switch = true},
     .button = 0,
     .led = 35,
-    .screen = {.sda = 17, .scl = 18, .reset = 21},
+    .screen = I2C_SCREEN(17, 18, 21),
     .vext = 36,
     .vext_high_on = false,
     .battery = {.sense = 1, .enable = 37, .top_k = 390, .bottom_k = 100},
@@ -76,7 +88,7 @@ const struct board_def board_heltec_v4 = {
              .dio2_rf_switch = true},
     .button = 0,
     .led = 35,
-    .screen = {.sda = 17, .scl = 18, .reset = 21},
+    .screen = I2C_SCREEN(17, 18, 21),
     .vext = 36,
     .vext_high_on = false, /* a P-channel FET held off by a pull-up (the schematic's Q2) */
     .battery = {.sense = 1, .enable = 37, .top_k = 390, .bottom_k = 100},
@@ -99,8 +111,6 @@ const struct board_def board_heltec_v4 = {
     {                                                                                              \
         .power = BOARD_NO_PIN, .enable = BOARD_NO_PIN, .tx = { BOARD_NO_PIN, BOARD_NO_PIN }        \
     }
-#define NO_SCREEN                                                                                  \
-    { .sda = BOARD_NO_PIN, .scl = BOARD_NO_PIN, .reset = BOARD_NO_PIN }
 
 /* The Heltec Wireless Stick Lite V3, from its schematic (HTIT-WSL_V3_Schematic_Diagram), datasheet
  * (HTIT-WSL_V3 Rev1.1) and pin map: a V3 without its screen. PRG on GPIO0, the LED on GPIO35, and
@@ -145,12 +155,17 @@ const struct board_def board_heltec_tracker = {
 
 /* The Heltec Vision Master E290 and E213, from their schematics (HT-VME290, HT-VME213) and
  * datasheets, and the HT-RA62 module's, which carries their SX1262. The two are wired alike but
- * for their e-paper panels (128x296 and 122x250), which this port does not drive yet. The user
- * button on GPIO21 (BOOT, GPIO0, is the other), the LED on GPIO45, and the battery through 390k
- * over 100k onto GPIO7, behind a switch GPIO46 turns on when high. The E213's datasheet names
- * GPIO17 for that switch, but both its schematics wire GPIO46, as the E290's do; the schematics are
- * taken, and the switch's sense is learnt either way (power.h). USB from the ESP32-S3's own port.
- * Rated 21 dBm, give or take a decibel. */
+ * for their e-paper panels. The user button on GPIO21 (BOOT, GPIO0, is the other), the LED on
+ * GPIO45, and the battery through 390k over 100k onto GPIO7, behind a switch GPIO46 turns on when
+ * high. The E213's datasheet names GPIO17 for that switch, but both its schematics wire GPIO46, as
+ * the E290's do; the schematics are taken, and the switch's sense is learnt either way (power.h).
+ * USB from the ESP32-S3's own port. Rated 21 dBm, give or take a decibel.
+ *
+ * The E290's panel is DKE's DEPG0290BNS800F6, 296x128, on an SSD1680: SCK 2, MOSI 1, CS 3, DC 4,
+ * RES# 5 and BUSY 6, high while busy, its interface strapped to 4-wire SPI, and its supply from an
+ * LDO GPIO18 enables when high (Ve_Ctrl, pulled down, so off until told). Heltec's own example for
+ * the board drives the same pins. The E213's panel changed between its revisions, to controllers
+ * whose datasheets are not published (docs/boards.md), and is not driven. */
 const struct board_def board_heltec_vme290 = {
     .name = "heltec-vme290",
     .title = "Heltec Vision Master E290",
@@ -158,8 +173,16 @@ const struct board_def board_heltec_vme290 = {
     .lora = HELTEC_SX1262,
     .button = 21,
     .led = 45,
-    .screen = NO_SCREEN,
-    .vext = BOARD_NO_PIN, /* GPIO18, the panel's supply, high on */
+    .screen = {.chip = BOARD_SSD1680,
+               .sda = BOARD_NO_PIN,
+               .scl = BOARD_NO_PIN,
+               .sck = 2,
+               .mosi = 1,
+               .cs = 3,
+               .dc = 4,
+               .busy = 6,
+               .reset = 5},
+    .vext = 18,
     .vext_high_on = true,
     .battery = {.sense = 7, .enable = 46, .top_k = 390, .bottom_k = 100},
     .amp = NO_AMP,
@@ -229,7 +252,7 @@ const struct board_def board_heltec_v2 = {
     .lora = SX1276_ON(14),
     .button = 0,
     .led = 25,
-    .screen = {.sda = 4, .scl = 15, .reset = 16},
+    .screen = I2C_SCREEN(4, 15, 16),
     .vext = 21,
     .vext_high_on = false,
     .vext_always = true,
@@ -249,7 +272,7 @@ const struct board_def board_heltec_v21 = {
     .lora = SX1276_ON(14),
     .button = 0,
     .led = 25,
-    .screen = {.sda = 4, .scl = 15, .reset = 16},
+    .screen = I2C_SCREEN(4, 15, 16),
     .vext = 21,
     .vext_high_on = false,
     .vext_always = true,
@@ -274,7 +297,7 @@ const struct board_def board_lilygo_t3_v161 = {
     .lora = SX1276_ON(23),
     .button = BOARD_NO_PIN,
     .led = 25,
-    .screen = {.sda = 21, .scl = 22, .reset = BOARD_NO_PIN},
+    .screen = I2C_SCREEN(21, 22, BOARD_NO_PIN),
     .vext = BOARD_NO_PIN,
     .vext_high_on = false,
     .battery = {.sense = 35, .enable = BOARD_NO_PIN, .top_k = 100, .bottom_k = 100},
@@ -302,7 +325,7 @@ const struct board_def board_lilygo_tbeam = {
     .button = 38,
     .led = 4,
     .led_low_on = true,
-    .screen = {.sda = 21, .scl = 22, .reset = BOARD_NO_PIN},
+    .screen = I2C_SCREEN(21, 22, BOARD_NO_PIN),
     .vext = BOARD_NO_PIN,
     .battery = {.sense = BOARD_NO_PIN, .enable = BOARD_NO_PIN},
     .amp = NO_AMP,
@@ -324,7 +347,7 @@ const struct board_def board_lilygo_tbeam12 = {
     .button = 38,
     .led = 4,
     .led_low_on = true,
-    .screen = {.sda = 21, .scl = 22, .reset = BOARD_NO_PIN},
+    .screen = I2C_SCREEN(21, 22, BOARD_NO_PIN),
     .vext = BOARD_NO_PIN,
     .battery = {.sense = BOARD_NO_PIN, .enable = BOARD_NO_PIN},
     .amp = NO_AMP,
@@ -355,7 +378,7 @@ const struct board_def board_lilygo_t3s3 = {
              .pa_boost = true},
     .button = 0,
     .led = 37,
-    .screen = {.sda = 18, .scl = 17, .reset = BOARD_NO_PIN},
+    .screen = I2C_SCREEN(18, 17, BOARD_NO_PIN),
     .vext = BOARD_NO_PIN,
     .battery = {.sense = 1, .enable = BOARD_NO_PIN, .top_k = 100, .bottom_k = 100},
     .amp = NO_AMP,
@@ -413,6 +436,12 @@ uint16_t board_battery_pin_mv(const struct board_def *b) {
     unsigned total = (unsigned)b->battery.top_k + b->battery.bottom_k;
     return (uint16_t)(BOARD_CELL_FULL_MV * (unsigned)b->battery.bottom_k / total);
 }
+
+bool board_has_screen(const struct board_def *b) {
+    return board_epaper(b) ? b->screen.cs != BOARD_NO_PIN : b->screen.sda != BOARD_NO_PIN;
+}
+
+bool board_epaper(const struct board_def *b) { return b->screen.chip == BOARD_SSD1680; }
 
 bool board_gives(const struct board_def *b, int dbm) {
     return dbm >= board_min_dbm(b) && dbm <= board_max_dbm(b);

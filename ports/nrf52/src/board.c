@@ -382,6 +382,9 @@ bool board_screen_power(bool on) { return false; }
 
 #endif
 
+/* The panels here show each page as it arrives. */
+void board_screen_poll(bool prompt) { (void)prompt; }
+
 /* --- The battery ----------------------------------------------------------------------------- */
 
 #if DT_NODE_EXISTS(VBATT)

@@ -13,6 +13,7 @@ idf_component_register(
         ${node}/link.c
         ${node}/demo.c
         ${node}/display.c
+        ${node}/epd.c
         ${node}/status.c
         ${node}/ui.c
         ${node}/qr.c

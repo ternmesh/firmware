@@ -29,8 +29,8 @@ run on another. Everything below holds for each, unless it says otherwise.
 | Heltec WiFi LoRa 32 V4 (V4.2, V4.3) | `heltec-v4` | Built, not yet run on a board | Pin for pin a V3, with an amplifier after the radio for up to 28 dBm, and USB from the ESP32-S3 itself: the port is `/dev/ttyACM0` or similar. See [the V4](#the-heltec-v4). |
 | Heltec Wireless Stick Lite V3 | `heltec-wsl-v3` | Built, not yet run on a board | A V3 without its screen. USB through a CP2102. |
 | Heltec Wireless Tracker (V1.0, V1.1) | `heltec-tracker` | Built, not yet run on a board | Runs without its colour screen and its GNSS for now. USB from the ESP32-S3 itself. |
-| Heltec Vision Master E290 | `heltec-vme290` | Built, not yet run on a board | Runs without its e-paper for now; the button is the one marked USER, not BOOT. USB from the ESP32-S3 itself. |
-| Heltec Vision Master E213 | `heltec-vme213` | Built, not yet run on a board | As the E290. |
+| Heltec Vision Master E290 | `heltec-vme290` | Built, not yet run on a board | The usual screen, twice the size, on its e-paper: redrawn soon after a press or something new, and otherwise at most once a minute (`CONFIG_TERN_EPAPER_REFRESH_S`). The button is the one marked USER, not BOOT. USB from the ESP32-S3 itself. |
+| Heltec Vision Master E213 | `heltec-vme213` | Built, not yet run on a board | Runs without its e-paper for now, whose controller changed between revisions. As the E290 otherwise. |
 | Heltec Wireless Paper | `heltec-paper` | Built, not yet run on a board | Runs without its e-paper for now. USB through a CP2102. |
 | Heltec WiFi LoRa 32 V2 | `heltec-v2` | Built, not yet run on a board | A classic ESP32 and an SX1276, 2 to 17 dBm. USB through a CP2102. |
 | Heltec WiFi LoRa 32 V2.1 | `heltec-v21` | Built, not yet run on a board | A V2 that reads its battery on another pin: an image for the one does not read the other's battery. |

@@ -1,17 +1,21 @@
 #include "board.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 #include "sdkconfig.h"
 
 #include "boards.h"
+#include "display.h"
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
 #include "driver/rtc_io.h"
 #include "driver/spi_master.h"
+#include "epd.h"
 #include "esp_adc/adc_cali.h"
 #include "esp_adc/adc_cali_scheme.h"
 #include "esp_adc/adc_oneshot.h"
+#include "esp_heap_caps.h"
 #include "esp_rom_sys.h"
 #include "esp_sleep.h"
 #include "esp_timer.h"
@@ -472,22 +476,31 @@ static void pmu_off(void) {
 #define OLED_COMMANDS 0x00
 #define OLED_DATA 0x40
 
-/* The board's controller, unless the build says an SH1106 is fitted to its header. */
-static enum board_oled oled_chip(void) {
+/* The board's controller, unless the build says an SH1106 is fitted to its header in place of
+ * the SSD1306 the board is listed with. */
+static enum board_screen_chip oled_chip(void) {
 #if CONFIG_TERN_SCREEN_SH1106
-    return BOARD_SH1106;
-#else
-    return B->screen.oled;
+    if (B->screen.chip == BOARD_SSD1306) {
+        return BOARD_SH1106;
+    }
 #endif
+    return B->screen.chip;
 }
 
 static bool oled_send(const uint8_t *buf, size_t len) {
     return i2c_master_transmit(oled, buf, len, I2C_TIMEOUT_MS) == ESP_OK;
 }
 
+static bool epd_init(void);
+static bool epd_page(int page, const uint8_t data[128]);
+static bool epd_power(bool on);
+
 bool board_screen_init(void) {
-    if (B->screen.sda == BOARD_NO_PIN) {
+    if (!board_has_screen(B)) {
         return false;
+    }
+    if (board_epaper(B)) {
+        return epd_init();
     }
     if (B->pmu.chip != AXP_NONE && !pmu_start()) {
         return false; /* the screen may be on one of its rails */
@@ -586,6 +599,9 @@ bool board_screen_init(void) {
 #define SH1106_FIRST_COLUMN 2
 
 bool board_screen_page(int page, const uint8_t data[128]) {
+    if (board_epaper(B)) {
+        return epd_page(page, data);
+    }
     /* The page, then its first column, low half and high half. */
     uint8_t column = oled_chip() == BOARD_SH1106 ? SH1106_FIRST_COLUMN : 0;
     uint8_t where[] = {OLED_COMMANDS, (uint8_t)(0xB0 | (page & 7)), (uint8_t)(column & 0x0F),
@@ -597,6 +613,9 @@ bool board_screen_page(int page, const uint8_t data[128]) {
 }
 
 bool board_screen_power(bool on) {
+    if (board_epaper(B)) {
+        return epd_power(on);
+    }
     /* The SSD1306's charge pump goes on before the panel and off after it (the datasheet's
      * application note on the charge pump). The SH1106's DC-DC follows the display by itself, set
      * up as it is: off stops it and on starts it. */
@@ -609,6 +628,196 @@ bool board_screen_power(bool on) {
                   : oled_send(sh1106_off, sizeof sh1106_off);
     }
     return on ? oled_send(on_seq, sizeof on_seq) : oled_send(off_seq, sizeof off_seq);
+}
+
+/* --- The e-paper panel ----------------------------------------------------------------------- */
+
+/* An SSD1680 (Solomon Systech's datasheet, Rev 1.4) on a DKE DEPG0290BNS800F6 (its specification),
+ * on SPI: a byte is a command while DC is low and data while it is high. It keeps its picture with
+ * no power at all, and redraws it whole, which takes seconds and flashes the panel; so the picture
+ * the node sends a page at a time is gathered here, and drawn by board_screen_poll() once it has
+ * stopped arriving: soon after something the user did, otherwise no more often than
+ * CONFIG_TERN_EPAPER_REFRESH_S. A refresh is started and left to run, the panel holding BUSY high
+ * until it is done; it must not be interrupted (section 8.1, 0x20). */
+
+#define EPD_SPI_HZ 4000000              /* it takes 20 MHz (DKE, page 14) */
+#define EPD_POWER_US 10000              /* VCI on, then 10 ms (SSD1680, section 9.1) */
+#define EPD_RESET_US 10000              /* RES# low and high, far more than DKE's 200 us each */
+#define EPD_RESET_TIMEOUT_US 100000     /* the software reset, a few ms */
+#define EPD_REFRESH_TIMEOUT_US 10000000 /* a refresh, about 4 s at 25 C (DKE, page 9) */
+#define EPD_SETTLE_NS 200000000LL       /* a picture still arriving a page a turn */
+
+#if CONFIG_TERN_SCREEN_FLIP
+#define EPD_FLIP true
+#else
+#define EPD_FLIP false
+#endif
+
+static spi_device_handle_t epd_spi;
+/* On the heap, and only on a board with e-paper: a classic ESP32's static memory is short. */
+#define EPD_FRAME (EPD_LINES * EPD_LINE_BYTES)
+static struct display *epd_pic;
+static uint8_t *epd_frame;
+static bool epd_open;       /* its pins and bus are set up */
+static bool epd_awake;      /* reset and set up, not in deep sleep */
+static bool epd_changed;    /* the picture differs from what the panel shows */
+static bool epd_refreshing; /* a refresh has been started and BUSY not yet seen low */
+static bool epd_dark;       /* the node has turned the screen off */
+static tern_time epd_page_at, epd_drawn_at;
+
+static bool epd_busy(void) { return gpio_get_level(B->screen.busy) == 1; }
+
+static bool epd_wait(int64_t timeout_us) {
+    int64_t start = esp_timer_get_time();
+    while (epd_busy()) {
+        if (esp_timer_get_time() - start > timeout_us) {
+            return false;
+        }
+        vTaskDelay(1);
+    }
+    return true;
+}
+
+static bool epd_send(bool data, const uint8_t *buf, size_t len) {
+    set(B->screen.dc, data ? 1 : 0);
+    spi_transaction_t t = {.length = 8 * len, .tx_buffer = buf};
+    return len == 0 || spi_device_polling_transmit(epd_spi, &t) == ESP_OK;
+}
+
+static bool epd_cmd(uint8_t c, const uint8_t *args, size_t len) {
+    return epd_send(false, &c, 1) && epd_send(true, args, len);
+}
+
+#define EPD(c, ...)                                                                                \
+    epd_cmd((c), (const uint8_t[]){__VA_ARGS__}, sizeof((const uint8_t[]){__VA_ARGS__}))
+
+/* Power, a hardware reset, then the software one, which also brings it out of deep sleep, and the
+ * temperature sensor on the chip, which the waveforms are chosen by (section 9.1). The rest, the
+ * gates, the RAM's window and the order it is filled in, are the module's own once reset (DKE,
+ * pages 15 to 17): a window of bytes 1 to 16 across, lines 295 down to 0. */
+static bool epd_wake(void) {
+    if (!vext_on()) {
+        return false;
+    }
+    esp_rom_delay_us(EPD_POWER_US);
+    set(B->screen.reset, 0);
+    esp_rom_delay_us(EPD_RESET_US);
+    set(B->screen.reset, 1);
+    esp_rom_delay_us(EPD_RESET_US);
+    if (!epd_wait(EPD_RESET_TIMEOUT_US) || !epd_cmd(0x12, NULL, 0) ||
+        !epd_wait(EPD_RESET_TIMEOUT_US) || !EPD(0x18, 0x80)) {
+        return false;
+    }
+    epd_awake = true;
+    return true;
+}
+
+/* Fills the panel's RAM from its first byte and line, and starts a full refresh: the temperature
+ * read, the waveform loaded from OTP, the panel driven (0x22 0xF7, section 8.1). */
+static bool epd_draw(void) {
+    if (!epd_awake && !epd_wake()) {
+        return false;
+    }
+    for (int n = 0; n < EPD_LINES; n++) {
+        epd_line(epd_pic, n, EPD_FLIP, &epd_frame[n * EPD_LINE_BYTES]);
+    }
+    if (!EPD(0x4E, 0x01) || !EPD(0x4F, 0x27, 0x01) || !epd_cmd(0x24, epd_frame, EPD_FRAME) ||
+        !EPD(0x22, 0xF7) || !epd_cmd(0x20, NULL, 0)) {
+        epd_awake = false; /* reset again before the next */
+        return false;
+    }
+    epd_changed = false;
+    epd_refreshing = true;
+    epd_drawn_at = board_now();
+    return true;
+}
+
+/* Deep sleep, mode 1, keeping its RAM; only a hardware reset brings it out (section 8.1, 0x10). */
+static void epd_sleep(void) {
+    if (epd_awake && EPD(0x10, 0x01)) {
+        epd_awake = false;
+    }
+}
+
+static bool epd_init(void) {
+    gpio_config_t out = {.pin_bit_mask = bit(B->screen.dc) | bit(B->screen.reset),
+                         .mode = GPIO_MODE_OUTPUT};
+    gpio_config_t in = {.pin_bit_mask = bit(B->screen.busy), .mode = GPIO_MODE_INPUT};
+    spi_bus_config_t bus = {.sclk_io_num = B->screen.sck,
+                            .mosi_io_num = B->screen.mosi,
+                            .miso_io_num = -1,
+                            .quadwp_io_num = -1,
+                            .quadhd_io_num = -1,
+                            .max_transfer_sz = EPD_FRAME};
+    spi_device_interface_config_t dev = {
+        .clock_speed_hz = EPD_SPI_HZ, .mode = 0, .spics_io_num = B->screen.cs, .queue_size = 1};
+    epd_pic = calloc(1, sizeof *epd_pic);
+    epd_frame = heap_caps_malloc(EPD_FRAME, MALLOC_CAP_DMA); /* sent by DMA as it is */
+    if (epd_pic == NULL || epd_frame == NULL || gpio_config(&out) != ESP_OK ||
+        gpio_config(&in) != ESP_OK ||
+        spi_bus_initialize(SPI3_HOST, &bus, SPI_DMA_CH_AUTO) != ESP_OK ||
+        spi_bus_add_device(SPI3_HOST, &dev, &epd_spi) != ESP_OK) {
+        return false;
+    }
+    epd_open = true;
+    display_init(epd_pic);
+    epd_changed = true; /* whatever it kept from before is not this */
+    return epd_wake();
+}
+
+static bool epd_page(int page, const uint8_t data[128]) {
+    if (memcmp(epd_pic->px[page & 7], data, DISPLAY_WIDTH) != 0) {
+        memcpy(epd_pic->px[page & 7], data, DISPLAY_WIDTH);
+        epd_changed = true;
+    }
+    epd_page_at = board_now();
+    return true;
+}
+
+/* Off, it keeps showing its picture and is left asleep; on, it is drawn again only if the picture
+ * has changed meanwhile. */
+static bool epd_power(bool on) {
+    epd_dark = !on;
+    return true;
+}
+
+void board_screen_poll(bool prompt) {
+    if (!board_epaper(B) || !epd_open) {
+        return;
+    }
+    if (epd_refreshing) {
+        if (epd_busy()) {
+            return;
+        }
+        epd_refreshing = false;
+    }
+    if (epd_dark) {
+        epd_sleep();
+        return;
+    }
+    tern_time now = board_now();
+    if (!epd_changed || now - epd_page_at < EPD_SETTLE_NS) {
+        return;
+    }
+    if (!prompt && epd_drawn_at != 0 &&
+        now - epd_drawn_at < (tern_time)CONFIG_TERN_EPAPER_REFRESH_S * 1000000000LL) {
+        return;
+    }
+    (void)epd_draw();
+}
+
+/* Before the board turns off: the last picture drawn and the panel asleep, since its supply is
+ * about to go and a refresh must not be cut short. */
+static void epd_finish(void) {
+    if (!board_epaper(B) || !epd_open) {
+        return;
+    }
+    if ((epd_refreshing && !epd_wait(EPD_REFRESH_TIMEOUT_US)) ||
+        (epd_changed && (!epd_draw() || !epd_wait(EPD_REFRESH_TIMEOUT_US)))) {
+        return;
+    }
+    epd_refreshing = false;
+    epd_sleep();
 }
 
 /* The ADC's ranges, each the most it reads at that attenuation (ESP-IDF's ADC oneshot guide, for
@@ -733,6 +942,7 @@ bool board_woke_by_timer(void) { return esp_sleep_get_wakeup_cause() == ESP_SLEE
  * PRG must be let go first, or the press that turned the board off would wake it again. Waking is
  * a restart: app_main() runs from the top. */
 void board_off(uint32_t wake_after_s) {
+    epd_finish();
     board_led(false);
     set(B->vext, !VEXT_ON);
     hold(B->vext);
