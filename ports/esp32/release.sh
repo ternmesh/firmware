@@ -39,7 +39,7 @@ for board in "$@"; do
     # The chip is the board's (boards/<board>.defaults), whatever the shell or CI had set.
     target=$(sed -n 's/^CONFIG_IDF_TARGET="\(.*\)"$/\1/p' "boards/$board.defaults")
     export IDF_TARGET="${target:-esp32s3}"
-    for region in us915 eu868; do
+    for region in us915 eu868 au915 nz915; do
         build=build-$board-$region
         upper=$(echo "$region" | tr a-z A-Z)
         rm -rf "$build"

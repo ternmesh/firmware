@@ -155,6 +155,28 @@ static void more_power_than_a_region_allows_is_refused(void) {
     CHECK(memcmp(&cfg, &untouched, sizeof cfg) == 0);
 }
 
+/* Australia and New Zealand share the US channel, and differ from it and each other only in what
+ * a board may radiate: neither limits what goes into the antenna. */
+static void australia_and_new_zealand_are_the_us_channel_at_their_own_power(void) {
+    const struct tern_region *us = tern_region(TERN_REGION_US915);
+    const struct tern_region *au = tern_region(TERN_REGION_AU915);
+    const struct tern_region *nz = tern_region(TERN_REGION_NZ915);
+    struct tern_radio_config a, b;
+    memset(&a, 0, sizeof a);
+    memset(&b, 0, sizeof b);
+    CHECK_EQ_I64(tern_region_radio(us, 22, 3, &a), TERN_OK);
+    CHECK_EQ_I64(tern_region_radio(au, 22, 3, &b), TERN_OK);
+    CHECK(memcmp(&a, &b, sizeof a) == 0);
+    CHECK_EQ_I64(tern_region_radio(nz, 22, 3, &b), TERN_OK);
+    CHECK(memcmp(&a, &b, sizeof a) == 0);
+
+    CHECK_EQ_I64(tern_region_radio(au, 28, 2, &b), TERN_OK);
+    CHECK_EQ_I64(tern_region_radio(au, 28, 3, &b), TERN_EINVAL);
+    CHECK_EQ_I64(tern_region_radio(nz, 28, 8, &b), TERN_OK);
+    CHECK_EQ_I64(tern_region_radio(nz, 28, 9, &b), TERN_EINVAL);
+    CHECK_EQ_I64(tern_region_radio(nz, 31, 0, &b), TERN_OK); /* no conducted limit, unlike US915 */
+}
+
 int main(void) {
     RUN(settings_every_frame_uses);
     RUN(every_profile_matches_the_specification);
@@ -162,5 +184,6 @@ int main(void) {
     RUN(unknown_regions_are_null);
     RUN(radio_configuration_is_the_profiles);
     RUN(more_power_than_a_region_allows_is_refused);
+    RUN(australia_and_new_zealand_are_the_us_channel_at_their_own_power);
     return CHECK_DONE();
 }

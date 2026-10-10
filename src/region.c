@@ -23,6 +23,22 @@ static const struct tern_region regions[] = {
                            .max_conducted_dbm = TERN_POWER_UNLIMITED,
                            .duty_ppm = 100000,
                            .duty_window_s = 3600},
+    [TERN_REGION_AU915] = {.name = "AU915",
+                           .freq_hz = 921250000,
+                           .bw_hz = 500000,
+                           .sf = 9,
+                           .max_eirp_dbm = 30,
+                           .max_conducted_dbm = TERN_POWER_UNLIMITED,
+                           .duty_ppm = TERN_DUTY_UNLIMITED,
+                           .duty_window_s = 3600},
+    [TERN_REGION_NZ915] = {.name = "NZ915",
+                           .freq_hz = 921250000,
+                           .bw_hz = 500000,
+                           .sf = 9,
+                           .max_eirp_dbm = 36,
+                           .max_conducted_dbm = TERN_POWER_UNLIMITED,
+                           .duty_ppm = TERN_DUTY_UNLIMITED,
+                           .duty_window_s = 3600},
 };
 
 const struct tern_region *tern_region(enum tern_region_id id) {

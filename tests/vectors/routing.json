@@ -957,6 +957,14 @@
     {
       "profile": "EU868",
       "link_cost": 81
+    },
+    {
+      "profile": "AU915",
+      "link_cost": 70
+    },
+    {
+      "profile": "NZ915",
+      "link_cost": 70
     }
   ],
   "feasible": [

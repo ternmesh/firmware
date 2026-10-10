@@ -15,13 +15,17 @@
         help
             Where the board is used. It sets the frequency, bandwidth and spreading factor, and
             what the region's rules allow: see the profiles in the specification's draft/phy.md.
-            A board is also sold for one band, 863-928 MHz or 433/470-510 MHz; both of these
-            regions need the first.
+            A board is also sold for one band, 863-928 MHz or 433/470-510 MHz; every one of
+            these regions needs the first.
 
         config TERN_REGION_US915
             bool "US915: 921.25 MHz, 500 kHz, SF9 (United States, Canada)"
         config TERN_REGION_EU868
             bool "EU868: 869.475 MHz, 125 kHz, SF7, at most 10% of any hour"
+        config TERN_REGION_AU915
+            bool "AU915: 921.25 MHz, 500 kHz, SF9, 30 dBm EIRP (Australia)"
+        config TERN_REGION_NZ915
+            bool "NZ915: 921.25 MHz, 500 kHz, SF9, 36 dBm EIRP (New Zealand)"
     endchoice
 
     config TERN_TX_POWER_DBM

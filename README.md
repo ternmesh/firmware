@@ -18,7 +18,7 @@ nothing is heard of it, and acknowledged by the node it is for.
 | Module | Header | What it is |
 |---|---|---|
 | Time on air | `tern/lora.h` | LoRa time on air (Semtech's formula, SF7–SF12), in integer nanoseconds, matching the simulator's to the nanosecond. The airtime budget and the routing metric are both measured in it. |
-| Radio settings | `tern/region.h` | The sync word and settings every frame uses, and a profile for each region, [specification draft 0](https://github.com/ternmesh/spec/blob/main/draft/phy.md): US915 and EU868, provisional until a bench confirms them. Checked against the specification's table. |
+| Radio settings | `tern/region.h` | The sync word and settings every frame uses, and a profile for each region, [specification draft 0](https://github.com/ternmesh/spec/blob/main/draft/phy.md): US915, EU868, AU915 and NZ915, provisional until a bench confirms them. Checked against the specification's table. |
 | Transmit limit | `tern/duty.h` | The account of time on air that holds a node to a region's limit on transmitting, such as 10% of any hour. Not the airtime budget, which is not specified yet. |
 | Radio seam | `tern/radio.h` | The interface each board port implements for its radio, and the checks the core makes before a port is called. Events are polled, never delivered in interrupt context. |
 | Addresses | `tern/address.h` | A node's identity and address, [specification draft 0](https://github.com/ternmesh/spec/blob/main/draft/first-contact.md#addresses): an Ed25519 key pair from a seed, checking an address (prime-order subgroup included), converting it to the X25519 key the handshake uses, and Ed25519 signatures, made and checked, for presence cards. |
