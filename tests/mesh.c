@@ -370,14 +370,14 @@ static void routing_keeps_to_its_cap(void) {
     }
 }
 
-/* The learning allowance, as large as the cap: while nothing settles a router spends no more than
- * the two of them and what their buckets held, and once its routes have settled it spends what it
- * would have without one. */
+/* The learning allowance, as the specification sizes it: while nothing settles a router spends no
+ * more than the cap, the allowance and what their buckets held, and once its routes have settled
+ * it spends what it would have without one. */
 static void learning_spends_only_while_routes_change(void) {
     tern_time full_frame, churned[2], settled[2];
     for (int learn = 0; learn < 2; learn++) {
         net_init(&net, 8);
-        net.learn_ppm = learn ? 3750 : 0;
+        net.learn_ppm = learn ? tern_route_defaults(&net.lora, FULL, -9, true).learn_ppm : 0;
         for (int a = 0; a < 8; a++) {
             for (int b = a + 1; b < 8; b++) {
                 if ((a * 7 + b * 3) % 4 != 0) {
@@ -411,7 +411,7 @@ static void learning_spends_only_while_routes_change(void) {
         }
         settled[learn] = after - before;
     }
-    CHECK(churned[1] > churned[0] + churned[0] / 4); /* spent while routes changed */
+    CHECK(churned[1] > churned[0] + churned[0] / 8); /* spent while routes changed */
     CHECK(settled[1] <= settled[0] + 2 * full_frame);
 }
 

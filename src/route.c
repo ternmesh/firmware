@@ -322,6 +322,7 @@ struct tern_route_config tern_route_defaults(const struct tern_lora *lora, int8_
         .quiet_max = 2,
         .announce_ppm = 3750, /* a cap of 0.5%, a quarter of it for requests */
         .request_ppm = 1250,
+        .learn_ppm = 1875, /* LEARN_SHARE: half the announces' share, for changed routes */
         .cap_window = TERN_S(60),
         .burst = 4,
         .named_max = 8,

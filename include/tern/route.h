@@ -206,7 +206,8 @@ struct tern_route_config {
     uint32_t announce_ppm; /* the cap: millionths of the node's time for announces */
     /* And a second allowance, as large or not, that only an announce carrying changed routes may
      * spend, once the cap cannot pay for it: what lets a network that is learning its routes learn
-     * them sooner, and costs nothing once its routes have settled. 0 for none. */
+     * them sooner, and costs nothing once its routes have settled: the specification's
+     * LEARN_SHARE of the announces' share. 0 for none. */
     uint32_t learn_ppm;
     uint32_t request_ppm; /* and for requests */
     tern_time cap_window;
