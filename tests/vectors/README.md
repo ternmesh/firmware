@@ -37,7 +37,8 @@ into a header for `tests/forward.c`, and its listens alone into one for `tests/l
 [`vectors/companion.json`](https://github.com/ternmesh/spec/blob/main/vectors/companion.json), as
 of the companion protocol's version 7, which adds join codes
 ([ternmesh/spec#32](https://github.com/ternmesh/spec/pull/32)). `companion_to_c.py` turns it into a
-header for `tests/companion.c`, and its connections alone into one for `tests/link.c`.
+header for `tests/companion.c`, and its connections and its `unknown_to_older` alone into one for
+`tests/link.c`.
 `tools/companion.py selftest` reads it directly.
 
 `flooding.json` and `groups.json` are copies of

@@ -19,8 +19,9 @@
  * share of a node's time they may take.
  *
  * This is the simulator's candidate 3 (ternmesh/sim, src/distvec.c) as its defaults leave it, and
- * as far as choosing routes: the frames that follow them, broadcast, electing relays and leaves
- * that move are not here yet. Every parameter is the simulator's default, and provisional.
+ * as far as choosing routes: the frames that follow them are tern/forward.h's, and broadcast is
+ * flooding's, tern/flood.h. Electing relays and leaves that move are not here yet. Every
+ * parameter is the simulator's default, and provisional.
  *
  * The router owns no clock, radio or memory. The caller gives it tables to keep its neighbours and
  * destinations in, tells it the time, hands it the routing frames the radio receives, and asks it
