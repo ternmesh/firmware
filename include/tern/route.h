@@ -198,6 +198,11 @@ struct tern_route_config {
     uint8_t dead_hops;       /* frames given up on running, unheard between, that forget one */
     uint8_t jitter;          /* airtimes a request waits, at most */
     uint8_t start_announces; /* announces a node is starting for */
+    /* A leaf with no route to a destination hands its frame to its nearest relay, which holds
+     * routes to every node: the leaf then needs a place only for what it is told of, not for
+     * every node. 0 for none, else the hops a frame so sent is taken to go, for its wait. An
+     * experiment, not the specification's. */
+    uint8_t default_hops;
 };
 
 /* The specification's parameters. */
