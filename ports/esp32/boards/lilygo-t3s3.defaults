@@ -1,0 +1,7 @@
+# LilyGo's T3-S3 V1.2 and V1.3 with an SX1276: an ESP32-S3 with 4 MB of flash, so the smaller slots
+# (partitions-4mb.csv). It has no USB-to-serial chip: its USB port is the ESP32-S3's own, so the
+# console, and the companion link a computer drives over it, are USB Serial/JTAG.
+CONFIG_TERN_BOARD_LILYGO_T3S3=y
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions-4mb.csv"

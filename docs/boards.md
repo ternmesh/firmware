@@ -16,6 +16,7 @@ between the core and a port is [architecture.md](architecture.md); this is about
 | Heltec WiFi LoRa 32 V2, V2.1 | ESP32 | SX1276 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board |
 | LilyGo T-Beam V1.0, V1.1 (AXP192) and V1.2 (AXP2101), 868/915 MHz | ESP32 | SX1276 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board; its GPS is left off |
 | LilyGo LoRa32 T3 V1.6.1 (868/915 MHz) | ESP32 | SX1276 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board; no user button, so it turns off only when its battery runs down |
+| LilyGo T3-S3 V1.2, V1.3 with an SX1276 (868/915 MHz) | ESP32-S3 | SX1276 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board |
 | Heltec Mesh Node T114 V2 | nRF52840 | SX1262 | [`ports/nrf52/`](../ports/nrf52/) | Built, not yet run on a board |
 | RAKwireless RAK4631 (on a RAK19007 or RAK19003) | nRF52840 | SX1262 | [`ports/nrf52/`](../ports/nrf52/) | Built, not yet run on a board; no user button |
 | Seeed Wio Tracker L1, L1 Lite | nRF52840 | SX1262 | [`ports/nrf52/`](../ports/nrf52/) | Built, not yet run on a board |
@@ -109,7 +110,7 @@ goes a family or a radio at a time, and each one brings a crowd of boards with i
 
 | What | Brings | Needs | Status |
 |---|---|---|---|
-| ESP32-S3 + SX1262 | Heltec V3, V4, Wireless Stick Lite V3, Wireless Tracker, Vision Master, Wireless Paper; LilyGo T3-S3, T-Beam Supreme, T-Deck; Seeed XIAO ESP32S3 kit; B&Q Station G2; RAK3312 | A row each; other screens for the T-Beam Supreme and the rest | Port exists: V3 runs; V4, Stick Lite V3, Tracker, Vision Master and Paper built |
+| ESP32-S3 + SX1262 or SX1276 | Heltec V3, V4, Wireless Stick Lite V3, Wireless Tracker, Vision Master, Wireless Paper; LilyGo T3-S3, T-Beam Supreme, T-Deck; Seeed XIAO ESP32S3 kit; B&Q Station G2; RAK3312 | A row each; colour and e-paper screens for the rest | Port exists: V3 runs; V4, Stick Lite V3, Tracker, Vision Master, Paper and the T3-S3 with an SX1276 built; the SH1106 is driven |
 | ESP32 (classic) + SX1276 | Heltec V2, V2.1, Wireless Stick; LilyGo T3 V1.6.1, LoRa32 V1.3, T-Beam to v1.2 | A row each | Port builds for it: V2, V2.1, T3 V1.6.1 and T-Beam built |
 | nRF52840 + SX1262 | Heltec T114, Mesh Pocket; RAK4631 and the WisMesh devices on it; Seeed Wio Tracker L1, XIAO nRF52840 kit; LilyGo T-Echo; Elecrow ThinkNode | An overlay each; e-paper for the T-Echo and others | Port exists: T114, RAK4631 and Wio Tracker L1 built |
 | SX1276/SX1278 driver | The boards above, and other boards of before 2022 | A driver in `src/`, beside the SX1262's | Done (`src/sx127x.c`); the SX1278's 433 MHz waits on a region for it |
@@ -131,9 +132,9 @@ In the order that reaches the most boards for the work:
 
 Rows, as above. Those whose makers' documents have been read, and what each still waits on:
 
-* **LilyGo T3-S3** (SX1262, V1.2 and V1.3): its pins are in LilyGo's wiki, schematics and
-  `utilities.h`, and its 4 MB of flash takes `partitions-4mb.csv`. Its TCXO's voltage is not
-  documented.
+* **LilyGo T3-S3 with an SX1262** (V1.2 and V1.3): its pins are in LilyGo's wiki, schematics and
+  `utilities.h`, which also give the SX1276's, built as `lilygo-t3s3`. The SX1262's module has a
+  32 MHz TCXO on DIO3, whose voltage LilyGo's documents do not give.
 * **Seeed XIAO ESP32S3 with the Wio-SX1262**: its pins are in Seeed's two schematics, but the
   module's RF_SW line (GPIO38) has no documented level, and its button (GPIO21) is the XIAO's LED's
   pin too. It waits on a row for a pin that enables the antenna switch, and on a board to try both
@@ -148,9 +149,11 @@ Rows, as above. Those whose makers' documents have been read, and what each stil
   whether it is fitted.
 * **LilyGo T-Beam with an SX1262**: LilyGo does not give its TCXO's voltage.
 * **LilyGo T-Beam Supreme**: its AXP2101 is driven now (`ports/node/axp.h`), and its pins and
-  rails are in LilyGo's documents. It waits on its SX1262's TCXO voltage, which LilyGo does not
-  give, and a driver for its SH1106 screen.
-* **B&Q Station G2**: waits on its maker's documents.
+  rails are in LilyGo's documents, and its SH1106 screen is driven (from Sino Wealth's
+  datasheet). It waits on the TCXO voltage of its HPD16A module, which neither LilyGo nor the
+  module's maker publishes.
+* **B&Q Station G2**: B&Q's page gives its TCXO, 1.8 V, its amplifier and its power, but none of
+  its pins, and links no schematic. It waits on those.
 
 And the screens these boards have, which the port does not drive yet: the Wireless Tracker's
 80x160 TFT, and the Vision Masters' and Wireless Paper's e-paper. Each runs without one today.

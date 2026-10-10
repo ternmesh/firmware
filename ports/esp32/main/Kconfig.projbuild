@@ -45,7 +45,18 @@ menu "Tern demo"
         config TERN_BOARD_LILYGO_TBEAM12
             bool "LilyGo T-Beam V1.2 (AXP2101, SX1276)"
             depends on IDF_TARGET_ESP32
+        config TERN_BOARD_LILYGO_T3S3
+            bool "LilyGo T3-S3 V1.2 and V1.3 (SX1276)"
+            depends on IDF_TARGET_ESP32S3
     endchoice
+
+    config TERN_SCREEN_SH1106
+        bool "The screen is an SH1106 (a 1.3-inch panel)"
+        default n
+        help
+            For a board whose screen is fitted to its header rather than made with it, as the
+            T-Beam's is: a 1.3-inch 128x64 panel is usually an SH1106 rather than the SSD1306 the
+            0.96-inch one is. Without this its picture sits two columns off, or does not show.
 
     config TERN_BOARD_NAME
         string
@@ -61,6 +72,7 @@ menu "Tern demo"
         default "lilygo-t3-v161" if TERN_BOARD_LILYGO_T3_V161
         default "lilygo-tbeam" if TERN_BOARD_LILYGO_TBEAM
         default "lilygo-tbeam12" if TERN_BOARD_LILYGO_TBEAM12
+        default "lilygo-t3s3" if TERN_BOARD_LILYGO_T3S3
 
     rsource "../../node/Kconfig.tern"
 

@@ -29,6 +29,12 @@ enum board_soc {
     BOARD_ESP32,
 };
 
+/* The screen's controller. Both take a 128x64 panel a page at a time over I2C at 0x3C. */
+enum board_oled {
+    BOARD_SSD1306, /* or one that takes its commands, as the SSD1315 does */
+    BOARD_SH1106,  /* 132 columns of RAM, the panel's 128 in the middle; its own DC-DC */
+};
+
 /* The LoRa radio, which board.c drives with tern/sx126x.h or tern/sx127x.h. */
 enum board_chip {
     BOARD_SX1262,
@@ -60,9 +66,10 @@ struct board_def {
     int8_t led;      /* BOARD_NO_PIN for none */
     bool led_low_on; /* lit when low, rather than high */
 
-    /* A 128x64 SSD1306 or a controller that takes its commands (the SSD1315), on I2C. */
+    /* A 128x64 panel on I2C. */
     struct {
         int8_t sda, scl, reset; /* sda BOARD_NO_PIN for none */
+        enum board_oled oled;
     } screen;
 
     /* The switched supply the screen is on, and whether high turns it on. Where it supplies more
@@ -115,6 +122,7 @@ extern const struct board_def board_heltec_v21;
 extern const struct board_def board_lilygo_t3_v161;
 extern const struct board_def board_lilygo_tbeam;
 extern const struct board_def board_lilygo_tbeam12;
+extern const struct board_def board_lilygo_t3s3;
 
 /* Every board this port knows, ending with NULL. */
 extern const struct board_def *const board_defs[];

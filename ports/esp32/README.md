@@ -37,6 +37,11 @@ run on another. Everything below holds for each, unless it says otherwise.
 | LilyGo T-Beam V1.0, V1.1 (868/915 MHz) | `lilygo-tbeam` | Built, not yet run on a board | A classic ESP32 and an SX1276, powered through an AXP192, which also measures its battery. Its button is the one marked IO38; its GPS is left off. A screen on its header is used if fitted. |
 | LilyGo T-Beam V1.2 (868/915 MHz) | `lilygo-tbeam12` | Built, not yet run on a board | As the V1.1, with an AXP2101. |
 | LilyGo LoRa32 T3 V1.6.1 (868/915 MHz) | `lilygo-t3-v161` | Built, not yet run on a board | A classic ESP32 and an SX1276. Its only button is RESET, so it turns off only when its battery runs down. Not the 433 MHz board, which has an SX1278. |
+| LilyGo T3-S3 V1.2, V1.3 with an SX1276 (868/915 MHz) | `lilygo-t3s3` | Built, not yet run on a board | An ESP32-S3 with 4 MB of flash and an SX1276, 2 to 17 dBm. USB from the ESP32-S3 itself: the port is `/dev/ttyACM0` or similar. Not the SX1262 or SX1278 boards. |
+
+A screen fitted to a board's header, as the T-Beam's is, is taken to be a 0.96-inch SSD1306. A
+1.3-inch one is usually an SH1106: build with `CONFIG_TERN_SCREEN_SH1106=y` ("The screen is an
+SH1106" in `idf.py menuconfig`) for it.
 
 A board without a screen it can drive runs as one with no screen: the console, the companion link
 and the LED say what it is doing.

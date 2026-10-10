@@ -332,19 +332,43 @@ const struct board_def board_lilygo_tbeam12 = {
     .max_dbm = PA_BOOST_MAX_DBM,
 };
 
-const struct board_def *const board_defs[] = {&board_heltec_v3,
-                                              &board_heltec_v4,
-                                              &board_heltec_wsl_v3,
-                                              &board_heltec_tracker,
-                                              &board_heltec_vme290,
-                                              &board_heltec_vme213,
-                                              &board_heltec_paper,
-                                              &board_heltec_v2,
-                                              &board_heltec_v21,
-                                              &board_lilygo_t3_v161,
-                                              &board_lilygo_tbeam,
-                                              &board_lilygo_tbeam12,
-                                              NULL};
+/* LilyGo's T3-S3 V1.2 and V1.3 with an SX1276, from their schematics (T3_S3_V1.2, T3_S3_V1.3, in
+ * Xinyuan-LilyGO/LilyGo-LoRa-Series) and LilyGo's hardware page for it (t3_s3_sx1276), which says
+ * the two take the same pins and differ only in charging: an ESP32-S3FH4R2, with 4 MB of flash, and
+ * the radio on NSS 7, SCK 5, MOSI 6, MISO 3, RESET 8, from a crystal (a TCXO is a different
+ * product). LilyGo's examples drive it at 17 dBm, which only PA_BOOST gives. BOOT on GPIO0, the
+ * green LED on GPIO37, lit when high, a 128x64 SSD1306 at 0x3C on SDA 18, SCL 17 without a reset,
+ * and the battery through 100k over 100k onto GPIO1, always connected. USB from the ESP32-S3's own
+ * port. LilyGo rates no power. Sold with an SX1262, whose TCXO's supply LilyGo does not give, and
+ * with an SX1278 for 433 MHz; this image is for neither. */
+const struct board_def board_lilygo_t3s3 = {
+    .name = "lilygo-t3s3",
+    .title = "LilyGo T3-S3 V1.2 (SX1276)",
+    .soc = BOARD_ESP32S3,
+    .lora = {.chip = BOARD_SX1276,
+             .nss = 7,
+             .sck = 5,
+             .mosi = 6,
+             .miso = 3,
+             .reset = 8,
+             .busy = BOARD_NO_PIN,
+             .pa_boost = true},
+    .button = 0,
+    .led = 37,
+    .screen = {.sda = 18, .scl = 17, .reset = BOARD_NO_PIN},
+    .vext = BOARD_NO_PIN,
+    .battery = {.sense = 1, .enable = BOARD_NO_PIN, .top_k = 100, .bottom_k = 100},
+    .amp = NO_AMP,
+    .max_dbm = PA_BOOST_MAX_DBM,
+};
+
+const struct board_def *const board_defs[] = {&board_heltec_v3,     &board_heltec_v4,
+                                              &board_heltec_wsl_v3, &board_heltec_tracker,
+                                              &board_heltec_vme290, &board_heltec_vme213,
+                                              &board_heltec_paper,  &board_heltec_v2,
+                                              &board_heltec_v21,    &board_lilygo_t3_v161,
+                                              &board_lilygo_tbeam,  &board_lilygo_tbeam12,
+                                              &board_lilygo_t3s3,   NULL};
 
 const struct board_def *board_def_named(const char *name) {
     for (size_t i = 0; name != NULL && board_defs[i] != NULL; i++) {
