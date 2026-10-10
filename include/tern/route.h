@@ -209,6 +209,7 @@ struct tern_route_config {
      * them sooner, and costs nothing once its routes have settled: the specification's
      * LEARN_SHARE of the announces' share. 0 for none. */
     uint32_t learn_ppm;
+    tern_time learn_for;  /* and for how long after the node starts it may */
     uint32_t request_ppm; /* and for requests */
     tern_time cap_window;
     uint8_t burst;
@@ -369,6 +370,7 @@ struct tern_route {
     struct tern_route_bucket announces; /* the cap, in two */
     struct tern_route_bucket requests;
     struct tern_route_bucket learning; /* learn_ppm's */
+    tern_time learn_until;             /* the end of learn_for */
     bool announcing;                   /* an announce is due, when its bucket can pay */
     uint8_t burst;                     /* frames sent of it so far */
     tern_time announce_at;

@@ -371,8 +371,8 @@ static void routing_keeps_to_its_cap(void) {
 }
 
 /* The learning allowance, as the specification sizes it: while nothing settles a router spends no
- * more than the cap, the allowance and what their buckets held, and once its routes have settled
- * it spends what it would have without one. */
+ * more than the cap, the allowance and what their buckets held, and once LEARN_FOR has passed it
+ * spends none of it and what it would have without one. */
 static void learning_spends_only_while_routes_change(void) {
     tern_time full_frame, churned[2], settled[2];
     for (int learn = 0; learn < 2; learn++) {
@@ -399,15 +399,20 @@ static void learning_spends_only_while_routes_change(void) {
         for (int i = 0; i < 8; i++) {
             churned[learn] += net.node[i].airtime;
         }
-        /* Then nothing restarts for two hours, and the third is counted. */
-        run(&net, TERN_S(60) * 120 + TERN_S(2 * 3600));
-        tern_time before = 0, after = 0;
+        /* Then nothing restarts until the last to start has run out its allowance, and the hour
+         * after is counted. */
+        tern_time learn_for = tern_route_defaults(&net.lora, FULL, -9, true).learn_for;
+        run(&net, TERN_S(60) * 120 + learn_for);
+        tern_time before = 0, after = 0, held[8];
         for (int i = 0; i < 8; i++) {
             before += net.node[i].airtime;
+            held[i] = net.node[i].r.learning.have;
         }
-        run(&net, TERN_S(60) * 120 + TERN_S(3 * 3600));
+        run(&net, TERN_S(60) * 120 + learn_for + TERN_S(3600));
         for (int i = 0; i < 8; i++) {
             after += net.node[i].airtime;
+            /* Past its time, nothing more is taken from the allowance. */
+            CHECK_EQ_I64(net.node[i].r.learning.have, held[i]);
         }
         settled[learn] = after - before;
     }
