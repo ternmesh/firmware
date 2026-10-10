@@ -51,6 +51,13 @@ struct step {
     uint8_t frame[BYTES];
     size_t len;
 };
+struct unknown_case {
+    const char *why;
+    uint8_t version; /* the version both ends speak */
+    uint8_t frame[BYTES];
+    size_t len;
+    int answer; /* the ERROR code a node answers with, or -1 for none */
+};
 
 #include "companion.h"
 
@@ -296,6 +303,25 @@ static void a_later_type_is_unknown_to_an_earlier_version(void) {
     CHECK_EQ_U64(tern_companion_write_as(&m, out, 2), 2 + TERN_COMPANION_GROUP);
 }
 
+/* A frame of a type, or naming a setting, that a later version added reads as unknown to the
+ * version both ends speak, whole as it is: a node answers the requests among them, and a client
+ * ignores the news and discards the answers. tests/link.c checks what the node sends. */
+static void later_frames_are_unknown_to_older_versions(void) {
+    for (size_t i = 0; i < COUNT(unknown_to_older); i++) {
+        const struct unknown_case *c = &unknown_to_older[i];
+        struct tern_companion_msg m = {0};
+        enum tern_companion_read got = tern_companion_read_as(&m, c->frame, c->len, c->version);
+        int answer = tern_companion_request(c->frame[0]) ? (int)got : -1;
+        if (got != TERN_C_READ_UNKNOWN || answer != c->answer) {
+            fprintf(stderr, "unknown_to_older: %s, version %u\n", c->why, c->version);
+        }
+        CHECK_EQ_I64(got, TERN_C_READ_UNKNOWN);
+        CHECK_EQ_I64(answer, c->answer);
+        /* Each is a frame the latest version reads. */
+        CHECK_EQ_I64(tern_companion_read(&m, c->frame, c->len), TERN_C_READ_OK);
+    }
+}
+
 static void nothing_is_written_that_cannot_be_read(void) {
     struct tern_companion_msg m = {.type = TERN_C_SET, .seq = 1, .setting = 9};
     uint8_t out[TERN_COMPANION_MAX_FRAME];
@@ -319,6 +345,7 @@ int main(void) {
     RUN(each_connection_is_read_by_its_version);
     RUN(synced_carries_the_count_from_version_3);
     RUN(a_later_type_is_unknown_to_an_earlier_version);
+    RUN(later_frames_are_unknown_to_older_versions);
     RUN(nothing_is_written_that_cannot_be_read);
     return CHECK_DONE();
 }

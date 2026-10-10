@@ -17,6 +17,7 @@ idf_component_register(
         ${node}/ui.c
         ${node}/qr.c
         ${node}/power.c
+        ${node}/axp.c
         ${root}/src/address.c
         ${root}/src/aes.c
         ${root}/src/card.c
