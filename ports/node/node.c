@@ -87,7 +87,10 @@
 #define UNREAD_LED false
 #endif
 #define ACCEPT_S 120
-#define NEIGHBOURS 64 /* 2.5 kB; in a crowd, 32 held a tenth fewer routes in the simulator */
+/* 11 kB with heard_snr. In the simulator's thousand nodes, each heard by hundreds, 64 left relays
+ * starved of routes whenever a link went down, and delivered 83% of unicasts on EU868's settings
+ * and 92% on US915's; 128 delivered 94% and 96%, and 255 no more. */
+#define NEIGHBOURS 128
 /* A relay's table is how large a network it can carry: RELAY_PLACES, 1024, in the specification's
  * routing draft, at 64 bytes each. A board with the RAM for it says so in its build; the rest keep
  * 128 until they are measured, which with the default route is room enough for a leaf. */
