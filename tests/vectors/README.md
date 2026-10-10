@@ -77,5 +77,9 @@ adds cards to `flooding.json`. `cards_to_c.py` turns it into a header for `tests
 `positions.json` is since as of [ternmesh/spec#29](https://github.com/ternmesh/spec/pull/29), whose
 group frames carry a count.
 
+`routing.json`, `flooding.json` and `positions.json` are since as of
+[ternmesh/spec#36](https://github.com/ternmesh/spec/pull/36) too, which adds the AU915 and NZ915
+profiles to each.
+
 When the specification's vectors change, copy the new file here in the same pull request that
 changes the code to match, and update the commit above.
