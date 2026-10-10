@@ -338,6 +338,8 @@ struct tern_route_config tern_route_defaults(const struct tern_lora *lora, int8_
         .dead_hops = 24,
         .jitter = 2,
         .start_announces = 4,
+        .address_after = 3,
+        .address_every = 8,
         .default_hops = 6,
         .default_busy_ppm = 500000,
     };
@@ -675,6 +677,7 @@ static uint8_t neighbour_make(struct tern_route *r, uint32_t id, int32_t floor) 
         forget(r, (uint8_t)(at + 1));
     }
     r->nb[at] = (struct tern_route_neighbour){.id = id, .used = true, .owed = true};
+    r->address_owed = r->config.address_after;
     return (uint8_t)(at + 1);
 }
 
@@ -736,15 +739,12 @@ static void refill(struct tern_route_bucket *b, tern_time now) {
 
 /* --- Announcing --- */
 
-/* Whether the next announce carries this node's address: while it is starting, and while a
- * neighbour it keeps gives it no margin, and so may not hold it. */
+/* Whether the next announce carries this node's address: while it is starting, in the few after
+ * it finds a neighbour, which may not hold it, and at least once in every so many, for any that
+ * missed those. */
 static bool carries_address(const struct tern_route *r) {
-    for (size_t i = 0; !r->starting && i < r->nb_cap; i++) {
-        if (r->nb[i].used && r->nb[i].theirs == 0) {
-            return true;
-        }
-    }
-    return r->starting != 0;
+    return r->starting || r->address_owed ||
+           r->since_address + 1u >= (r->config.address_every ? r->config.address_every : 1u);
 }
 
 /* An announce's length before its neighbours and routes. */
@@ -933,6 +933,12 @@ static size_t announce(struct tern_route *r, uint8_t *frame, int8_t *power) {
     }
     len = build(r, frame, power);
     b->have -= airtime(r, len) * MILLION;
+    if (len > 9 && (frame[9] & FLAG_ADDRESS)) {
+        r->since_address = 0;
+        r->address_owed = (uint8_t)(r->address_owed - (r->address_owed > 0));
+    } else if (r->since_address < UINT8_MAX) {
+        r->since_address++;
+    }
     r->number++;
     r->asked = false;
     r->out = true;

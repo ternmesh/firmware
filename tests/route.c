@@ -298,8 +298,8 @@ static void an_announce_is_taken_only_if_it_can_be_checked(void) {
     }
 }
 
-/* What goes on the air is signed, and carries the address while the node is starting and while a
- * neighbour gives it no margin, and not once every neighbour does. */
+/* What goes on the air is signed, and carries the address while the node is starting, and after
+ * that, with no neighbour new, in one announce of every address_every. */
 static void a_router_signs_and_carries_its_address_while_it_is_needed(void) {
     const struct tern_region *us = tern_region(TERN_REGION_US915);
     struct tern_lora lora = tern_region_lora(us);
@@ -312,8 +312,8 @@ static void a_router_signs_and_carries_its_address_while_it_is_needed(void) {
     uint8_t frame[TERN_ROUTE_FRAME_MAX];
     int8_t dbm;
     tern_time now = 0;
-    bool carried_after = false, settled = false;
-    int after = 0;
+    bool settled = false;
+    int after = 0, sent_after = 0, carried_after = 0;
     tern_identity_init(&id_a, seed_a);
     tern_identity_init(&id_b, seed_b);
     tern_route_init(&a, &config, tern_route_id(id_a.address), nb_a, 4, dest_a, 4, 0, 1, 0);
@@ -339,9 +339,8 @@ static void a_router_signs_and_carries_its_address_while_it_is_needed(void) {
             if (x.starting) {
                 CHECK(x.carries_address);
             }
-            if (settled && x.carries_address) {
-                carried_after = true; /* once both name each other, it stops */
-            }
+            sent_after += settled;
+            carried_after += settled && x.carries_address;
             tern_route_heard(to, now, frame, len, 40);
         }
         settled = settled || (!a.starting && !b.starting && nb_a[0].used && nb_a[0].theirs != 0 &&
@@ -349,7 +348,9 @@ static void a_router_signs_and_carries_its_address_while_it_is_needed(void) {
         after += settled;
     }
     CHECK(settled);
-    CHECK(!carried_after);
+    CHECK(sent_after >= 4 * config.address_every);
+    CHECK(carried_after >= sent_after / config.address_every - 2);
+    CHECK(carried_after <= sent_after / config.address_every + 2);
     CHECK(nb_a[0].has_address && memcmp(nb_a[0].address, id_b.address, 32) == 0);
     CHECK(nb_b[0].has_address && memcmp(nb_b[0].address, id_a.address, 32) == 0);
 }

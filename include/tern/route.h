@@ -218,6 +218,8 @@ struct tern_route_config {
     uint8_t dead_hops;       /* frames given up on running, unheard between, that forget one */
     uint8_t jitter;          /* airtimes a request waits, at most */
     uint8_t start_announces; /* announces a node is starting for */
+    uint8_t address_after;   /* announces that carry the address after a neighbour is found */
+    uint8_t address_every;   /* and at least one in this many does */
     /* A leaf's default route (the specification's): with no route to a destination, a leaf
      * hands its frame to its nearest relay, which holds routes to every node, so the leaf needs
      * places only for what it sends to. default_hops is DEFAULT_HOPS, the links the route is
@@ -323,6 +325,8 @@ struct tern_route {
     uint16_t number;  /* of its next announce */
     uint16_t cost;    /* a link's */
     uint8_t starting; /* announces it has still to send before it selects routes through others */
+    uint8_t address_owed;  /* announces still to carry the address for a neighbour just found */
+    uint8_t since_address; /* announces since the last that carried it */
 
     struct tern_route_neighbour *nb;
     size_t nb_cap;
