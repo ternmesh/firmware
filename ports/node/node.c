@@ -3421,13 +3421,12 @@ void node_main(void) {
     tern_route_init(&route, &rc, tern_route_id(demo.id.address), neighbours, NEIGHBOURS,
                     destinations, DESTINATIONS, route_seq_saved, seed, board_now());
     {
-        /* The first number is the one stored ahead last time, and the next is stored before the
-         * first announce goes. With none stored, any will do. Until one is, nothing is sent. */
-        uint16_t first = (uint16_t)seed, kept;
+        /* The first number is the one stored ahead last time, or any with none stored. Nothing is
+         * kept beyond it yet, so the first announce waits for poll_route() to store more: a board
+         * that restarts again before it sends anything has used up no numbers. */
+        uint16_t first = (uint16_t)seed;
         (void)store_load(NULL, "number", &first, sizeof first);
-        kept = (uint16_t)(first + NUMBER_SAVE);
-        tern_route_numbering_from(&route, first,
-                                  store_save(NULL, "number", &kept, sizeof kept) ? kept : first);
+        tern_route_numbering_from(&route, first, first);
     }
     tern_route_auth(&route, &(struct tern_route_auth){.address = demo.id.address,
                                                       .ctx = &demo.id,
