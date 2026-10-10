@@ -133,6 +133,10 @@ static uint16_t route_seq_saved;
 /* Announce numbers are stored this far ahead, so that none is sent twice across a restart: the
  * specification's NUMBER_SAVE. */
 #define NUMBER_SAVE 256
+/* Whether a routing frame has gone on the air since the board started: until one has, numbers are
+ * stored ahead one at a time, so that a board that keeps restarting before anything goes uses up
+ * one number a restart, not NUMBER_SAVE. */
+static bool route_on_air;
 static bool route_out;   /* the frame on the air is the router's */
 static int8_t power_now; /* what the radio is set to send at, or POWER_UNSET */
 static uint8_t route_frame[TERN_ROUTE_FRAME_MAX]; /* the router's, until it has gone */
@@ -932,6 +936,7 @@ static void poll_radio(void) {
         if (route_out) {
             tern_route_sent(&route, board_now());
             route_out = false;
+            route_on_air = true;
         }
         if (flood_out) {
             tern_flood_sent(&flood, board_now(), flood_handle);
@@ -1428,10 +1433,12 @@ static void poll_route(void) {
             !tern_duty_allows(&duty, now, tern_lora_airtime(&cfg.mod, TERN_ROUTE_FRAME_MAX))) {
             return;
         }
-        /* Numbers are stored ahead only once something is due, so that a board restarting over
-         * and over without sending uses none up. */
-        if (tern_route_numbers_left(&route) < NUMBER_SAVE / 2) {
-            uint16_t kept = (uint16_t)(route.number + NUMBER_SAVE);
+        /* Numbers are stored ahead only once something is due, and only one until something has
+         * gone on the air, so that a board restarting over and over without sending uses up at
+         * most one a restart. */
+        if (route_on_air ? tern_route_numbers_left(&route) < NUMBER_SAVE / 2
+                         : tern_route_numbers_left(&route) == 0) {
+            uint16_t kept = (uint16_t)(route.number + (route_on_air ? NUMBER_SAVE : 1));
             if (store_save(NULL, "number", &kept, sizeof kept)) {
                 tern_route_kept(&route, kept);
             }
