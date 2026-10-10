@@ -1209,7 +1209,9 @@ bool tern_route_next(const struct tern_route *r, uint32_t destination, uint32_t 
             return false;
         }
         *next = slot(r, s)->id;
-        *metric = total((uint16_t)(r->config.default_hops - 1) * r->cost, r->cost);
+        /* default_hops links' worth, kept short of a retraction however slow the profile. */
+        uint32_t t = (uint32_t)r->config.default_hops * r->cost;
+        *metric = t >= INF ? INF - 1 : (uint16_t)t;
         return true;
     }
     *next = slot(r, d->sel)->id;
