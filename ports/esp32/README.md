@@ -34,6 +34,8 @@ run on another. Everything below holds for each, unless it says otherwise.
 | Heltec Wireless Paper | `heltec-paper` | Built, not yet run on a board | Runs without its e-paper for now. USB through a CP2102. |
 | Heltec WiFi LoRa 32 V2 | `heltec-v2` | Built, not yet run on a board | A classic ESP32 and an SX1276, 2 to 17 dBm. USB through a CP2102. |
 | Heltec WiFi LoRa 32 V2.1 | `heltec-v21` | Built, not yet run on a board | A V2 that reads its battery on another pin: an image for the one does not read the other's battery. |
+| LilyGo T-Beam V1.0, V1.1 (868/915 MHz) | `lilygo-tbeam` | Built, not yet run on a board | A classic ESP32 and an SX1276, powered through an AXP192, which also measures its battery. Its button is the one marked IO38; its GPS is left off. A screen on its header is used if fitted. |
+| LilyGo T-Beam V1.2 (868/915 MHz) | `lilygo-tbeam12` | Built, not yet run on a board | As the V1.1, with an AXP2101. |
 | LilyGo LoRa32 T3 V1.6.1 (868/915 MHz) | `lilygo-t3-v161` | Built, not yet run on a board | A classic ESP32 and an SX1276. Its only button is RESET, so it turns off only when its battery runs down. Not the 433 MHz board, which has an SX1278. |
 
 A board without a screen it can drive runs as one with no screen: the console, the companion link

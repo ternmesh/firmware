@@ -39,6 +39,12 @@ menu "Tern demo"
         config TERN_BOARD_LILYGO_T3_V161
             bool "LilyGo LoRa32 T3 V1.6.1 (SX1276)"
             depends on IDF_TARGET_ESP32
+        config TERN_BOARD_LILYGO_TBEAM
+            bool "LilyGo T-Beam V1.0 and V1.1 (AXP192, SX1276)"
+            depends on IDF_TARGET_ESP32
+        config TERN_BOARD_LILYGO_TBEAM12
+            bool "LilyGo T-Beam V1.2 (AXP2101, SX1276)"
+            depends on IDF_TARGET_ESP32
     endchoice
 
     config TERN_BOARD_NAME
@@ -53,6 +59,8 @@ menu "Tern demo"
         default "heltec-v2" if TERN_BOARD_HELTEC_V2
         default "heltec-v21" if TERN_BOARD_HELTEC_V21
         default "lilygo-t3-v161" if TERN_BOARD_LILYGO_T3_V161
+        default "lilygo-tbeam" if TERN_BOARD_LILYGO_TBEAM
+        default "lilygo-tbeam12" if TERN_BOARD_LILYGO_TBEAM12
 
     rsource "../../node/Kconfig.tern"
 
