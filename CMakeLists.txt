@@ -52,6 +52,7 @@ add_library(tern
     src/share.c
     src/sx126x.c
     src/sx127x.c
+    src/lr11xx.c
     src/unicast.c
     src/x25519.c
 )
@@ -60,7 +61,7 @@ target_compile_options(tern PRIVATE ${TERN_WARNINGS})
 
 include(CTest)
 if(BUILD_TESTING)
-    foreach(t address card companion contact crypto duty flood forward group listen lora mesh position radio region route share sx126x sx127x unicast)
+    foreach(t address card companion contact crypto duty flood forward group listen lora mesh position radio region route share sx126x sx127x lr11xx unicast)
         add_executable(test_${t} tests/${t}.c)
         target_link_libraries(test_${t} PRIVATE tern)
         # The test files define their cases as static functions, so the prototype warning is
