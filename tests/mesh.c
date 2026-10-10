@@ -38,6 +38,7 @@ struct net {
     tern_time now;
     size_t nb_cap, dest_cap;
     tern_time silent_max;
+    uint32_t learn_ppm;   /* the routers' learning allowance */
     int loops;            /* times a check found one */
     tern_time loop_last;  /* and when it last did */
     tern_time loop_since; /* when the loops there are now began, or -1 */
@@ -50,6 +51,7 @@ static void start(struct net *net, int i, uint16_t seq) {
     struct node *x = &net->node[i];
     struct tern_route_config c = tern_route_defaults(&net->lora, FULL, -9, x->relay);
     c.silent_max = net->silent_max ? net->silent_max : c.silent_max;
+    c.learn_ppm = net->learn_ppm;
     tern_route_init(&x->r, &c, id_of(i), x->nb, net->nb_cap, x->dest, net->dest_cap, seq,
                     0x9E3779B97F4A7C15ULL * (uint64_t)(i + 1) + (uint64_t)net->now, net->now);
     uint16_t first = x->has_kept ? x->kept : x->r.number;
@@ -368,6 +370,51 @@ static void routing_keeps_to_its_cap(void) {
     }
 }
 
+/* The learning allowance, as the specification sizes it: while nothing settles a router spends no
+ * more than the cap, the allowance and what their buckets held, and once its routes have settled
+ * it spends what it would have without one. */
+static void learning_spends_only_while_routes_change(void) {
+    tern_time full_frame, churned[2], settled[2];
+    for (int learn = 0; learn < 2; learn++) {
+        net_init(&net, 8);
+        net.learn_ppm = learn ? tern_route_defaults(&net.lora, FULL, -9, true).learn_ppm : 0;
+        for (int a = 0; a < 8; a++) {
+            for (int b = a + 1; b < 8; b++) {
+                if ((a * 7 + b * 3) % 4 != 0) {
+                    link(&net, a, b, 10);
+                }
+            }
+        }
+        start_all(&net);
+        full_frame = tern_lora_airtime(&net.lora, 255);
+        for (int m = 1; m <= 120; m++) {
+            run(&net, TERN_S(60) * m);
+            start(&net, m % 8, 0);
+            for (int i = 0; i < 8; i++) {
+                CHECK(net.node[i].airtime <=
+                      (TERN_S(60) * m / 200 + 2 * full_frame * (m / 8 + 2)) * (learn ? 2 : 1));
+            }
+        }
+        churned[learn] = 0;
+        for (int i = 0; i < 8; i++) {
+            churned[learn] += net.node[i].airtime;
+        }
+        /* Then nothing restarts for two hours, and the third is counted. */
+        run(&net, TERN_S(60) * 120 + TERN_S(2 * 3600));
+        tern_time before = 0, after = 0;
+        for (int i = 0; i < 8; i++) {
+            before += net.node[i].airtime;
+        }
+        run(&net, TERN_S(60) * 120 + TERN_S(3 * 3600));
+        for (int i = 0; i < 8; i++) {
+            after += net.node[i].airtime;
+        }
+        settled[learn] = after - before;
+    }
+    CHECK(churned[1] > churned[0] + churned[0] / 8); /* spent while routes changed */
+    CHECK(settled[1] <= settled[0] + 2 * full_frame);
+}
+
 static void a_crowd_turns_its_announces_down(void) {
     int8_t dbm = FULL;
     net_init(&net, 12);
@@ -523,6 +570,7 @@ int main(void) {
     RUN(a_node_that_restarts_is_routed_to_again);
     RUN(a_leaf_is_reached_but_never_routed_through);
     RUN(routing_keeps_to_its_cap);
+    RUN(learning_spends_only_while_routes_change);
     RUN(a_crowd_turns_its_announces_down);
     RUN(tables_too_small_hold_what_they_can);
     RUN(routes_never_loop_whatever_is_lost);
