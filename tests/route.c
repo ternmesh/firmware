@@ -23,8 +23,16 @@ struct promise_case {
 };
 struct announce_case {
     struct tern_announce fields;
+    uint8_t seed[32];
+    uint8_t address[32]; /* the signer's */
     size_t len;
     uint8_t frame[255];
+};
+struct verified_case {
+    int announce;
+    bool held;
+    uint8_t held_address[32];
+    bool takes;
 };
 struct request_case {
     struct tern_request fields;
@@ -112,6 +120,25 @@ struct default_case {
 
 #define COUNT(a) (sizeof(a) / sizeof(a)[0])
 
+/* Ed25519 under an identity, as a board's router signs and checks. */
+static void sign_ed25519(void *ctx, const uint8_t *m, size_t len, uint8_t sig[TERN_ANNOUNCE_SIG]) {
+    tern_identity_sign(ctx, m, len, sig);
+}
+
+static bool verify_ed25519(void *ctx, const uint8_t address[TERN_ADDRESS_LEN], const uint8_t *m,
+                           size_t len, const uint8_t sig[TERN_ANNOUNCE_SIG]) {
+    (void)ctx;
+    return tern_address_valid(address) && tern_address_verify(address, m, len, sig);
+}
+
+/* A router that signs and checks, as the node with that seed. */
+static void route_signed(struct tern_route *r, struct tern_identity *id, const uint8_t seed[32]) {
+    tern_identity_init(id, seed);
+    tern_route_auth(
+        r, &(struct tern_route_auth){
+               .address = id->address, .ctx = id, .sign = sign_ed25519, .verify = verify_ed25519});
+}
+
 static void ids_come_from_addresses(void) {
     for (size_t i = 0; i < COUNT(ids); i++) {
         CHECK_EQ_U64(tern_route_id(ids[i].address), ids[i].id);
@@ -136,10 +163,17 @@ static void promises_round_up(void) {
 static void announces_are_written_and_read(void) {
     for (size_t i = 0; i < COUNT(announces); i++) {
         const struct announce_case *c = &announces[i];
-        uint8_t frame[255];
+        uint8_t frame[255], m[TERN_ANNOUNCE_LABEL_LEN + TERN_ROUTE_FRAME_MAX];
         struct tern_announce a;
+        struct tern_identity id;
+        tern_identity_init(&id, c->seed);
+        CHECK(memcmp(id.address, c->address, 32) == 0);
         CHECK_EQ_I64(tern_announce_write(&c->fields, frame), c->len);
+        tern_identity_sign(&id, m, tern_announce_signed(frame, c->len, m),
+                           frame + c->len - TERN_ANNOUNCE_SIG);
         CHECK(memcmp(frame, c->frame, c->len) == 0);
+        CHECK(verify_ed25519(NULL, c->address, m, tern_announce_signed(c->frame, c->len, m),
+                             c->frame + c->len - TERN_ANNOUNCE_SIG));
         CHECK(tern_route_frame(c->frame, c->len));
         CHECK(tern_announce_read(&a, c->frame, c->len));
         CHECK(a.sender == c->fields.sender && a.number == c->fields.number);
@@ -148,6 +182,9 @@ static void announces_are_written_and_read(void) {
         CHECK(a.promise == c->fields.promise && a.round == c->fields.round);
         CHECK(a.power == c->fields.power);
         CHECK(a.named_count == c->fields.named_count && a.route_count == c->fields.route_count);
+        CHECK(a.carries_address == c->fields.carries_address);
+        CHECK(!a.carries_address || memcmp(a.address, c->address, 32) == 0);
+        CHECK(memcmp(a.sig, c->frame + c->len - TERN_ANNOUNCE_SIG, TERN_ANNOUNCE_SIG) == 0);
         for (int k = 0; k < a.named_count; k++) {
             CHECK(a.named[k].id == c->fields.named[k].id);
             CHECK(a.named[k].margin == c->fields.named[k].margin);
@@ -178,23 +215,35 @@ static void requests_are_written_and_read(void) {
 }
 
 /* A router that takes a frame gains a neighbour, or changes its Trickle interval: one that
- * discards it is left exactly as it was. */
+ * discards it is left exactly as it was, whether or not it held the sender's address. */
 static void frames_the_specification_rejects_change_nothing(void) {
     const struct tern_region *us = tern_region(TERN_REGION_US915);
     struct tern_lora lora = tern_region_lora(us);
     struct tern_route_config config = tern_route_defaults(&lora, 22, -9, true);
-    for (size_t i = 0; i < COUNT(rejected); i++) {
-        struct tern_route_neighbour nb[4];
-        struct tern_route_dest dest[4];
-        struct tern_route r, before;
-        tern_route_init(&r, &config, VECTOR_OWN_ID, nb, 4, dest, 4, 0, 7, 0);
-        r.interval = TERN_S(64); /* so that anything taken as a request shows */
-        before = r;
-        tern_route_heard(&r, TERN_S(1), rejected[i].frame, rejected[i].len, 40);
-        before.now = r.now;
-        if (memcmp(&r, &before, sizeof r) != 0 || nb[0].used || dest[0].used) {
-            fprintf(stderr, "took %s\n", rejected[i].why);
-            check_failures++;
+    static const uint8_t own_seed[32] = {0x77};
+    for (int holding = 0; holding < 2; holding++) {
+        for (size_t i = 0; i < COUNT(rejected); i++) {
+            struct tern_route_neighbour nb[4], nb_before[4];
+            struct tern_route_dest dest[4], dest_before[4];
+            struct tern_route r, before;
+            struct tern_identity id;
+            tern_route_init(&r, &config, VECTOR_OWN_ID, nb, 4, dest, 4, 0, 7, 0);
+            route_signed(&r, &id, own_seed);
+            if (holding) { /* the address of the sender of announces[1] and [3] */
+                tern_route_heard(&r, TERN_S(1), announces[3].frame, announces[3].len, 40);
+                CHECK(nb[0].used && nb[0].has_address);
+            }
+            r.interval = TERN_S(64); /* so that anything taken as a request shows */
+            before = r;
+            memcpy(nb_before, nb, sizeof nb);
+            memcpy(dest_before, dest, sizeof dest);
+            tern_route_heard(&r, TERN_S(2), rejected[i].frame, rejected[i].len, 40);
+            before.now = r.now;
+            if (memcmp(&r, &before, sizeof r) != 0 || memcmp(nb, nb_before, sizeof nb) != 0 ||
+                memcmp(dest, dest_before, sizeof dest) != 0) {
+                fprintf(stderr, "took %s%s\n", rejected[i].why, holding ? ", holding" : "");
+                check_failures++;
+            }
         }
     }
     /* And the frame the last of them was made from is taken. */
@@ -202,10 +251,107 @@ static void frames_the_specification_rejects_change_nothing(void) {
         struct tern_route_neighbour nb[4];
         struct tern_route_dest dest[4];
         struct tern_route r;
+        struct tern_identity id;
         tern_route_init(&r, &config, VECTOR_OWN_ID, nb, 4, dest, 4, 0, 7, 0);
-        tern_route_heard(&r, TERN_S(1), announces[1].frame, announces[1].len, 40);
-        CHECK(nb[0].used && nb[0].id == announces[1].fields.sender);
+        route_signed(&r, &id, own_seed);
+        tern_route_heard(&r, TERN_S(1), announces[3].frame, announces[3].len, 40);
+        CHECK(nb[0].used && nb[0].id == announces[3].fields.sender);
+        CHECK(nb[0].has_address && memcmp(nb[0].address, announces[3].address, 32) == 0);
     }
+}
+
+/* Whether an announce is taken depends on the address held for its sender: one that carries none
+ * is checked with the one held, and with none held there is nothing to check it with. */
+static void an_announce_is_taken_only_if_it_can_be_checked(void) {
+    const struct tern_region *us = tern_region(TERN_REGION_US915);
+    struct tern_lora lora = tern_region_lora(us);
+    struct tern_route_config config = tern_route_defaults(&lora, 22, -9, true);
+    static const uint8_t own_seed[32] = {0x77};
+    for (size_t i = 0; i < COUNT(verifieds); i++) {
+        const struct verified_case *c = &verifieds[i];
+        const struct announce_case *a = &announces[c->announce];
+        struct tern_route_neighbour nb[4];
+        struct tern_route_dest dest[4];
+        struct tern_route r;
+        struct tern_identity id;
+        tern_route_init(&r, &config, VECTOR_OWN_ID, nb, 4, dest, 4, 0, 7, 0);
+        route_signed(&r, &id, own_seed);
+        if (c->held) { /* a neighbour already, its last announce the one before this */
+            nb[0] = (struct tern_route_neighbour){.id = a->fields.sender,
+                                                  .used = true,
+                                                  .relay = a->fields.relay,
+                                                  .number = (uint16_t)(a->fields.number - 1),
+                                                  .named = (uint16_t)(a->fields.number - 1),
+                                                  .promise = TERN_S(600),
+                                                  .has_address = true};
+            memcpy(nb[0].address, c->held_address, 32);
+        }
+        tern_route_heard(&r, TERN_S(1), a->frame, a->len, 40);
+        bool took = nb[0].used && nb[0].id == a->fields.sender && nb[0].number == a->fields.number;
+        if (took != c->takes) {
+            fprintf(stderr, "verified case %zu: took %d\n", i, took);
+            check_failures++;
+        }
+        if (took) {
+            CHECK(nb[0].has_address && memcmp(nb[0].address, a->address, 32) == 0);
+        }
+    }
+}
+
+/* What goes on the air is signed, and carries the address while the node is starting and while a
+ * neighbour gives it no margin, and not once every neighbour does. */
+static void a_router_signs_and_carries_its_address_while_it_is_needed(void) {
+    const struct tern_region *us = tern_region(TERN_REGION_US915);
+    struct tern_lora lora = tern_region_lora(us);
+    struct tern_route_config config = tern_route_defaults(&lora, 22, -9, false);
+    static const uint8_t seed_a[32] = {0x0A}, seed_b[32] = {0x0B};
+    struct tern_route_neighbour nb_a[4], nb_b[4];
+    struct tern_route_dest dest_a[4], dest_b[4];
+    struct tern_route a, b;
+    struct tern_identity id_a, id_b;
+    uint8_t frame[TERN_ROUTE_FRAME_MAX];
+    int8_t dbm;
+    tern_time now = 0;
+    bool carried_after = false, settled = false;
+    int after = 0;
+    tern_identity_init(&id_a, seed_a);
+    tern_identity_init(&id_b, seed_b);
+    tern_route_init(&a, &config, tern_route_id(id_a.address), nb_a, 4, dest_a, 4, 0, 1, 0);
+    tern_route_init(&b, &config, tern_route_id(id_b.address), nb_b, 4, dest_b, 4, 0, 2, 0);
+    route_signed(&a, &id_a, seed_a);
+    route_signed(&b, &id_b, seed_b);
+    for (int step = 0; step < 4000 && after < 200; step++) {
+        struct tern_route *from = step % 2 ? &b : &a, *to = step % 2 ? &a : &b;
+        tern_time due = tern_route_due(from);
+        now = due > now ? due : now;
+        size_t len;
+        while ((len = tern_route_poll(from, now, frame, &dbm)) != 0) {
+            struct tern_announce x;
+            uint8_t m[TERN_ANNOUNCE_LABEL_LEN + TERN_ROUTE_FRAME_MAX];
+            tern_route_sent(from, now);
+            if (frame[0] != TERN_HDR_ANNOUNCE) {
+                tern_route_heard(to, now, frame, len, 40);
+                continue;
+            }
+            CHECK(tern_announce_read(&x, frame, len));
+            CHECK(verify_ed25519(NULL, from == &a ? id_a.address : id_b.address, m,
+                                 tern_announce_signed(frame, len, m), x.sig));
+            if (x.starting) {
+                CHECK(x.carries_address);
+            }
+            if (settled && x.carries_address) {
+                carried_after = true; /* once both name each other, it stops */
+            }
+            tern_route_heard(to, now, frame, len, 40);
+        }
+        settled = settled || (!a.starting && !b.starting && nb_a[0].used && nb_a[0].theirs != 0 &&
+                              nb_b[0].used && nb_b[0].theirs != 0);
+        after += settled;
+    }
+    CHECK(settled);
+    CHECK(!carried_after);
+    CHECK(nb_a[0].has_address && memcmp(nb_a[0].address, id_b.address, 32) == 0);
+    CHECK(nb_b[0].has_address && memcmp(nb_b[0].address, id_a.address, 32) == 0);
 }
 
 /* One announce from `id`, heard at `snr` decibels, naming this node with `margin` if that is not
@@ -387,6 +533,8 @@ int main(void) {
     RUN(announces_are_written_and_read);
     RUN(requests_are_written_and_read);
     RUN(frames_the_specification_rejects_change_nothing);
+    RUN(an_announce_is_taken_only_if_it_can_be_checked);
+    RUN(a_router_signs_and_carries_its_address_while_it_is_needed);
     RUN(floors_average_and_margins_round_down);
     RUN(links_come_up_and_stay_within_the_band);
     RUN(margins_are_withdrawn_after_eight_rounds);

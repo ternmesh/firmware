@@ -1489,6 +1489,18 @@ static void poll_beacon(void) {
     }
 }
 
+/* What the router signs its announces with, and checks its neighbours' with: the node's identity
+ * key, Ed25519, as the specification's "Signed" requires. */
+static void route_sign(void *ctx, const uint8_t *m, size_t len, uint8_t sig[TERN_ANNOUNCE_SIG]) {
+    tern_identity_sign(ctx, m, len, sig);
+}
+
+static bool route_verify(void *ctx, const uint8_t address[TERN_ADDRESS_LEN], const uint8_t *m,
+                         size_t len, const uint8_t sig[TERN_ANNOUNCE_SIG]) {
+    (void)ctx;
+    return tern_address_valid(address) && tern_address_verify(address, m, len, sig);
+}
+
 /* The band a region's radios keep to, for a frequency set by hand: New Zealand allows its
  * profile's power only above 920 MHz. */
 static void bench_band(uint32_t *lo, uint32_t *hi) {
@@ -3389,6 +3401,10 @@ void node_main(void) {
     (void)store_load(NULL, "seq", &route_seq_saved, sizeof route_seq_saved);
     tern_route_init(&route, &rc, tern_route_id(demo.id.address), neighbours, NEIGHBOURS,
                     destinations, DESTINATIONS, route_seq_saved, seed, board_now());
+    tern_route_auth(&route, &(struct tern_route_auth){.address = demo.id.address,
+                                                      .ctx = &demo.id,
+                                                      .sign = route_sign,
+                                                      .verify = route_verify});
     power_now = cfg.tx_power_dbm;
     struct tern_forward_config fc = tern_forward_defaults();
     tern_forward_init(&forward, &fc, &route, forward_slots, FORWARD_SLOTS, seed ^ 0x666f7277u);

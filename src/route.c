@@ -1,5 +1,7 @@
 #include "tern/route.h"
 
+#include <string.h>
+
 #include "tern/crypto.h"
 
 #define INF TERN_ROUTE_INF
@@ -14,6 +16,7 @@
 #define ASK_FRAME 62 /* a request frame of eight, which a request's jitter is reckoned in */
 #define FLAG_RELAY 0x01
 #define FLAG_STARTING 0x02
+#define FLAG_ADDRESS 0x04
 #define NS_PER_S 1000000000LL
 #define MILLION 1000000LL
 
@@ -36,8 +39,9 @@ static uint32_t get32(const uint8_t *p) { return (uint32_t)get16(p) << 16 | get1
 static bool reserved(uint32_t id) { return id == 0 || id == TERN_ROUTE_EVERYONE; }
 
 size_t tern_announce_write(const struct tern_announce *a, uint8_t frame[TERN_ROUTE_FRAME_MAX]) {
-    size_t len = TERN_ANNOUNCE_HEAD + 5u * a->named_count + 8u * a->route_count;
-    uint8_t *p = frame + TERN_ANNOUNCE_HEAD;
+    size_t carried = a->carries_address ? TERN_ADDRESS_LEN : 0;
+    size_t len = TERN_ANNOUNCE_LEAST + carried + 5u * a->named_count + 8u * a->route_count;
+    uint8_t *p = frame + TERN_ANNOUNCE_HEAD + carried;
     if (len > TERN_ROUTE_FRAME_MAX || a->named_count > TERN_ANNOUNCE_NAMED_MAX ||
         a->route_count > TERN_ANNOUNCE_ROUTES_MAX) {
         return 0;
@@ -46,12 +50,16 @@ size_t tern_announce_write(const struct tern_announce *a, uint8_t frame[TERN_ROU
     put32(frame + 1, a->sender);
     put16(frame + 5, a->number);
     put16(frame + 7, a->seq);
-    frame[9] = (uint8_t)((a->relay ? FLAG_RELAY : 0) | (a->starting ? FLAG_STARTING : 0));
+    frame[9] = (uint8_t)((a->relay ? FLAG_RELAY : 0) | (a->starting ? FLAG_STARTING : 0) |
+                         (a->carries_address ? FLAG_ADDRESS : 0));
     put16(frame + 10, a->promise);
     put16(frame + 12, a->round);
     frame[14] = (uint8_t)a->power;
     frame[15] = a->named_count;
     frame[16] = a->route_count;
+    if (carried) {
+        memcpy(frame + TERN_ANNOUNCE_HEAD, a->address, TERN_ADDRESS_LEN);
+    }
     for (int i = 0; i < a->named_count; i++, p += 5) {
         put32(p, a->named[i].id);
         p[4] = a->named[i].margin;
@@ -61,14 +69,26 @@ size_t tern_announce_write(const struct tern_announce *a, uint8_t frame[TERN_ROU
         put16(p + 4, a->routes[i].seq);
         put16(p + 6, a->routes[i].metric);
     }
+    memcpy(p, a->sig, TERN_ANNOUNCE_SIG);
     return len;
 }
 
+size_t tern_announce_signed(const uint8_t *frame, size_t len,
+                            uint8_t m[TERN_ANNOUNCE_LABEL_LEN + TERN_ROUTE_FRAME_MAX]) {
+    size_t body = len > TERN_ANNOUNCE_SIG ? len - TERN_ANNOUNCE_SIG : 0;
+    body = body > TERN_ROUTE_FRAME_MAX ? TERN_ROUTE_FRAME_MAX : body;
+    memcpy(m, TERN_ANNOUNCE_LABEL, TERN_ANNOUNCE_LABEL_LEN);
+    memcpy(m + TERN_ANNOUNCE_LABEL_LEN, frame, body);
+    return TERN_ANNOUNCE_LABEL_LEN + body;
+}
+
 bool tern_announce_read(struct tern_announce *a, const uint8_t *frame, size_t len) {
-    const uint8_t *p = frame + TERN_ANNOUNCE_HEAD;
-    if (len < TERN_ANNOUNCE_HEAD || len > TERN_ROUTE_FRAME_MAX || frame[0] != TERN_HDR_ANNOUNCE ||
-        len != TERN_ANNOUNCE_HEAD + 5u * frame[15] + 8u * frame[16] ||
-        (frame[9] & ~(FLAG_RELAY | FLAG_STARTING)) != 0 || reserved(get32(frame + 1))) {
+    size_t carried = len > 9 && (frame[9] & FLAG_ADDRESS) ? TERN_ADDRESS_LEN : 0;
+    const uint8_t *p = frame + TERN_ANNOUNCE_HEAD + carried;
+    if (len < TERN_ANNOUNCE_LEAST || len > TERN_ROUTE_FRAME_MAX || frame[0] != TERN_HDR_ANNOUNCE ||
+        len != TERN_ANNOUNCE_LEAST + carried + 5u * frame[15] + 8u * frame[16] ||
+        (frame[9] & ~(FLAG_RELAY | FLAG_STARTING | FLAG_ADDRESS)) != 0 ||
+        reserved(get32(frame + 1))) {
         return false;
     }
     a->sender = get32(frame + 1);
@@ -81,6 +101,10 @@ bool tern_announce_read(struct tern_announce *a, const uint8_t *frame, size_t le
     a->power = (int8_t)frame[14];
     a->named_count = frame[15];
     a->route_count = frame[16];
+    a->carries_address = carried != 0;
+    if (carried) {
+        memcpy(a->address, frame + TERN_ANNOUNCE_HEAD, TERN_ADDRESS_LEN);
+    }
     for (int i = 0; i < a->named_count; i++, p += 5) {
         a->named[i].id = get32(p);
         a->named[i].margin = p[4];
@@ -90,6 +114,7 @@ bool tern_announce_read(struct tern_announce *a, const uint8_t *frame, size_t le
         a->routes[i].seq = get16(p + 4);
         a->routes[i].metric = get16(p + 6);
     }
+    memcpy(a->sig, p, TERN_ANNOUNCE_SIG);
     return true;
 }
 
@@ -711,8 +736,24 @@ static void refill(struct tern_route_bucket *b, tern_time now) {
 
 /* --- Announcing --- */
 
+/* Whether the next announce carries this node's address: while it is starting, and while a
+ * neighbour it keeps gives it no margin, and so may not hold it. */
+static bool carries_address(const struct tern_route *r) {
+    for (size_t i = 0; !r->starting && i < r->nb_cap; i++) {
+        if (r->nb[i].used && r->nb[i].theirs == 0) {
+            return true;
+        }
+    }
+    return r->starting != 0;
+}
+
+/* An announce's length before its neighbours and routes. */
+static size_t announce_fixed(const struct tern_route *r) {
+    return TERN_ANNOUNCE_LEAST + (carries_address(r) ? TERN_ADDRESS_LEN : 0);
+}
+
 static uint8_t named_room(const struct tern_route *r) {
-    size_t room = (TERN_ROUTE_FRAME_MAX - TERN_ANNOUNCE_HEAD - (r->config.relay ? 8u : 0u)) / 5;
+    size_t room = (TERN_ROUTE_FRAME_MAX - announce_fixed(r) - (r->config.relay ? 8u : 0u)) / 5;
     return (uint8_t)(r->config.named_max < room ? r->config.named_max : room);
 }
 
@@ -727,7 +768,7 @@ static size_t neighbours(const struct tern_route *r) {
 /* How long the next announce will be, at most. */
 static size_t planned(const struct tern_route *r) {
     size_t named = neighbours(r), room = named_room(r);
-    size_t len = TERN_ANNOUNCE_HEAD + 5 * (named < room ? named : room);
+    size_t len = announce_fixed(r) + 5 * (named < room ? named : room);
     if (r->config.relay && !r->starting) {
         size_t routes = (size_t)r->urgent_count + r->selected + r->retracting;
         room = (TERN_ROUTE_FRAME_MAX - len) / 8;
@@ -806,6 +847,7 @@ static size_t build(struct tern_route *r, uint8_t *frame, int8_t *power) {
         .starting = r->starting != 0,
         .promise = tern_route_promise_code(promise(r)),
         .power = power_all(r),
+        .carries_address = carries_address(r),
     };
     size_t room = named_room(r), start = r->nb_cap ? r->named_cursor % r->nb_cap : 0;
     size_t rotation = room ? (neighbours(r) + room - 1) / room : 0, len, owed;
@@ -832,7 +874,7 @@ static size_t build(struct tern_route *r, uint8_t *frame, int8_t *power) {
     }
 
     if (r->config.relay && !r->starting) {
-        size_t most = (TERN_ROUTE_FRAME_MAX - TERN_ANNOUNCE_HEAD - 5u * a.named_count) / 8;
+        size_t most = (TERN_ROUTE_FRAME_MAX - announce_fixed(r) - 5u * a.named_count) / 8;
         /* Changed routes first. */
         for (size_t k = 0; k < r->dest_cap && r->urgent_count && a.route_count < most; k++) {
             struct tern_route_dest *d = &r->dest[r->urgent_cursor];
@@ -861,7 +903,15 @@ static size_t build(struct tern_route *r, uint8_t *frame, int8_t *power) {
             r->dest[k].listed = false;
         }
     }
+    if (a.carries_address && r->auth.address) {
+        memcpy(a.address, r->auth.address, TERN_ADDRESS_LEN);
+    }
     len = tern_announce_write(&a, frame);
+    if (len && r->auth.sign) {
+        uint8_t m[TERN_ANNOUNCE_LABEL_LEN + TERN_ROUTE_FRAME_MAX];
+        r->auth.sign(r->auth.ctx, m, tern_announce_signed(frame, len, m),
+                     frame + len - TERN_ANNOUNCE_SIG);
+    }
     *power = a.power;
     r->promised = tern_route_promise_time(a.promise);
     return len;
@@ -1047,13 +1097,50 @@ static void on_ask(struct tern_route *r, const struct tern_request_ask *q) {
     }
 }
 
+/* The address an announce is checked with (the specification's "Signed"): the one it carries,
+ * if that is its sender's and the one held, or the one held. NULL if it is to be discarded. With
+ * no means to check, every announce is taken. */
+static const uint8_t *check(const struct tern_route *r, const struct tern_announce *a,
+                            const uint8_t *frame, size_t len) {
+    uint8_t s = slot_of(r, a->sender), m[TERN_ANNOUNCE_LABEL_LEN + TERN_ROUTE_FRAME_MAX];
+    const struct tern_route_neighbour *n = s ? slot(r, s) : NULL;
+    const uint8_t *key = n && n->has_address ? n->address : NULL;
+    if (!r->auth.verify) {
+        return frame; /* anything but NULL: nothing is checked, and nothing held */
+    }
+    if (a->carries_address) {
+        if (tern_route_id(a->address) != a->sender ||
+            (key && memcmp(key, a->address, TERN_ADDRESS_LEN) != 0)) {
+            return NULL;
+        }
+        key = a->address;
+    }
+    if (!key || !r->auth.verify(r->auth.ctx, key, m, tern_announce_signed(frame, len, m), a->sig)) {
+        return NULL;
+    }
+    return key;
+}
+
+void tern_route_auth(struct tern_route *r, const struct tern_route_auth *auth) { r->auth = *auth; }
+
 void tern_route_heard(struct tern_route *r, tern_time now, const uint8_t *frame, size_t len,
                       int16_t snr_q) {
     r->now = now;
     if (len > 0 && frame[0] == TERN_HDR_ANNOUNCE) {
         struct tern_announce a;
-        if (tern_announce_read(&a, frame, len)) {
+        const uint8_t *key;
+        if (tern_announce_read(&a, frame, len) && (key = check(r, &a, frame, len)) != NULL) {
+            uint8_t address[TERN_ADDRESS_LEN];
+            bool known = r->auth.verify != NULL;
+            if (known) {
+                memcpy(address, key, TERN_ADDRESS_LEN); /* the slot may be forgotten */
+            }
             on_announce(r, &a, snr_q);
+            uint8_t s = slot_of(r, a.sender);
+            if (s && known && !slot(r, s)->has_address) {
+                slot(r, s)->has_address = true;
+                memcpy(slot(r, s)->address, address, TERN_ADDRESS_LEN);
+            }
         }
     } else if (len > 0 && frame[0] == TERN_HDR_REQUEST) {
         struct tern_request q;

@@ -81,5 +81,9 @@ group frames carry a count.
 [ternmesh/spec#36](https://github.com/ternmesh/spec/pull/36) too, which adds the AU915 and NZ915
 profiles to each.
 
+`routing.json` is since as of [ternmesh/spec#37](https://github.com/ternmesh/spec/pull/37), which
+signs every announce: `routing_to_c.py` carries each announce's seed and the `verified` cases,
+and `tests/route.c` signs and checks them with the core's own Ed25519.
+
 When the specification's vectors change, copy the new file here in the same pull request that
 changes the code to match, and update the commit above.

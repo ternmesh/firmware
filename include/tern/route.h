@@ -33,8 +33,14 @@
  *     sleep until tern_route_due(&r), or a frame arrives
  *
  * A node that restarts has lost what Babel's condition rests on, so a router starts by saying so
- * and selecting nothing through a neighbour until it has: the specification's "Starting". Nothing
- * here is authenticated yet: the specification leaves that open. */
+ * and selecting nothing through a neighbour until it has: the specification's "Starting".
+ *
+ * Every announce is signed by its sender's identity key, and a router takes nothing from one it
+ * cannot check (the specification's "Signed"): tern_route_auth() gives it the node's address and
+ * the means to sign and check. A router never given them sends announces of the right size whose
+ * signatures are zeros, and takes every announce unchecked; that is for a simulator, and for
+ * tests that are about something else. Requests are not signed: the specification leaves that
+ * open. */
 
 #define TERN_ROUTE_EVERYONE 0xFFFFFFFFu /* in a request: every neighbour */
 #define TERN_ROUTE_INF 0xFFFFu          /* a metric that retracts a route */
@@ -45,8 +51,12 @@
 #define TERN_HDR_REQUEST 0x5A
 
 #define TERN_ANNOUNCE_HEAD 17
-#define TERN_ANNOUNCE_NAMED_MAX 47  /* neighbours an announce can hold */
-#define TERN_ANNOUNCE_ROUTES_MAX 29 /* routes an announce can hold */
+#define TERN_ANNOUNCE_SIG 64
+#define TERN_ANNOUNCE_LEAST (TERN_ANNOUNCE_HEAD + TERN_ANNOUNCE_SIG)
+#define TERN_ANNOUNCE_NAMED_MAX 34  /* neighbours an announce can hold */
+#define TERN_ANNOUNCE_ROUTES_MAX 21 /* routes an announce can hold */
+#define TERN_ANNOUNCE_LABEL "tern v0 announce"
+#define TERN_ANNOUNCE_LABEL_LEN 16
 #define TERN_REQUEST_HEAD 6
 #define TERN_REQUEST_MAX 35 /* requests a frame can hold */
 
@@ -92,8 +102,11 @@ struct tern_announce {
     int8_t power;
     uint8_t named_count;
     uint8_t route_count;
+    bool carries_address;
+    uint8_t address[TERN_ADDRESS_LEN]; /* the sender's, if carries_address */
     struct tern_announce_named named[TERN_ANNOUNCE_NAMED_MAX];
     struct tern_announce_route routes[TERN_ANNOUNCE_ROUTES_MAX];
+    uint8_t sig[TERN_ANNOUNCE_SIG];
 };
 
 struct tern_request_ask {
@@ -112,8 +125,14 @@ struct tern_request {
 size_t tern_announce_write(const struct tern_announce *a, uint8_t frame[TERN_ROUTE_FRAME_MAX]);
 size_t tern_request_write(const struct tern_request *q, uint8_t frame[TERN_ROUTE_FRAME_MAX]);
 
+/* What an announce's signature is over: the label and the frame up to the signature. Writes it to
+ * m and returns its length. */
+size_t tern_announce_signed(const uint8_t *frame, size_t len,
+                            uint8_t m[TERN_ANNOUNCE_LABEL_LEN + TERN_ROUTE_FRAME_MAX]);
+
 /* Reads a frame. Returns false for one the specification says to discard, but for an announce
- * from the reader's own id, which only the reader can know. */
+ * from the reader's own id, which only the reader can know, and one whose address or signature
+ * does not check, which needs the reader's keys. */
 bool tern_announce_read(struct tern_announce *a, const uint8_t *frame, size_t len);
 bool tern_request_read(struct tern_request *q, const uint8_t *frame, size_t len);
 
@@ -232,6 +251,8 @@ struct tern_route_neighbour {
     uint8_t boost;     /* decibels more a frame to it goes at, for those it has lost */
     tern_time heard;   /* when it was last heard */
     tern_time promise; /* how soon it said it would announce again */
+    bool has_address;
+    uint8_t address[TERN_ADDRESS_LEN]; /* what its announces are checked with */
 };
 
 /* Which neighbour of a full table of `n` a node just heard takes the place of, `floor` being what
@@ -283,8 +304,20 @@ struct tern_route_bucket {
 
 #define TERN_ROUTE_ASKS 16 /* requests waiting to go */
 
+/* How a router signs its announces and checks its neighbours'. `verify` says whether the address
+ * is valid and sig is its signature over len bytes of m; `sign` signs with the node's own key,
+ * whose address is `address`. Both are given what tern_announce_signed() makes. */
+struct tern_route_auth {
+    const uint8_t *address;
+    void *ctx;
+    void (*sign)(void *ctx, const uint8_t *m, size_t len, uint8_t sig[TERN_ANNOUNCE_SIG]);
+    bool (*verify)(void *ctx, const uint8_t address[TERN_ADDRESS_LEN], const uint8_t *m, size_t len,
+                   const uint8_t sig[TERN_ANNOUNCE_SIG]);
+};
+
 struct tern_route {
     struct tern_route_config config;
+    struct tern_route_auth auth; /* all NULL until tern_route_auth() */
     uint32_t id;
     uint16_t seq;     /* of this node's route to itself */
     uint16_t number;  /* of its next announce */
@@ -347,6 +380,11 @@ void tern_route_init(struct tern_route *r, const struct tern_route_config *confi
                      struct tern_route_neighbour *neighbours, size_t neighbour_cap,
                      struct tern_route_dest *dests, size_t dest_cap, uint16_t seq, uint64_t seed,
                      tern_time now);
+
+/* Has the router sign its announces and check its neighbours', as the specification requires;
+ * the auth is copied, and the address it points to must outlive the router. Called once, before
+ * the first frame is heard or polled. */
+void tern_route_auth(struct tern_route *r, const struct tern_route_auth *auth);
 
 /* A routing frame was received, with this signal-to-noise ratio in quarters of a decibel. Frames
  * that are not this layer's, or that the specification says to discard, are ignored. */
