@@ -933,8 +933,23 @@ static size_t announce(struct tern_route *r, uint8_t *frame, int8_t *power) {
     }
     refill(b, r->now);
     if (b->have < cost) {
-        r->announce_at = r->now + (cost - b->have) / b->ppm + 1;
-        return 0;
+        /* Changed routes may spend the second allowance once the cap cannot pay. */
+        struct tern_route_bucket *l = &r->learning;
+        tern_time at = r->now + (cost - b->have) / b->ppm + 1;
+        bool learning = r->config.learn_ppm && r->config.relay && !r->starting && r->urgent_count;
+        if (learning) {
+            refill(l, r->now);
+            if (l->have >= cost) {
+                b = l;
+            } else {
+                tern_time l_at = r->now + (cost - l->have) / l->ppm + 1;
+                at = l_at < at ? l_at : at;
+            }
+        }
+        if (b != l) {
+            r->announce_at = at;
+            return 0;
+        }
     }
     len = build(r, frame, power);
     b->have -= airtime(r, len) * MILLION;
@@ -1222,6 +1237,8 @@ void tern_route_init(struct tern_route *r, const struct tern_route_config *confi
     bucket_init(&r->announces, config->announce_ppm, config->cap_window,
                 airtime(r, TERN_ROUTE_FRAME_MAX), now);
     bucket_init(&r->requests, config->request_ppm, config->cap_window,
+                airtime(r, TERN_ROUTE_FRAME_MAX), now);
+    bucket_init(&r->learning, config->learn_ppm, config->cap_window,
                 airtime(r, TERN_ROUTE_FRAME_MAX), now);
     trickle_begin(r);
     r->house_at = now + house_period(r);
