@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "capacity.h"
 #include "tern/address.h"
 #include "tern/contact.h"
 #include "tern/time.h"
@@ -49,8 +50,8 @@
  * Nothing here touches the hardware, so tests/demo.c runs it on a host with a fake store. */
 
 #define DEMO_ACKS 2
-#define DEMO_PEERS 8         /* sessions a board holds */
-#define DEMO_HOLD TERN_S(60) /* the specification's CONTACT_HOLD */
+#define DEMO_PEERS NODE_SESSIONS /* sessions a board holds */
+#define DEMO_HOLD TERN_S(60)     /* the specification's CONTACT_HOLD */
 
 /* What the board provides: whole records saved and loaded by name (platform.h), and
  * random bytes fit for keys. */
@@ -62,7 +63,7 @@ struct demo_store {
 };
 
 struct demo_state {
-    uint32_t magic, size; /* checked on load: a record from another build is not used */
+    uint32_t magic, size; /* what an earlier build saved this whole with, and checked on load */
     uint8_t role;         /* enum tern_role, or 0 with no session */
     uint8_t peer[TERN_ADDRESS_LEN];
     uint32_t sent, heard; /* messages, for display */

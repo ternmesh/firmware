@@ -120,9 +120,12 @@ enum plat_store_start plat_store_start(bool erase, const char *keep, int *code) 
 
 /* The messages share the flash's storage with the identity, the sessions and everything else
  * the board must be able to save, and must never be why one of those cannot be. The storage has
- * 630 entries of 32 bytes to use. A board with nothing but a session and a contact uses 180; one
- * with all eight sessions, its groups and three phones bonded would use about 420, and writing
- * its largest record again wants 35 more. So the messages have MESSAGE_ENTRIES between them
+ * 630 entries of 32 bytes to use. A board with nothing but a session and a contact used 180 when
+ * a session was saved whole, at 29 entries; packed, it is 10. Worked out from those, not measured:
+ * one with eight sessions, four groups and three phones bonded uses about 270, and the ESP32-S3's
+ * builds, full, with 16 sessions, 32 contacts, eight groups and their writers, about 400, and
+ * writing their largest record, the contacts, again wants 67 more. So the messages have
+ * MESSAGE_ENTRIES between them
  * whatever else is there, and one more is saved only if it fits in that, with MESSAGE_SPARE
  * still free besides. One that is not saved is held until the board restarts. */
 #define MESSAGE_ENTRIES 160

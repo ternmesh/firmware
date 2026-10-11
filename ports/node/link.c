@@ -317,8 +317,19 @@ static struct link_group *free_group(struct link *l) {
     return NULL;
 }
 
+/* The contacts as flash keeps them: the places up to the last in use, and one at least, so that
+ * a board with few contacts spends little of its flash on the room it has for more. */
+static bool save_contacts(struct link *l) {
+    size_t n = 1;
+    for (size_t i = 0; i < LINK_CONTACTS; i++) {
+        n = l->contacts[i].used ? i + 1 : n;
+    }
+    return l->host.save(l->host.ctx, l->contacts, n * sizeof l->contacts[0]);
+}
+
 static bool save_groups(struct link *l) {
     struct link_group_saved kept[LINK_GROUPS] = {0};
+    size_t n = 1;
     for (size_t i = 0; i < LINK_GROUPS; i++) {
         const struct link_group *g = &l->groups[i];
         if (g->used) {
@@ -326,9 +337,10 @@ static bool save_groups(struct link *l) {
             kept[i].name_len = g->name_len;
             memcpy(kept[i].secret, g->g.secret, TERN_GROUP_SECRET);
             memcpy(kept[i].name, g->name, g->name_len);
+            n = i + 1;
         }
     }
-    bool ok = l->host.save_groups(l->host.ctx, kept, sizeof kept);
+    bool ok = l->host.save_groups(l->host.ctx, kept, n * sizeof kept[0]);
     tern_wipe(kept, sizeof kept);
     return ok;
 }
@@ -567,15 +579,17 @@ void link_init(struct link *l, const struct link_host *host) {
         l->next_id = saved;
         l->ids_saved = saved;
     }
-    if (!l->host.load(l->host.ctx, l->contacts, sizeof l->contacts)) {
-        memset(l->contacts, 0, sizeof l->contacts);
+    /* As many places as were saved, which a build that held fewer saved fewer of. */
+    size_t got = l->host.load(l->host.ctx, l->contacts, sizeof l->contacts);
+    if (got % sizeof l->contacts[0] != 0) {
+        got = 0;
     }
-    struct link_group_saved kept[LINK_GROUPS];
-    if (l->host.load_groups(l->host.ctx, kept, sizeof kept)) {
-        for (size_t i = 0; i < LINK_GROUPS; i++) {
-            if (kept[i].used && kept[i].name_len <= TERN_COMPANION_NAME_MAX) {
-                hold_group(&l->groups[i], kept[i].secret, kept[i].name, kept[i].name_len);
-            }
+    memset((uint8_t *)l->contacts + got, 0, sizeof l->contacts - got);
+    struct link_group_saved kept[LINK_GROUPS] = {0};
+    got = l->host.load_groups(l->host.ctx, kept, sizeof kept);
+    for (size_t i = 0; got % sizeof kept[0] == 0 && i < got / sizeof kept[0]; i++) {
+        if (kept[i].used && kept[i].name_len <= TERN_COMPANION_NAME_MAX) {
+            hold_group(&l->groups[i], kept[i].secret, kept[i].name, kept[i].name_len);
         }
     }
     tern_wipe(kept, sizeof kept);
@@ -947,7 +961,7 @@ static void save_contact(struct link *l, const struct tern_companion_msg *q) {
     *c = (struct link_contact){.used = true, .name_len = q->text_len};
     memcpy(c->address, q->address, TERN_ADDRESS_LEN);
     memcpy(c->name, q->text, q->text_len);
-    if (!l->host.save(l->host.ctx, l->contacts, sizeof l->contacts)) {
+    if (!save_contacts(l)) {
         *c = was;
         error(l, q->seq, TERN_C_ERR_NOT_NOW);
         return;
@@ -966,7 +980,7 @@ static void remove_contact(struct link *l, const struct tern_companion_msg *q) {
     if (c != NULL) {
         struct link_contact was = *c;
         c->used = false;
-        if (!l->host.save(l->host.ctx, l->contacts, sizeof l->contacts)) {
+        if (!save_contacts(l)) {
             *c = was;
             error(l, q->seq, TERN_C_ERR_NOT_NOW);
             return;

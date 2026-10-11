@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "capacity.h"
 #include "tern/address.h"
 #include "tern/card.h"
 #include "tern/companion.h"
@@ -49,8 +50,8 @@
  *
  * Nothing here touches the hardware, so tests/link.c runs it on a host. */
 
-#define LINK_CONTACTS 16
-#define LINK_GROUPS 4
+#define LINK_CONTACTS NODE_CONTACTS
+#define LINK_GROUPS NODE_GROUPS
 #define LINK_MESSAGES 32
 #define LINK_REFS 16       /* SENDs remembered, so one sent again is not sent twice */
 #define LINK_ID_STEP 64    /* message ids set aside by one write to flash */
@@ -71,7 +72,7 @@
 #define LINK_SNR_STEP 4        /* quarter-dB: a neighbour's SNR moved this much is news */
 #define LINK_LAPSE TERN_S(60)  /* a serial client silent this long since its last answer is gone */
 #define LINK_GROUP_POSITIONS 8 /* members' positions held for each group */
-#define LINK_CARDS 32          /* cards held from others: who is about */
+#define LINK_CARDS NODE_CARDS  /* cards held from others: who is about */
 
 /* The connections: where a frame came from, and where one goes. The third is the board's own:
  * what is typed at its console is asked of the link as a client would ask it, so that a group
@@ -130,11 +131,14 @@ struct link_host {
      * forwarder holds for it without a word: the link says what became of those messages, once
      * it has answered. 0, or the ERROR code to answer with. */
     uint8_t (*end_session)(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]);
-    /* The contacts, saved whole and loaded at start. */
-    bool (*load)(void *ctx, void *buf, size_t len);
+    /* The contacts (struct link_contact), saved as one record and loaded at start: as many places
+     * as are in use up to the last, and one at least. Loading gives the length, up to cap, or 0
+     * with nothing kept: a build that holds more contacts than the one that saved them loads
+     * them all. */
+    size_t (*load)(void *ctx, void *buf, size_t cap);
     bool (*save)(void *ctx, const void *buf, size_t len);
-    /* The groups, saved whole (struct link_group_saved) and loaded at start. */
-    bool (*load_groups)(void *ctx, void *buf, size_t len);
+    /* The groups (struct link_group_saved), the same way. */
+    size_t (*load_groups)(void *ctx, void *buf, size_t cap);
     bool (*save_groups)(void *ctx, const void *buf, size_t len);
     /* Bytes fit to make a key from: a new group's secret. False if there are none to be had. */
     bool (*random)(void *ctx, uint8_t *buf, size_t len);

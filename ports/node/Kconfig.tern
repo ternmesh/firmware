@@ -65,6 +65,43 @@
             that 64 KB of the heap is left for Bluetooth and the rest. 'status' on the console
             says how many it got.
 
+    config TERN_SESSIONS
+        int "Sessions the board holds: the nodes it can write to and hear from"
+        range 8 32
+        default 8
+        help
+            Each is about 1.4 KB of RAM and 290 bytes of flash. A board holding as many as
+            this takes no new one until one is ended, so this is how many people its user can
+            talk to at once. The ESP32-S3 and nRF52840 builds hold 16
+            (sdkconfig.defaults.esp32s3, ports/nrf52/prj.conf); the classic ESP32's static RAM
+            is full, and holds 8.
+
+    config TERN_CONTACTS
+        int "Contacts the board keeps"
+        range 16 128
+        default 16
+        help
+            Each is about 200 bytes of RAM, with what is shared with it, and 65 bytes of flash
+            while it is kept: the record holds the places up to the last in use. The ESP32-S3
+            and nRF52840 builds keep 32; more does not fit in an ESP32's 24 KB of storage beside
+            the sessions and messages.
+
+    config TERN_GROUPS
+        int "Groups the board holds"
+        range 4 16
+        default 4
+        help
+            Each is about 1 KB of RAM, with its members' positions, and 190 bytes of flash
+            with the writers it has heard. The ESP32-S3 and nRF52840 builds hold 8.
+
+    config TERN_CARDS
+        int "Presence cards the board holds from others: who is about"
+        range 8 128
+        default 32
+        help
+            80 bytes of RAM each, and no flash: the newest card from each address, the oldest
+            let go of when there is no room. The ESP32-S3 and nRF52840 builds hold 64.
+
     config TERN_SCREEN_FLIP
         bool "Turn the screen upside down"
         default n

@@ -83,7 +83,7 @@ static bool boot(struct board *b) {
 }
 
 static struct board *new_board(void) {
-    static struct board boards[80];
+    static struct board boards[120];
     static size_t used;
     if (used == sizeof boards / sizeof boards[0]) {
         fprintf(stderr, "out of boards\n");
@@ -566,11 +566,47 @@ static void record_from_another_build_is_not_used(void) {
     CHECK(contact(a, b, 0) == DEMO_HEARD_PAIRED);
     memcpy(address, a->ram.id.address, sizeof address);
     int i = find(&a->flash, "session");
-    a->flash.data[i][4] ^= 1; /* the recorded size no longer matches */
+    a->flash.data[i][0] ^= 1; /* the record's magic no longer matches */
     CHECK(boot(a));
     CHECK(a->ram.s[0].role == 0);
     CHECK(memcmp(address, a->ram.id.address, sizeof address) == 0);
     CHECK(contact(a, b, 0) == DEMO_HEARD_PAIRED);
+
+    /* Nor is a record an earlier build saved whole, if the size it recorded is not this build's. */
+    memcpy(a->flash.data[i], &a->ram.s[0], sizeof a->ram.s[0]);
+    a->flash.lens[i] = sizeof a->ram.s[0];
+    a->flash.data[i][4] ^= 1;
+    CHECK(boot(a));
+    CHECK(a->ram.s[0].role == 0);
+}
+
+/* A session an earlier build saved whole is loaded, goes on where it was, and is saved again
+ * packed: in a quarter of the room. */
+static void a_session_saved_whole_is_kept_and_packed(void) {
+    struct board *a = new_board(), *b = new_board();
+    uint32_t n;
+    CHECK(contact(a, b, 0) == DEMO_HEARD_PAIRED);
+    CHECK(say(a, b, "one", &n) == DEMO_HEARD_MESSAGE && n == 0);
+    CHECK(say(b, a, "two", &n) == DEMO_HEARD_MESSAGE && n == 0);
+    struct board *both[] = {a, b};
+    for (int k = 0; k < 2; k++) {
+        struct board *x = both[k];
+        int i = find(&x->flash, "session");
+        CHECK(x->flash.lens[i] < sizeof x->ram.s[0] / 3);
+        memcpy(x->flash.data[i], &x->ram.s[0], sizeof x->ram.s[0]);
+        x->flash.lens[i] = sizeof x->ram.s[0];
+        CHECK(boot(x));
+        CHECK(x->ram.s[0].role != 0);
+        CHECK(x->flash.lens[i] < sizeof x->ram.s[0] / 3);
+    }
+    CHECK_EQ_U64(a->ram.s[0].sent, 1);
+    CHECK_EQ_U64(a->ram.s[0].heard, 1);
+    CHECK(say(a, b, "three", &n) == DEMO_HEARD_MESSAGE && n == 1);
+    CHECK(say(b, a, "four", &n) == DEMO_HEARD_MESSAGE && n == 1);
+    /* And the packed record loads as well as the whole one did. */
+    CHECK(boot(a) && boot(b));
+    CHECK(say(a, b, "five", &n) == DEMO_HEARD_MESSAGE && n == 2);
+    CHECK(say(b, a, "six", &n) == DEMO_HEARD_MESSAGE && n == 2);
 }
 
 /* First contact that the board accepts, whoever it is with. */
@@ -753,6 +789,7 @@ int main(void) {
     RUN(failed_save_sends_nothing);
     RUN(session_that_cannot_be_saved_is_not_started);
     RUN(record_from_another_build_is_not_used);
+    RUN(a_session_saved_whole_is_kept_and_packed);
     RUN(a_board_holds_a_session_with_each_peer);
     RUN(contact_again_replaces_only_that_peers_session);
     RUN(a_full_board_takes_no_new_peer_until_one_is_forgotten);

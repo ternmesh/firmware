@@ -232,6 +232,23 @@ if(BUILD_TESTING)
     target_link_libraries(test_link PRIVATE tern)
     target_compile_options(test_link PRIVATE ${TERN_WARNINGS} -Wno-missing-prototypes)
     add_test(NAME link COMMAND test_link)
+    # The same, at what the ESP32-S3's and the nRF52840's builds hold (capacity.h): every slot,
+    # place and record name past the smallest board's.
+    set(TERN_WIDE -DCONFIG_TERN_SESSIONS=16 -DCONFIG_TERN_CONTACTS=32 -DCONFIG_TERN_GROUPS=8
+        -DCONFIG_TERN_CARDS=64)
+    add_executable(test_demo_wide tests/demo.c ports/node/demo.c)
+    target_include_directories(test_demo_wide PRIVATE ports/node)
+    target_link_libraries(test_demo_wide PRIVATE tern)
+    target_compile_options(test_demo_wide PRIVATE ${TERN_WARNINGS} -Wno-missing-prototypes)
+    target_compile_definitions(test_demo_wide PRIVATE ${TERN_WIDE})
+    add_test(NAME demo_wide COMMAND test_demo_wide)
+    add_executable(test_link_wide tests/link.c ports/node/link.c ${exchange_h})
+    target_include_directories(test_link_wide PRIVATE ports/node
+        ${CMAKE_CURRENT_BINARY_DIR}/vectors)
+    target_link_libraries(test_link_wide PRIVATE tern)
+    target_compile_options(test_link_wide PRIVATE ${TERN_WARNINGS} -Wno-missing-prototypes)
+    target_compile_definitions(test_link_wide PRIVATE ${TERN_WIDE})
+    add_test(NAME link_wide COMMAND test_link_wide)
     # The laptop script (tools/companion.py), against the vectors and against the link on a
     # pseudo-terminal: everything but the radio and the USB cable.
     add_test(NAME companion_script COMMAND Python3::Interpreter

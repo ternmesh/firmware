@@ -311,8 +311,9 @@ yet:
   one with a session accepts a peer it has again, and refuses anyone else unless `accept` was
   typed in the last two minutes. A board that is refused is told nothing; the refusing board
   tells its clients who asked (`ASKED`), so they can offer to save it.
-* **Eight peers, one handshake.** First contact with a peer the board has replaces the session
-  with that peer, and leaves the others. A board with eight sessions takes no new peer until one
+* **Sixteen peers, one handshake.** First contact with a peer the board has replaces the session
+  with that peer, and leaves the others. A board holds 16 sessions, or 8 on the classic ESP32
+  (`CONFIG_TERN_SESSIONS`, ports/node/capacity.h), and one that holds as many takes no new peer until one
   is dropped: it does not choose whom to forget. While one handshake is under way another is not
   answered, unless it says it comes from the board that began the one under way: that board has
   started again.
@@ -579,10 +580,13 @@ What the board offers is what the demo is:
   A message's id is greater than every one before it, across restarts too, so a client that asks
   for what is new since the last id it holds is never answered with nothing. A `SEND` repeated
   with the same `ref` after a restart is sent twice: the board does not save which it has had.
-  Contacts, up to 16, are saved to flash.
-* **A session with each of eight nodes.** A message to a node the board has no session with
+  Contacts, up to 32 (16 on the classic ESP32), are saved to flash, and groups, up to 8 (4).
+  A session is saved packed, in 253 bytes; one an earlier build saved whole is loaded and saved
+  again packed when the board starts, so an update keeps every session.
+* **A session with each of sixteen nodes.** A message to a node the board has no session with
   starts first contact with it. Its state says it is waiting for a session meanwhile, and "not
-  delivered" if the handshake gives up, or if the board already holds eight sessions. Removing
+  delivered" if the handshake gives up, or if the board already holds as many sessions as it can
+  (16, or 8 on the classic ESP32). Removing
   a contact does not end its session; `END_SESSION`, or `drop` on the console, does, and gives up
   the messages to that node not yet delivered, on the air or not. The other board is not told, and keeps its half
   until one of them makes first contact again.

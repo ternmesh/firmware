@@ -2,3 +2,9 @@
 # sdkconfig.defaults when the build is for that chip). Its 512 KB of RAM holds a relay's table of
 # RELAY_PLACES destinations (the specification's routing draft): 48 KB.
 CONFIG_TERN_DESTINATIONS=1024
+# The sessions, contacts, groups and cards it holds (ports/node/capacity.h). Its RAM has room for
+# far more; these are what its 24 KB of NVS has room to keep beside the messages.
+CONFIG_TERN_SESSIONS=16
+CONFIG_TERN_CONTACTS=32
+CONFIG_TERN_GROUPS=8
+CONFIG_TERN_CARDS=64

@@ -1884,8 +1884,9 @@ static uint8_t link_why(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]) {
     return link_session(ctx, address) ? pending_reason(board_now(), address) : TERN_C_WAIT_SESSION;
 }
 
-static bool link_load(void *ctx, void *buf, size_t len) {
-    return store_load(ctx, "contacts", buf, len);
+static size_t link_load(void *ctx, void *buf, size_t cap) {
+    (void)ctx;
+    return plat_store_read("contacts", buf, cap);
 }
 
 static bool link_save(void *ctx, const void *buf, size_t len) {
@@ -1895,8 +1896,9 @@ static bool link_save(void *ctx, const void *buf, size_t len) {
 /* A board that had an identity before it kept its message ids ran a build that counted them from
  * 1 at every start. Clients may hold ids of that address, so it goes on from past any such a
  * build is likely to have given, and not from 1 again. */
-static bool link_load_groups(void *ctx, void *buf, size_t len) {
-    return store_load(ctx, "groups", buf, len);
+static size_t link_load_groups(void *ctx, void *buf, size_t cap) {
+    (void)ctx;
+    return plat_store_read("groups", buf, cap);
 }
 
 static bool link_save_groups(void *ctx, const void *buf, size_t len) {
