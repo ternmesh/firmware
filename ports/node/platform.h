@@ -90,6 +90,10 @@ void plat_entropy_start(void);
  * turned off and on again here; elsewhere this does nothing. */
 void plat_bluetooth_starting(bool starting);
 
+/* Bytes the heap has free, for a table that takes what it can and leaves the rest; 0 where nothing
+ * is taken from the heap that way. */
+size_t plat_heap_free(void);
+
 /* --- Firmware updates ------------------------------------------------------------------------- */
 
 /* An update over the companion link (draft/companion.md): the image is written, in order, to

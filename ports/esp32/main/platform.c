@@ -8,6 +8,7 @@
 #include "esp_app_desc.h"
 #include "esp_attr.h"
 #include "esp_err.h"
+#include "esp_heap_caps.h"
 #include "esp_ota_ops.h"
 #include "esp_random.h"
 #include "esp_system.h"
@@ -290,6 +291,8 @@ void plat_bluetooth_starting(bool starting) {
         bootloader_random_enable();
     }
 }
+
+size_t plat_heap_free(void) { return heap_caps_get_free_size(MALLOC_CAP_8BIT); }
 
 /* --- Updates ---------------------------------------------------------------------------------- */
 

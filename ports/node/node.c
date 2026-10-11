@@ -131,7 +131,16 @@ static struct demo demo;
 static bool transmitting;
 static struct tern_route route;
 static struct tern_route_neighbour neighbours[NEIGHBOURS];
-static struct tern_route_dest destinations[DESTINATIONS];
+#ifdef CONFIG_TERN_DESTINATIONS_HEAP
+#define DESTINATIONS_LEAST 128  /* the static table, if the heap gives none */
+#define HEAP_KEPT (64u * 1024u) /* what a table from the heap leaves of it */
+static struct tern_route_dest destinations_kept[DESTINATIONS_LEAST];
+#else
+#define DESTINATIONS_LEAST DESTINATIONS
+static struct tern_route_dest destinations_kept[DESTINATIONS];
+#endif
+static struct tern_route_dest *destinations = destinations_kept;
+static size_t destinations_n = DESTINATIONS_LEAST;
 static uint16_t route_seq_saved;
 /* Announce numbers are stored this far ahead, so that none is sent twice across a restart: the
  * specification's NUMBER_SAVE. */
@@ -2149,12 +2158,13 @@ static void status(void) {
         heard_n += neighbours[i].used;
         up_n += neighbours[i].used && neighbours[i].up;
     }
-    for (int i = 0; i < DESTINATIONS; i++) {
+    for (size_t i = 0; i < destinations_n; i++) {
         routed += destinations[i].used && destinations[i].sel != 0;
     }
-    printf("routing: id %08lx, a %s, hears %u, %u of them both ways, routes to %u. 'routes' lists "
-           "them.\n",
-           (unsigned long)route.id, route.config.relay ? "relay" : "leaf", heard_n, up_n, routed);
+    printf("routing: id %08lx, a %s, hears %u, %u of them both ways, routes to %u of the %u it has "
+           "room for. 'routes' lists them.\n",
+           (unsigned long)route.id, route.config.relay ? "relay" : "leaf", heard_n, up_n, routed,
+           (unsigned)destinations_n);
     const struct tern_forward_counts *fc = &forward.counts;
     printf("forwarding: passed on %lu, sent %lu hops again and gave %lu up; dropped %lu with no "
            "route, %lu with no room; waited %lu times for a frame being received\n",
@@ -2202,7 +2212,7 @@ static void routes(void) {
         printf(", heard %lld s ago\n", (long long)((now - n->heard) / 1000000000LL));
     }
     printf("routes:\n");
-    for (int i = 0; i < DESTINATIONS; i++) {
+    for (size_t i = 0; i < destinations_n; i++) {
         uint32_t next;
         uint16_t metric;
         if (destinations[i].used && tern_route_next(&route, destinations[i].id, &next, &metric)) {
@@ -2621,7 +2631,7 @@ static void fill_status(struct node_status *st) {
             }
         }
     }
-    for (int i = 0; i < DESTINATIONS; i++) {
+    for (size_t i = 0; i < destinations_n; i++) {
         uint32_t next;
         uint16_t metric;
         if (!destinations[i].used || !tern_route_next(&route, destinations[i].id, &next, &metric)) {
@@ -2781,7 +2791,7 @@ static void fill_ui(struct ui_node *u) {
         v->snr_db = (int8_t)(snr_of(g->id) / 4);
         v->ago_s = (uint32_t)(ago < 0 ? 0 : ago > UINT32_MAX ? UINT32_MAX : ago);
     }
-    for (int i = 0; i < DESTINATIONS; i++) {
+    for (size_t i = 0; i < destinations_n; i++) {
         uint32_t next;
         uint16_t metric;
         if (destinations[i].used && tern_route_next(&route, destinations[i].id, &next, &metric)) {
@@ -3437,8 +3447,21 @@ void node_main(void) {
         halt(UI_FAULT_RANDOM, 0);
     }
     (void)store_load(NULL, "seq", &route_seq_saved, sizeof route_seq_saved);
+#ifdef CONFIG_TERN_DESTINATIONS_HEAP
+    /* As many as the heap has room for and still leaves HEAP_KEPT, halving down to the static
+     * table's size. */
+    for (size_t n = DESTINATIONS; n > DESTINATIONS_LEAST; n /= 2) {
+        struct tern_route_dest *d = calloc(n, sizeof *d);
+        if (d != NULL && plat_heap_free() >= HEAP_KEPT) {
+            destinations = d;
+            destinations_n = n;
+            break;
+        }
+        free(d);
+    }
+#endif
     tern_route_init(&route, &rc, tern_route_id(demo.id.address), neighbours, NEIGHBOURS,
-                    destinations, DESTINATIONS, route_seq_saved, seed, board_now());
+                    destinations, destinations_n, route_seq_saved, seed, board_now());
     {
         /* The first number is the one stored ahead last time, or any with none stored. Nothing is
          * kept beyond it yet, so the first announce waits for poll_route() to store more: a board
