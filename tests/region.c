@@ -204,6 +204,27 @@ static void th920_radiates_at_least_17_dbm(void) {
     }
 }
 
+/* A node moving region takes the nearest power the new one allows: one region's limits need not
+ * overlap another's, so it could not be set first. */
+static void a_new_region_takes_the_nearest_power_it_allows(void) {
+    const struct tern_region *th = tern_region(TERN_REGION_TH920);
+    const struct tern_region *kz = tern_region(TERN_REGION_KZ863);
+    const struct tern_region *us = tern_region(TERN_REGION_US915);
+    struct tern_radio_config cfg;
+    CHECK_EQ_I64(tern_region_nearest_dbm(th, 2, -9, 3), 14);  /* up to the floor */
+    CHECK_EQ_I64(tern_region_nearest_dbm(kz, 14, -9, 3), 10); /* down to the ceiling */
+    CHECK_EQ_I64(tern_region_nearest_dbm(th, 10, -9, 3), 14); /* KZ863 to TH920 */
+    CHECK_EQ_I64(tern_region_nearest_dbm(us, 2, -9, 3), 2);   /* inside: unchanged */
+    CHECK_EQ_I64(tern_region_nearest_dbm(us, 31, -9, 0), 30); /* US915's conducted limit */
+    for (int id = TERN_REGION_US915; id < TERN_REGION_END; id++) {
+        const struct tern_region *r = tern_region((enum tern_region_id)id);
+        for (int p = -9; p <= 22; p++) {
+            int8_t n = tern_region_nearest_dbm(r, (int8_t)p, -9, 3);
+            CHECK_EQ_I64(tern_region_radio(r, n, 3, &cfg), TERN_OK);
+        }
+    }
+}
+
 int main(void) {
     RUN(settings_every_frame_uses);
     RUN(every_profile_matches_the_specification);
@@ -213,5 +234,6 @@ int main(void) {
     RUN(more_power_than_a_region_allows_is_refused);
     RUN(australia_and_new_zealand_are_the_us_channel_at_their_own_power);
     RUN(th920_radiates_at_least_17_dbm);
+    RUN(a_new_region_takes_the_nearest_power_it_allows);
     return CHECK_DONE();
 }

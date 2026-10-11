@@ -1799,13 +1799,11 @@ static uint8_t link_set(void *ctx, const struct tern_companion_msg *m) {
         if (r == NULL) {
             return TERN_C_ERR_REFUSED;
         }
-        /* A region with a floor (TH920) takes the power up to it, if the node is below: a client
-         * has no other way to set it up, since only the node knows its antenna. */
-        int8_t power = cfg.tx_power_dbm;
-        int8_t lowest = tern_region_lowest_dbm(r, TX_MIN_DBM, CONFIG_TERN_ANTENNA_DBI);
-        if (power < lowest) {
-            power = lowest;
-        }
+        /* The power moves into the region's limits, if it is outside them: up to TH920's floor,
+         * down to KZ863's ceiling. Only the node knows its antenna, and one region's limits need
+         * not overlap another's, so no client could set the power first. */
+        int8_t power =
+            tern_region_nearest_dbm(r, cfg.tx_power_dbm, TX_MIN_DBM, CONFIG_TERN_ANTENNA_DBI);
         if (!board_power_ok(power) ||
             tern_region_radio(r, power, CONFIG_TERN_ANTENNA_DBI, &check) != TERN_OK) {
             return TERN_C_ERR_REFUSED;

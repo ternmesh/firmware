@@ -70,4 +70,11 @@ int tern_region_radio(const struct tern_region *r, int8_t tx_power_dbm, int8_t a
 int8_t tern_region_lowest_dbm(const struct tern_region *r, int8_t radio_min_dbm,
                               int8_t antenna_dbi);
 
+/* The power nearest power_dbm, into an antenna of antenna_dbi, that the region allows: power_dbm
+ * itself if it does, else the region's least or most. With radio_min_dbm, as for
+ * tern_region_lowest_dbm. What a node moving to the region sends at, since one region's limits
+ * need not overlap another's (KZ863 allows at most 13 dBm radiated, TH920 at least 17). */
+int8_t tern_region_nearest_dbm(const struct tern_region *r, int8_t power_dbm, int8_t radio_min_dbm,
+                               int8_t antenna_dbi);
+
 #endif

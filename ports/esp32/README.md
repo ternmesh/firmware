@@ -397,8 +397,9 @@ radio would. Two boards built before this change and after it do not hear each o
 * **TH920's least power.** Thailand allows 10% of an hour only from 50 mW radiated, so a TH920
   board radiates at least 17 dBm, by its setting and by power control alike. Its release images
   are built for +14 dBm into the 3 dBi antenna sold with the board, and a power that with the
-  antenna's gain comes to less than 17 dBm is refused. A board set to TH920 from an app raises its
-  power to the least that reaches 17 dBm, if it was below, since only the board knows its antenna.
+  antenna's gain comes to less than 17 dBm is refused. A board set to a region from an app moves its
+  power into that region's limits if it was outside them, up to TH920's 17 dBm or down to KZ863's
+  13 dBm, since only the board knows its antenna.
 * **EU868's 10%** (TH920's and RU868's alike). The board counts the time on air of every frame it sends and refuses to send
   one that would take it past 360 s in any hour. `status` shows the count. The count is saved to
   flash, and after a restart everything in it is treated as just sent, so restarting only makes

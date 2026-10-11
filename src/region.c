@@ -122,3 +122,14 @@ int8_t tern_region_lowest_dbm(const struct tern_region *r, int8_t radio_min_dbm,
     int floor = r->min_eirp_dbm == TERN_POWER_NO_FLOOR ? INT8_MIN : r->min_eirp_dbm - antenna_dbi;
     return (int8_t)(floor > radio_min_dbm ? floor : radio_min_dbm);
 }
+
+int8_t tern_region_nearest_dbm(const struct tern_region *r, int8_t power_dbm, int8_t radio_min_dbm,
+                               int8_t antenna_dbi) {
+    int most = r->max_eirp_dbm - antenna_dbi;
+    if (most > r->max_conducted_dbm) {
+        most = r->max_conducted_dbm;
+    }
+    int least = tern_region_lowest_dbm(r, radio_min_dbm, antenna_dbi);
+    int p = power_dbm < least ? least : power_dbm > most ? most : power_dbm;
+    return (int8_t)(p < INT8_MIN ? INT8_MIN : p > INT8_MAX ? INT8_MAX : p);
+}
