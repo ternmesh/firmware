@@ -503,17 +503,21 @@ bool tern_session_unpack(struct tern_session *s, const uint8_t in[TERN_SESSION_P
         tern_session_wipe(s);
         return false;
     }
-    /* Every counter in the window not yet accepted has its epoch's key held (Receiving, step 6),
-     * where tern_unicast_open() takes it from: a record that says otherwise is not one this code
-     * wrote. */
+    /* The epoch keys held are exactly those keep_epochs() leaves: from the epoch of the lowest
+     * counter the window still waits for to that of its highest (Receiving, step 6), or none when
+     * it waits for nothing. Fewer would have tern_unicast_open() take a key from outside the
+     * array; more, and a later epoch's key would never be worked out. */
     uint32_t lo = window_lo(rx), hi = window_hi(rx);
-    for (uint64_t m = lo; m <= hi; m++) {
-        uint32_t epoch = (uint32_t)(m >> EPOCH_SHIFT);
-        if (!accepted(rx, (uint32_t)m) &&
-            (epoch < rx->first_epoch || epoch - rx->first_epoch >= rx->epochs)) {
-            tern_session_wipe(s);
-            return false;
-        }
+    uint64_t lowest = lo;
+    while (lowest <= hi && accepted(rx, (uint32_t)lowest)) {
+        lowest++;
+    }
+    bool keys = lowest > hi ? rx->epochs == 0
+                            : rx->first_epoch == (uint32_t)(lowest >> EPOCH_SHIFT) &&
+                                  rx->epochs == (hi >> EPOCH_SHIFT) - rx->first_epoch + 1;
+    if (!keys) {
+        tern_session_wipe(s);
+        return false;
     }
     /* Every tag tern_unicast_open() may read: those of the counters in the window. */
     for (uint64_t m = lo; m <= hi; m++) {

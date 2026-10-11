@@ -476,6 +476,11 @@ static void receiver_keeps_only_needed_epochs(void) {
         uint32_t first = (n + 1) / 32, last = (n + 32) / 32;
         CHECK_EQ_U64(b.rx.first_epoch, first);
         CHECK_EQ_U64(b.rx.epochs, last - first + 1);
+        /* And what it holds is what tern_session_unpack() takes as a session's. */
+        uint8_t packed[TERN_SESSION_PACKED];
+        static struct tern_session again;
+        tern_session_pack(&b, packed);
+        CHECK(tern_session_unpack(&again, packed));
     }
 
     /* Receiving 31, then nothing below it: epoch 0 must stay, for counters 0 to 30. */
@@ -579,6 +584,9 @@ static void packed_session_goes_on(void) {
     CHECK(!tern_session_unpack(&a2, packed) && memcmp(&a2, zero, sizeof a2) == 0);
     tern_session_pack(&fresh, packed);
     packed[TERN_SESSION_PACKED - 96 - 1] = 0;
+    CHECK(!tern_session_unpack(&a2, packed) && memcmp(&a2, zero, sizeof a2) == 0);
+    tern_session_pack(&fresh, packed);
+    packed[TERN_SESSION_PACKED - 96 - 1] = 2; /* a key for epoch 1, which it does not yet need */
     CHECK(!tern_session_unpack(&a2, packed) && memcmp(&a2, zero, sizeof a2) == 0);
 
     /* Nor one that has not accepted its highest counter, which would take that frame again, nor
