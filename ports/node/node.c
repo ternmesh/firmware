@@ -112,14 +112,21 @@
 #define EMPTY_CHECK_S 1800 /* turned off for an empty battery, how often it wakes to look again */
 #define PROMPT_MS 2000     /* after something to see, how long a slow screen is prompted */
 #define SCREEN_TRIES 5     /* writes failed in a row before the screen is given up */
-/* For a person to read. The board is not in it: INFO has it apart, and with the longer names a
- * release's version and the board do not both fit in INFO's 31. */
-#define FIRMWARE "tern " CONFIG_TERN_VERSION
+/* For a person to read: the version and the board, which is all INFO's 31 has room for with a
+ * release's version and the longer boards' names. A board with nowhere to put an update says its
+ * name nowhere else (INFO's board is empty for it). */
+#define FIRMWARE CONFIG_TERN_VERSION " " CONFIG_TERN_BOARD_NAME
+#define FIRMWARE_BOARD_MAX 14   /* heltec-tracker, wio-tracker-l1 */
+#define FIRMWARE_VERSION_MAX 16 /* what that leaves: 10.10.10-alpha.1 */
 /* The name a client finds an image by: tern-<board>-<region>-... */
 #define BOARD CONFIG_TERN_BOARD_NAME
 /* An update with nothing new for this long is no longer shown on the screen. */
 #define UPDATE_SHOWN_S 30
-_Static_assert(sizeof FIRMWARE - 1 <= TERN_COMPANION_FIRMWARE_MAX, "the version fits in INFO");
+_Static_assert(FIRMWARE_VERSION_MAX + 1 + FIRMWARE_BOARD_MAX <= TERN_COMPANION_FIRMWARE_MAX,
+               "the longest version and board fit in INFO");
+/* Each apart, so that CI, which builds 0.0.0-dev, finds a board's name too long for a release. */
+_Static_assert(sizeof CONFIG_TERN_BOARD_NAME - 1 <= FIRMWARE_BOARD_MAX, "the board fits in INFO");
+_Static_assert(sizeof CONFIG_TERN_VERSION - 1 <= FIRMWARE_VERSION_MAX, "the version fits in INFO");
 #define SETTINGS_MAGIC 0x54530001u
 #define IDS_EARLIER 0x10000u /* past the message ids of a build that did not keep them */
 #define PASSKEY_RANDOM 0xFFFFFFFFu
