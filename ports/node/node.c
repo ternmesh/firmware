@@ -2232,7 +2232,7 @@ static void routes(void) {
 struct memory_store {
     bool have_identity, have_session;
     uint8_t identity[36];
-    struct demo_state session; /* the first session's record: the self-test makes one */
+    uint8_t session[DEMO_RECORD]; /* the first session's record: the self-test makes one */
 };
 
 static bool memory_slot(struct memory_store *m, const char *key, size_t len, void **slot,
@@ -2241,7 +2241,7 @@ static bool memory_slot(struct memory_store *m, const char *key, size_t len, voi
     if (!identity && strcmp(key, "session") != 0) {
         return false; /* another session's record: there is none, and none is made */
     }
-    *slot = identity ? (void *)m->identity : (void *)&m->session;
+    *slot = identity ? (void *)m->identity : (void *)m->session;
     *have = identity ? &m->have_identity : &m->have_session;
     return len == (identity ? sizeof m->identity : sizeof m->session);
 }

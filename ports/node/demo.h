@@ -52,6 +52,8 @@
 #define DEMO_ACKS 2
 #define DEMO_PEERS NODE_SESSIONS /* sessions a board holds */
 #define DEMO_HOLD TERN_S(60)     /* the specification's CONTACT_HOLD */
+/* A session's record in the store: its magic, role, peer and counts, then the session packed. */
+#define DEMO_RECORD (45 + TERN_SESSION_PACKED)
 
 /* What the board provides: whole records saved and loaded by name (platform.h), and
  * random bytes fit for keys. */

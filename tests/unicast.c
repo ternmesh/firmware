@@ -568,6 +568,18 @@ static void packed_session_goes_on(void) {
     tern_session_pack(&a, packed);
     packed[TERN_SESSION_PACKED - 96 - 1] = 4; /* more epochs than a window holds */
     CHECK(!tern_session_unpack(&a2, packed) && memcmp(&a2, zero, sizeof a2) == 0);
+
+    /* Nor one whose epoch keys do not cover every counter the window still waits for: the first
+     * epoch past counter 0, still to come, or no keys at all. */
+    static struct tern_session fresh;
+    start(&fresh, secret, TERN_RESPONDER);
+    tern_session_pack(&fresh, packed);
+    CHECK(tern_session_unpack(&a2, packed));
+    packed[TERN_SESSION_PACKED - 96 - 1 - 4] = 1; /* first_epoch, little-endian */
+    CHECK(!tern_session_unpack(&a2, packed) && memcmp(&a2, zero, sizeof a2) == 0);
+    tern_session_pack(&fresh, packed);
+    packed[TERN_SESSION_PACKED - 96 - 1] = 0;
+    CHECK(!tern_session_unpack(&a2, packed) && memcmp(&a2, zero, sizeof a2) == 0);
 }
 
 int main(void) {

@@ -54,6 +54,7 @@ static void state_key(int slot, char key[STATE_KEY_MAX]) {
 #define AT_HEARD (AT_SENT + 4)
 #define AT_SESSION (AT_HEARD + 4)
 #define RECORD_LEN (AT_SESSION + TERN_SESSION_PACKED)
+_Static_assert(RECORD_LEN == DEMO_RECORD, "demo.h says how long a record is");
 
 static void put_u32(uint8_t *p, uint32_t n) {
     for (int i = 0; i < 4; i++) {
