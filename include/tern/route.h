@@ -270,9 +270,10 @@ struct tern_route_neighbour {
 int tern_route_place(const struct tern_route_neighbour *full, size_t n, int32_t floor);
 
 /* The neighbour of `n` a leaf hands a frame with no route to: the relay with the lowest floor of
- * those whose links are up and whose ids are not among the `tried_count` in `tried`; an index, or
- * -1 for none, and none for a relay (`leaf` false), a node starting, or one whose busy share
- * `busy_ppm` is `busy_max` or more, unless `busy_max` is 1000000. */
+ * those whose links are up and whose ids are not among the `tried_count` in `tried`, or with none
+ * up, of those it hears; an index, or -1 for none, and none for a relay (`leaf` false), a node
+ * starting, or one whose busy share `busy_ppm` is `busy_max` or more, unless `busy_max` is 1000000.
+ */
 int tern_route_default(const struct tern_route_neighbour *n, size_t count, bool leaf, bool starting,
                        uint32_t busy_ppm, uint32_t busy_max, const uint32_t *tried,
                        int tried_count);
