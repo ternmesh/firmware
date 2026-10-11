@@ -1796,8 +1796,18 @@ static uint8_t link_set(void *ctx, const struct tern_companion_msg *m) {
     switch (m->setting) {
     case TERN_C_SET_REGION: {
         const struct tern_region *r = region_named(m->text, m->text_len);
-        if (r == NULL ||
-            tern_region_radio(r, cfg.tx_power_dbm, CONFIG_TERN_ANTENNA_DBI, &check) != TERN_OK) {
+        if (r == NULL) {
+            return TERN_C_ERR_REFUSED;
+        }
+        /* A region with a floor (TH920) takes the power up to it, if the node is below: a client
+         * has no other way to set it up, since only the node knows its antenna. */
+        int8_t power = cfg.tx_power_dbm;
+        int8_t lowest = tern_region_lowest_dbm(r, TX_MIN_DBM, CONFIG_TERN_ANTENNA_DBI);
+        if (power < lowest) {
+            power = lowest;
+        }
+        if (!board_power_ok(power) ||
+            tern_region_radio(r, power, CONFIG_TERN_ANTENNA_DBI, &check) != TERN_OK) {
             return TERN_C_ERR_REFUSED;
         }
         if (r == region) {
@@ -1805,6 +1815,9 @@ static uint8_t link_set(void *ctx, const struct tern_companion_msg *m) {
         }
         for (int id = TERN_REGION_US915; id < TERN_REGION_END; id++) {
             next.region = tern_region((enum tern_region_id)id) == r ? (uint8_t)id : next.region;
+        }
+        if (power != cfg.tx_power_dbm) {
+            next.power = power;
         }
         break;
     }
