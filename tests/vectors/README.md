@@ -25,7 +25,9 @@ profiles of [ternmesh/spec#36](https://github.com/ternmesh/spec/pull/36).
 `routing.json` is a copy of
 [`vectors/routing.json`](https://github.com/ternmesh/spec/blob/main/vectors/routing.json), as of
 the routing draft in [ternmesh/spec#8](https://github.com/ternmesh/spec/pull/8), which adds a full
-table's cases. `routing_to_c.py`
+table's cases. Its default-route cases are as of
+[ternmesh/spec#40](https://github.com/ternmesh/spec/pull/40): a leaf with no link to a relay up
+takes the nearest relay it hears. `routing_to_c.py`
 turns it into a header for `tests/route.c`.
 
 `forwarding.json` is a copy of

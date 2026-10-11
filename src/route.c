@@ -1341,10 +1341,16 @@ int tern_route_default(const struct tern_route_neighbour *n, size_t count, bool 
     if (!leaf || starting || (busy_max < 1000000 && busy_ppm >= busy_max)) {
         return -1;
     }
-    for (size_t i = 0; i < count; i++) {
-        if (n[i].used && n[i].up && n[i].relay && !tried_already(n[i].id, tried, tried_count) &&
-            (best < 0 || n[i].floor < n[best].floor)) {
-            best = (int)i;
+    /* A relay whose link is up; with none, one heard at all. A relay names its neighbours in
+     * announces as loud as its nearest need, so a leaf further out may never hear itself named,
+     * though the relay holds the link up from its side. */
+    for (int pass = 0; pass < 2 && best < 0; pass++) {
+        for (size_t i = 0; i < count; i++) {
+            if (n[i].used && (n[i].up || pass) && n[i].relay &&
+                !tried_already(n[i].id, tried, tried_count) &&
+                (best < 0 || n[i].floor < n[best].floor)) {
+                best = (int)i;
+            }
         }
     }
     return best;
