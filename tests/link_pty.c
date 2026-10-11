@@ -101,24 +101,24 @@ static uint8_t why(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]) {
 }
 
 static uint8_t contacts[sizeof(struct link_contact) * LINK_CONTACTS];
-static bool have_contacts;
+static size_t contacts_len;
 
-static bool load(void *ctx, void *buf, size_t len) {
+static size_t load(void *ctx, void *buf, size_t cap) {
     (void)ctx;
-    if (!have_contacts || len != sizeof contacts) {
-        return false;
+    if (contacts_len > cap) {
+        return 0;
     }
-    memcpy(buf, contacts, len);
-    return true;
+    memcpy(buf, contacts, contacts_len);
+    return contacts_len;
 }
 
 static bool save(void *ctx, const void *buf, size_t len) {
     (void)ctx;
-    if (len != sizeof contacts) {
+    if (len == 0 || len > sizeof contacts) {
         return false;
     }
     memcpy(contacts, buf, len);
-    have_contacts = true;
+    contacts_len = len;
     return true;
 }
 
@@ -134,11 +134,11 @@ static void text_in(void *ctx, uint8_t byte) {
 
 /* This node holds no groups at start, and has nothing to make one with: it joins one from a code
  * alone, and keeps it until it stops. */
-static bool load_groups(void *ctx, void *buf, size_t len) {
+static size_t load_groups(void *ctx, void *buf, size_t cap) {
     (void)ctx;
     (void)buf;
-    (void)len;
-    return false;
+    (void)cap;
+    return 0;
 }
 
 static bool save_groups(void *ctx, const void *buf, size_t len) {

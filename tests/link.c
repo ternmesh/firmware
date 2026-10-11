@@ -57,9 +57,9 @@ struct board {
     uint8_t end_answer;
     bool save_fails;
     uint8_t saved[sizeof(struct link_contact) * LINK_CONTACTS];
-    bool have_saved;
+    size_t saved_len; /* 0 with nothing saved */
     uint8_t groups[sizeof(struct link_group_saved) * LINK_GROUPS];
-    bool have_groups;
+    size_t groups_len;
     const uint8_t *random; /* the bytes the board's generator gives next, or NULL for none */
     uint32_t ids;          /* the message ids set aside, 0 if none were */
     unsigned id_saves;
@@ -148,41 +148,41 @@ static uint8_t board_why(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]) {
     return ((struct board *)ctx)->why;
 }
 
-static bool board_load(void *ctx, void *buf, size_t len) {
+static size_t board_load(void *ctx, void *buf, size_t cap) {
     struct board *b = ctx;
-    if (!b->have_saved || len != sizeof b->saved) {
-        return false;
+    if (b->saved_len > cap) {
+        return 0;
     }
-    memcpy(buf, b->saved, len);
-    return true;
+    memcpy(buf, b->saved, b->saved_len);
+    return b->saved_len;
 }
 
 static bool board_save(void *ctx, const void *buf, size_t len) {
     struct board *b = ctx;
-    if (b->save_fails || len != sizeof b->saved) {
+    if (b->save_fails || len == 0 || len > sizeof b->saved) {
         return false;
     }
     memcpy(b->saved, buf, len);
-    b->have_saved = true;
+    b->saved_len = len;
     return true;
 }
 
-static bool board_load_groups(void *ctx, void *buf, size_t len) {
+static size_t board_load_groups(void *ctx, void *buf, size_t cap) {
     struct board *b = ctx;
-    if (!b->have_groups || len != sizeof b->groups) {
-        return false;
+    if (b->groups_len > cap) {
+        return 0;
     }
-    memcpy(buf, b->groups, len);
-    return true;
+    memcpy(buf, b->groups, b->groups_len);
+    return b->groups_len;
 }
 
 static bool board_save_groups(void *ctx, const void *buf, size_t len) {
     struct board *b = ctx;
-    if (b->save_fails || len != sizeof b->groups) {
+    if (b->save_fails || len == 0 || len > sizeof b->groups) {
         return false;
     }
     memcpy(b->groups, buf, len);
-    b->have_groups = true;
+    b->groups_len = len;
     return true;
 }
 
@@ -1776,6 +1776,78 @@ static void received_text_is_cut_to_what_a_message_carries(void) {
     CHECK_EQ_U64(board.n_out, 0);
 }
 
+/* What a build that held 16 contacts and 4 groups saved, every place full, is all loaded by a
+ * build that holds as many or more, which saves only the places up to its last in use. */
+/* The i-th of many valid addresses. */
+static void some_address(size_t i, uint8_t out[TERN_ADDRESS_LEN]) {
+    uint8_t seed[TERN_SEED_LEN] = {0x5E, (uint8_t)i};
+    struct tern_identity id;
+    tern_identity_init(&id, seed);
+    memcpy(out, id.address, TERN_ADDRESS_LEN);
+    tern_identity_wipe(&id);
+}
+
+static void a_full_list_from_a_smaller_build_is_loaded(void) {
+    start();
+    struct link_contact old[16] = {0};
+    for (size_t i = 0; i < 16; i++) {
+        old[i].used = true;
+        some_address(i, old[i].address);
+        old[i].name_len = 1;
+        old[i].name[0] = (uint8_t)('a' + i);
+    }
+    memcpy(board.saved, old, sizeof old);
+    board.saved_len = sizeof old;
+    struct link_group_saved groups[4] = {0};
+    for (size_t i = 0; i < 4; i++) {
+        groups[i].used = true;
+        memset(groups[i].secret, (int)(0x40 + i), TERN_GROUP_SECRET);
+        groups[i].name_len = 1;
+        groups[i].name[0] = (uint8_t)('A' + i);
+    }
+    memcpy(board.groups, groups, sizeof groups);
+    board.groups_len = sizeof groups;
+
+    struct link_host host = companion.host;
+    link_init(&companion, &host);
+    link_open(&companion, LINK_SERIAL, 0, 0);
+    for (size_t i = 0; i < LINK_CONTACTS; i++) {
+        CHECK(companion.contacts[i].used == (i < 16));
+    }
+    CHECK(companion.contacts[15].name[0] == 'p');
+    for (size_t i = 0; i < LINK_GROUPS; i++) {
+        CHECK(companion.groups[i].used == (i < 4));
+    }
+    CHECK(companion.groups[3].name[0] == 'D');
+
+    /* As many more contacts as this build has room for, and then no more. */
+    hello();
+    struct tern_companion_msg q = {.type = TERN_C_SAVE_CONTACT, .seq = 2, .text_len = 1};
+    q.text[0] = 'z';
+    for (size_t i = 16; i <= LINK_CONTACTS; i++) {
+        some_address(i, q.address);
+        request(&q);
+        CHECK_EQ_I64(sent(0).type, i < LINK_CONTACTS ? TERN_C_OK : TERN_C_ERROR);
+    }
+    CHECK_EQ_U64(board.saved_len, sizeof(struct link_contact) * LINK_CONTACTS);
+
+    /* The last place emptied, the record is the places before it. */
+    q.type = TERN_C_REMOVE_CONTACT;
+    some_address(LINK_CONTACTS - 1, q.address);
+    request(&q);
+    CHECK_EQ_I64(sent(0).type, TERN_C_OK);
+    CHECK_EQ_U64(board.saved_len, sizeof(struct link_contact) * (LINK_CONTACTS - 1));
+    link_init(&companion, &host);
+    for (size_t i = 0; i < LINK_CONTACTS; i++) {
+        CHECK(companion.contacts[i].used == (i < LINK_CONTACTS - 1));
+    }
+
+    /* A record that is not whole places is not loaded. */
+    board.saved_len = sizeof(struct link_contact) + 1;
+    link_init(&companion, &host);
+    CHECK(!companion.contacts[0].used);
+}
+
 static void contacts_are_saved_renamed_and_removed(void) {
     start();
     hello();
@@ -1786,7 +1858,7 @@ static void contacts_are_saved_renamed_and_removed(void) {
     CHECK_EQ_I64(sent(0).type, TERN_C_OK);
     CHECK_EQ_I64(sent(1).type, TERN_C_CONTACT);
     CHECK_EQ_I64(sent(1).session, 1);
-    CHECK(board.have_saved);
+    CHECK_EQ_U64(board.saved_len, sizeof(struct link_contact)); /* only the place in use */
 
     /* Renamed: still one contact. */
     q.text_len = 6;
@@ -2439,6 +2511,7 @@ int main(void) {
     RUN(read_on_the_board_is_news);
     RUN(received_text_is_cut_to_what_a_message_carries);
     RUN(contacts_are_saved_renamed_and_removed);
+    RUN(a_full_list_from_a_smaller_build_is_loaded);
     RUN(settings_are_the_boards_to_refuse);
     RUN(neighbours_are_news_when_they_change);
     RUN(the_air_is_news_no_more_than_every_quiet);

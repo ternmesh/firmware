@@ -31,18 +31,92 @@ static bool same(const uint8_t *a, const uint8_t *b, size_t len) {
 
 /* A slot's record: the first has the name the one session of earlier builds had, so a board that
  * is updated keeps its peer. */
-static void state_key(int slot, char key[sizeof STATE_KEY + 1]) {
+#define STATE_KEY_MAX (sizeof STATE_KEY + 2)
+static void state_key(int slot, char key[STATE_KEY_MAX]) {
     copy((uint8_t *)key, (const uint8_t *)STATE_KEY, sizeof STATE_KEY);
+    char *at = &key[sizeof STATE_KEY - 1];
+    if (slot >= 10) {
+        *at++ = (char)('0' + slot / 10);
+    }
     if (slot != 0) {
-        key[sizeof STATE_KEY - 1] = (char)('0' + slot);
-        key[sizeof STATE_KEY] = '\0';
+        *at++ = (char)('0' + slot % 10);
+    }
+    *at = '\0';
+}
+
+/* A session as flash keeps it: its magic, role, peer and counts, then the session packed
+ * (tern_session_pack()), a quarter of the struct that earlier builds saved whole. A record of
+ * theirs is loaded once and saved again in this form (demo_start()). */
+#define RECORD_MAGIC 0x54455232u /* "TER2" */
+#define AT_ROLE 4
+#define AT_PEER 5
+#define AT_SENT (AT_PEER + TERN_ADDRESS_LEN)
+#define AT_HEARD (AT_SENT + 4)
+#define AT_SESSION (AT_HEARD + 4)
+#define RECORD_LEN (AT_SESSION + TERN_SESSION_PACKED)
+_Static_assert(RECORD_LEN == DEMO_RECORD, "demo.h says how long a record is");
+
+static void put_u32(uint8_t *p, uint32_t n) {
+    for (int i = 0; i < 4; i++) {
+        p[i] = (uint8_t)(n >> (8 * i));
     }
 }
 
+static uint32_t get_u32(const uint8_t *p) {
+    return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
+}
+
 static bool save_state(struct demo *d, int slot) {
-    char key[sizeof STATE_KEY + 1];
+    char key[STATE_KEY_MAX];
+    uint8_t rec[RECORD_LEN] = {0};
+    const struct demo_state *s = &d->s[slot];
     state_key(slot, key);
-    return d->store.save(d->store.ctx, key, &d->s[slot], sizeof d->s[slot]);
+    put_u32(rec, RECORD_MAGIC);
+    rec[AT_ROLE] = s->role;
+    if (s->role != 0) {
+        copy(&rec[AT_PEER], s->peer, TERN_ADDRESS_LEN);
+        put_u32(&rec[AT_SENT], s->sent);
+        put_u32(&rec[AT_HEARD], s->heard);
+        tern_session_pack(&s->session, &rec[AT_SESSION]);
+    }
+    bool ok = d->store.save(d->store.ctx, key, rec, sizeof rec);
+    tern_wipe(rec, sizeof rec);
+    return ok;
+}
+
+/* A slot's session from its record: false, with the slot empty, if it holds none. */
+static bool load_state(struct demo *d, int slot) {
+    char key[STATE_KEY_MAX];
+    uint8_t rec[RECORD_LEN];
+    struct demo_state *s = &d->s[slot];
+    state_key(slot, key);
+    tern_wipe(s, sizeof *s);
+    if (d->store.load(d->store.ctx, key, rec, sizeof rec)) {
+        bool ok = get_u32(rec) == RECORD_MAGIC && rec[AT_ROLE] != 0 &&
+                  tern_session_unpack(&s->session, &rec[AT_SESSION]);
+        if (ok) {
+            s->magic = MAGIC;
+            s->size = sizeof *s;
+            s->role = rec[AT_ROLE];
+            copy(s->peer, &rec[AT_PEER], TERN_ADDRESS_LEN);
+            s->sent = get_u32(&rec[AT_SENT]);
+            s->heard = get_u32(&rec[AT_HEARD]);
+        } else {
+            tern_wipe(s, sizeof *s);
+        }
+        tern_wipe(rec, sizeof rec);
+        return ok;
+    }
+    /* An earlier build's record, the struct whole, saved again in this form. If that fails the
+     * session is kept all the same: the next message saves it, and until then the old record
+     * still loads. */
+    if (!d->store.load(d->store.ctx, key, s, sizeof *s) || s->magic != MAGIC ||
+        s->size != sizeof *s || s->role == 0) {
+        tern_wipe(s, sizeof *s);
+        return false;
+    }
+    (void)save_state(d, slot);
+    return true;
 }
 
 int demo_peer(const struct demo *d, const uint8_t address[TERN_ADDRESS_LEN]) {
@@ -131,13 +205,7 @@ bool demo_start(struct demo *d, const struct demo_store *store, tern_time hold) 
     tern_wipe(&rec, sizeof rec);
 
     for (int i = 0; i < DEMO_PEERS; i++) {
-        char key[sizeof STATE_KEY + 1];
-        state_key(i, key);
-        struct demo_state *s = &d->s[i];
-        if (!store->load(store->ctx, key, s, sizeof *s) || s->magic != MAGIC ||
-            s->size != sizeof *s || s->role == 0) {
-            tern_wipe(s, sizeof *s);
-        }
+        (void)load_state(d, i);
     }
     d->last = any_slot(d);
     return ok;

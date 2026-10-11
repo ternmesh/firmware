@@ -82,6 +82,18 @@ void tern_session_init(struct tern_session *s, uint8_t secret[TERN_UNICAST_SECRE
 /* Erases every key a session holds. */
 void tern_session_wipe(struct tern_session *s);
 
+/* A session in TERN_SESSION_PACKED bytes, for a node to keep in flash: about a quarter of the
+ * struct, which also holds what can be worked out again from the rest (the tag keys' round keys,
+ * and the destination tag of every counter in the window). Not part of the specification: the
+ * layout is this code's, little-endian, and begins with a byte that names it.
+ *
+ * Unpacking gives back a session that seals, opens and acknowledges exactly as the packed one
+ * would have; it is false, with s erased, for bytes that are not a packed session. Both leave
+ * keys in their output, which the caller erases when it is done with it. */
+#define TERN_SESSION_PACKED 208
+void tern_session_pack(const struct tern_session *s, uint8_t out[TERN_SESSION_PACKED]);
+bool tern_session_unpack(struct tern_session *s, const uint8_t in[TERN_SESSION_PACKED]);
+
 /* Seals len bytes of plaintext (at most TERN_UNICAST_MAX_PLAINTEXT) into a frame of len + 23
  * bytes at frame, as the next message in this session: the one whose counter is tx->next before
  * the call. plaintext and frame must not overlap. Returns TERN_OK, TERN_EINVAL if len is too long

@@ -407,3 +407,121 @@ bool tern_unicast_acked(const struct tern_unicast_tx *tx, uint32_t counter, cons
     }
     return diff == 0;
 }
+
+/* --- Packing ---------------------------------------------------------------------------------- */
+
+#define PACKED_FORM 0x01
+
+static uint8_t *put_bytes(uint8_t *p, const uint8_t *from, size_t len) {
+    copy(p, from, len);
+    return p + len;
+}
+
+static uint8_t *put_u32le(uint8_t *p, uint32_t n) {
+    for (int i = 0; i < 4; i++) {
+        p[i] = (uint8_t)(n >> (8 * i));
+    }
+    return p + 4;
+}
+
+static const uint8_t *get_u32le(const uint8_t *p, uint32_t *n) {
+    *n = (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
+    return p + 4;
+}
+
+static const uint8_t *get_bytes(const uint8_t *p, uint8_t *to, size_t len) {
+    copy(to, p, len);
+    return p + len;
+}
+
+/* The first round key is the key itself (FIPS 197, section 5.2), so 16 bytes of a tag key are
+ * all of it. */
+void tern_session_pack(const struct tern_session *s, uint8_t out[TERN_SESSION_PACKED]) {
+    const struct tern_unicast_tx *tx = &s->tx;
+    const struct tern_unicast_rx *rx = &s->rx;
+    uint8_t *p = out;
+    *p++ = PACKED_FORM;
+    p = put_bytes(p, tx->tag_key.rk, TERN_AES128_KEY);
+    p = put_bytes(p, tx->iv, TERN_CCM_NONCE);
+    p = put_bytes(p, tx->epoch_key, 32);
+    p = put_u32le(p, tx->next);
+    *p++ = tx->dir;
+    *p++ = tx->spent ? 1 : 0;
+    p = put_bytes(p, rx->tag_key.rk, TERN_AES128_KEY);
+    p = put_bytes(p, rx->iv, TERN_CCM_NONCE);
+    *p++ = rx->dir;
+    *p++ = rx->started ? 1 : 0;
+    p = put_u32le(p, rx->high);
+    p = put_u32le(p, rx->seen);
+    p = put_u32le(p, rx->first_epoch);
+    *p++ = rx->epochs;
+    (void)put_bytes(p, (const uint8_t *)rx->epoch_keys, sizeof rx->epoch_keys);
+}
+
+bool tern_session_unpack(struct tern_session *s, const uint8_t in[TERN_SESSION_PACKED]) {
+    struct tern_unicast_tx *tx = &s->tx;
+    struct tern_unicast_rx *rx = &s->rx;
+    uint8_t key[TERN_AES128_KEY];
+    /* Each key is expanded here and copied in: expanded in place, GCC 13 at -O2 takes the window's
+     * tags below for an empty region (-Wstringop-overflow). */
+    struct tern_aes128 expanded;
+    tern_session_wipe(s);
+    const uint8_t *p = in;
+    if (*p++ != PACKED_FORM) {
+        return false;
+    }
+    p = get_bytes(p, key, sizeof key);
+    tern_aes128_init(&expanded, key);
+    tx->tag_key = expanded;
+    p = get_bytes(p, tx->iv, TERN_CCM_NONCE);
+    p = get_bytes(p, tx->epoch_key, 32);
+    p = get_u32le(p, &tx->next);
+    tx->dir = *p++;
+    uint8_t spent = *p++;
+    tx->spent = spent == 1;
+    p = get_bytes(p, key, sizeof key);
+    tern_aes128_init(&expanded, key);
+    rx->tag_key = expanded;
+    tern_wipe(key, sizeof key);
+    tern_wipe(&expanded, sizeof expanded);
+    p = get_bytes(p, rx->iv, TERN_CCM_NONCE);
+    rx->dir = *p++;
+    uint8_t started = *p++;
+    rx->started = started == 1;
+    p = get_u32le(p, &rx->high);
+    p = get_u32le(p, &rx->seen);
+    p = get_u32le(p, &rx->first_epoch);
+    rx->epochs = *p++;
+    (void)get_bytes(p, (uint8_t *)rx->epoch_keys, sizeof rx->epoch_keys);
+
+    bool directions = (tx->dir == TERN_INITIATOR && rx->dir == TERN_RESPONDER) ||
+                      (tx->dir == TERN_RESPONDER && rx->dir == TERN_INITIATOR);
+    /* A receiver that has accepted something has accepted its highest; one that has not holds
+     * no highest at all (accept()). */
+    bool window = started == 1 ? (rx->seen & 1u) != 0 : rx->high == 0 && rx->seen == 0;
+    if (!directions || spent > 1 || started > 1 || !window || rx->epochs > 3) {
+        tern_session_wipe(s);
+        return false;
+    }
+    /* The epoch keys held are exactly those keep_epochs() leaves: from the epoch of the lowest
+     * counter the window still waits for to that of its highest (Receiving, step 6), or none when
+     * it waits for nothing. Fewer would have tern_unicast_open() take a key from outside the
+     * array; more, and a later epoch's key would never be worked out. */
+    uint32_t lo = window_lo(rx), hi = window_hi(rx);
+    uint64_t lowest = lo;
+    while (lowest <= hi && accepted(rx, (uint32_t)lowest)) {
+        lowest++;
+    }
+    bool keys = lowest > hi ? rx->epochs == 0
+                            : rx->first_epoch == (uint32_t)(lowest >> EPOCH_SHIFT) &&
+                                  rx->epochs == (hi >> EPOCH_SHIFT) - rx->first_epoch + 1;
+    if (!keys) {
+        tern_session_wipe(s);
+        return false;
+    }
+    /* Every tag tern_unicast_open() may read: those of the counters in the window. */
+    for (uint64_t m = lo; m <= hi; m++) {
+        dtag(&rx->tag_key, (uint32_t)m, rx->dtags[m % 64]);
+    }
+    return true;
+}
