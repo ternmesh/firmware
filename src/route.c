@@ -402,7 +402,7 @@ static struct tern_route_dest *dest_make(struct tern_route *r, uint32_t id) {
     }
     if (!d && idle) {
         d = idle;
-        *d = (struct tern_route_dest){.id = id, .used = true, .asked = -1};
+        *d = (struct tern_route_dest){.id = id, .used = true};
     }
     return d;
 }
@@ -484,6 +484,16 @@ static void request(struct tern_route *r, uint32_t id, uint16_t seq, uint32_t ne
     }
 }
 
+/* When a request about a destination went, in milliseconds, kept in 32 bits: odd, so that 0 is
+ * never. A difference of them is right for 49 days, and one older than that can at worst look
+ * recent for a request_interval, and put one request off by as long. */
+static uint32_t stamp(tern_time t) { return (uint32_t)(t / TERN_MS(1)) | 1u; }
+
+static bool asked_within(const struct tern_route *r, const struct tern_route_dest *d) {
+    return d->asked &&
+           (uint32_t)(stamp(r->now) - d->asked) < r->config.request_interval / TERN_MS(1);
+}
+
 /* Asks about a destination: for a seq newer than the feasibility distance, of the neighbour with
  * the best of the infeasible routes, as RFC 8966 allows, so that the request goes up one path and
  * not every neighbour's; or, having never announced a route to it, for whatever route a neighbour
@@ -491,7 +501,7 @@ static void request(struct tern_route *r, uint32_t id, uint16_t seq, uint32_t ne
 static void ask(struct tern_route *r, struct tern_route_dest *d) {
     uint16_t seq = (uint16_t)(d->fd.seq + 1), best = INF;
     uint32_t next = TERN_ROUTE_EVERYONE;
-    d->asked = r->now;
+    d->asked = stamp(r->now);
     if (!d->fd.has) {
         d->asked_seq = 0;
         request(r, d->id, 0, TERN_ROUTE_EVERYONE, 0);
@@ -527,7 +537,7 @@ static void starved(struct tern_route *r, struct tern_route_dest *d) {
             r->request_at = r->now + r->config.request_interval;
         }
     }
-    if (d->asked < 0 || r->now - d->asked >= r->config.request_interval) {
+    if (!asked_within(r, d)) {
         ask(r, d);
     }
 }
@@ -1127,9 +1137,8 @@ static void on_ask(struct tern_route *r, const struct tern_request_ask *q) {
         trickle_reset(r);
         return;
     }
-    if (q->hops > 1 && !(d->asked >= 0 && d->asked_seq == q->seq &&
-                         r->now - d->asked < r->config.request_interval)) {
-        d->asked = r->now;
+    if (q->hops > 1 && !(d->asked_seq == q->seq && asked_within(r, d))) {
+        d->asked = stamp(r->now);
         d->asked_seq = q->seq;
         request(r, d->id, q->seq, slot(r, d->sel)->id, (uint8_t)(q->hops - 1));
     }
@@ -1467,7 +1476,7 @@ void tern_route_want(struct tern_route *r, tern_time now, uint32_t destination) 
     if (destination == r->id || !(d = dest_make(r, destination)) || d->sel) {
         return;
     }
-    if (d->asked < 0 || now - d->asked >= r->config.request_interval) {
+    if (!asked_within(r, d)) {
         ask(r, d);
     }
 }

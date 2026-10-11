@@ -369,6 +369,8 @@ void plat_entropy_start(void) {}
 
 void plat_bluetooth_starting(bool starting) { (void)starting; }
 
+size_t plat_heap_free(void) { return 0; } /* its table is static (prj.conf) */
+
 /* --- Updates: not over the link yet ----------------------------------------------------------- */
 
 uint32_t plat_update_room(void) { return 0; }

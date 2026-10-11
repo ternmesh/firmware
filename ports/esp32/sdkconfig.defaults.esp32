@@ -2,3 +2,7 @@
 # beside sdkconfig.defaults when the build is for that chip). Its Bluetooth controller is set apart
 # from the host, and holds room for as many connections as it is told: one, as NimBLE is.
 CONFIG_BTDM_CTRL_BLE_MAX_CONN=1
+# A relay's table of RELAY_PLACES destinations (the specification's routing draft), 48 KB, from the
+# heap: its static RAM has no room for it, and the board takes fewer if the heap has too few.
+CONFIG_TERN_DESTINATIONS=1024
+CONFIG_TERN_DESTINATIONS_HEAP=y

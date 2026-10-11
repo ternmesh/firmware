@@ -286,21 +286,24 @@ struct tern_route_entry {
     uint16_t metric; /* the neighbour's, without the link */
 };
 
+/* A relay keeps RELAY_PLACES of these, so its size is most of a relay's RAM: 48 bytes, the fields
+ * ordered and the flags packed so that nothing is padding. */
 struct tern_route_dest {
     uint32_t id;
-    bool used;
+    uint32_t
+        asked; /* milliseconds when a request about it was last sent or passed on, odd; 0 never */
     struct tern_route_entry e[TERN_ROUTE_KEPT];
-    uint8_t sel; /* the selected route's slot, or 0 */
     struct tern_route_fd fd;
-    bool advertised;  /* a route to it has been announced, and not retracted since */
-    bool urgent;      /* changed, and waiting to be announced */
-    bool listed;      /* in the frame being built */
-    uint8_t retracts; /* times its retraction is still to go */
-    uint8_t tries;    /* requests sent while starved; 0 when not */
     uint16_t adv_seq; /* what was last announced */
     uint16_t adv_metric;
     uint16_t asked_seq;
-    tern_time asked; /* when a request about it was last sent or passed on, or -1 */
+    uint8_t sel;      /* the selected route's slot, or 0 */
+    uint8_t retracts; /* times its retraction is still to go */
+    uint8_t tries;    /* requests sent while starved; 0 when not */
+    bool used : 1;
+    bool advertised : 1; /* a route to it has been announced, and not retracted since */
+    bool urgent : 1;     /* changed, and waiting to be announced */
+    bool listed : 1;     /* in the frame being built */
 };
 
 struct tern_route_bucket {

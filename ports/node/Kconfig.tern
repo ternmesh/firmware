@@ -51,11 +51,19 @@
         range 32 4096
         default 128
         help
-            How many nodes a relay can pass frames on toward, at 64 bytes of RAM each: the
-            specification's RELAY_PLACES is 1024. The ESP32-S3 builds set 1024
-            (sdkconfig.defaults.esp32s3); the classic ESP32 has no room for it, and the
-            nRF52840 has not been measured. A leaf needs few: it hands a frame it has no route
-            for to its nearest relay.
+            How many nodes a relay can pass frames on toward, at 48 bytes of RAM each: the
+            specification's RELAY_PLACES is 1024, and every port's builds set it
+            (sdkconfig.defaults.esp32, sdkconfig.defaults.esp32s3, ports/nrf52/prj.conf). A leaf
+            needs few: it hands a frame it has no route for to its nearest relay.
+
+    config TERN_DESTINATIONS_HEAP
+        bool "Take the destinations from the heap, as many as fit"
+        default n
+        help
+            For a chip whose static RAM is full, as the classic ESP32's is: the table is taken
+            from the heap at start, TERN_DESTINATIONS of them or half as many, down to 128, so
+            that 64 KB of the heap is left for Bluetooth and the rest. 'status' on the console
+            says how many it got.
 
     config TERN_SCREEN_FLIP
         bool "Turn the screen upside down"
