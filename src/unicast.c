@@ -455,20 +455,24 @@ void tern_session_pack(const struct tern_session *s, uint8_t out[TERN_SESSION_PA
     p = put_u32le(p, rx->seen);
     p = put_u32le(p, rx->first_epoch);
     *p++ = rx->epochs;
-    (void)put_bytes(p, &rx->epoch_keys[0][0], sizeof rx->epoch_keys);
+    (void)put_bytes(p, (const uint8_t *)rx->epoch_keys, sizeof rx->epoch_keys);
 }
 
 bool tern_session_unpack(struct tern_session *s, const uint8_t in[TERN_SESSION_PACKED]) {
     struct tern_unicast_tx *tx = &s->tx;
     struct tern_unicast_rx *rx = &s->rx;
     uint8_t key[TERN_AES128_KEY];
+    /* Each key is expanded here and copied in: expanded in place, GCC 13 at -O2 takes the window's
+     * tags below for an empty region (-Wstringop-overflow). */
+    struct tern_aes128 expanded;
     tern_session_wipe(s);
     const uint8_t *p = in;
     if (*p++ != PACKED_FORM) {
         return false;
     }
     p = get_bytes(p, key, sizeof key);
-    tern_aes128_init(&tx->tag_key, key);
+    tern_aes128_init(&expanded, key);
+    tx->tag_key = expanded;
     p = get_bytes(p, tx->iv, TERN_CCM_NONCE);
     p = get_bytes(p, tx->epoch_key, 32);
     p = get_u32le(p, &tx->next);
@@ -476,8 +480,10 @@ bool tern_session_unpack(struct tern_session *s, const uint8_t in[TERN_SESSION_P
     uint8_t spent = *p++;
     tx->spent = spent == 1;
     p = get_bytes(p, key, sizeof key);
-    tern_aes128_init(&rx->tag_key, key);
+    tern_aes128_init(&expanded, key);
+    rx->tag_key = expanded;
     tern_wipe(key, sizeof key);
+    tern_wipe(&expanded, sizeof expanded);
     p = get_bytes(p, rx->iv, TERN_CCM_NONCE);
     rx->dir = *p++;
     uint8_t started = *p++;
@@ -486,7 +492,7 @@ bool tern_session_unpack(struct tern_session *s, const uint8_t in[TERN_SESSION_P
     p = get_u32le(p, &rx->seen);
     p = get_u32le(p, &rx->first_epoch);
     rx->epochs = *p++;
-    (void)get_bytes(p, &rx->epoch_keys[0][0], sizeof rx->epoch_keys);
+    (void)get_bytes(p, (uint8_t *)rx->epoch_keys, sizeof rx->epoch_keys);
 
     bool directions = (tx->dir == TERN_INITIATOR && rx->dir == TERN_RESPONDER) ||
                       (tx->dir == TERN_RESPONDER && rx->dir == TERN_INITIATOR);
