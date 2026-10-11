@@ -490,6 +490,86 @@ static void receiver_keeps_only_needed_epochs(void) {
     CHECK_EQ_U64(d.rx.epochs, 2); /* the window is 0 to 63 */
 }
 
+/* A session packed and unpacked goes on as the one packed would have, in both directions, and
+ * packs again to the same bytes: at the start, and with a window that has gaps, copies and three
+ * epochs in it. */
+static void packed_session_goes_on(void) {
+    static struct tern_session a, b, a2, b2;
+    static uint8_t frames[120][TERN_UNICAST_OVERHEAD + 1];
+    uint8_t pt[TERN_UNICAST_MAX_PLAINTEXT], packed[TERN_SESSION_PACKED], again[TERN_SESSION_PACKED];
+    start(&a, secret, TERN_INITIATOR);
+    start(&b, secret, TERN_RESPONDER);
+
+    for (int round = 0; round < 2; round++) {
+        if (round == 1) {
+            /* Counters 0 to 119 sent; every third of 60 to 119 not yet received, so the window
+             * reaches back past gaps and across epochs. */
+            for (uint32_t n = 0; n < 120; n++) {
+                uint8_t m = (uint8_t)n;
+                CHECK(tern_unicast_seal(&a.tx, &m, 1, frames[n], sizeof frames[n]) == TERN_OK);
+                if (n < 60 || n % 3 != 0) {
+                    CHECK(receive(&b.rx, frames[n], sizeof frames[n], pt).verdict ==
+                          TERN_UNICAST_ACCEPTED);
+                }
+            }
+            CHECK(b.rx.epochs > 1);
+        }
+        tern_session_pack(&a, packed);
+        CHECK(tern_session_unpack(&a2, packed));
+        tern_session_pack(&a2, again);
+        CHECK(memcmp(packed, again, sizeof packed) == 0);
+        tern_session_pack(&b, packed);
+        CHECK(tern_session_unpack(&b2, packed));
+        tern_session_pack(&b2, again);
+        CHECK(memcmp(packed, again, sizeof packed) == 0);
+
+        /* The sender seals the same next frame. */
+        uint8_t f1[TERN_UNICAST_OVERHEAD + 2], f2[TERN_UNICAST_OVERHEAD + 2];
+        CHECK(tern_unicast_seal(&a.tx, (const uint8_t *)"go", 2, f1, sizeof f1) == TERN_OK);
+        CHECK(tern_unicast_seal(&a2.tx, (const uint8_t *)"go", 2, f2, sizeof f2) == TERN_OK);
+        CHECK(memcmp(f1, f2, sizeof f1) == 0);
+
+        /* The receiver takes it, takes the gaps late, knows a copy, and acknowledges the same. */
+        struct tern_unicast_received r1 = receive(&b.rx, f1, sizeof f1, pt);
+        struct tern_unicast_received r2 = receive(&b2.rx, f1, sizeof f1, pt);
+        CHECK(r1.verdict == TERN_UNICAST_ACCEPTED && r2.verdict == TERN_UNICAST_ACCEPTED);
+        CHECK_EQ_U64(r2.counter, r1.counter);
+        /* Counters below 89 have left the window (H is 120): those are someone else's. */
+        unsigned late = 0, copies = 0;
+        for (uint32_t n = 60; round == 1 && n < 120; n++) {
+            struct tern_unicast_received g1 = receive(&b.rx, frames[n], sizeof frames[n], pt);
+            struct tern_unicast_received g2 = receive(&b2.rx, frames[n], sizeof frames[n], pt);
+            CHECK(g1.verdict == g2.verdict && g1.counter == g2.counter);
+            late += g2.verdict == TERN_UNICAST_ACCEPTED;
+            copies += g2.verdict == TERN_UNICAST_COPY;
+        }
+        CHECK(round == 0 || (late == 10 && copies == 21));
+        uint8_t k1[TERN_UNICAST_ACK_LEN], k2[TERN_UNICAST_ACK_LEN];
+        CHECK(tern_unicast_ack(&b.rx, r1.counter, k1) && tern_unicast_ack(&b2.rx, r1.counter, k2));
+        CHECK(memcmp(k1, k2, sizeof k1) == 0);
+        CHECK(tern_unicast_acked(&a2.tx, r1.counter, k2, sizeof k2));
+
+        /* And the other way. */
+        CHECK(tern_unicast_seal(&b.tx, (const uint8_t *)"ok", 2, f1, sizeof f1) == TERN_OK);
+        CHECK(tern_unicast_seal(&b2.tx, (const uint8_t *)"ok", 2, f2, sizeof f2) == TERN_OK);
+        CHECK(memcmp(f1, f2, sizeof f1) == 0);
+        CHECK(receive(&a2.rx, f2, sizeof f2, pt).verdict == TERN_UNICAST_ACCEPTED);
+        CHECK(receive(&a.rx, f2, sizeof f2, pt).verdict == TERN_UNICAST_ACCEPTED);
+    }
+
+    /* What is not a packed session is refused, and leaves nothing behind. */
+    static const uint8_t zero[sizeof(struct tern_session)] = {0};
+    tern_session_pack(&a, packed);
+    packed[0] = 0x02; /* a form this code does not know */
+    CHECK(!tern_session_unpack(&a2, packed) && memcmp(&a2, zero, sizeof a2) == 0);
+    tern_session_pack(&a, packed);
+    packed[1 + 16 + 13 + 32 + 4] = TERN_INITIATOR + TERN_RESPONDER; /* the sender's direction */
+    CHECK(!tern_session_unpack(&a2, packed) && memcmp(&a2, zero, sizeof a2) == 0);
+    tern_session_pack(&a, packed);
+    packed[TERN_SESSION_PACKED - 96 - 1] = 4; /* more epochs than a window holds */
+    CHECK(!tern_session_unpack(&a2, packed) && memcmp(&a2, zero, sizeof a2) == 0);
+}
+
 int main(void) {
     RUN(accepted_cases);
     RUN(rejected_cases);
@@ -503,5 +583,6 @@ int main(void) {
     RUN(last_counter_spends_the_session);
     RUN(open_sorts_what_it_is_shown);
     RUN(receiver_keeps_only_needed_epochs);
+    RUN(packed_session_goes_on);
     return CHECK_DONE();
 }

@@ -407,3 +407,97 @@ bool tern_unicast_acked(const struct tern_unicast_tx *tx, uint32_t counter, cons
     }
     return diff == 0;
 }
+
+/* --- Packing ---------------------------------------------------------------------------------- */
+
+#define PACKED_FORM 0x01
+
+static uint8_t *put_bytes(uint8_t *p, const uint8_t *from, size_t len) {
+    copy(p, from, len);
+    return p + len;
+}
+
+static uint8_t *put_u32le(uint8_t *p, uint32_t n) {
+    for (int i = 0; i < 4; i++) {
+        p[i] = (uint8_t)(n >> (8 * i));
+    }
+    return p + 4;
+}
+
+static const uint8_t *get_u32le(const uint8_t *p, uint32_t *n) {
+    *n = (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
+    return p + 4;
+}
+
+static const uint8_t *get_bytes(const uint8_t *p, uint8_t *to, size_t len) {
+    copy(to, p, len);
+    return p + len;
+}
+
+/* The first round key is the key itself (FIPS 197, section 5.2), so 16 bytes of a tag key are
+ * all of it. */
+void tern_session_pack(const struct tern_session *s, uint8_t out[TERN_SESSION_PACKED]) {
+    const struct tern_unicast_tx *tx = &s->tx;
+    const struct tern_unicast_rx *rx = &s->rx;
+    uint8_t *p = out;
+    *p++ = PACKED_FORM;
+    p = put_bytes(p, tx->tag_key.rk, TERN_AES128_KEY);
+    p = put_bytes(p, tx->iv, TERN_CCM_NONCE);
+    p = put_bytes(p, tx->epoch_key, 32);
+    p = put_u32le(p, tx->next);
+    *p++ = tx->dir;
+    *p++ = tx->spent ? 1 : 0;
+    p = put_bytes(p, rx->tag_key.rk, TERN_AES128_KEY);
+    p = put_bytes(p, rx->iv, TERN_CCM_NONCE);
+    *p++ = rx->dir;
+    *p++ = rx->started ? 1 : 0;
+    p = put_u32le(p, rx->high);
+    p = put_u32le(p, rx->seen);
+    p = put_u32le(p, rx->first_epoch);
+    *p++ = rx->epochs;
+    (void)put_bytes(p, &rx->epoch_keys[0][0], sizeof rx->epoch_keys);
+}
+
+bool tern_session_unpack(struct tern_session *s, const uint8_t in[TERN_SESSION_PACKED]) {
+    struct tern_unicast_tx *tx = &s->tx;
+    struct tern_unicast_rx *rx = &s->rx;
+    uint8_t key[TERN_AES128_KEY];
+    tern_session_wipe(s);
+    const uint8_t *p = in;
+    if (*p++ != PACKED_FORM) {
+        return false;
+    }
+    p = get_bytes(p, key, sizeof key);
+    tern_aes128_init(&tx->tag_key, key);
+    p = get_bytes(p, tx->iv, TERN_CCM_NONCE);
+    p = get_bytes(p, tx->epoch_key, 32);
+    p = get_u32le(p, &tx->next);
+    tx->dir = *p++;
+    uint8_t spent = *p++;
+    tx->spent = spent == 1;
+    p = get_bytes(p, key, sizeof key);
+    tern_aes128_init(&rx->tag_key, key);
+    tern_wipe(key, sizeof key);
+    p = get_bytes(p, rx->iv, TERN_CCM_NONCE);
+    rx->dir = *p++;
+    uint8_t started = *p++;
+    rx->started = started == 1;
+    p = get_u32le(p, &rx->high);
+    p = get_u32le(p, &rx->seen);
+    p = get_u32le(p, &rx->first_epoch);
+    rx->epochs = *p++;
+    (void)get_bytes(p, &rx->epoch_keys[0][0], sizeof rx->epoch_keys);
+
+    bool directions = (tx->dir == TERN_INITIATOR && rx->dir == TERN_RESPONDER) ||
+                      (tx->dir == TERN_RESPONDER && rx->dir == TERN_INITIATOR);
+    if (!directions || spent > 1 || started > 1 || rx->epochs > 3) {
+        tern_session_wipe(s);
+        return false;
+    }
+    /* Every tag tern_unicast_open() may read: those of the counters in the window. */
+    uint32_t lo = window_lo(rx), hi = window_hi(rx);
+    for (uint64_t m = lo; m <= hi; m++) {
+        dtag(&rx->tag_key, (uint32_t)m, rx->dtags[m % 64]);
+    }
+    return true;
+}
