@@ -51,6 +51,9 @@ for board in "$@"; do
         idf.py -B "$build" -D TERN_BOARD="$board" -D SDKCONFIG="$build/sdkconfig" \
             -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;boards/$board.defaults;$build/release.defaults" \
             build
+        if [ "$region" = us915 ]; then
+            idf.py -B "$build" size # the RAM it leaves, which no build step checks at run time
+        fi
         name=tern-$board-$region-$version
         idf.py -B "$build" merge-bin -o "$name.bin"
         cp "$build/$name.bin" "release/$name.bin"
