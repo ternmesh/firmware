@@ -12,7 +12,7 @@ struct profile_case {
     const char *name;
     uint32_t freq_hz, bw_hz;
     uint8_t sf;
-    int max_eirp_dbm;
+    int max_eirp_dbm, min_eirp_dbm;
     uint32_t duty_ppm, duty_window_s;
     struct {
         uint32_t len;
@@ -74,6 +74,7 @@ static void every_profile_matches_the_specification(void) {
         CHECK_EQ_I64(r->bw_hz, p->bw_hz);
         CHECK_EQ_I64(r->sf, p->sf);
         CHECK_EQ_I64(r->max_eirp_dbm, p->max_eirp_dbm);
+        CHECK_EQ_I64(r->min_eirp_dbm, p->min_eirp_dbm);
         CHECK_EQ_I64(r->duty_ppm, p->duty_ppm);
         CHECK_EQ_I64(r->duty_window_s, p->duty_window_s);
         struct tern_lora m = tern_region_lora(r);
@@ -177,6 +178,32 @@ static void australia_and_new_zealand_are_the_us_channel_at_their_own_power(void
     CHECK_EQ_I64(tern_region_radio(nz, 31, 0, &b), TERN_OK); /* no conducted limit, unlike US915 */
 }
 
+/* Thailand allows 10% of an hour only from 50 mW radiated: a TH920 board sends no less, by its
+ * setting or by power control, and no other region has a floor. */
+static void th920_radiates_at_least_17_dbm(void) {
+    const struct tern_region *th = tern_region(TERN_REGION_TH920);
+    struct tern_radio_config cfg, untouched;
+    memset(&cfg, 0x5A, sizeof cfg);
+    untouched = cfg;
+    CHECK_EQ_I64(tern_region_radio(th, 13, 3, &cfg), TERN_EINVAL);
+    CHECK_EQ_I64(tern_region_radio(th, 16, 0, &cfg), TERN_EINVAL);
+    CHECK(memcmp(&cfg, &untouched, sizeof cfg) == 0);
+    CHECK_EQ_I64(tern_region_radio(th, 14, 3, &cfg), TERN_OK);
+    CHECK_EQ_I64(tern_region_radio(th, 30, 6, &cfg), TERN_OK);
+    CHECK_EQ_I64(tern_region_radio(th, 30, 7, &cfg), TERN_EINVAL);
+
+    CHECK_EQ_I64(tern_region_lowest_dbm(th, -9, 3), 14);
+    CHECK_EQ_I64(tern_region_lowest_dbm(th, -9, 0), 17);
+    CHECK_EQ_I64(tern_region_lowest_dbm(th, 18, 3), 18); /* a radio that goes no lower */
+    for (int id = TERN_REGION_US915; id < TERN_REGION_END; id++) {
+        const struct tern_region *r = tern_region((enum tern_region_id)id);
+        if (r != th) {
+            CHECK_EQ_I64(tern_region_lowest_dbm(r, -9, 3), -9);
+            CHECK_EQ_I64(tern_region_radio(r, -9, 3, &cfg), TERN_OK);
+        }
+    }
+}
+
 int main(void) {
     RUN(settings_every_frame_uses);
     RUN(every_profile_matches_the_specification);
@@ -185,5 +212,6 @@ int main(void) {
     RUN(radio_configuration_is_the_profiles);
     RUN(more_power_than_a_region_allows_is_refused);
     RUN(australia_and_new_zealand_are_the_us_channel_at_their_own_power);
+    RUN(th920_radiates_at_least_17_dbm);
     return CHECK_DONE();
 }

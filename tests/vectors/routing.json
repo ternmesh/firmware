@@ -986,6 +986,26 @@
     {
       "profile": "NZ915",
       "link_cost": 70
+    },
+    {
+      "profile": "CL915",
+      "link_cost": 70
+    },
+    {
+      "profile": "MY919",
+      "link_cost": 70
+    },
+    {
+      "profile": "TH920",
+      "link_cost": 70
+    },
+    {
+      "profile": "RU868",
+      "link_cost": 81
+    },
+    {
+      "profile": "KZ863",
+      "link_cost": 81
     }
   ],
   "feasible": [

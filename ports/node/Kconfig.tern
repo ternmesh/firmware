@@ -26,17 +26,29 @@
             bool "AU915: 921.25 MHz, 500 kHz, SF9, 30 dBm EIRP (Australia)"
         config TERN_REGION_NZ915
             bool "NZ915: 921.25 MHz, 500 kHz, SF9, 36 dBm EIRP (New Zealand)"
+        config TERN_REGION_CL915
+            bool "CL915: 921.25 MHz, 500 kHz, SF9, 26 dBm EIRP (Chile)"
+        config TERN_REGION_MY919
+            bool "MY919: 920.25 MHz, 500 kHz, SF9, 26 dBm EIRP (Malaysia)"
+        config TERN_REGION_TH920
+            bool "TH920: 921.25 MHz, 500 kHz, SF9, 17 to 36 dBm EIRP, 10% of any hour (Thailand)"
+        config TERN_REGION_RU868
+            bool "RU868: 868.775 MHz, 125 kHz, SF7, 22 dBm EIRP, 10% of any hour (Russia)"
+        config TERN_REGION_KZ863
+            bool "KZ863: 864.375 MHz, 125 kHz, SF7, 13 dBm EIRP (Kazakhstan)"
     endchoice
 
     config TERN_TX_POWER_DBM
         int "Transmit power into the antenna, in dBm"
         range -9 30
+        default 14 if TERN_REGION_TH920
         default 2
         help
             What the board puts into the antenna. The default is for a bench. A board refuses
             to start with a power it does not give (-9 to 22 dBm with an SX1262 alone, +4 to 28
             on the Heltec V4, whose amplifier adds to the radio's) or one that, with the
-            antenna's gain, is more than the region allows.
+            antenna's gain, is more than the region allows, or less: TH920 requires 17 dBm
+            radiated, which the default meets with an antenna of 3 dBi or more.
 
     config TERN_ANTENNA_DBI
         int "Antenna gain, in dBi"

@@ -13,6 +13,7 @@ static const struct tern_region regions[] = {
                            .sf = 9,
                            .max_eirp_dbm = 36,
                            .max_conducted_dbm = 30,
+                           .min_eirp_dbm = TERN_POWER_NO_FLOOR,
                            .duty_ppm = TERN_DUTY_UNLIMITED,
                            .duty_window_s = 3600},
     [TERN_REGION_EU868] = {.name = "EU868",
@@ -21,6 +22,7 @@ static const struct tern_region regions[] = {
                            .sf = 7,
                            .max_eirp_dbm = 29,
                            .max_conducted_dbm = TERN_POWER_UNLIMITED,
+                           .min_eirp_dbm = TERN_POWER_NO_FLOOR,
                            .duty_ppm = 100000,
                            .duty_window_s = 3600},
     [TERN_REGION_AU915] = {.name = "AU915",
@@ -29,6 +31,7 @@ static const struct tern_region regions[] = {
                            .sf = 9,
                            .max_eirp_dbm = 30,
                            .max_conducted_dbm = TERN_POWER_UNLIMITED,
+                           .min_eirp_dbm = TERN_POWER_NO_FLOOR,
                            .duty_ppm = TERN_DUTY_UNLIMITED,
                            .duty_window_s = 3600},
     [TERN_REGION_NZ915] = {.name = "NZ915",
@@ -37,6 +40,53 @@ static const struct tern_region regions[] = {
                            .sf = 9,
                            .max_eirp_dbm = 36,
                            .max_conducted_dbm = TERN_POWER_UNLIMITED,
+                           .min_eirp_dbm = TERN_POWER_NO_FLOOR,
+                           .duty_ppm = TERN_DUTY_UNLIMITED,
+                           .duty_window_s = 3600},
+    [TERN_REGION_CL915] = {.name = "CL915",
+                           .freq_hz = 921250000,
+                           .bw_hz = 500000,
+                           .sf = 9,
+                           .max_eirp_dbm = 26,
+                           .max_conducted_dbm = TERN_POWER_UNLIMITED,
+                           .min_eirp_dbm = TERN_POWER_NO_FLOOR,
+                           .duty_ppm = TERN_DUTY_UNLIMITED,
+                           .duty_window_s = 3600},
+    [TERN_REGION_MY919] = {.name = "MY919",
+                           .freq_hz = 920250000,
+                           .bw_hz = 500000,
+                           .sf = 9,
+                           .max_eirp_dbm = 26,
+                           .max_conducted_dbm = TERN_POWER_UNLIMITED,
+                           .min_eirp_dbm = TERN_POWER_NO_FLOOR,
+                           .duty_ppm = TERN_DUTY_UNLIMITED,
+                           .duty_window_s = 3600},
+    /* Thailand allows 10% only from 50 mW up: below it, 1%. */
+    [TERN_REGION_TH920] = {.name = "TH920",
+                           .freq_hz = 921250000,
+                           .bw_hz = 500000,
+                           .sf = 9,
+                           .max_eirp_dbm = 36,
+                           .max_conducted_dbm = TERN_POWER_UNLIMITED,
+                           .min_eirp_dbm = 17,
+                           .duty_ppm = 100000,
+                           .duty_window_s = 3600},
+    [TERN_REGION_RU868] = {.name = "RU868",
+                           .freq_hz = 868775000,
+                           .bw_hz = 125000,
+                           .sf = 7,
+                           .max_eirp_dbm = 22,
+                           .max_conducted_dbm = TERN_POWER_UNLIMITED,
+                           .min_eirp_dbm = TERN_POWER_NO_FLOOR,
+                           .duty_ppm = 100000,
+                           .duty_window_s = 3600},
+    [TERN_REGION_KZ863] = {.name = "KZ863",
+                           .freq_hz = 864375000,
+                           .bw_hz = 125000,
+                           .sf = 7,
+                           .max_eirp_dbm = 13,
+                           .max_conducted_dbm = TERN_POWER_UNLIMITED,
+                           .min_eirp_dbm = TERN_POWER_NO_FLOOR,
                            .duty_ppm = TERN_DUTY_UNLIMITED,
                            .duty_window_s = 3600},
 };
@@ -56,7 +106,8 @@ struct tern_lora tern_region_lora(const struct tern_region *r) {
 
 int tern_region_radio(const struct tern_region *r, int8_t tx_power_dbm, int8_t antenna_dbi,
                       struct tern_radio_config *cfg) {
-    if (tx_power_dbm > r->max_conducted_dbm || (int)tx_power_dbm + antenna_dbi > r->max_eirp_dbm) {
+    int eirp = (int)tx_power_dbm + antenna_dbi;
+    if (tx_power_dbm > r->max_conducted_dbm || eirp > r->max_eirp_dbm || eirp < r->min_eirp_dbm) {
         return TERN_EINVAL;
     }
     cfg->mod = tern_region_lora(r);
@@ -64,4 +115,10 @@ int tern_region_radio(const struct tern_region *r, int8_t tx_power_dbm, int8_t a
     cfg->tx_power_dbm = tx_power_dbm;
     cfg->sync_word = TERN_SYNC_WORD;
     return TERN_OK;
+}
+
+int8_t tern_region_lowest_dbm(const struct tern_region *r, int8_t radio_min_dbm,
+                              int8_t antenna_dbi) {
+    int floor = r->min_eirp_dbm == TERN_POWER_NO_FLOOR ? INT8_MIN : r->min_eirp_dbm - antenna_dbi;
+    return (int8_t)(floor > radio_min_dbm ? floor : radio_min_dbm);
 }

@@ -30,9 +30,11 @@ def main():
     ]
     for p in v["profiles"]:
         air = ", ".join(f"{{{a['length']}, {a['ns']}}}" for a in p["airtime_ns"])
+        floor = p["min_eirp_dbm"]
         lines.append(
             f"    {{{json.dumps(p['name'])}, {p['frequency_hz']}, {p['bandwidth_hz']}, "
-            f"{p['spreading_factor']}, {p['max_eirp_dbm']}, {p['duty_cycle_ppm']}, "
+            f"{p['spreading_factor']}, {p['max_eirp_dbm']}, "
+            f"{'TERN_POWER_NO_FLOOR' if floor is None else floor}, {p['duty_cycle_ppm']}, "
             f"{p['duty_window_s']}, {{{air}}}, {int(p['low_data_rate_optimisation'])}}},"
         )
     lines.append("};")
