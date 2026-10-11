@@ -496,7 +496,10 @@ bool tern_session_unpack(struct tern_session *s, const uint8_t in[TERN_SESSION_P
 
     bool directions = (tx->dir == TERN_INITIATOR && rx->dir == TERN_RESPONDER) ||
                       (tx->dir == TERN_RESPONDER && rx->dir == TERN_INITIATOR);
-    if (!directions || spent > 1 || started > 1 || rx->epochs > 3) {
+    /* A receiver that has accepted something has accepted its highest; one that has not holds
+     * no highest at all (accept()). */
+    bool window = started == 1 ? (rx->seen & 1u) != 0 : rx->high == 0 && rx->seen == 0;
+    if (!directions || spent > 1 || started > 1 || !window || rx->epochs > 3) {
         tern_session_wipe(s);
         return false;
     }

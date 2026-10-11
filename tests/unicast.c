@@ -580,6 +580,16 @@ static void packed_session_goes_on(void) {
     tern_session_pack(&fresh, packed);
     packed[TERN_SESSION_PACKED - 96 - 1] = 0;
     CHECK(!tern_session_unpack(&a2, packed) && memcmp(&a2, zero, sizeof a2) == 0);
+
+    /* Nor one that has not accepted its highest counter, which would take that frame again, nor
+     * one that has accepted nothing and says what its highest is. */
+    tern_session_pack(&b, packed);
+    CHECK(tern_session_unpack(&a2, packed));
+    packed[TERN_SESSION_PACKED - 96 - 1 - 4 - 4] &= 0xFE; /* seen's bit 0, little-endian */
+    CHECK(!tern_session_unpack(&a2, packed) && memcmp(&a2, zero, sizeof a2) == 0);
+    tern_session_pack(&fresh, packed);
+    packed[TERN_SESSION_PACKED - 96 - 1 - 4 - 4 - 4] = 5; /* high */
+    CHECK(!tern_session_unpack(&a2, packed) && memcmp(&a2, zero, sizeof a2) == 0);
 }
 
 int main(void) {
