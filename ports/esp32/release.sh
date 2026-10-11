@@ -39,7 +39,7 @@ for board in "$@"; do
     # The chip is the board's (boards/<board>.defaults), whatever the shell or CI had set.
     target=$(sed -n 's/^CONFIG_IDF_TARGET="\(.*\)"$/\1/p' "boards/$board.defaults")
     export IDF_TARGET="${target:-esp32s3}"
-    for region in us915 eu868 au915 nz915; do
+    for region in us915 eu868 au915 nz915 cl915 my919 th920 ru868 kz863; do
         build=build-$board-$region
         upper=$(echo "$region" | tr a-z A-Z)
         rm -rf "$build"
@@ -47,6 +47,10 @@ for board in "$@"; do
         {
             echo "CONFIG_TERN_VERSION=\"$version\""
             echo "CONFIG_TERN_REGION_$upper=y"
+            # TH920 requires 17 dBm radiated: 14 dBm into the 3 dBi antenna sold with the board.
+            if [ "$region" = th920 ]; then
+                echo "CONFIG_TERN_TX_POWER_DBM=14"
+            fi
         } >"$build/release.defaults"
         idf.py -B "$build" -D TERN_BOARD="$board" -D SDKCONFIG="$build/sdkconfig" \
             -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;boards/$board.defaults;$build/release.defaults" \

@@ -19,7 +19,9 @@ header for `tests/contact.c` the same way.
 [`vectors/phy.json`](https://github.com/ternmesh/spec/blob/main/vectors/phy.json), as of commit
 its latest in [ternmesh/spec#5](https://github.com/ternmesh/spec/pull/5) (radio settings, draft 0, with
 every receiver setting and cases for the limit on transmitting), with the AU915 and NZ915
-profiles of [ternmesh/spec#36](https://github.com/ternmesh/spec/pull/36).
+profiles of [ternmesh/spec#36](https://github.com/ternmesh/spec/pull/36), and the CL915, MY919,
+TH920, RU868 and KZ863 profiles and each profile's `min_eirp_dbm` of
+[ternmesh/spec#41](https://github.com/ternmesh/spec/pull/41).
 `phy_to_c.py` turns it into a header for `tests/region.c`.
 
 `routing.json` is a copy of
@@ -81,7 +83,9 @@ group frames carry a count.
 
 `routing.json`, `flooding.json` and `positions.json` are since as of
 [ternmesh/spec#36](https://github.com/ternmesh/spec/pull/36) too, which adds the AU915 and NZ915
-profiles to each.
+profiles to each. `routing.json` and `positions.json` are since as of
+[ternmesh/spec#41](https://github.com/ternmesh/spec/pull/41), which adds the five profiles after
+them.
 
 `routing.json` is since as of [ternmesh/spec#37](https://github.com/ternmesh/spec/pull/37), which
 signs every announce: `routing_to_c.py` carries each announce's seed and the `verified` cases,

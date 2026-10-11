@@ -33,7 +33,7 @@ for board in "$@"; do
         fi
     done
     test -n "$target" || { echo "no board $board: see release.sh" >&2; exit 1; }
-    for region in us915 eu868 au915 nz915; do
+    for region in us915 eu868 au915 nz915 cl915 my919 th920 ru868 kz863; do
         build=build-$board-$region
         upper=$(echo "$region" | tr a-z A-Z)
         rm -rf "$build"
@@ -41,6 +41,10 @@ for board in "$@"; do
         {
             echo "CONFIG_TERN_VERSION=\"$version\""
             echo "CONFIG_TERN_REGION_$upper=y"
+            # TH920 requires 17 dBm radiated: 14 dBm into a 3 dBi antenna.
+            if [ "$region" = th920 ]; then
+                echo "CONFIG_TERN_TX_POWER_DBM=14"
+            fi
         } >"$build/release.conf"
         west build -p -b "$target" -d "$build" . -- -DEXTRA_CONF_FILE="$PWD/$build/release.conf"
         cp "$build/zephyr/zephyr.uf2" "release/tern-$board-$region-$version.uf2"

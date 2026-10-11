@@ -1541,18 +1541,32 @@ static bool route_verify(void *ctx, const uint8_t address[TERN_ADDRESS_LEN], con
     return tern_address_valid(address) && tern_address_verify(address, m, len, sig);
 }
 
-/* The band a region's radios keep to, for a frequency set by hand: New Zealand allows its
- * profile's power only above 920 MHz. */
+/* The band a region's radios keep to, for a frequency set by hand, at the profile's power: New
+ * Zealand allows it only above 920 MHz, and each of the others has the band its rule names
+ * (draft/phy.md). */
 static void bench_band(uint32_t *lo, uint32_t *hi) {
     if (region == tern_region(TERN_REGION_EU868)) {
         *lo = 863000000;
         *hi = 870000000;
-    } else if (region == tern_region(TERN_REGION_AU915)) {
+    } else if (region == tern_region(TERN_REGION_AU915) ||
+               region == tern_region(TERN_REGION_CL915)) {
         *lo = 915000000;
         *hi = 928000000;
     } else if (region == tern_region(TERN_REGION_NZ915)) {
         *lo = 920000000;
         *hi = 928000000;
+    } else if (region == tern_region(TERN_REGION_MY919)) {
+        *lo = 919000000;
+        *hi = 923000000;
+    } else if (region == tern_region(TERN_REGION_TH920)) {
+        *lo = 920000000;
+        *hi = 925000000;
+    } else if (region == tern_region(TERN_REGION_RU868)) {
+        *lo = 868700000;
+        *hi = 869200000;
+    } else if (region == tern_region(TERN_REGION_KZ863)) {
+        *lo = 863000000;
+        *hi = 868000000;
     } else {
         *lo = 902000000;
         *hi = 928000000;
@@ -1782,8 +1796,16 @@ static uint8_t link_set(void *ctx, const struct tern_companion_msg *m) {
     switch (m->setting) {
     case TERN_C_SET_REGION: {
         const struct tern_region *r = region_named(m->text, m->text_len);
-        if (r == NULL ||
-            tern_region_radio(r, cfg.tx_power_dbm, CONFIG_TERN_ANTENNA_DBI, &check) != TERN_OK) {
+        if (r == NULL) {
+            return TERN_C_ERR_REFUSED;
+        }
+        /* The power moves into the region's limits, if it is outside them: up to TH920's floor,
+         * down to KZ863's ceiling. Only the node knows its antenna, and one region's limits need
+         * not overlap another's, so no client could set the power first. */
+        int8_t power =
+            tern_region_nearest_dbm(r, cfg.tx_power_dbm, TX_MIN_DBM, CONFIG_TERN_ANTENNA_DBI);
+        if (!board_power_ok(power) ||
+            tern_region_radio(r, power, CONFIG_TERN_ANTENNA_DBI, &check) != TERN_OK) {
             return TERN_C_ERR_REFUSED;
         }
         if (r == region) {
@@ -1791,6 +1813,9 @@ static uint8_t link_set(void *ctx, const struct tern_companion_msg *m) {
         }
         for (int id = TERN_REGION_US915; id < TERN_REGION_END; id++) {
             next.region = tern_region((enum tern_region_id)id) == r ? (uint8_t)id : next.region;
+        }
+        if (power != cfg.tx_power_dbm) {
+            next.power = power;
         }
         break;
     }
@@ -3354,6 +3379,16 @@ void node_main(void) {
     region = tern_region(TERN_REGION_AU915);
 #elif CONFIG_TERN_REGION_NZ915
     region = tern_region(TERN_REGION_NZ915);
+#elif CONFIG_TERN_REGION_CL915
+    region = tern_region(TERN_REGION_CL915);
+#elif CONFIG_TERN_REGION_MY919
+    region = tern_region(TERN_REGION_MY919);
+#elif CONFIG_TERN_REGION_TH920
+    region = tern_region(TERN_REGION_TH920);
+#elif CONFIG_TERN_REGION_RU868
+    region = tern_region(TERN_REGION_RU868);
+#elif CONFIG_TERN_REGION_KZ863
+    region = tern_region(TERN_REGION_KZ863);
 #else
     region = tern_region(TERN_REGION_US915);
 #endif
@@ -3391,9 +3426,16 @@ void node_main(void) {
         halt(UI_FAULT_POWER, 0);
     }
     if (tern_region_radio(region, power, CONFIG_TERN_ANTENNA_DBI, &cfg) != TERN_OK) {
-        printf("%d dBm into a %d dBi antenna is more than %s allows (%d dBm radiated). Not "
-               "starting.\n",
-               power, CONFIG_TERN_ANTENNA_DBI, region->name, region->max_eirp_dbm);
+        if (region->min_eirp_dbm != TERN_POWER_NO_FLOOR) {
+            printf("%d dBm into a %d dBi antenna is not a power %s allows (%d to %d dBm "
+                   "radiated). Not starting.\n",
+                   power, CONFIG_TERN_ANTENNA_DBI, region->name, region->min_eirp_dbm,
+                   region->max_eirp_dbm);
+        } else {
+            printf("%d dBm into a %d dBi antenna is more than %s allows (%d dBm radiated). Not "
+                   "starting.\n",
+                   power, CONFIG_TERN_ANTENNA_DBI, region->name, region->max_eirp_dbm);
+        }
         halt(UI_FAULT_POWER, 0);
     }
     /* Experiments: a build may move the board off its region's profile. The region's limit on
@@ -3441,8 +3483,10 @@ void node_main(void) {
     if (settings.role <= 1) {
         relay = settings.role == 1;
     }
-    struct tern_route_config rc =
-        tern_route_defaults(&cfg.mod, cfg.tx_power_dbm, TX_MIN_DBM, relay);
+    /* Power control goes no lower than the region allows: on TH920, 17 dBm radiated. */
+    struct tern_route_config rc = tern_route_defaults(
+        &cfg.mod, cfg.tx_power_dbm,
+        tern_region_lowest_dbm(region, TX_MIN_DBM, CONFIG_TERN_ANTENNA_DBI), relay);
     uint64_t seed;
     if (!board_random(NULL, (uint8_t *)&seed, sizeof seed)) {
         printf("no random numbers. Not starting.\n");
