@@ -354,6 +354,7 @@ static void test_own(void) {
     enum tern_flood_kind kind;
     uint8_t h;
     start(&x, false, 8);
+    x.f.config.resends = 0;                                         /* the allowance alone */
     CHECK(!tern_flood_send(&x.f, 0, frame, make(frame, 30, 0, 0))); /* shorter than any */
     for (unsigned k = 0; k < 10; k++) {
         CHECK(tern_flood_send(&x.f, 0, frame, make(frame, 255, 0, k)));
@@ -811,6 +812,191 @@ static void test_positions(void) {
     tern_flood_sent(&x.f, due, h);
 }
 
+/* A node's own frame that a relay should pass on is listened for: heard passed on, it is done
+ * with; not heard, it goes again after a relay's wait, `resends` times, and is then let go of. A
+ * frame no relay passes on is not listened for. */
+static void test_resends(void) {
+    uint8_t frame[TERN_FLOOD_FRAME_MAX], out[TERN_FLOOD_FRAME_MAX];
+    int8_t dbm;
+    enum tern_flood_kind kind;
+    uint8_t h;
+    struct node x;
+    start(&x, false, 11);
+    x.f.config.resends = 2;
+    x.f.config.echo = 16;
+    size_t len = make(frame, TERN_FLOOD_GROUP_MIN, 0, 1);
+    CHECK(tern_flood_send(&x.f, 0, frame, len));
+    CHECK(tern_flood_poll(&x.f, 0, out, &dbm, &kind, &h) == len);
+    tern_flood_sent(&x.f, 1000, h);
+    tern_time now = tern_flood_due(&x.f);
+    tern_time air = (now - 1000) / 16;
+    CHECK(air > 0);
+    CHECK_EQ_I64(now, 1000 + 16 * air);
+    /* Sent again twice, each within a relay's wait of its listening ending. */
+    for (int k = 0; k < 2; k++) {
+        CHECK(tern_flood_poll(&x.f, now - 1, out, &dbm, &kind, &h) == 0);
+        CHECK(tern_flood_poll(&x.f, now, out, &dbm, &kind, &h) == 0);
+        tern_time again = tern_flood_due(&x.f);
+        CHECK(again > now && again <= now + 8 * air);
+        CHECK(tern_flood_poll(&x.f, again, out, &dbm, &kind, &h) == len);
+        CHECK(kind == TERN_FLOOD_OWN && out[1] == 5 && out[4] == 1);
+        tern_flood_sent(&x.f, again, h);
+        now = tern_flood_due(&x.f);
+        CHECK_EQ_I64(now, again + 16 * air);
+    }
+    CHECK(tern_flood_poll(&x.f, now, out, &dbm, &kind, &h) == 0);
+    CHECK_EQ_I64(tern_flood_due(&x.f), INT64_MAX);
+    CHECK_EQ_U64(x.f.counts.resent, 2);
+    CHECK_EQ_U64(x.f.counts.echoed, 0);
+
+    /* Heard passed on: done with, and not sent again. */
+    len = make(frame, TERN_FLOOD_GROUP_MIN, 0, 2);
+    CHECK(tern_flood_send(&x.f, now, frame, len));
+    CHECK(tern_flood_poll(&x.f, now, out, &dbm, &kind, &h) == len);
+    tern_flood_sent(&x.f, now, h);
+    out[1] = 4; /* as a relay in a crowd passes it on */
+    CHECK(!tern_flood_heard(&x.f, now + air, out, len));
+    CHECK_EQ_U64(x.f.counts.echoed, 1);
+    CHECK_EQ_I64(tern_flood_due(&x.f), INT64_MAX);
+
+    /* Heard passed on once its listening has ended, before it goes again: not sent again. */
+    len = make(frame, TERN_FLOOD_GROUP_MIN, 0, 3);
+    CHECK(tern_flood_send(&x.f, now, frame, len));
+    CHECK(tern_flood_poll(&x.f, now, out, &dbm, &kind, &h) == len);
+    tern_flood_sent(&x.f, now, h);
+    now = tern_flood_due(&x.f);
+    CHECK(tern_flood_poll(&x.f, now, out, &dbm, &kind, &h) == 0);
+    CHECK(tern_flood_due(&x.f) > now);
+    CHECK(!tern_flood_heard(&x.f, now, out, len));
+    CHECK_EQ_U64(x.f.counts.echoed, 2);
+    CHECK_EQ_U64(x.f.counts.resent, 2); /* let go of before it went again */
+    CHECK_EQ_I64(tern_flood_due(&x.f), INT64_MAX);
+
+    /* Heard passed on while going again is with the caller: not wanted, and let go of. */
+    len = make(frame, TERN_FLOOD_GROUP_MIN, 0, 7);
+    CHECK(tern_flood_send(&x.f, now, frame, len));
+    CHECK(tern_flood_poll(&x.f, now, out, &dbm, &kind, &h) == len);
+    tern_flood_sent(&x.f, now, h);
+    now = tern_flood_due(&x.f);
+    CHECK(tern_flood_poll(&x.f, now, out, &dbm, &kind, &h) == 0);
+    now = tern_flood_due(&x.f);
+    CHECK(tern_flood_poll(&x.f, now, out, &dbm, &kind, &h) == len);
+    CHECK(tern_flood_wanted(&x.f, h));
+    CHECK(!tern_flood_heard(&x.f, now, out, len));
+    CHECK(!tern_flood_wanted(&x.f, h));
+    CHECK_EQ_U64(x.f.counts.echoed, 3);
+    tern_flood_withdrawn(&x.f, now, h);
+    CHECK_EQ_I64(tern_flood_due(&x.f), INT64_MAX);
+    CHECK_EQ_U64(x.f.counts.resent, 2); /* withdrawn, it never went */
+
+    /* Its own is known as its own while it listens, however many floods have come since. */
+    start(&x, false, 16);
+    x.f.config.resends = 2;
+    x.f.config.echo = 255;
+    len = make(frame, TERN_FLOOD_GROUP_MIN, 0, 9);
+    CHECK(tern_flood_send(&x.f, 0, frame, len));
+    CHECK(tern_flood_poll(&x.f, 0, out, &dbm, &kind, &h) == len);
+    tern_flood_sent(&x.f, 0, h);
+    uint8_t other[TERN_FLOOD_FRAME_MAX];
+    for (unsigned k = 0; k < TERN_FLOOD_SEEN + 1; k++) {
+        CHECK(tern_flood_heard(&x.f, 1, other, make(other, TERN_FLOOD_GROUP_MIN, 5, 1000 + k)));
+    }
+    out[1] = 4;
+    CHECK(!tern_flood_heard(&x.f, 2, out, len));
+    CHECK_EQ_U64(x.f.counts.echoed, 1);
+    CHECK_EQ_I64(tern_flood_due(&x.f), INT64_MAX);
+
+    /* A radio never idle sends its own once and not again, as a busy relay passes none on. */
+    start(&x, false, 15);
+    x.f.config.resends = 2;
+    x.f.config.echo = 16;
+    tern_flood_radio(&x.f, 0, 0);
+    tern_flood_radio(&x.f, TERN_S(40), TERN_S(40));
+    len = make(frame, TERN_FLOOD_GROUP_MIN, 0, 8);
+    CHECK(tern_flood_send(&x.f, TERN_S(40), frame, len));
+    CHECK(tern_flood_poll(&x.f, TERN_S(40), out, &dbm, &kind, &h) == len);
+    tern_flood_sent(&x.f, TERN_S(40), h);
+    now = tern_flood_due(&x.f);
+    tern_flood_radio(&x.f, now, now);
+    CHECK(tern_flood_poll(&x.f, now, out, &dbm, &kind, &h) == 0);
+    CHECK_EQ_I64(tern_flood_due(&x.f), INT64_MAX);
+    CHECK_EQ_U64(x.f.counts.resent, 0);
+    CHECK_EQ_U64(x.f.counts.busy, 1);
+
+    /* A flood of one hop, which no relay in a crowd passes on, is not listened for. */
+    start(&x, false, 12);
+    x.f.config.resends = 2;
+    x.f.config.echo = 16;
+    x.f.config.hops = 1;
+    len = make(frame, TERN_FLOOD_GROUP_MIN, 0, 4);
+    CHECK(tern_flood_send(&x.f, 0, frame, len));
+    CHECK(tern_flood_poll(&x.f, 0, out, &dbm, &kind, &h) == len);
+    tern_flood_sent(&x.f, 0, h);
+    CHECK_EQ_I64(tern_flood_due(&x.f), INT64_MAX);
+
+    /* The most it says is the most there are, short of the count wrapping. */
+    start(&x, false, 14);
+    x.f.config.resends = UINT8_MAX;
+    x.f.config.echo = 16;
+    len = make(frame, TERN_FLOOD_GROUP_MIN, 0, 6);
+    CHECK(tern_flood_send(&x.f, 0, frame, len));
+    now = 0;
+    for (int k = 0; k < 4000 && tern_flood_due(&x.f) != INT64_MAX; k++) {
+        now = tern_flood_due(&x.f) > now ? tern_flood_due(&x.f) : now;
+        if (tern_flood_poll(&x.f, now, out, &dbm, &kind, &h) == len) {
+            tern_flood_sent(&x.f, now, h);
+        }
+    }
+    CHECK_EQ_I64(tern_flood_due(&x.f), INT64_MAX);
+    CHECK_EQ_U64(x.f.counts.resent, UINT8_MAX - 1);
+
+    /* A frame only listened for gives its slot up to one that finds none free. */
+    start(&x, true, 17);
+    neighbours(&x, 2, -160);
+    x.f.config.echo = 255;
+    for (unsigned k = 0; k < SLOTS + 2; k++) {
+        len = make(frame, TERN_FLOOD_GROUP_MIN, 0, 20 + k);
+        CHECK(tern_flood_send(&x.f, 0, frame, len));
+        CHECK(tern_flood_poll(&x.f, 0, out, &dbm, &kind, &h) == len);
+        tern_flood_sent(&x.f, 0, h);
+    }
+    CHECK(tern_flood_heard(&x.f, 0, other, make(other, TERN_FLOOD_GROUP_MIN, 5, 2000)));
+    CHECK_EQ_U64(x.f.counts.passed_on, 1);
+    CHECK_EQ_U64(x.f.counts.no_room, 0);
+
+    /* And so does one waiting to go again, until it is with the caller. */
+    start(&x, true, 18);
+    neighbours(&x, 2, -160);
+    x.f.config.echo = 1;
+    for (unsigned k = 0; k < SLOTS; k++) {
+        len = make(frame, TERN_FLOOD_GROUP_MIN, 0, 40 + k);
+        CHECK(tern_flood_send(&x.f, 0, frame, len));
+        CHECK(tern_flood_poll(&x.f, 0, out, &dbm, &kind, &h) == len);
+        tern_flood_sent(&x.f, 0, h);
+    }
+    now = tern_flood_due(&x.f);
+    while (tern_flood_poll(&x.f, now, out, &dbm, &kind, &h) != 0) {
+        tern_flood_withdrawn(&x.f, now, h); /* the radio not free: it waits again */
+    }
+    for (unsigned k = 0; k < SLOTS; k++) {
+        CHECK_EQ_U64(x.slot[k].state, TERN_FLOOD_WAITING);
+    }
+    len = make(frame, TERN_FLOOD_GROUP_MIN, 0, 60);
+    CHECK(tern_flood_send(&x.f, now, frame, len));
+    CHECK(tern_flood_heard(&x.f, now, other, make(other, TERN_FLOOD_GROUP_MIN, 5, 2001)));
+    CHECK_EQ_U64(x.f.counts.passed_on, 1);
+    CHECK_EQ_U64(x.f.counts.no_room, 0);
+
+    /* Nor is anything with no resends. */
+    start(&x, false, 13);
+    x.f.config.resends = 0;
+    len = make(frame, TERN_FLOOD_GROUP_MIN, 0, 5);
+    CHECK(tern_flood_send(&x.f, 0, frame, len));
+    CHECK(tern_flood_poll(&x.f, 0, out, &dbm, &kind, &h) == len);
+    tern_flood_sent(&x.f, 0, h);
+    CHECK_EQ_I64(tern_flood_due(&x.f), INT64_MAX);
+}
+
 int main(void) {
     RUN(test_heads);
     RUN(test_rules);
@@ -830,5 +1016,6 @@ int main(void) {
     RUN(test_reach);
     RUN(test_cards);
     RUN(test_positions);
+    RUN(test_resends);
     return CHECK_DONE();
 }

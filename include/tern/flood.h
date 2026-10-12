@@ -115,6 +115,14 @@ struct tern_flood_config {
     tern_time relay_window;
     uint32_t busy_ppm;   /* the busy share past which a relay passes fewer on; 1000000 for never */
     tern_time busy_span; /* the share is over this long at least, and twice it at most */
+    /* A node's own frame that a relay should pass on - hops 2 or more - is listened for: if no
+     * copy of it is heard within `echo` airtimes of its going, it is sent again, up to `resends`
+     * times - 254 at most, however many it says - each after a wait as a relay's, and as a relay
+     * passes fewer on when its radio is busy (busy_ppm), sent again less often. A frame only
+     * listened for, or waiting to go again, gives its slot up to any other that finds none free.
+     * 0 for none. */
+    uint8_t resends;
+    uint8_t echo;
 };
 
 /* The specification's parameters. */
@@ -124,6 +132,7 @@ enum tern_flood_state {
     TERN_FLOOD_FREE,
     TERN_FLOOD_WAITING, /* to be sent at `at` */
     TERN_FLOOD_OUT,     /* with the caller, not yet on the air */
+    TERN_FLOOD_ECHO,    /* a node's own, sent and listened for until `at` */
 };
 
 /* One frame in hand. The caller allocates these; their fields are the flooder's. */
@@ -131,7 +140,7 @@ struct tern_flood_slot {
     uint8_t state;
     bool own;       /* this node's, not one passed on */
     bool dropped;   /* while out: enough copies were heard, and it is no longer wanted */
-    uint8_t copies; /* heard so far, the first included */
+    uint8_t copies; /* heard so far, the first included; of a node's own, times sent */
     uint8_t len;
     int8_t power;
     tern_time at;
@@ -145,10 +154,12 @@ struct tern_flood_counts {
     uint32_t passed_on; /* frames taken to pass on */
     uint32_t cancelled; /* of them, dropped on hearing enough copies */
     uint32_t unpaid;    /* and dropped because the allowance could not pay */
-    uint32_t busy;      /* and dropped because the radio was busy */
+    uint32_t busy;      /* and dropped because the radio was busy, and own not sent again */
     uint32_t hop_limit; /* frames that had come as far as they may */
     uint32_t no_room;   /* and those there was no slot for */
     uint32_t refused;   /* of those taken, let go of as their kind's checks said */
+    uint32_t echoed;    /* the node's own, a copy heard after it went */
+    uint32_t resent;    /* sendings again of the node's own, none having been heard */
 };
 
 struct tern_flood {
