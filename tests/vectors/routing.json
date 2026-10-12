@@ -1506,6 +1506,46 @@
       "link_cost": 54,
       "routes": [
         {
+          "seq": 10,
+          "metric": 100
+        },
+        {
+          "seq": 9,
+          "metric": 99
+        },
+        {
+          "seq": 11,
+          "metric": 100
+        }
+      ],
+      "selected": 0,
+      "selects": 2
+    },
+    {
+      "feasibility_distance": null,
+      "link_cost": 54,
+      "routes": [
+        {
+          "seq": 10,
+          "metric": 1000
+        },
+        {
+          "seq": 9,
+          "metric": 10
+        },
+        {
+          "seq": 11,
+          "metric": 900
+        }
+      ],
+      "selected": 0,
+      "selects": 1
+    },
+    {
+      "feasibility_distance": null,
+      "link_cost": 54,
+      "routes": [
+        {
           "seq": 65535,
           "metric": 54
         },
@@ -2626,6 +2666,30 @@
       "does": "waits",
       "doubt_after": false,
       "unanswered_after": 2
+    },
+    {
+      "asked": "anchor",
+      "doubt": false,
+      "unanswered": 2,
+      "asked_heard": false,
+      "others_heard": true,
+      "anchor_now": "other",
+      "attached_before": true,
+      "does": "again",
+      "doubt_after": true,
+      "unanswered_after": 0
+    },
+    {
+      "asked": null,
+      "doubt": false,
+      "unanswered": 2,
+      "asked_heard": false,
+      "others_heard": true,
+      "anchor_now": "other",
+      "attached_before": true,
+      "does": "reattaches",
+      "doubt_after": false,
+      "unanswered_after": 0
     }
   ]
 }

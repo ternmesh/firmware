@@ -314,11 +314,22 @@ static int select_route(const struct tern_route_fd *fd, const struct tern_route_
     uint32_t best_total = INF, cur_total = INF;
     for (int i = 0; i < n; i++) {
         uint16_t t = total(routes[i].metric, routes[i].cost);
+        if (i == selected && t != INF && tern_route_feasible(fd, routes[i].seq, routes[i].metric)) {
+            cur_total = t;
+        }
+    }
+    for (int i = 0; i < n; i++) {
+        uint16_t t = total(routes[i].metric, routes[i].cost);
         if (t == INF || !tern_route_feasible(fd, routes[i].seq, routes[i].metric)) {
             continue;
         }
-        if (i == selected) {
-            cur_total = t;
+        /* With a route selected, only one lower by more than a tenth of it, or as good and newer,
+         * may take its place. */
+        if (cur_total != INF &&
+            (i == selected || !(10 * t < 9 * cur_total ||
+                                (newer_wins && t <= cur_total &&
+                                 tern_route_newer(routes[i].seq, routes[selected].seq))))) {
+            continue;
         }
         /* Of routes as good, the newer seq: a leaf that has moved raised it, and one as short at
          * the old seq leads to where it was. */
@@ -328,14 +339,7 @@ static int select_route(const struct tern_route_fd *fd, const struct tern_route_
             best_total = t;
         }
     }
-    /* The route selected is kept unless another is lower by more than a tenth of it, or as good
-     * and newer. */
-    if (cur_total != INF && best != selected && !(10 * best_total < 9 * cur_total) &&
-        !(newer_wins && best_total <= cur_total &&
-          tern_route_newer(routes[best].seq, routes[selected].seq))) {
-        return selected;
-    }
-    return best;
+    return cur_total != INF && best < 0 ? selected : best;
 }
 
 int tern_route_select(const struct tern_route_fd *fd, const struct tern_route_choice *routes, int n,
@@ -1214,9 +1218,8 @@ enum tern_route_answered tern_route_answered(enum tern_route_asked asked, bool *
         *unanswered = 0;
         return TERN_ROUTE_SETTLED;
     }
-    if (!others_heard && *unanswered < UINT8_MAX) {
-        (*unanswered)++;
-    }
+    /* A solicit another relay answered had an answer: the streak of those with none is broken. */
+    *unanswered = others_heard ? 0 : (uint8_t)(*unanswered + (*unanswered < UINT8_MAX));
     /* Asked after twice before anything moves: a lost answer moves no leaf that has not moved. */
     if (asked != TERN_ROUTE_ASKED_NONE && !*doubt) {
         *doubt = true;
