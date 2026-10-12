@@ -39,6 +39,7 @@ struct net {
     size_t nb_cap, dest_cap;
     tern_time silent_max;
     uint32_t learn_ppm;   /* the routers' learning allowance */
+    bool passive;         /* the routers' passive_reattach */
     int loops;            /* times a check found one */
     tern_time loop_last;  /* and when it last did */
     tern_time loop_since; /* when the loops there are now began, or -1 */
@@ -52,6 +53,7 @@ static void start(struct net *net, int i, uint16_t seq) {
     struct tern_route_config c = tern_route_defaults(&net->lora, FULL, -9, x->relay);
     c.silent_max = net->silent_max ? net->silent_max : c.silent_max;
     c.learn_ppm = net->learn_ppm;
+    c.passive_reattach = net->passive;
     tern_route_init(&x->r, &c, id_of(i), x->nb, net->nb_cap, x->dest, net->dest_cap, seq,
                     0x9E3779B97F4A7C15ULL * (uint64_t)(i + 1) + (uint64_t)net->now, net->now);
     uint16_t first = x->has_kept ? x->kept : x->r.number;
@@ -921,6 +923,140 @@ static void a_leaf_that_restarts_is_answered_again(void) {
     CHECK(!net.node[2].nb[0].out_of_use && !net.node[2].nb[1].out_of_use);
 }
 
+/* Two clusters of five relays each, every relay of one hearing every other, relays 4 and 5
+ * bridging them, and leaf 10 among the first: it hears five relays, more than SOLICIT_SPARSE, and
+ * never solicits. Returns the leaf's seq once the network has settled. */
+static uint16_t two_clusters(bool passive) {
+    net_init(&net, 11);
+    net.passive = passive;
+    net.node[10].relay = false;
+    for (int c = 0; c < 10; c += 5) {
+        for (int i = c; i < c + 5; i++) {
+            for (int k = i + 1; k < c + 5; k++) {
+                link(&net, i, k, 20);
+            }
+        }
+    }
+    link(&net, 4, 5, 20);
+    for (int i = 0; i < 5; i++) {
+        link(&net, 10, i, i == 0 ? 30 : 20); /* relay 0 its anchor */
+    }
+    start_all(&net);
+    run(&net, TERN_S(900));
+    return net.node[10].r.seq;
+}
+
+/* The leaf walks from the first cluster to the second. */
+static void walk_to_second(void) {
+    for (int i = 0; i < 10; i++) {
+        link(&net, 10, i, i < 5 ? NONE : i == 9 ? 30 : 20);
+    }
+}
+
+static bool out_of_use_at(int at, int id) {
+    for (int i = 0; i < NB; i++) {
+        if (net.node[at].nb[i].used && net.node[at].nb[i].id == id_of(id)) {
+            return net.node[at].nb[i].out_of_use;
+        }
+    }
+    return false;
+}
+
+/* Among many relays a leaf never solicits, so it re-attaches only from the announces it hears
+ * (passive_reattach): having walked to the second cluster and given three hops up at relay 0,
+ * the next announce it hears has it raise its seq, attached to relay 9, and every route to it
+ * leads there. Without passive_reattach it raises none: the routes lead to relay 0. */
+static void a_leaf_among_many_relays_re_attaches_from_announces(void) {
+    for (int passive = 0; passive < 2; passive++) {
+        uint16_t seq = two_clusters(passive);
+        uint32_t next;
+        uint16_t m;
+        walk_to_second();
+        run(&net, net.now + TERN_S(600)); /* the second cluster hears it, and keeps it */
+        CHECK(net.node[10].r.seq == seq);
+        for (int k = 0; k < 3; k++) {
+            tern_route_lost(&net.node[10].r, net.now, id_of(0));
+        }
+        run(&net, net.now + TERN_S(600));
+        CHECK(!net.node[10].r.solicit_wanted && net.node[10].r.solicited < 0);
+        if (!passive) {
+            CHECK(net.node[10].r.seq == seq);
+            /* Relay 1 still hands what it has for the leaf straight to it, which no longer hears
+             * it. */
+            CHECK(tern_route_next(&net.node[1].r, id_of(10), &next, &m) && next == id_of(10));
+            continue;
+        }
+        CHECK(net.node[10].r.seq == (uint16_t)(seq + 1));
+        CHECK_EQ_I64(net.node[10].r.attached, id_of(9));
+        CHECK(out_of_use_at(10, 0));
+        for (int i = 0; i < 10; i++) {
+            CHECK_EQ_I64(hops(&net, i, 10), i < 4 ? 3 : i == 4 ? 2 : 1);
+            CHECK(i >= 5 || out_of_use_at(i, 10));
+        }
+        CHECK_EQ_I64(net.loops, 0);
+    }
+}
+
+/* Its anchor silent for two of its promises raises it too, with no hop given up. */
+static void a_leaf_whose_anchor_went_silent_re_attaches_from_announces(void) {
+    uint16_t seq = two_clusters(true);
+    walk_to_second();
+    run(&net, net.now + TERN_S(4 * 3600));
+    CHECK(net.node[10].r.seq == (uint16_t)(seq + 1));
+    CHECK(net.node[10].r.attached >= id_of(5) && net.node[10].r.attached <= id_of(9));
+    for (int i = 0; i < 10; i++) {
+        CHECK_EQ_I64(hops(&net, i, 10), i < 4 ? 3 : i == 4 ? 2 : 1);
+    }
+    CHECK_EQ_I64(net.loops, 0);
+}
+
+/* A leaf whose anchor changes between two relays that both still hear it has not moved: it raises
+ * no seq, however its anchor goes back and forth, and stays attached where it was. */
+static void a_leaf_between_two_relays_does_not_re_attach(void) {
+    uint16_t seq = two_clusters(true);
+    for (int round = 0; round < 6; round++) {
+        link(&net, 10, 0, round % 2 ? 30 : 10);
+        link(&net, 10, 1, round % 2 ? 10 : 30);
+        run(&net, net.now + TERN_S(1800));
+    }
+    CHECK(net.node[10].r.seq == seq);
+    CHECK_EQ_I64(net.node[10].r.attached, id_of(0));
+    for (int i = 0; i < NB; i++) {
+        CHECK(!net.node[10].nb[i].out_of_use);
+    }
+}
+
+/* Raised once, a leaf raises its seq again from announces no sooner than Trickle's longest
+ * interval on (8 s doubled six times): it walks straight back, and gives three hops up at relay 9,
+ * and waits; the first announce it hears after has it re-attach in the first cluster. */
+static void a_leaf_re_attaches_from_announces_once_an_interval(void) {
+    uint16_t seq = two_clusters(true);
+    tern_time raised, i_max = TERN_S(8) << 6;
+    walk_to_second();
+    run(&net, net.now + TERN_S(600));
+    for (int k = 0; k < 3; k++) {
+        tern_route_lost(&net.node[10].r, net.now, id_of(0));
+    }
+    run(&net, net.now + TERN_S(120));
+    CHECK(net.node[10].r.seq == (uint16_t)(seq + 1));
+    raised = net.node[10].r.raised_at;
+    for (int i = 0; i < 10; i++) {
+        link(&net, 10, i, i >= 5 ? NONE : i == 0 ? 30 : 20);
+    }
+    run(&net, net.now + TERN_S(60));
+    for (int k = 0; k < 3; k++) {
+        tern_route_lost(&net.node[10].r, net.now, id_of(9));
+    }
+    run(&net, raised + i_max - TERN_S(1));
+    CHECK(net.node[10].r.seq == (uint16_t)(seq + 1));
+    CHECK_EQ_I64(net.node[10].r.attached, id_of(9));
+    run(&net, raised + i_max + TERN_S(600));
+    CHECK(net.node[10].r.seq == (uint16_t)(seq + 2));
+    CHECK(net.node[10].r.attached >= id_of(0) && net.node[10].r.attached <= id_of(4));
+    CHECK(net.node[10].r.raised_at >= raised + i_max);
+    CHECK_EQ_I64(net.loops, 0);
+}
+
 int main(void) {
     RUN(two_nodes_find_each_other);
     RUN(a_line_is_routed_end_to_end);
@@ -947,5 +1083,9 @@ int main(void) {
     RUN(a_leaf_whose_anchor_went_silent_too_re_attaches);
     RUN(an_anchor_heard_in_the_first_of_a_pair_is_not_silent);
     RUN(a_leaf_that_restarts_is_answered_again);
+    RUN(a_leaf_among_many_relays_re_attaches_from_announces);
+    RUN(a_leaf_whose_anchor_went_silent_re_attaches_from_announces);
+    RUN(a_leaf_between_two_relays_does_not_re_attach);
+    RUN(a_leaf_re_attaches_from_announces_once_an_interval);
     return CHECK_DONE();
 }

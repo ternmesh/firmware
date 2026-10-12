@@ -436,6 +436,7 @@ struct tern_route_config tern_route_defaults(const struct tern_lora *lora, int8_
         .default_hops = 6,
         .default_busy_ppm = 500000,
         .reattach = true,
+        .passive_reattach = false,
     };
 }
 
@@ -1353,6 +1354,65 @@ static void want_solicit(struct tern_route *r, uint32_t after, uint32_t anchor) 
     }
 }
 
+/* A leaf re-attaches to `relay`: its new seq goes to the relays now around it, loud, and from
+ * them everywhere. */
+static void raise_seq(struct tern_route *r, uint32_t relay) {
+    r->attached = relay;
+    r->seq++;
+    r->asked = true;
+    r->loud = true;
+    r->interval = r->config.i_min;
+    trickle_begin(r);
+    r->raised_at = r->now;
+}
+
+/* Whether a leaf's relay neighbour still reaches it: in use, its link up, heard within two of its
+ * promises, and losing nothing (fewer than SOLICIT_HOPS frames given up there in a row). */
+static bool reaches(const struct tern_route_neighbour *n, tern_time now) {
+    return n->used && n->relay && n->up && !n->out_of_use && lately(n, now) &&
+           n->lost < SOLICIT_HOPS;
+}
+
+/* A leaf heard a relay's announce (passive_reattach). If its anchor among the relays that reach it
+ * is the relay it attached to last, or that relay still reaches it too, it is where it was, or only
+ * between two relays that both reach it. Otherwise it has moved: the relay it left goes out of use,
+ * and it raises its seq - unless it raised one within Trickle's longest interval, about the
+ * longest a settled network takes to announce a change everywhere, and then the first announce it
+ * hears after that does. Its first anchor is only noted, as a solicit's first is, and nothing is
+ * done while a solicit is out, which decides for itself. */
+static void passive_attach(struct tern_route *r) {
+    uint8_t a = 0, o;
+    if (!soliciting(r) || !r->config.passive_reattach || r->starting || r->solicited >= 0 ||
+        r->solicit_wanted || r->solicit_out) {
+        return;
+    }
+    for (size_t i = 0; i < r->nb_cap; i++) {
+        const struct tern_route_neighbour *n = &r->nb[i];
+        if (reaches(n, r->now) && (!a || link_margin(n, r->config.full_dbm) >
+                                             link_margin(slot(r, a), r->config.full_dbm))) {
+            a = (uint8_t)(i + 1);
+        }
+    }
+    if (!a || slot(r, a)->id == r->attached) {
+        return;
+    }
+    if (!r->attached) {
+        r->attached = slot(r, a)->id;
+        return;
+    }
+    o = slot_of(r, r->attached);
+    if (o && reaches(slot(r, o), r->now)) {
+        return;
+    }
+    if (r->raised_at >= 0 && r->now - r->raised_at < i_max(r)) {
+        return;
+    }
+    if (o) {
+        take_out_of_use(r, o);
+    }
+    raise_seq(r, slot(r, a)->id);
+}
+
 /* The answers to a leaf's solicit are in. Returns whether it asks again at once. */
 static bool settle(struct tern_route *r) {
     uint8_t w = r->after == TERN_ROUTE_EVERYONE ? 0 : slot_of(r, r->after), now_at = 0, anchor;
@@ -1405,12 +1465,7 @@ static bool settle(struct tern_route *r) {
     }
     if (does == TERN_ROUTE_REATTACHES) {
         /* Its new seq goes to the relays now around it, loud, and from them everywhere. */
-        r->attached = slot(r, now_at)->id;
-        r->seq++;
-        r->asked = true;
-        r->loud = true;
-        r->interval = r->config.i_min;
-        trickle_begin(r);
+        raise_seq(r, slot(r, now_at)->id);
     }
     if (does == TERN_ROUTE_ASK_AGAIN) {
         r->pair_since = r->solicited;
@@ -1637,6 +1692,9 @@ static void on_announce(struct tern_route *r, const struct tern_announce *a, int
         }
         update(r, a->routes[k].destination, a->routes[k].seq, metric, s, leaf);
     }
+    if (n->relay) {
+        passive_attach(r);
+    }
     if (r->changed) {
         trickle_reset(r);
     } else if (r->heard < UINT8_MAX) {
@@ -1792,6 +1850,7 @@ void tern_route_init(struct tern_route *r, const struct tern_route_config *confi
         .attach_at = -1,
         .solicited = -1,
         .solicit_last = -1,
+        .raised_at = -1,
         .after = TERN_ROUTE_EVERYONE,
         .rng = seed ? seed : 1,
         .now = now,

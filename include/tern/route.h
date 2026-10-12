@@ -278,6 +278,12 @@ struct tern_route_config {
      * it, and re-attaches to one; relays answer, take a leaf heard of elsewhere out of use, and
      * repair routes to leaves patiently. Off is the router as it was before, for measuring. */
     bool reattach;
+    /* And a leaf that finds from announces alone that it has moved - its anchor now another relay,
+     * and the relay it last attached to gone: silent for two of its promises, its link down, or
+     * SOLICIT_HOPS of its frames given up there - raises its seq and announces it, loud, as one
+     * that re-attaches on its solicit's answers does; no more often than once in Trickle's longest
+     * interval. With reattach only. Not in the specification: for measuring, off by default. */
+    bool passive_reattach;
 };
 
 /* The specification's parameters. */
@@ -522,6 +528,7 @@ struct tern_route {
     bool anchor_heard_first; /* and heard in the first solicit of the pair */
     tern_time pair_since;    /* when the first of a pair went */
     bool loud;               /* its next announce goes at full power, with its address */
+    tern_time raised_at;     /* when it last raised its seq to re-attach, or -1 */
 
     bool out;           /* the last frame polled was an announce not yet reported sent */
     tern_time out_at;   /* when it was built */
