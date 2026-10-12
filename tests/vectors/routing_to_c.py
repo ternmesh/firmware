@@ -243,7 +243,8 @@ def main():
     L.append("static const struct answered_case answereds[] = {")
     for c in v["answered"]:
         rs = ", ".join(
-            f"{{{b(x['up'])}, {b(x['out_of_use'])}, {b(x['heard'])}, {b(x['out_of_use_after'])}}}"
+            f"{{{b(x['up'])}, {b(x['out_of_use'])}, {b(x['heard'])}, {b(x['heard_first'])}, "
+            f"{b(x['out_of_use_after'])}}}"
             for x in c["relays"]
         )
         L.append(
@@ -309,6 +310,13 @@ def main():
         f"{b(c['answer_margin'] is not None)}, {c['answer_margin'] or 0}, "
         f"{c['answer_power'] or 0}}},"
         for c in v["samples"]
+    ]
+    L.append("};")
+
+    L.append("static const struct again_case agains[] = {")
+    L += [
+        f"    {{{json.dumps(c['heard'])}, {b(c['out_of_use_after'])}}},"
+        for c in v["in_use_again"]
     ]
     L.append("};")
 

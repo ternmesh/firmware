@@ -199,8 +199,8 @@ bool tern_answer_read(struct tern_answer *a, const uint8_t *frame, size_t len) {
 
 /* --- Rules --- */
 
-bool tern_route_out_after(bool moved, bool up, bool out_of_use, bool heard) {
-    return !heard && (out_of_use || (moved && up));
+bool tern_route_out_after(bool moved, bool up, bool out_of_use, bool heard, bool heard_first) {
+    return !heard && !heard_first && (out_of_use || (moved && up));
 }
 
 bool tern_route_is_leaf(bool kept, bool relay, bool selected, bool listed_leaf, bool was) {
@@ -1348,12 +1348,14 @@ static bool settle(struct tern_route *r) {
                                       ? TERN_ROUTE_ASKED_ANCHOR
                                       : TERN_ROUTE_ASKED_ANOTHER;
     enum tern_route_answered does;
+    /* What goes out of use is what was silent through the whole pair, if this is its second. */
+    tern_time since = r->doubt ? r->pair_since : r->solicited;
     for (size_t i = 0; i < r->nb_cap; i++) {
         const struct tern_route_neighbour *n = &r->nb[i];
-        if (!n->used || !n->relay || n->heard < r->solicited) {
+        if (!n->used || !n->relay || n->heard < since) {
             continue;
         }
-        others |= i + 1 != w;
+        others |= i + 1 != w && n->heard >= r->solicited;
         /* Its anchor once those that did not answer are out of use. */
         if (n->up && !n->out_of_use &&
             (!now_at || link_margin(n, r->config.full_dbm) >
@@ -1377,7 +1379,8 @@ static bool settle(struct tern_route *r) {
     for (size_t i = 0; moved && i < r->nb_cap; i++) {
         const struct tern_route_neighbour *n = &r->nb[i];
         if (n->used && n->relay && !n->out_of_use &&
-            tern_route_out_after(moved, n->up, n->out_of_use, n->heard >= r->solicited)) {
+            tern_route_out_after(moved, n->up, n->out_of_use, n->heard >= r->solicited,
+                                 n->heard >= since)) {
             take_out_of_use(r, (uint8_t)(i + 1));
         }
     }
@@ -1392,6 +1395,9 @@ static bool settle(struct tern_route *r) {
         r->loud = true;
         r->interval = r->config.i_min;
         trickle_begin(r);
+    }
+    if (does == TERN_ROUTE_ASK_AGAIN) {
+        r->pair_since = r->solicited;
     }
     return does == TERN_ROUTE_ASK_AGAIN;
 }

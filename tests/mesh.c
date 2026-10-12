@@ -853,10 +853,10 @@ static void a_leaf_whose_anchor_went_silent_too_re_attaches(void) {
     CHECK_EQ_I64(net.loops, 0);
 }
 
-/* A lost answer moves no leaf, nor raises its seq. Leaf 3 hears relays 0 (its anchor), 1 and 2,
- * gives hops up at relay 1, which has gone, and asks after it twice. Its anchor answers the first
- * of the pair, and its answer to the second is lost: it has not gone silent, and the leaf does not
- * re-attach to relay 2, which answered both. */
+/* A lost answer moves no leaf, raises no seq and takes no relay out of use. Leaf 3 hears relays 0
+ * (its anchor), 1 and 2, gives hops up at relay 1, which has gone, and asks after it twice. Its
+ * anchor answers the first of the pair, and its answer to the second is lost: it has not gone
+ * silent, and the leaf does not re-attach to relay 2, which answered both. */
 static void an_anchor_heard_in_the_first_of_a_pair_is_not_silent(void) {
     uint16_t seq;
     uint32_t attached;
@@ -884,6 +884,12 @@ static void an_anchor_heard_in_the_first_of_a_pair_is_not_silent(void) {
     run(&net, net.now + TERN_S(30));
     CHECK(net.node[3].r.seq == seq);
     CHECK_EQ_I64(net.node[3].r.attached, attached);
+    /* Nor does the lost answer take the anchor out of use: it answered the first of the pair. */
+    for (int i = 0; i < NB; i++) {
+        if (net.node[3].nb[i].used && net.node[3].nb[i].id == id_of(0)) {
+            CHECK(!net.node[3].nb[i].out_of_use);
+        }
+    }
     CHECK_EQ_I64(net.loops, 0);
 }
 

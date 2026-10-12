@@ -161,8 +161,8 @@ struct answered_case {
     bool anchor_heard_first_after;
     int n;
     struct {
-        bool up, out_of_use, heard, after;
-    } relays[8];
+        bool up, out_of_use, heard, heard_first, after;
+    } relays[10];
 };
 struct given_case {
     int n;
@@ -208,6 +208,10 @@ struct power_case {
         bool out_of_use;
     } neighbours[10];
     int8_t power;
+};
+struct again_case {
+    const char *heard;
+    bool out_after;
 };
 struct leaf_case {
     bool kept, relay, selected, listed_leaf, was, leaf;
@@ -822,7 +826,8 @@ static void the_answers_say_whether_a_leaf_has_moved(void) {
         for (int k = 0; k < c->n; k++) {
             bool moved = c->does == TERN_ROUTE_MOVED || c->does == TERN_ROUTE_REATTACHES;
             CHECK(tern_route_out_after(moved, c->relays[k].up, c->relays[k].out_of_use,
-                                       c->relays[k].heard) == c->relays[k].after);
+                                       c->relays[k].heard,
+                                       c->relays[k].heard_first) == c->relays[k].after);
         }
     }
 }
@@ -1032,6 +1037,48 @@ static void a_request_with_no_room_is_not_counted_as_sent(void) {
     CHECK_EQ_I64(held, 20 - TERN_ROUTE_ASKS);
 }
 
+/* A relay's router keeps a leaf, id 0x1234, out of use, and hears from it what the vector says. */
+static void anything_heard_brings_a_neighbour_back_into_use(void) {
+    struct tern_lora lora = tern_region_lora(tern_region(TERN_REGION_US915));
+    struct tern_route_config config = tern_route_defaults(&lora, 22, -9, true);
+    for (size_t i = 0; i < COUNT(agains); i++) {
+        const struct again_case *c = &agains[i];
+        struct tern_route_neighbour nb[2];
+        struct tern_route_dest dest[2];
+        struct tern_route r;
+        uint8_t frame[TERN_ROUTE_FRAME_MAX];
+        size_t len = 0;
+        tern_route_init(&r, &config, VECTOR_OWN_ID, nb, 2, dest, 2, 0, 1, 0);
+        nb[0] = (struct tern_route_neighbour){.id = 0x1234,
+                                              .used = true,
+                                              .up = true,
+                                              .out_of_use = true,
+                                              .theirs = 200,
+                                              .floor = -320,
+                                              .number = 5,
+                                              .named = 5};
+        if (strncmp(c->heard, "announce", 8) == 0) {
+            struct tern_announce a = {.sender = 0x1234,
+                                      .number = strcmp(c->heard, "announce taken") == 0 ? 6 : 5,
+                                      .seq = 1,
+                                      .promise = 60,
+                                      .round = 1};
+            len = tern_announce_write(&a, frame);
+        } else if (strcmp(c->heard, "solicit") == 0) {
+            len = tern_solicit_write(&(struct tern_solicit){0x1234, 1, TERN_ROUTE_EVERYONE, 0},
+                                     frame);
+        } else if (strcmp(c->heard, "answer") == 0) {
+            len = tern_answer_write(&(struct tern_answer){0x1234, 0x9999, 1, 140, 0}, frame);
+        }
+        if (len) {
+            tern_route_heard(&r, TERN_S(1), frame, len, 0);
+        } else {
+            tern_route_passed(&r, TERN_S(1), 0x1234, 0, 0);
+        }
+        CHECK(nb[0].out_of_use == c->out_after);
+    }
+}
+
 int main(void) {
     RUN(ids_come_from_addresses);
     RUN(a_leaf_with_no_route_takes_its_nearest_relay);
@@ -1066,5 +1113,6 @@ int main(void) {
     RUN(a_leaf_heard_of_elsewhere_goes_out_of_use);
     RUN(solicits_and_answers_are_heard_as_announces_are);
     RUN(a_request_with_no_room_is_not_counted_as_sent);
+    RUN(anything_heard_brings_a_neighbour_back_into_use);
     return CHECK_DONE();
 }

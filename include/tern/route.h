@@ -360,9 +360,10 @@ enum tern_route_answered {
     TERN_ROUTE_REATTACHES, /* and it raises its seq and announces it, loud */
 };
 /* Whether a relay neighbour of a leaf is out of use once a solicit's answers are in: one heard
- * from is in use again, and one whose link is up and that was not heard from goes out of use if
- * the leaf has `moved` (TERN_ROUTE_MOVED or TERN_ROUTE_REATTACHES). */
-bool tern_route_out_after(bool moved, bool up, bool out_of_use, bool heard);
+ * from, in this solicit or in the first of the pair, is in use; one whose link is up and that was
+ * heard in neither goes out of use if the leaf has `moved` (TERN_ROUTE_MOVED or
+ * TERN_ROUTE_REATTACHES). */
+bool tern_route_out_after(bool moved, bool up, bool out_of_use, bool heard, bool heard_first);
 
 enum tern_route_answered tern_route_answered(enum tern_route_asked asked, bool *doubt,
                                              uint8_t *unanswered, bool asked_heard,
@@ -518,6 +519,7 @@ struct tern_route {
     uint32_t attached;       /* the anchor it last re-attached to, 0 for none */
     uint32_t asked_anchor;   /* its anchor when it asked, 0 for none */
     bool anchor_heard_first; /* and heard in the first solicit of the pair */
+    tern_time pair_since;    /* when the first of a pair went */
     bool loud;               /* its next announce goes at full power, with its address */
 
     bool out;           /* the last frame polled was an announce not yet reported sent */
