@@ -153,10 +153,12 @@ struct answered_case {
     bool asked_heard, others_heard;
     enum tern_route_anchor_now anchor_now;
     bool attached;
-    bool anchor_silent; /* anchor_heard false */
+    int anchor_heard; /* -1 for null */
+    bool anchor_heard_first;
     enum tern_route_answered does;
     bool doubt_after;
     uint8_t unanswered_after;
+    bool anchor_heard_first_after;
     int n;
     struct {
         bool up, out_of_use, heard, after;
@@ -808,12 +810,13 @@ static void a_relay_answers_a_leaf_it_hears(void) {
 static void the_answers_say_whether_a_leaf_has_moved(void) {
     for (size_t i = 0; i < COUNT(answereds); i++) {
         const struct answered_case *c = &answereds[i];
-        bool doubt = c->doubt;
+        bool doubt = c->doubt, first = c->anchor_heard_first;
         uint8_t unanswered = c->unanswered;
         CHECK_EQ_I64(tern_route_answered(c->asked, &doubt, &unanswered, c->asked_heard,
                                          c->others_heard, c->anchor_now, c->attached,
-                                         c->anchor_silent),
+                                         c->anchor_heard, &first),
                      c->does);
+        CHECK(first == c->anchor_heard_first_after);
         CHECK(doubt == c->doubt_after);
         CHECK_EQ_U64(unanswered, c->unanswered_after);
         for (int k = 0; k < c->n; k++) {

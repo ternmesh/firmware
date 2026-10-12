@@ -249,7 +249,9 @@ def main():
         L.append(
             f"    {{{asked[c['asked']]}, {b(c['doubt'])}, {c['unanswered']}, {b(c['asked_heard'])}, "
             f"{b(c['others_heard'])}, {now[c['anchor_now']]}, {b(c['attached_before'])}, "
-            f"{b(c['anchor_heard'] is False)}, {does[c['does']]}, {b(c['doubt_after'])}, {c['unanswered_after']}, "
+            f"{-1 if c['anchor_heard'] is None else int(c['anchor_heard'])}, "
+            f"{b(c['anchor_heard_first'])}, {does[c['does']]}, {b(c['doubt_after'])}, "
+            f"{c['unanswered_after']}, {b(c['anchor_heard_first_after'])}, "
             f"{len(c['relays'])}, {{{rs}}}}},"
         )
     L.append("};")

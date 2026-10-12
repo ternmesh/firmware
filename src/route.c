@@ -1251,11 +1251,13 @@ enum tern_route_answered tern_route_answered(enum tern_route_asked asked, bool *
                                              uint8_t *unanswered, bool asked_heard,
                                              bool others_heard,
                                              enum tern_route_anchor_now anchor_now, bool attached,
-                                             bool anchor_silent) {
+                                             int anchor_heard, bool *anchor_heard_first) {
+    bool silent;
     bool first;
     if (asked != TERN_ROUTE_ASKED_NONE && asked_heard) {
         *doubt = false;
         *unanswered = 0;
+        *anchor_heard_first = false;
         return TERN_ROUTE_SETTLED;
     }
     /* A solicit another relay answered had an answer: the streak of those with none is broken. */
@@ -1263,9 +1265,13 @@ enum tern_route_answered tern_route_answered(enum tern_route_asked asked, bool *
     /* Asked after twice before anything moves: a lost answer moves no leaf that has not moved. */
     if (asked != TERN_ROUTE_ASKED_NONE && !*doubt) {
         *doubt = true;
+        *anchor_heard_first = anchor_heard == 1; /* kept for the second of the pair */
         return *unanswered < SOLICIT_TRIES ? TERN_ROUTE_ASK_AGAIN : TERN_ROUTE_WAITS;
     }
     *doubt = false;
+    /* The anchor it had when it asked another is silent only if it was in both of the pair. */
+    silent = anchor_heard == 0 && !*anchor_heard_first;
+    *anchor_heard_first = false;
     if (!others_heard) {
         return TERN_ROUTE_WAITS;
     }
@@ -1274,8 +1280,8 @@ enum tern_route_answered tern_route_answered(enum tern_route_asked asked, bool *
     first = asked == TERN_ROUTE_ASKED_NONE && !attached;
     /* Re-attached too when the anchor it had when it asked another has gone silent with the rest.
      */
-    return (asked != TERN_ROUTE_ASKED_ANOTHER || anchor_silent) &&
-                   anchor_now == TERN_ROUTE_ANCHOR_OTHER && !first
+    return (asked != TERN_ROUTE_ASKED_ANOTHER || silent) && anchor_now == TERN_ROUTE_ANCHOR_OTHER &&
+                   !first
                ? TERN_ROUTE_REATTACHES
                : TERN_ROUTE_MOVED;
 }
@@ -1363,8 +1369,10 @@ static bool settle(struct tern_route *r) {
                                : slot(r, now_at)->id == r->attached ? TERN_ROUTE_ANCHOR_ATTACHED
                                                                     : TERN_ROUTE_ANCHOR_OTHER,
                                r->attached != 0,
-                               r->asked_anchor && r->asked_anchor != r->after &&
-                                   !(anchor && slot(r, anchor)->heard >= r->solicited));
+                               !r->asked_anchor || r->asked_anchor == r->after    ? -1
+                               : anchor && slot(r, anchor)->heard >= r->solicited ? 1
+                                                                                  : 0,
+                               &r->anchor_heard_first);
     moved = does == TERN_ROUTE_MOVED || does == TERN_ROUTE_REATTACHES;
     for (size_t i = 0; moved && i < r->nb_cap; i++) {
         const struct tern_route_neighbour *n = &r->nb[i];
@@ -1773,6 +1781,9 @@ void tern_route_init(struct tern_route *r, const struct tern_route_config *confi
         r->dest[i].used = false;
     }
     r->number = (uint16_t)rand_below(r, 0x10000);
+    /* Solicits are numbered from a random place too: the relays that answered them before a
+     * restart remember the last few, and would take the same numbers again for those. */
+    r->solicit_id = (uint16_t)rand_below(r, 0x10000);
     bucket_init(&r->announces, config->announce_ppm, config->cap_window,
                 airtime(r, TERN_ROUTE_FRAME_MAX), now);
     bucket_init(&r->requests, config->request_ppm, config->cap_window,

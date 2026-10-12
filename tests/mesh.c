@@ -853,6 +853,68 @@ static void a_leaf_whose_anchor_went_silent_too_re_attaches(void) {
     CHECK_EQ_I64(net.loops, 0);
 }
 
+/* A lost answer moves no leaf, nor raises its seq. Leaf 3 hears relays 0 (its anchor), 1 and 2,
+ * gives hops up at relay 1, which has gone, and asks after it twice. Its anchor answers the first
+ * of the pair, and its answer to the second is lost: it has not gone silent, and the leaf does not
+ * re-attach to relay 2, which answered both. */
+static void an_anchor_heard_in_the_first_of_a_pair_is_not_silent(void) {
+    uint16_t seq;
+    uint32_t attached;
+    net_init(&net, 4);
+    net.node[3].relay = false;
+    link(&net, 0, 1, 20);
+    link(&net, 1, 2, 20);
+    link(&net, 0, 2, 20);
+    link(&net, 3, 0, 30);
+    link(&net, 3, 1, 10);
+    link(&net, 3, 2, 0);
+    start_all(&net);
+    run(&net, TERN_S(900));
+    seq = net.node[3].r.seq;
+    attached = net.node[3].r.attached;
+    link(&net, 3, 1, NONE);
+    for (int k = 0; k < 3; k++) {
+        tern_route_lost(&net.node[3].r, net.now, id_of(1));
+    }
+    for (int k = 0; k < 60 && !net.node[3].r.doubt; k++) {
+        run(&net, net.now + TERN_S(1));
+    }
+    CHECK(net.node[3].r.doubt && net.node[3].r.anchor_heard_first);
+    net.snr[0][3] = NONE; /* the anchor's answer to the second is lost */
+    run(&net, net.now + TERN_S(30));
+    CHECK(net.node[3].r.seq == seq);
+    CHECK_EQ_I64(net.node[3].r.attached, attached);
+    CHECK_EQ_I64(net.loops, 0);
+}
+
+/* A leaf that starts again numbers its solicits afresh. Its relays remember the last few they
+ * answered, so numbered from 0 again, its first after a restart would be taken for those and go
+ * unanswered, and the leaf, finding none, would give up asking. */
+static void a_leaf_that_restarts_is_answered_again(void) {
+    net_init(&net, 3);
+    net.node[2].relay = false;
+    link(&net, 0, 1, 20);
+    link(&net, 2, 0, 20);
+    link(&net, 2, 1, 0);
+    start_all(&net);
+    run(&net, TERN_S(900));
+    for (int round = 0; round < 4; round++) { /* solicits its relays remember */
+        for (int k = 0; k < 3; k++) {
+            tern_route_lost(&net.node[2].r, net.now, id_of(0));
+        }
+        run(&net, net.now + TERN_S(120));
+        CHECK_EQ_I64(net.node[2].r.unanswered, 0);
+    }
+    start(&net, 2, net.node[2].r.seq);
+    run(&net, net.now + TERN_S(900));
+    for (int k = 0; k < 3; k++) {
+        tern_route_lost(&net.node[2].r, net.now, id_of(0));
+    }
+    run(&net, net.now + TERN_S(120));
+    CHECK_EQ_I64(net.node[2].r.unanswered, 0);
+    CHECK(!net.node[2].nb[0].out_of_use && !net.node[2].nb[1].out_of_use);
+}
+
 int main(void) {
     RUN(two_nodes_find_each_other);
     RUN(a_line_is_routed_end_to_end);
@@ -877,5 +939,7 @@ int main(void) {
     RUN(a_change_waiting_does_not_retract_a_route_held);
     RUN(a_solicit_is_answered_from_when_it_goes);
     RUN(a_leaf_whose_anchor_went_silent_too_re_attaches);
+    RUN(an_anchor_heard_in_the_first_of_a_pair_is_not_silent);
+    RUN(a_leaf_that_restarts_is_answered_again);
     return CHECK_DONE();
 }
