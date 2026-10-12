@@ -158,6 +158,10 @@ struct answered_case {
     uint8_t unanswered_after;
 };
 
+struct leaf_case {
+    bool kept, relay, selected, listed_leaf, was, leaf;
+};
+
 #include "routing.h"
 
 #define COUNT(a) (sizeof(a) / sizeof(a)[0])
@@ -765,6 +769,14 @@ static void the_answers_say_whether_a_leaf_has_moved(void) {
     }
 }
 
+static void a_destination_is_a_leaf_as_it_says_or_as_its_route_lists_it(void) {
+    for (size_t i = 0; i < COUNT(leaves); i++) {
+        const struct leaf_case *c = &leaves[i];
+        CHECK(tern_route_is_leaf(c->kept, c->relay, c->selected, c->listed_leaf, c->was) ==
+              c->leaf);
+    }
+}
+
 int main(void) {
     RUN(ids_come_from_addresses);
     RUN(a_leaf_with_no_route_takes_its_nearest_relay);
@@ -793,5 +805,6 @@ int main(void) {
     RUN(a_leaf_asks_after_its_anchor_only_where_relays_are_few);
     RUN(a_relay_answers_a_leaf_it_hears);
     RUN(the_answers_say_whether_a_leaf_has_moved);
+    RUN(a_destination_is_a_leaf_as_it_says_or_as_its_route_lists_it);
     return CHECK_DONE();
 }

@@ -199,6 +199,10 @@ bool tern_answer_read(struct tern_answer *a, const uint8_t *frame, size_t len) {
 
 /* --- Rules --- */
 
+bool tern_route_is_leaf(bool kept, bool relay, bool selected, bool listed_leaf, bool was) {
+    return kept ? !relay : selected ? listed_leaf : was;
+}
+
 bool tern_route_listed(uint16_t field, bool *leaf, uint16_t *metric) {
     if ((field & 0x7FFFu) == 0x7FFFu) {
         return false;
@@ -671,7 +675,7 @@ static void ask_again(struct tern_route *r) {
  * changed. */
 static void reselect(struct tern_route *r, struct tern_route_dest *d) {
     struct tern_route_choice c[TERN_ROUTE_KEPT];
-    bool infeasible = false, was = d->sel != 0;
+    bool infeasible = false, was = d->sel != 0, leaf_changed;
     int cur = -1, chosen;
     uint16_t t;
     choices(r, d, c);
@@ -684,6 +688,15 @@ static void reselect(struct tern_route *r, struct tern_route_dest *d) {
     }
     chosen = select_route(&d->fd, c, TERN_ROUTE_KEPT, cur, r->config.reattach);
     d->sel = chosen >= 0 ? d->e[chosen].slot : 0;
+    /* Whether it is a leaf: as it says itself, if it is a neighbour, or else as the selected route
+     * lists it - never as another route does, so a role given up cannot outlive itself. */
+    {
+        uint8_t s = slot_of(r, d->id);
+        bool leaf = tern_route_is_leaf(s != 0, s && slot(r, s)->relay, chosen >= 0,
+                                       chosen >= 0 && d->e[chosen].leaf, d->leaf);
+        leaf_changed = leaf != d->leaf;
+        d->leaf = leaf;
+    }
     /* A route to a leaf this node announced is asked for even with nothing infeasible left: only
      * the leaf's newer seq can bring one back. */
     if (chosen < 0 && (infeasible || (patient(r, d) && d->advertised))) {
@@ -697,6 +710,11 @@ static void reselect(struct tern_route *r, struct tern_route_dest *d) {
     r->selected = r->selected - was + (chosen >= 0);
     if (chosen < 0) {
         if (d->held) {
+            /* A change waiting to be announced would go as a retraction: none goes yet. */
+            if (d->urgent) {
+                d->urgent = false;
+                r->urgent_count--;
+            }
             return;
         }
         if (d->advertised || was) {
@@ -707,7 +725,8 @@ static void reselect(struct tern_route *r, struct tern_route_dest *d) {
     }
     t = total(c[chosen].metric, c[chosen].cost);
     if (!d->advertised || tern_route_newer(c[chosen].seq, d->adv_seq) ||
-        4 * (t > d->adv_metric ? t - d->adv_metric : d->adv_metric - t) > d->adv_metric) {
+        4 * (t > d->adv_metric ? t - d->adv_metric : d->adv_metric - t) > d->adv_metric ||
+        (leaf_changed && r->config.reattach)) {
         push_urgent(r, d);
         r->changed = true;
     }
@@ -728,9 +747,6 @@ static void update(struct tern_route *r, uint32_t id, uint16_t seq, uint16_t met
     if (!d) {
         return;
     }
-    if (metric != INF) {
-        d->leaf = leaf;
-    }
     /* A leaf this node hears, heard of elsewhere with a seq newer than its own announces brought,
      * has re-attached where this node did not hear it: it has moved away. */
     direct = metric != INF && r->config.reattach ? slot_of(r, id) : 0;
@@ -748,6 +764,7 @@ static void update(struct tern_route *r, uint32_t id, uint16_t seq, uint16_t met
     } else if (e) {
         e->seq = seq;
         e->metric = metric;
+        e->leaf = leaf;
     } else {
         /* A free place, or else that of the route least worth keeping, if this is worth more. */
         struct tern_route_choice c[TERN_ROUTE_KEPT], mine = {seq, metric, INF};
@@ -768,7 +785,8 @@ static void update(struct tern_route *r, uint32_t id, uint16_t seq, uint16_t met
         if (place < 0) {
             return;
         }
-        d->e[place] = (struct tern_route_entry){.slot = s, .seq = seq, .metric = metric};
+        d->e[place] =
+            (struct tern_route_entry){.slot = s, .leaf = leaf, .seq = seq, .metric = metric};
     }
     reselect(r, d);
 }
@@ -1750,7 +1768,7 @@ tern_time tern_route_due(const struct tern_route *r) {
     t = r->announcing && r->announce_at < t ? r->announce_at : t;
     t = r->ask_at >= 0 && r->ask_at < t ? r->ask_at : t;
     t = r->request_at >= 0 && r->request_at < t ? r->request_at : t;
-    t = r->attach_at >= 0 && r->attach_at < t ? r->attach_at : t;
+    t = soliciting(r) && r->attach_at >= 0 && r->attach_at < t ? r->attach_at : t;
     for (size_t k = 0; k < r->answer_count; k++) {
         t = r->answers[k].at < t ? r->answers[k].at : t;
     }

@@ -1,5 +1,5 @@
 {
-  "description": "Routing, draft 0 (draft/routing.md). Routing ids, sequence numbers, promise codes and metrics are numbers; addresses and frames are hex. In floors, powers are dBm, snr_quarter_db is the signal-to-noise ratio in quarters of a decibel, as the SX126x reports it, and floor_sixteenths is the floor in sixteenths of a dBm. In links, own_margin_sixteenths is the node's full power less its floor for the neighbour, in sixteenths of a decibel, and their_margin is the margin byte the neighbour gave; either is null when it is missing, and the steps follow one another. In places, neighbours is a full table, each with the node's floor for it, whether its link is up and whether it is out of use, floor_sixteenths is the floor an announce from a node not in it gives, and replaces is an index into neighbours. In selection and kept, each route's metric is the one its neighbour announced, every link costs link_cost, and selected, selects and replaces are indexes into routes. In defaults, each neighbour's out_of_use says whether it is out of use, tried and next are indexes into neighbours, busy_ppm is the leaf's busy share in millionths, and metric is the default route's. Each announce is signed with seed, whose address is address, and carries the address in the frame if carries_address is true. A rejected frame MUST be discarded whether or not the receiver holds its sender's address. In verified, announce is an index into announces, held_address is the address the receiver holds for its sender (null for none), takes whether it takes the announce rather than discarding it, and holds_address the address it then holds for the sender, if the rest of the section then takes the announce from a neighbour. In listed, metric_field is a listed route's metric as it goes on the air, retracts whether it retracts the route, leaf and metric what it says otherwise (null for a retraction), and field what a node writes for them. In anchors, each of relays is a neighbour of a leaf, relay saying whether it is one, with whether its link is up, whether it is out of use, its link's margin in sixteenths of a decibel, the seconds since it was heard and its promise in seconds (null for none); sparse is whether the leaf solicits there, anchor an index into relays (null for none), and asks whether it asks after it on its SOLICIT_GAP. In answering, own_margin_sixteenths is the relay's full power less its floor for the leaf, asked whether the solicit asks after it, wait the most its answer waits in airtimes of the answer (null if it does not answer), and cancelled whether others' answers cancel it. In answered, asked is the relay the leaf asked after, its anchor when it asked, another or null for none; asked_heard and others_heard whether it heard from that relay and from any other in SOLICIT_WAIT; anchor_now whether its anchor now is the one it last re-attached to, another, or null for none; attached_before whether it has re-attached before; does is settled, again, waits, moved or reattaches.",
+  "description": "Routing, draft 0 (draft/routing.md). Routing ids, sequence numbers, promise codes and metrics are numbers; addresses and frames are hex. In floors, powers are dBm, snr_quarter_db is the signal-to-noise ratio in quarters of a decibel, as the SX126x reports it, and floor_sixteenths is the floor in sixteenths of a dBm. In links, own_margin_sixteenths is the node's full power less its floor for the neighbour, in sixteenths of a decibel, and their_margin is the margin byte the neighbour gave; either is null when it is missing, and the steps follow one another. In places, neighbours is a full table, each with the node's floor for it, whether its link is up and whether it is out of use, floor_sixteenths is the floor an announce from a node not in it gives, and replaces is an index into neighbours. In selection and kept, each route's metric is the one its neighbour announced, every link costs link_cost, and selected, selects and replaces are indexes into routes. In defaults, each neighbour's out_of_use says whether it is out of use, tried and next are indexes into neighbours, busy_ppm is the leaf's busy share in millionths, and metric is the default route's. Each announce is signed with seed, whose address is address, and carries the address in the frame if carries_address is true. A rejected frame MUST be discarded whether or not the receiver holds its sender's address. In verified, announce is an index into announces, held_address is the address the receiver holds for its sender (null for none), takes whether it takes the announce rather than discarding it, and holds_address the address it then holds for the sender, if the rest of the section then takes the announce from a neighbour. In listed, metric_field is a listed route's metric as it goes on the air, retracts whether it retracts the route, leaf and metric what it says otherwise (null for a retraction), and field what a node writes for them. In anchors, each of relays is a neighbour of a leaf, relay saying whether it is one, with whether its link is up, whether it is out of use, its link's margin in sixteenths of a decibel, the seconds since it was heard and its promise in seconds (null for none); sparse is whether the leaf solicits there, anchor an index into relays (null for none), and asks whether it asks after it on its SOLICIT_GAP. In answering, own_margin_sixteenths is the relay's full power less its floor for the leaf, asked whether the solicit asks after it, wait the most its answer waits in airtimes of the answer (null if it does not answer), and cancelled whether others' answers cancel it. In answered, asked is the relay the leaf asked after, its anchor when it asked, another or null for none; asked_heard and others_heard whether it heard from that relay and from any other in SOLICIT_WAIT; anchor_now whether its anchor now is the one it last re-attached to, another, or null for none; attached_before whether it has re-attached before; does is settled, again, waits, moved or reattaches. In leaves, relay is what the destination's own last announce said of its role (null if the node does not keep it as a neighbour), listed whether each route the node holds to it was listed as one to a leaf, selected an index into listed (null for none), was what the node took before, and leaf what it takes now.",
   "generator": "vectors/tools/routing.py",
   "ids": [
     {
@@ -2987,6 +2987,71 @@
       "does": "reattaches",
       "doubt_after": false,
       "unanswered_after": 0
+    }
+  ],
+  "leaves": [
+    {
+      "relay": false,
+      "listed": [
+        true
+      ],
+      "selected": 0,
+      "was": false,
+      "leaf": true
+    },
+    {
+      "relay": true,
+      "listed": [
+        true,
+        true
+      ],
+      "selected": 0,
+      "was": true,
+      "leaf": false
+    },
+    {
+      "relay": true,
+      "listed": [],
+      "selected": null,
+      "was": true,
+      "leaf": false
+    },
+    {
+      "relay": null,
+      "listed": [
+        false,
+        true
+      ],
+      "selected": 0,
+      "was": true,
+      "leaf": false
+    },
+    {
+      "relay": null,
+      "listed": [
+        false,
+        true
+      ],
+      "selected": 1,
+      "was": false,
+      "leaf": true
+    },
+    {
+      "relay": null,
+      "listed": [
+        true,
+        true
+      ],
+      "selected": null,
+      "was": false,
+      "leaf": false
+    },
+    {
+      "relay": null,
+      "listed": [],
+      "selected": null,
+      "was": true,
+      "leaf": true
     }
   ]
 }

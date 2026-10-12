@@ -168,6 +168,11 @@ bool tern_answer_read(struct tern_answer *a, const uint8_t *frame, size_t len);
  * metric; false for a retraction. And what is written for them, a metric of TERN_ROUTE_INF
  * retracting. */
 bool tern_route_listed(uint16_t field, bool *leaf, uint16_t *metric);
+
+/* Whether a node takes a destination to be a leaf: as its own last announce said (`relay`), if the
+ * node keeps it as a neighbour (`kept`); otherwise as the neighbour of the selected route listed it
+ * (`listed_leaf`), if a route is `selected`; otherwise as it took it before (`was`). */
+bool tern_route_is_leaf(bool kept, bool relay, bool selected, bool listed_leaf, bool was);
 uint16_t tern_route_listing(bool leaf, uint16_t metric);
 
 /* A neighbour's floor, in sixteenths of a dBm, after an announce it sent at `power` dBm is heard
@@ -361,6 +366,7 @@ uint16_t tern_route_default_metric(uint8_t hops, uint16_t cost);
 
 struct tern_route_entry {
     uint8_t slot; /* the neighbour's place in the table plus 1; 0 for none */
+    bool leaf;    /* the neighbour listed the destination as a leaf */
     uint16_t seq;
     uint16_t metric; /* the neighbour's, without the link */
 };

@@ -706,6 +706,65 @@ static void a_full_table_gives_up_a_relay_out_of_use(void) {
     CHECK_EQ_I64(net.loops, 0);
 }
 
+static struct tern_route_dest *dest_at(int at, int d) {
+    for (size_t i = 0; i < DESTS; i++) {
+        if (net.node[at].dest[i].used && net.node[at].dest[i].id == id_of(d)) {
+            return &net.node[at].dest[i];
+        }
+    }
+    return NULL;
+}
+
+/* A leaf that takes up the relay's role is taken for a relay everywhere: what a node lists of a
+ * destination's role comes from the destination itself, along the selected routes, and a bit left
+ * from before cannot pass back and forth between relays and outlive it. */
+static void a_leaf_that_becomes_a_relay_is_a_leaf_no_more(void) {
+    net_init(&net, 4);
+    net.node[3].relay = false;
+    link(&net, 0, 1, 20);
+    link(&net, 1, 2, 20);
+    link(&net, 3, 0, 20);
+    start_all(&net);
+    run(&net, TERN_S(900));
+    for (int i = 0; i < 3; i++) {
+        CHECK(dest_at(i, 3) && dest_at(i, 3)->leaf);
+    }
+    net.node[3].relay = true;
+    net.node[3].r.config.relay = true;
+    run(&net, net.now + TERN_S(3600));
+    for (int i = 0; i < 3; i++) {
+        CHECK(dest_at(i, 3) && !dest_at(i, 3)->leaf);
+    }
+    CHECK_EQ_I64(hops(&net, 2, 3), 3);
+}
+
+/* A route to a leaf with a change waiting to be announced, lost before the announce goes, is held
+ * as any route to a leaf lost is: the change does not go out as a retraction at once. */
+static void a_change_waiting_does_not_retract_a_route_held(void) {
+    uint32_t next;
+    uint16_t m;
+    struct tern_route_dest *d;
+    net_init(&net, 3);
+    net.node[2].relay = false;
+    link(&net, 0, 1, 20);
+    link(&net, 1, 2, 20);
+    start_all(&net);
+    run(&net, TERN_S(900));
+    d = dest_at(1, 2);
+    CHECK(d && !d->urgent);
+    d->urgent = true; /* as a new seq or metric would have it */
+    net.node[1].r.urgent_count++;
+    link(&net, 1, 2, NONE);
+    for (int k = 0; k < 24; k++) {
+        tern_route_lost(&net.node[1].r, net.now, id_of(2));
+    }
+    run(&net, net.now + TERN_S(15));
+    CHECK(tern_route_next(&net.node[0].r, id_of(2), &next, &m) && next == id_of(1));
+    CHECK_EQ_I64(net.node[1].r.urgent_count, 0);
+    run(&net, net.now + TERN_S(75));
+    CHECK(!tern_route_next(&net.node[0].r, id_of(2), &next, &m));
+}
+
 int main(void) {
     RUN(two_nodes_find_each_other);
     RUN(a_line_is_routed_end_to_end);
@@ -726,5 +785,7 @@ int main(void) {
     RUN(a_leaf_among_many_relays_does_not_ask);
     RUN(a_route_to_a_leaf_is_repaired_patiently);
     RUN(a_full_table_gives_up_a_relay_out_of_use);
+    RUN(a_leaf_that_becomes_a_relay_is_a_leaf_no_more);
+    RUN(a_change_waiting_does_not_retract_a_route_held);
     return CHECK_DONE();
 }

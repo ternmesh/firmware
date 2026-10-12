@@ -245,6 +245,15 @@ def main():
     ]
     L.append("};")
 
+    L.append("static const struct leaf_case leaves[] = {")
+    for c in v["leaves"]:
+        sel = c["selected"]
+        L.append(
+            f"    {{{b(c['relay'] is not None)}, {b(bool(c['relay']))}, {b(sel is not None)}, "
+            f"{b(sel is not None and c['listed'][sel])}, {b(c['was'])}, {b(c['leaf'])}}},"
+        )
+    L.append("};")
+
     with open(out, "w", encoding="utf-8") as f:
         f.write("\n".join(L) + "\n")
 
