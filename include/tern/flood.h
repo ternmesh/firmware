@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "tern/airtime.h"
 #include "tern/route.h"
 #include "tern/time.h"
 
@@ -16,7 +17,8 @@
  * three bytes that change on the way.
  *
  * A node gives floods a bounded share of its time, in two parts: one for its own and one for
- * those it passes on.
+ * those it passes on. Both are inside the airtime budget's parts (tern/airtime.h): a flooder given
+ * a budget (tern_flood_budget()) sends a frame only once its allowance and its part both hold it.
  *
  * Like the forwarder (tern/forward.h) it owns no clock, radio or memory, and what a frame holds
  * past its head is the caller's: for a group's frame, tern/group.h.
@@ -82,22 +84,6 @@ int tern_flood_passes(bool relay, unsigned neighbours, uint8_t hops, uint8_t mos
 int8_t tern_flood_power(int8_t every, const int32_t *floors, size_t n, uint8_t margin_db,
                         int8_t lowest, int8_t full);
 
-/* A token bucket, as the router's cap is: nanoseconds of airtime, in millionths. */
-struct tern_flood_bucket {
-    int64_t have;
-    int64_t most;
-    uint32_t ppm;
-    tern_time at;
-};
-
-/* A bucket that fills at `ppm` millionths of the node's time and holds `window` of that, or
- * `frame`, the airtime of the longest frame, if that is more. It starts full. */
-void tern_flood_bucket_init(struct tern_flood_bucket *b, uint32_t ppm, tern_time window,
-                            tern_time frame, tern_time now);
-
-/* Whether the bucket holds `airtime` at `now`; if it does, that much is taken. */
-bool tern_flood_bucket_pays(struct tern_flood_bucket *b, tern_time now, tern_time airtime);
-
 /* How often in a million a relay drops a frame it would pass on, its radio having spent `busy_ppm`
  * millionths of its time sending or receiving and `at_ppm` being the share it may without
  * dropping any: none up to that, every one when the radio is never idle, and evenly between. */
@@ -161,8 +147,9 @@ struct tern_flood {
     size_t seen_cap;
     size_t seen_count;
     size_t seen_next;
-    struct tern_flood_bucket own;
-    struct tern_flood_bucket relay;
+    struct tern_airtime_bucket own; /* the allowances: buckets of the budget's kind */
+    struct tern_airtime_bucket relay;
+    struct tern_airtime *budget; /* or NULL, for none */
     uint64_t rng;
     /* The radio's time sending and receiving as it was told at two times past, the older of them
      * busy_span to twice that ago, and the share that makes of the time since. */
@@ -180,9 +167,16 @@ void tern_flood_init(struct tern_flood *f, const struct tern_flood_config *confi
                      struct tern_route *route, struct tern_flood_slot *slots, size_t cap,
                      uint8_t (*seen)[TERN_FLOOD_ID], size_t seen_cap, uint64_t seed, tern_time now);
 
+/* Holds the flooder to an airtime budget, which the caller keeps, or with NULL to none, as it
+ * starts. A frame then goes only once its allowance and the budget's part for it both hold it: one
+ * of the node's own waits for both, and one passed on that either cannot pay for is dropped. Each
+ * is charged to both as it is handed over, and given back to both if it is withdrawn. */
+void tern_flood_budget(struct tern_flood *f, struct tern_airtime *budget);
+
 /* Floods a frame of this node's. `frame` is whole but for hops and power, which are filled in
  * here: hops as the config says, or CARD_HOPS for a card if that is fewer. It goes when the
- * allowance for the node's own frames can pay for it. False if it is not a frame of this layer's,
+ * allowance for the node's own frames, and the budget's own part if there is a budget, can pay
+ * for it. False if it is not a frame of this layer's,
  * or there is no slot for it. */
 bool tern_flood_send(struct tern_flood *f, tern_time now, const uint8_t *frame, size_t len);
 
@@ -218,6 +212,12 @@ void tern_flood_radio(struct tern_flood *f, tern_time now, tern_time on_air);
 
 /* When tern_flood_poll() next has something to do, or INT64_MAX. */
 tern_time tern_flood_due(const struct tern_flood *f);
+
+/* The node's own frames waiting to go, in the order they will: the airtime of each and its hdr,
+ * for tern_airtime_waits(), and the slot it is in. At most `n` are written; the number written is
+ * returned. */
+size_t tern_flood_own_waiting(const struct tern_flood *f, struct tern_airtime_waiting *waiting,
+                              uint8_t *handles, size_t n);
 
 enum tern_flood_kind {
     TERN_FLOOD_OWN,   /* this node's */

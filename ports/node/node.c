@@ -62,6 +62,7 @@
 #include "platform.h"
 #include "power.h"
 #include "status.h"
+#include "tern/airtime.h"
 #include "tern/card.h"
 #include "tern/companion.h"
 #include "tern/duty.h"
@@ -136,6 +137,7 @@ static struct tern_radio_config cfg;
 static const struct tern_region *region;
 static bool off_profile; /* the frequency, modulation or sync word is not the region's */
 static struct tern_duty duty;
+static struct tern_airtime budget; /* the airtime budget, beside the region's account */
 static struct demo demo;
 static bool transmitting;
 static struct tern_route route;
@@ -191,7 +193,19 @@ static struct {
     uint8_t group[TERN_COMPANION_GROUP];
     uint8_t frame_id[TERN_FLOOD_ID];
 } positioning[FLOODING];
-static int flood_own = -1;     /* which of them the frame on the air is, or -1 */
+static int flood_own = -1; /* which of them the frame on the air is, or -1 */
+/* How long this board's own frames waiting will wait for its airtime budget, as a client is told
+ * (draft/airtime.md, "What a client is told"): the forwarder's, which the loop offers first, then
+ * the flooder's, each in its order. Worked out afresh each turn of the loop; the region's wait,
+ * which takes longer to work out, at most once a second. */
+#define OWN_WAITING (FORWARD_SLOTS + FLOOD_SLOTS)
+static struct {
+    size_t forward_n, n;
+    uint8_t handle[OWN_WAITING];
+    uint16_t wait_s[OWN_WAITING];
+    uint32_t region_s;
+    tern_time region_at; /* when region_s was worked out, or -1 for not yet */
+} own_waits = {.region_at = -1};
 static bool forward_out;       /* the frame on the air is the forwarder's */
 static uint8_t forward_handle; /* and this is the forwarder's name for it */
 static tern_time forward_retry;
@@ -1031,7 +1045,7 @@ static void poll_contact(void) {
 /* Hands the oldest message waiting to the forwarder, or says why it waits. A message to a node
  * this board has no session with starts first contact with it, once no handshake is under way. */
 /* Seals a group message under a nonce drawn for it and hands it to the flooder, which sends it
- * once, when the board's allowance for its own floods can pay. */
+ * once, when the board's allowance for its own floods and its airtime budget can pay. */
 static void send_group(struct link_message *x) {
     static uint8_t frame[TERN_GROUP_MAX_FRAME];
     const struct tern_group *g = link_group_of(&companion, x);
@@ -1187,18 +1201,61 @@ static void poll_outgoing(void) {
     }
 }
 
-/* Why a message the forwarder has for that address is not yet delivered, as far as the board can
- * name it. */
-static uint8_t pending_reason(tern_time now, const uint8_t address[TERN_ADDRESS_LEN]) {
+static uint32_t duty_wait_ms(tern_time now);
+
+/* Works out own_waits: how long each of this board's own frames waiting will wait for the budget,
+ * and how long the longest frame would for the region's limit. */
+static void budget_waits(tern_time now) {
+    struct tern_airtime_waiting w[OWN_WAITING];
+    size_t n = tern_forward_own_waiting(&forward, w, own_waits.handle, FORWARD_SLOTS);
+    own_waits.forward_n = n;
+    n += tern_flood_own_waiting(&flood, w + n, own_waits.handle + n, OWN_WAITING - n);
+    own_waits.n = n;
+    tern_airtime_waits(&budget, &flood.own, now, w, n, own_waits.wait_s);
+    if (own_waits.region_at < 0 || now < own_waits.region_at ||
+        now - own_waits.region_at >= 1000000000LL) {
+        own_waits.region_s = (duty_wait_ms(now) + 999) / 1000;
+        own_waits.region_at = now;
+    }
+}
+
+/* How long the budget holds the message of this board's with this tag, in seconds: 0 if it is not
+ * waiting to go, or could go now. */
+static uint16_t forward_wait_s(const uint8_t tag[TERN_FORWARD_TAG]) {
+    for (size_t k = 0; k < own_waits.forward_n; k++) {
+        const struct tern_forward_slot *s = &forward.slot[own_waits.handle[k]];
+        if (tern_forward_message(s->frame[0]) &&
+            memcmp(s->frame + TERN_FORWARD_HEAD, tag, TERN_FORWARD_TAG) == 0) {
+            return own_waits.wait_s[k];
+        }
+    }
+    return 0;
+}
+
+/* The same, for the group frame with this id. */
+static uint16_t flood_wait_s(const uint8_t id[TERN_FLOOD_ID]) {
+    for (size_t k = own_waits.forward_n; k < own_waits.n; k++) {
+        if (memcmp(flood.slot[own_waits.handle[k]].id, id, TERN_FLOOD_ID) == 0) {
+            return own_waits.wait_s[k];
+        }
+    }
+    return 0;
+}
+
+/* Why a message of this board's for that address is not yet delivered, as far as the board can
+ * name it, and how many seconds it will wait, 0 if the board cannot say: `budget_s` is how long
+ * the airtime budget holds it. With a route, of the region's limit and the budget, the one that
+ * lets it go later (draft/airtime.md, "What a client is told"). */
+static uint8_t pending_reason(const uint8_t address[TERN_ADDRESS_LEN], uint16_t budget_s,
+                              uint16_t *wait) {
     uint32_t next;
     uint16_t metric;
-    if (!tern_route_next(&route, tern_route_id(address), &next, &metric)) {
-        return TERN_C_WAIT_ROUTE;
+    bool routed = tern_route_next(&route, tern_route_id(address), &next, &metric);
+    *wait = 0;
+    if (routed && own_waits.region_s == 0 && budget_s == 0) {
+        return TERN_C_WAIT_UNNAMED;
     }
-    if (!tern_duty_allows(&duty, now, tern_lora_airtime(&cfg.mod, TERN_FORWARD_FRAME_MAX))) {
-        return TERN_C_WAIT_REGION;
-    }
-    return TERN_C_WAIT_UNNAMED;
+    return tern_airtime_reason(routed, true, own_waits.region_s, budget_s, wait);
 }
 
 /* Sends what the forwarder has to send: this board's messages and acknowledgements, and frames it
@@ -1222,6 +1279,7 @@ static void poll_forward(void) {
             p->id = 0;
         }
     }
+    budget_waits(now);
     for (int i = 0; i < PENDING; i++) {
         if (pending[i].id == PENDING_POSITION) {
             continue; /* not a message: nothing to tell of it */
@@ -1233,8 +1291,10 @@ static void poll_forward(void) {
             pending[i].id = 0;
         }
         if (pending[i].id != 0) {
-            link_state(&companion, pending[i].id, TERN_C_WAITING,
-                       pending_reason(now, demo.s[pending[i].slot].peer), 0);
+            uint16_t wait;
+            uint8_t reason =
+                pending_reason(demo.s[pending[i].slot].peer, forward_wait_s(pending[i].tag), &wait);
+            link_state(&companion, pending[i].id, TERN_C_WAITING, reason, wait);
         }
     }
     if (transmitting || now < forward_retry || now < tern_forward_due(&forward) || held()) {
@@ -1246,8 +1306,10 @@ static void poll_forward(void) {
     if (len == 0) {
         return;
     }
-    /* Not offered to the radio if the region's limit would refuse it: it goes back to the
-     * forwarder, and is asked for again a second on. */
+    /* The forwarder keeps to the budget itself: a frame of this board's waits for it there, and
+     * one passed on that it cannot pay for is dropped there. Not offered to the radio if the
+     * region's limit would refuse it: it goes back to the forwarder, and is asked for again a
+     * second on. */
     tern_time air = 0;
     if (tern_forward_wanted(&forward, forward_handle) &&
         tern_duty_allows(&duty, now, tern_lora_airtime(&cfg.mod, (uint32_t)len))) {
@@ -1287,8 +1349,8 @@ static void poll_forward(void) {
 }
 
 /* Sends what the flooder has to send: this board's group messages, and frames for every node
- * that it passes on. A frame of its own waits for the board's allowance, and the client is told
- * so; one to pass on that the allowance cannot pay for is dropped by the flooder. */
+ * that it passes on. A frame of its own waits for the board's allowance and its budget, and the
+ * client is told so; one to pass on that either cannot pay for is dropped by the flooder. */
 /* The board's presence card: what poll_card() keeps, and poll_flood() tells it when one goes. */
 static bool card_sent;                 /* one has gone since the board started */
 static tern_time card_last;            /* when */
@@ -1324,13 +1386,15 @@ static void poll_flood(void) {
     tern_flood_radio(&flood, now, air_total + heard_total);
     tern_route_busy(&route, flood.busy);
     tern_time due = tern_flood_due(&flood);
-    if (due != INT64_MAX && due > now + 1000000000LL) {
-        for (int i = 0; i < FLOODING; i++) {
-            if (flooding[i].id != 0 && link_wanted(&companion, flooding[i].id)) {
-                tern_time wait = (due - now) / 1000000000LL + 1;
-                link_state(&companion, flooding[i].id, TERN_C_WAITING, TERN_C_WAIT_BUDGET,
-                           (uint16_t)(wait > UINT16_MAX ? UINT16_MAX : wait));
+    budget_waits(now);
+    for (int i = 0; i < FLOODING; i++) {
+        if (flooding[i].id != 0 && flood_own != i && link_wanted(&companion, flooding[i].id)) {
+            uint16_t budget_s = flood_wait_s(flooding[i].frame_id), wait = 0;
+            uint8_t reason = TERN_C_WAIT_UNNAMED;
+            if (budget_s != 0 || own_waits.region_s != 0) {
+                reason = tern_airtime_reason(true, true, own_waits.region_s, budget_s, &wait);
             }
+            link_state(&companion, flooding[i].id, TERN_C_WAITING, reason, wait);
         }
     }
     if (transmitting || now < flood_retry || now < due || held()) {
@@ -1915,7 +1979,8 @@ static bool link_trusted(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]) {
 }
 
 static uint8_t link_why(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]) {
-    return link_session(ctx, address) ? pending_reason(board_now(), address) : TERN_C_WAIT_SESSION;
+    uint16_t wait;
+    return link_session(ctx, address) ? pending_reason(address, 0, &wait) : TERN_C_WAIT_SESSION;
 }
 
 static size_t link_load(void *ctx, void *buf, size_t cap) {
@@ -2188,6 +2253,19 @@ static void status(void) {
         printf("transmitted: %lld ms of the %lld ms allowed in any %lu s\n",
                (long long)(tern_duty_used(&duty, board_now()) / 1000000),
                (long long)(duty.limit / 1000000), (unsigned long)region->duty_window_s);
+    }
+    {
+        struct tern_airtime_bucket own = budget.own, relayed = budget.relayed;
+        (void)tern_airtime_bucket_holds(&own, board_now(), 0); /* brought up to date */
+        (void)tern_airtime_bucket_holds(&relayed, board_now(), 0);
+        printf("airtime budget: %lld ms of %lld ms left for its own frames",
+               (long long)(own.have / 1000000000000LL), (long long)(own.most / 1000000000000LL));
+        if (budget.relay) {
+            printf(", %lld ms of %lld ms for frames it passes on",
+                   (long long)(relayed.have / 1000000000000LL),
+                   (long long)(relayed.most / 1000000000000LL));
+        }
+        printf("\n");
     }
     unsigned heard_n = 0, up_n = 0, routed = 0;
     for (int i = 0; i < NEIGHBOURS; i++) {
@@ -3535,6 +3613,12 @@ void node_main(void) {
     struct tern_flood_config flc = tern_flood_defaults();
     tern_flood_init(&flood, &flc, &route, flood_slots, FLOOD_SLOTS, flood_seen, TERN_FLOOD_SEEN,
                     seed ^ 0x666c6f6fu, board_now());
+    /* The airtime budget, which both keep to, starts full, as it does at every restart: it has
+     * nothing to keep across one. The region's account, which has, is kept apart. */
+    struct tern_airtime_config ac = tern_airtime_defaults();
+    tern_airtime_init(&budget, &ac, &cfg.mod, relay, board_now());
+    tern_forward_budget(&forward, &budget);
+    tern_flood_budget(&flood, &budget);
 
     int err = board_init();
     radio = board_radio();

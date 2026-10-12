@@ -11,7 +11,8 @@
  * Where a region limits it, the time on air of all the frames a node begins to send in any period
  * of the window's length must stay within a share of that period: 10% of any hour, in the EU's
  * sub-band. This keeps the account. It is the same hard limit for every node, and not the airtime
- * budget, which shares the channel out between nodes and is yet to be specified.
+ * budget (tern/airtime.h), which bounds what each node takes of the channel and is kept beside
+ * it: a frame goes only once both allow it.
  *
  * The window is kept as 61 slices, each a sixtieth of it, and a frame is counted against the
  * slice it begins in until that slice is more than a whole window old. So the account never

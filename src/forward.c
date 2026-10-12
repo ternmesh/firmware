@@ -102,6 +102,10 @@ void tern_forward_init(struct tern_forward *f, const struct tern_forward_config 
     memset(slots, 0, f->cap * sizeof *slots); /* every one free */
 }
 
+void tern_forward_budget(struct tern_forward *f, struct tern_airtime *budget) {
+    f->budget = budget;
+}
+
 static uint64_t rand_below(struct tern_forward *f, uint64_t n) {
     f->rng ^= f->rng >> 12;
     f->rng ^= f->rng << 25;
@@ -327,20 +331,87 @@ bool tern_forward_contact_failed(struct tern_forward *f, uint8_t *hdr,
     return false;
 }
 
+static enum tern_forward_kind kind_of(const struct tern_forward_slot *s) {
+    return s->frame[0] == TERN_HDR_ACK ? TERN_FORWARD_REPLY
+           : s->own                    ? TERN_FORWARD_OWN
+                                       : TERN_FORWARD_RELAY;
+}
+
+/* The node's own frame first in line, which those of its own behind it wait for: of those waiting,
+ * the one that has waited longest. Acknowledgements are not in the line. */
+static const struct tern_forward_slot *own_first(const struct tern_forward *f) {
+    const struct tern_forward_slot *first = NULL;
+    for (size_t i = 0; i < f->cap; i++) {
+        const struct tern_forward_slot *s = &f->slot[i];
+        if (s->state == TERN_FORWARD_WAITING && kind_of(s) == TERN_FORWARD_OWN &&
+            (first == NULL || s->at < first->at)) {
+            first = s;
+        }
+    }
+    return first;
+}
+
 tern_time tern_forward_due(const struct tern_forward *f) {
     tern_time t = INT64_MAX;
+    const struct tern_forward_slot *first = own_first(f);
     for (size_t i = 0; i < f->cap; i++) {
         const struct tern_forward_slot *s = &f->slot[i];
         bool timed = s->state == TERN_FORWARD_LISTENING || s->state == TERN_FORWARD_HELD ||
                      s->state == TERN_FORWARD_WAITING;
-        if (timed && s->at < t) {
+        /* The node's own go behind the first of them, which goes once the budget lets it. */
+        bool behind = s->state == TERN_FORWARD_WAITING && kind_of(s) == TERN_FORWARD_OWN;
+        if (timed && !behind && s->at < t) {
             t = s->at;
         }
         if (timed && s->tracked && s->deadline >= 0 && s->deadline < t) {
             t = s->deadline;
         }
     }
+    if (first != NULL) {
+        tern_time at = first->at;
+        if (f->budget) {
+            const struct tern_airtime_bucket *b =
+                tern_airtime_bucket(f->budget, first->frame[0], true);
+            tern_time from = b && b->at > at ? b->at : at;
+            at = tern_airtime_pays_at(f->budget, from, first->frame[0], true,
+                                      airtime(f, first->len));
+        }
+        t = at < t ? at : t;
+    }
     return t;
+}
+
+size_t tern_forward_own_waiting(const struct tern_forward *f, struct tern_airtime_waiting *waiting,
+                                uint8_t *handles, size_t n) {
+    size_t count = 0;
+    tern_time after = INT64_MIN;
+    size_t after_i = 0;
+    /* In the order tern_forward_poll() takes them: the one that has waited longest first, and of
+     * two that have waited as long, the one in the earlier slot. */
+    while (count < n) {
+        const struct tern_forward_slot *next = NULL;
+        size_t next_i = 0;
+        for (size_t i = 0; i < f->cap; i++) {
+            const struct tern_forward_slot *s = &f->slot[i];
+            if (s->state != TERN_FORWARD_WAITING || kind_of(s) != TERN_FORWARD_OWN) {
+                continue;
+            }
+            bool later = count == 0 || s->at > after || (s->at == after && i > after_i);
+            if (later && (next == NULL || s->at < next->at)) {
+                next = s;
+                next_i = i;
+            }
+        }
+        if (next == NULL) {
+            break;
+        }
+        waiting[count] = (struct tern_airtime_waiting){next->frame[0], airtime(f, next->len)};
+        handles[count] = (uint8_t)next_i;
+        count++;
+        after = next->at;
+        after_i = next_i;
+    }
+    return count;
 }
 
 /* A hop was sent as often as it may be and never heard passed on. */
@@ -400,12 +471,6 @@ static void try_again(struct tern_forward *f, struct tern_forward_slot *s, tern_
     }
 }
 
-static enum tern_forward_kind kind_of(const struct tern_forward_slot *s) {
-    return s->frame[0] == TERN_HDR_ACK ? TERN_FORWARD_REPLY
-           : s->own                    ? TERN_FORWARD_OWN
-                                       : TERN_FORWARD_RELAY;
-}
-
 size_t tern_forward_poll(struct tern_forward *f, tern_time now,
                          uint8_t frame[TERN_FORWARD_FRAME_MAX], int8_t *power_dbm,
                          enum tern_forward_kind *kind, uint8_t *handle) {
@@ -429,15 +494,33 @@ size_t tern_forward_poll(struct tern_forward *f, tern_time now,
             try_again(f, s, now);
         }
     }
-    for (size_t i = 0; i < f->cap; i++) {
-        struct tern_forward_slot *s = &f->slot[i];
-        if (s->state == TERN_FORWARD_WAITING && s->at <= now &&
-            (!go || kind_of(s) > kind_of(go) || (kind_of(s) == kind_of(go) && s->at < go->at))) {
-            go = s;
+    /* With a budget, the node's own wait while the first of them is not paid for; and a frame
+     * passed on that is not paid for is dropped, and the next looked for. */
+    const struct tern_forward_slot *first = own_first(f);
+    bool own_held =
+        f->budget && first && first->at <= now &&
+        !tern_airtime_pays(f->budget, now, first->frame[0], true, airtime(f, first->len));
+    for (;;) {
+        go = NULL;
+        for (size_t i = 0; i < f->cap; i++) {
+            struct tern_forward_slot *s = &f->slot[i];
+            if (s->state == TERN_FORWARD_WAITING && s->at <= now &&
+                !(own_held && kind_of(s) == TERN_FORWARD_OWN) &&
+                (!go || kind_of(s) > kind_of(go) ||
+                 (kind_of(s) == kind_of(go) && s->at < go->at))) {
+                go = s;
+            }
         }
-    }
-    if (!go) {
-        return 0;
+        if (!go) {
+            return 0;
+        }
+        if (f->budget && kind_of(go) == TERN_FORWARD_RELAY &&
+            !tern_airtime_pays(f->budget, now, go->frame[0], false, airtime(f, go->len))) {
+            go->state = TERN_FORWARD_FREE;
+            f->counts.unpaid++;
+            continue;
+        }
+        break;
     }
     /* Loud enough for the next hop, and for the node the frame came from, which listens for it;
      * and louder each time it is sent again. */
@@ -447,6 +530,11 @@ size_t tern_forward_poll(struct tern_forward *f, tern_time now,
         &(struct tern_forward_head){go->frame[0], go->hops, go->power, go->next, dest_of(go)},
         go->frame);
     memcpy(frame, go->frame, go->len);
+    /* Charged as it is handed over, so that a caller taking several before any has gone cannot have
+     * each paid for with the same airtime; given back if it is withdrawn. */
+    if (f->budget) {
+        tern_airtime_charge(f->budget, now, go->frame[0], go->own, airtime(f, go->len));
+    }
     go->state = TERN_FORWARD_OUT;
     go->done = false;
     *power_dbm = go->power;
@@ -486,6 +574,11 @@ void tern_forward_withdrawn(struct tern_forward *f, tern_time now, uint8_t handl
     struct tern_forward_slot *s = out_slot(f, handle);
     if (!s) {
         return;
+    }
+    struct tern_airtime_bucket *part =
+        f->budget ? tern_airtime_bucket(f->budget, s->frame[0], s->own) : NULL;
+    if (part != NULL) {
+        tern_airtime_bucket_give(part, now, airtime(f, s->len));
     }
     if (s->done) {
         start_waiting(f, s, now);

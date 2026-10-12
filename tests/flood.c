@@ -196,13 +196,16 @@ static void test_rules(void) {
     for (size_t i = 0; i < COUNT(allowance_cases); i++) {
         const struct allowance_case *c = &allowance_cases[i];
         struct tern_lora l = tern_region_lora(tern_region(TERN_REGION_US915));
-        struct tern_flood_bucket b;
+        struct tern_airtime_bucket b;
         l.sf = c->sf;
         l.bw_hz = c->bw;
-        tern_flood_bucket_init(&b, c->ppm, TERN_S(c->window_s), tern_lora_airtime(&l, 255), 0);
+        tern_airtime_bucket_init(&b, c->ppm, TERN_S(c->window_s), tern_lora_airtime(&l, 255), 0);
         for (size_t k = 0; k < c->n; k++) {
-            if (tern_flood_bucket_pays(&b, c->frames[k].at, c->frames[k].airtime) !=
-                c->frames[k].pays) {
+            bool pays = tern_airtime_bucket_holds(&b, c->frames[k].at, c->frames[k].airtime);
+            if (pays) {
+                tern_airtime_bucket_charge(&b, c->frames[k].at, c->frames[k].airtime);
+            }
+            if (pays != c->frames[k].pays) {
                 fprintf(stderr, "allowance %s: frame %zu\n", c->name, k);
                 check_failures++;
             }
