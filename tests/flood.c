@@ -868,7 +868,7 @@ static void test_resends(void) {
     CHECK(tern_flood_due(&x.f) > now);
     CHECK(!tern_flood_heard(&x.f, now, out, len));
     CHECK_EQ_U64(x.f.counts.echoed, 2);
-    CHECK_EQ_U64(x.f.counts.resent, 3);
+    CHECK_EQ_U64(x.f.counts.resent, 2); /* let go of before it went again */
     CHECK_EQ_I64(tern_flood_due(&x.f), INT64_MAX);
 
     /* A flood of one hop, which no relay in a crowd passes on, is not listened for. */
@@ -881,6 +881,22 @@ static void test_resends(void) {
     CHECK(tern_flood_poll(&x.f, 0, out, &dbm, &kind, &h) == len);
     tern_flood_sent(&x.f, 0, h);
     CHECK_EQ_I64(tern_flood_due(&x.f), INT64_MAX);
+
+    /* The most it says is the most there are, short of the count wrapping. */
+    start(&x, false, 14);
+    x.f.config.resends = UINT8_MAX;
+    x.f.config.echo = 16;
+    len = make(frame, TERN_FLOOD_GROUP_MIN, 0, 6);
+    CHECK(tern_flood_send(&x.f, 0, frame, len));
+    now = 0;
+    for (int k = 0; k < 4000 && tern_flood_due(&x.f) != INT64_MAX; k++) {
+        now = tern_flood_due(&x.f) > now ? tern_flood_due(&x.f) : now;
+        if (tern_flood_poll(&x.f, now, out, &dbm, &kind, &h) == len) {
+            tern_flood_sent(&x.f, now, h);
+        }
+    }
+    CHECK_EQ_I64(tern_flood_due(&x.f), INT64_MAX);
+    CHECK_EQ_U64(x.f.counts.resent, UINT8_MAX - 1);
 
     /* Nor is anything with no resends. */
     start(&x, false, 13);

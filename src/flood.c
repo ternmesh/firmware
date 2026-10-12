@@ -357,11 +357,11 @@ size_t tern_flood_poll(struct tern_flood *f, tern_time now, uint8_t frame[TERN_F
         if (s->state != TERN_FLOOD_ECHO || s->at > now) {
             continue;
         }
-        if (s->copies > f->config.resends) {
+        /* `copies` counts its sends, and stops short of wrapping. */
+        if (s->copies > f->config.resends || s->copies == UINT8_MAX) {
             s->state = TERN_FLOOD_FREE;
             continue;
         }
-        f->counts.resent++;
         s->state = TERN_FLOOD_WAITING;
         s->at = now + (tern_time)rand_below(
                           f, (uint64_t)f->config.wait * (uint64_t)airtime(f, s->len) + 1);
@@ -411,6 +411,7 @@ size_t tern_flood_poll(struct tern_flood *f, tern_time now, uint8_t frame[TERN_F
             if (f->budget) {
                 tern_airtime_charge(f->budget, now, s->frame[0], (bool)own, air);
             }
+            f->counts.resent += own && s->copies > 0;
             s->power = power(f);
             s->frame[2] = (uint8_t)s->power;
             s->state = TERN_FLOOD_OUT;

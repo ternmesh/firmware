@@ -117,7 +117,7 @@ struct tern_flood_config {
     tern_time busy_span; /* the share is over this long at least, and twice it at most */
     /* A node's own frame that a relay should pass on - hops 2 or more - is listened for: if no
      * copy of it is heard within `echo` airtimes of its going, it is sent again, up to `resends`
-     * times, each after a wait as a relay's. 0 resends for none. */
+     * times - 254 at most, however many it says - each after a wait as a relay's. 0 for none. */
     uint8_t resends;
     uint8_t echo;
 };
@@ -156,7 +156,7 @@ struct tern_flood_counts {
     uint32_t no_room;   /* and those there was no slot for */
     uint32_t refused;   /* of those taken, let go of as their kind's checks said */
     uint32_t echoed;    /* the node's own, a copy heard after it went */
-    uint32_t resent;    /* and those sent again, none heard */
+    uint32_t resent;    /* sendings again of the node's own, none having been heard */
 };
 
 struct tern_flood {
