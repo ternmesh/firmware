@@ -468,7 +468,8 @@ enum tern_route_change {
 };
 
 /* What the router has done, since it started: for measuring what routing costs, never read by
- * the router itself. */
+ * the router itself. Kept only in a build with TERN_ROUTE_COUNTS - the host's and the simulator's -
+ * since a board has no memory to spare for it. */
 struct tern_route_counts {
     uint32_t fires;                           /* Trickle intervals that reached their time */
     uint32_t suppressed;                      /* of them, kept quiet */
@@ -529,7 +530,9 @@ struct tern_route {
     bool fired;
     uint8_t heard;
     uint8_t quiet;
-    struct tern_route_counts counts;
+#ifdef TERN_ROUTE_COUNTS
+    struct tern_route_counts counts; /* a build for measuring only: a board has no room */
+#endif
 
     struct tern_route_bucket announces; /* the cap, in two */
     struct tern_route_bucket requests;

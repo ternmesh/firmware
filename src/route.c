@@ -4,6 +4,13 @@
 
 #include "tern/crypto.h"
 
+/* The router's counts (tern/route.h), in a build that keeps them. */
+#ifdef TERN_ROUTE_COUNTS
+#define COUNT(x) ((void)(x))
+#else
+#define COUNT(x) ((void)0)
+#endif
+
 #define INF TERN_ROUTE_INF
 #define REF_LEN 32      /* bytes of the frame the metric is reckoned in */
 #define NAMED_ROUNDS 8  /* rounds a margin outlasts */
@@ -530,10 +537,11 @@ static void choices(const struct tern_route *r, const struct tern_route_dest *d,
 
 static void push_urgent(struct tern_route *r, struct tern_route_dest *d,
                         enum tern_route_change why) {
+    (void)why;                           /* counted, in a build that keeps counts */
     if (!d->urgent && r->config.relay) { /* a leaf announces no routes */
         d->urgent = true;
         r->urgent_count++;
-        r->counts.queued[why]++;
+        COUNT(r->counts.queued[why]++);
     }
 }
 
@@ -548,8 +556,9 @@ static void trickle_begin(struct tern_route *r) {
 }
 
 static void trickle_reset(struct tern_route *r, enum tern_route_reset why) {
+    (void)why; /* counted, in a build that keeps counts */
     if (r->interval > r->config.i_min) {
-        r->counts.resets[why]++;
+        COUNT(r->counts.resets[why]++);
         r->interval = r->config.i_min;
         trickle_begin(r);
     }
@@ -1121,10 +1130,11 @@ static size_t build(struct tern_route *r, uint8_t *frame, int8_t *power) {
         memcpy(a.address, r->auth.address, TERN_ADDRESS_LEN);
     }
     len = tern_announce_write(&a, frame);
-    r->counts.routes += a.route_count;
-    r->counts.changed += (uint32_t)changed;
-    r->counts.named += a.named_count;
-    r->counts.addressed += a.carries_address;
+    COUNT(r->counts.routes += a.route_count);
+    COUNT(r->counts.changed += (uint32_t)changed);
+    (void)changed;
+    COUNT(r->counts.named += a.named_count);
+    COUNT(r->counts.addressed += a.carries_address);
     if (len && r->auth.sign) {
         uint8_t m[TERN_ANNOUNCE_LABEL_LEN + TERN_ROUTE_FRAME_MAX];
         r->auth.sign(r->auth.ctx, m, tern_announce_signed(frame, len, m),
@@ -1172,10 +1182,10 @@ static size_t announce(struct tern_route *r, uint8_t *frame, int8_t *power) {
     }
     len = build(r, frame, power);
     b->have -= airtime(r, len) * MILLION;
-    r->counts.announces++;
-    r->counts.burst += r->burst > 0;
-    r->counts.at_max += r->interval >= i_max(r);
-    r->counts.bytes += len;
+    COUNT(r->counts.announces++);
+    COUNT(r->counts.burst += r->burst > 0);
+    COUNT(r->counts.at_max += r->interval >= i_max(r));
+    COUNT(r->counts.bytes += len);
     if (len > 9 && (frame[9] & FLAG_ADDRESS)) {
         r->since_address = 0;
         r->address_owed = (uint8_t)(r->address_owed - (r->address_owed > 0));
@@ -1239,7 +1249,7 @@ static size_t send_asks(struct tern_route *r, uint8_t *frame, int8_t *power) {
     r->ask_count = kept;
     r->ask_at = kept ? r->now : -1;
     r->out = false;
-    r->counts.requests++;
+    COUNT(r->counts.requests++);
     *power = power_to(r, q.next);
     return len;
 }
@@ -1427,7 +1437,7 @@ static bool settle(struct tern_route *r) {
         /* Its new seq goes to the relays now around it, loud, and from them everywhere. */
         r->attached = slot(r, now_at)->id;
         r->seq++;
-        r->counts.reattached++;
+        COUNT(r->counts.reattached++);
         r->asked = true;
         r->loud = true;
         r->interval = r->config.i_min;
@@ -1686,8 +1696,8 @@ static void on_ask(struct tern_route *r, const struct tern_request_ask *q) {
         r->asked = true;
         if (tern_route_newer(q->seq, r->seq)) {
             r->seq = q->seq;
-            r->counts.raised++;
-            r->counts.resets[TERN_ROUTE_RESET_ASKED] += r->interval > r->config.i_min;
+            COUNT(r->counts.raised++);
+            COUNT(r->counts.resets[TERN_ROUTE_RESET_ASKED] += r->interval > r->config.i_min);
             r->interval = r->config.i_min;
             trickle_begin(r);
         } else {
@@ -1877,16 +1887,18 @@ size_t tern_route_poll(struct tern_route *r, tern_time now, uint8_t frame[TERN_R
     }
     if (!r->fired && now >= r->fire_at) {
         r->fired = true;
-        r->counts.fires++;
+        COUNT(r->counts.fires++);
         /* Changed routes waiting are an inconsistency of this node's own: never suppressed. */
         if (r->config.redundancy == 0 || r->heard < r->config.redundancy ||
             r->quiet >= r->config.quiet_max || r->urgent_count > 0 || r->asked || r->starting) {
+#ifdef TERN_ROUTE_COUNTS
             r->counts.fired[r->starting           ? TERN_ROUTE_FIRE_STARTING
                             : r->asked            ? TERN_ROUTE_FIRE_ASKED
                             : r->urgent_count > 0 ? TERN_ROUTE_FIRE_CHANGES
                             : r->config.redundancy == 0 || r->heard < r->config.redundancy
                                 ? TERN_ROUTE_FIRE_HEARD_FEW
                                 : TERN_ROUTE_FIRE_QUIET_MAX]++;
+#endif
             r->quiet = 0;
             if (!r->announcing) {
                 r->announcing = true;
@@ -1894,7 +1906,7 @@ size_t tern_route_poll(struct tern_route *r, tern_time now, uint8_t frame[TERN_R
                 r->announce_at = now;
             }
         } else {
-            r->counts.suppressed++;
+            COUNT(r->counts.suppressed++);
             r->quiet++;
         }
     }

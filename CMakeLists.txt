@@ -60,6 +60,10 @@ add_library(tern
 )
 target_include_directories(tern PUBLIC include)
 target_compile_options(tern PRIVATE ${TERN_WARNINGS})
+# The router's counts are for measuring (tern/route.h): the host keeps them, a board does not.
+if(NOT CMAKE_CROSSCOMPILING)
+    target_compile_definitions(tern PUBLIC TERN_ROUTE_COUNTS)
+endif()
 
 include(CTest)
 if(BUILD_TESTING)
