@@ -503,6 +503,7 @@ struct tern_route {
     bool after_anchor;
     bool solicit_wanted;
     bool solicit_now; /* the next frame polled is a solicit */
+    bool solicit_out; /* a solicit handed over, not yet said to have gone */
     bool doubt;
     uint8_t unanswered;
     uint32_t attached; /* the anchor it last re-attached to, 0 for none */

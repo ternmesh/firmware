@@ -765,6 +765,64 @@ static void a_change_waiting_does_not_retract_a_route_held(void) {
     CHECK(!tern_route_next(&net.node[0].r, id_of(2), &next, &m));
 }
 
+/* A frame of node i's on the air now, heard by every node on that hears it. */
+static void air(int i, const uint8_t *frame, size_t len, int8_t dbm) {
+    for (int k = 0; k < net.n; k++) {
+        int snr = net.snr[i][k] == NONE ? NONE : net.snr[i][k] + 4 * (dbm - FULL);
+        if (k != i && net.node[k].on && snr != NONE && snr >= SNR_FLOOR_Q) {
+            tern_route_heard(&net.node[k].r, net.now, frame, len, (int16_t)snr);
+        }
+    }
+}
+
+/* A solicit's answers are waited for from when it goes on the air, not from when the router built
+ * it: a board may hold a frame back for the region's limit or a busy radio. Held 15 s here, longer
+ * than SOLICIT_WAIT, it is not taken as unanswered the moment it goes. */
+static void a_solicit_is_answered_from_when_it_goes(void) {
+    uint8_t frame[TERN_ROUTE_FRAME_MAX], held[TERN_ROUTE_FRAME_MAX];
+    size_t len, held_len = 0;
+    int8_t dbm, held_dbm = 0;
+    struct tern_route *leaf = &net.node[2].r;
+    uint16_t seq;
+    net_init(&net, 3);
+    net.node[2].relay = false;
+    link(&net, 0, 1, 20);
+    link(&net, 2, 0, 20);
+    link(&net, 2, 1, 0);
+    start_all(&net);
+    run(&net, TERN_S(900));
+    seq = leaf->seq;
+    for (int k = 0; k < 3; k++) {
+        tern_route_lost(leaf, net.now, id_of(0));
+    }
+    while ((len = tern_route_poll(leaf, net.now, frame, &dbm)) != 0) {
+        if (frame[0] == TERN_HDR_SOLICIT) {
+            memcpy(held, frame, len);
+            held_len = len;
+            held_dbm = dbm;
+            break;
+        }
+        air(2, frame, len, dbm);
+        tern_route_sent(leaf, net.now);
+    }
+    CHECK(held_len == TERN_SOLICIT_LEN);
+    net.node[2].on = false; /* the board holds it, and asks its router for nothing */
+    run(&net, net.now + TERN_S(15));
+    net.node[2].on = true;
+    air(2, held, held_len, held_dbm);
+    tern_route_sent(leaf, net.now);
+    len = tern_route_poll(leaf, net.now, frame, &dbm);
+    CHECK(len == 0 || frame[0] != TERN_HDR_SOLICIT); /* no second of a pair yet */
+    CHECK(!leaf->doubt && leaf->unanswered == 0);
+    if (len) {
+        air(2, frame, len, dbm);
+        tern_route_sent(leaf, net.now);
+    }
+    run(&net, net.now + TERN_S(60));
+    CHECK(!leaf->doubt && leaf->unanswered == 0 && leaf->seq == seq);
+    CHECK(!net.node[2].nb[0].out_of_use && !net.node[2].nb[1].out_of_use);
+}
+
 int main(void) {
     RUN(two_nodes_find_each_other);
     RUN(a_line_is_routed_end_to_end);
@@ -787,5 +845,6 @@ int main(void) {
     RUN(a_full_table_gives_up_a_relay_out_of_use);
     RUN(a_leaf_that_becomes_a_relay_is_a_leaf_no_more);
     RUN(a_change_waiting_does_not_retract_a_route_held);
+    RUN(a_solicit_is_answered_from_when_it_goes);
     return CHECK_DONE();
 }

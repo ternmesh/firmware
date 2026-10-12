@@ -28,7 +28,11 @@ def idx(v):
 
 
 def routes(rs, cost):
-    return "{" + ", ".join(f"{{{r['seq']}, {r['metric']}, {cost}}}" for r in rs) + "}"
+    """A route through a neighbour the node may not use costs TERN_ROUTE_INF."""
+    return "{" + ", ".join(
+        f"{{{r['seq']}, {r['metric']}, {cost if r.get('usable', True) else 'TERN_ROUTE_INF'}}}"
+        for r in rs
+    ) + "}"
 
 
 def main():
@@ -251,6 +255,15 @@ def main():
         L.append(
             f"    {{{b(c['relay'] is not None)}, {b(bool(c['relay']))}, {b(sel is not None)}, "
             f"{b(sel is not None and c['listed'][sel])}, {b(c['was'])}, {b(c['leaf'])}}},"
+        )
+    L.append("};")
+
+    L.append("static const struct power_case powers[] = {")
+    for c in v["powers"]:
+        ns = ", ".join(f"{{{n['floor_sixteenths']}, {b(n['out_of_use'])}}}" for n in c["neighbours"])
+        L.append(
+            f"    {{{b(c['leaf'])}, {c['lowest']}, {c['full']}, {len(c['neighbours'])}, "
+            f"{{{ns}}}, {c['power']}}},"
         )
     L.append("};")
 

@@ -158,6 +158,16 @@ struct answered_case {
     uint8_t unanswered_after;
 };
 
+struct power_case {
+    bool leaf;
+    int8_t lowest, full;
+    int n;
+    struct {
+        int32_t floor;
+        bool out_of_use;
+    } neighbours[10];
+    int8_t power;
+};
 struct leaf_case {
     bool kept, relay, selected, listed_leaf, was, leaf;
 };
@@ -777,6 +787,26 @@ static void a_destination_is_a_leaf_as_it_says_or_as_its_route_lists_it(void) {
     }
 }
 
+/* A router's frame for every neighbour, with its table as the vector has it. */
+static void a_frame_for_every_neighbour_reaches_the_nearest_in_use(void) {
+    struct tern_lora lora = tern_region_lora(tern_region(TERN_REGION_US915));
+    for (size_t i = 0; i < COUNT(powers); i++) {
+        const struct power_case *c = &powers[i];
+        struct tern_route_config config = tern_route_defaults(&lora, c->full, c->lowest, !c->leaf);
+        struct tern_route_neighbour nb[10];
+        struct tern_route_dest dest[2];
+        struct tern_route r;
+        tern_route_init(&r, &config, 0x77, nb, 10, dest, 2, 0, 1, 0);
+        for (int k = 0; k < c->n; k++) {
+            nb[k] = (struct tern_route_neighbour){.id = (uint32_t)k + 1,
+                                                  .used = true,
+                                                  .floor = c->neighbours[k].floor,
+                                                  .out_of_use = c->neighbours[k].out_of_use};
+        }
+        CHECK_EQ_I64(tern_route_power(&r, TERN_ROUTE_EVERYONE), c->power);
+    }
+}
+
 int main(void) {
     RUN(ids_come_from_addresses);
     RUN(a_leaf_with_no_route_takes_its_nearest_relay);
@@ -806,5 +836,6 @@ int main(void) {
     RUN(a_relay_answers_a_leaf_it_hears);
     RUN(the_answers_say_whether_a_leaf_has_moved);
     RUN(a_destination_is_a_leaf_as_it_says_or_as_its_route_lists_it);
+    RUN(a_frame_for_every_neighbour_reaches_the_nearest_in_use);
     return CHECK_DONE();
 }

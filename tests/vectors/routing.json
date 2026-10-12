@@ -1,5 +1,5 @@
 {
-  "description": "Routing, draft 0 (draft/routing.md). Routing ids, sequence numbers, promise codes and metrics are numbers; addresses and frames are hex. In floors, powers are dBm, snr_quarter_db is the signal-to-noise ratio in quarters of a decibel, as the SX126x reports it, and floor_sixteenths is the floor in sixteenths of a dBm. In links, own_margin_sixteenths is the node's full power less its floor for the neighbour, in sixteenths of a decibel, and their_margin is the margin byte the neighbour gave; either is null when it is missing, and the steps follow one another. In places, neighbours is a full table, each with the node's floor for it, whether its link is up and whether it is out of use, floor_sixteenths is the floor an announce from a node not in it gives, and replaces is an index into neighbours. In selection and kept, each route's metric is the one its neighbour announced, every link costs link_cost, and selected, selects and replaces are indexes into routes. In defaults, each neighbour's out_of_use says whether it is out of use, tried and next are indexes into neighbours, busy_ppm is the leaf's busy share in millionths, and metric is the default route's. Each announce is signed with seed, whose address is address, and carries the address in the frame if carries_address is true. A rejected frame MUST be discarded whether or not the receiver holds its sender's address. In verified, announce is an index into announces, held_address is the address the receiver holds for its sender (null for none), takes whether it takes the announce rather than discarding it, and holds_address the address it then holds for the sender, if the rest of the section then takes the announce from a neighbour. In listed, metric_field is a listed route's metric as it goes on the air, retracts whether it retracts the route, leaf and metric what it says otherwise (null for a retraction), and field what a node writes for them. In anchors, each of relays is a neighbour of a leaf, relay saying whether it is one, with whether its link is up, whether it is out of use, its link's margin in sixteenths of a decibel, the seconds since it was heard and its promise in seconds (null for none); sparse is whether the leaf solicits there, anchor an index into relays (null for none), and asks whether it asks after it on its SOLICIT_GAP. In answering, own_margin_sixteenths is the relay's full power less its floor for the leaf, asked whether the solicit asks after it, wait the most its answer waits in airtimes of the answer (null if it does not answer), and cancelled whether others' answers cancel it. In answered, asked is the relay the leaf asked after, its anchor when it asked, another or null for none; asked_heard and others_heard whether it heard from that relay and from any other in SOLICIT_WAIT; anchor_now whether its anchor now is the one it last re-attached to, another, or null for none; attached_before whether it has re-attached before; does is settled, again, waits, moved or reattaches. In leaves, relay is what the destination's own last announce said of its role (null if the node does not keep it as a neighbour), listed whether each route the node holds to it was listed as one to a leaf, selected an index into listed (null for none), was what the node took before, and leaf what it takes now.",
+  "description": "Routing, draft 0 (draft/routing.md). Routing ids, sequence numbers, promise codes and metrics are numbers; addresses and frames are hex. In floors, powers are dBm, snr_quarter_db is the signal-to-noise ratio in quarters of a decibel, as the SX126x reports it, and floor_sixteenths is the floor in sixteenths of a dBm. In links, own_margin_sixteenths is the node's full power less its floor for the neighbour, in sixteenths of a decibel, and their_margin is the margin byte the neighbour gave; either is null when it is missing, and the steps follow one another. In places, neighbours is a full table, each with the node's floor for it, whether its link is up and whether it is out of use, floor_sixteenths is the floor an announce from a node not in it gives, and replaces is an index into neighbours. In selection and kept, each route's metric is the one its neighbour announced, every link costs link_cost, and selected, selects and replaces are indexes into routes. In defaults, each neighbour's out_of_use says whether it is out of use, tried and next are indexes into neighbours, busy_ppm is the leaf's busy share in millionths, and metric is the default route's. Each announce is signed with seed, whose address is address, and carries the address in the frame if carries_address is true. A rejected frame MUST be discarded whether or not the receiver holds its sender's address. In verified, announce is an index into announces, held_address is the address the receiver holds for its sender (null for none), takes whether it takes the announce rather than discarding it, and holds_address the address it then holds for the sender, if the rest of the section then takes the announce from a neighbour. In listed, metric_field is a listed route's metric as it goes on the air, retracts whether it retracts the route, leaf and metric what it says otherwise (null for a retraction), and field what a node writes for them. In anchors, each of relays is a neighbour of a leaf, relay saying whether it is one, with whether its link is up, whether it is out of use, its link's margin in sixteenths of a decibel, the seconds since it was heard and its promise in seconds (null for none); sparse is whether the leaf solicits there, anchor an index into relays (null for none), and asks whether it asks after it on its SOLICIT_GAP. In answering, own_margin_sixteenths is the relay's full power less its floor for the leaf, asked whether the solicit asks after it, wait the most its answer waits in airtimes of the answer (null if it does not answer), and cancelled whether others' answers cancel it. In answered, asked is the relay the leaf asked after, its anchor when it asked, another or null for none; asked_heard and others_heard whether it heard from that relay and from any other in SOLICIT_WAIT; anchor_now whether its anchor now is the one it last re-attached to, another, or null for none; attached_before whether it has re-attached before; does is settled, again, waits, moved or reattaches. In leaves, relay is what the destination's own last announce said of its role (null if the node does not keep it as a neighbour), listed whether each route the node holds to it was listed as one to a leaf, selected an index into listed (null for none), was what the node took before, and leaf what it takes now. In selection, a route whose usable is false goes through a neighbour the node may not use: its link is down or it is out of use. In powers, a node, a leaf or not, with the neighbours given, each with its floor and whether it is out of use, and with the lowest and full power given in dBm, sends a frame for every neighbour at power.",
   "generator": "vectors/tools/routing.py",
   "ids": [
     {
@@ -1304,15 +1304,18 @@
       "routes": [
         {
           "seq": 3,
-          "metric": 108
+          "metric": 108,
+          "usable": true
         },
         {
           "seq": 3,
-          "metric": 54
+          "metric": 54,
+          "usable": true
         },
         {
           "seq": 3,
-          "metric": 162
+          "metric": 162,
+          "usable": true
         }
       ],
       "selected": null,
@@ -1324,15 +1327,18 @@
       "routes": [
         {
           "seq": 3,
-          "metric": 108
+          "metric": 108,
+          "usable": true
         },
         {
           "seq": 3,
-          "metric": 54
+          "metric": 54,
+          "usable": true
         },
         {
           "seq": 3,
-          "metric": 162
+          "metric": 162,
+          "usable": true
         }
       ],
       "selected": 0,
@@ -1344,11 +1350,13 @@
       "routes": [
         {
           "seq": 3,
-          "metric": 546
+          "metric": 546,
+          "usable": true
         },
         {
           "seq": 3,
-          "metric": 486
+          "metric": 486,
+          "usable": true
         }
       ],
       "selected": 0,
@@ -1360,11 +1368,13 @@
       "routes": [
         {
           "seq": 3,
-          "metric": 546
+          "metric": 546,
+          "usable": true
         },
         {
           "seq": 3,
-          "metric": 485
+          "metric": 485,
+          "usable": true
         }
       ],
       "selected": 0,
@@ -1379,15 +1389,18 @@
       "routes": [
         {
           "seq": 10,
-          "metric": 162
+          "metric": 162,
+          "usable": true
         },
         {
           "seq": 10,
-          "metric": 54
+          "metric": 54,
+          "usable": true
         },
         {
           "seq": 9,
-          "metric": 0
+          "metric": 0,
+          "usable": true
         }
       ],
       "selected": null,
@@ -1402,15 +1415,18 @@
       "routes": [
         {
           "seq": 10,
-          "metric": 162
+          "metric": 162,
+          "usable": true
         },
         {
           "seq": 10,
-          "metric": 200
+          "metric": 200,
+          "usable": true
         },
         {
           "seq": 9,
-          "metric": 0
+          "metric": 0,
+          "usable": true
         }
       ],
       "selected": 0,
@@ -1425,15 +1441,18 @@
       "routes": [
         {
           "seq": 10,
-          "metric": 162
+          "metric": 162,
+          "usable": true
         },
         {
           "seq": 11,
-          "metric": 500
+          "metric": 500,
+          "usable": true
         },
         {
           "seq": 10,
-          "metric": 108
+          "metric": 108,
+          "usable": true
         }
       ],
       "selected": 1,
@@ -1448,15 +1467,18 @@
       "routes": [
         {
           "seq": 10,
-          "metric": 162
+          "metric": 162,
+          "usable": true
         },
         {
           "seq": 11,
-          "metric": 500
+          "metric": 500,
+          "usable": true
         },
         {
           "seq": 10,
-          "metric": 54
+          "metric": 54,
+          "usable": true
         }
       ],
       "selected": 1,
@@ -1468,11 +1490,13 @@
       "routes": [
         {
           "seq": 1,
-          "metric": 32766
+          "metric": 32766,
+          "usable": true
         },
         {
           "seq": 1,
-          "metric": 32752
+          "metric": 32752,
+          "usable": true
         }
       ],
       "selected": 0,
@@ -1484,11 +1508,13 @@
       "routes": [
         {
           "seq": 3,
-          "metric": 108
+          "metric": 108,
+          "usable": true
         },
         {
           "seq": 4,
-          "metric": 108
+          "metric": 108,
+          "usable": true
         }
       ],
       "selected": null,
@@ -1500,11 +1526,13 @@
       "routes": [
         {
           "seq": 4,
-          "metric": 108
+          "metric": 108,
+          "usable": true
         },
         {
           "seq": 3,
-          "metric": 108
+          "metric": 108,
+          "usable": true
         }
       ],
       "selected": null,
@@ -1516,11 +1544,13 @@
       "routes": [
         {
           "seq": 3,
-          "metric": 108
+          "metric": 108,
+          "usable": true
         },
         {
           "seq": 4,
-          "metric": 108
+          "metric": 108,
+          "usable": true
         }
       ],
       "selected": 0,
@@ -1532,11 +1562,13 @@
       "routes": [
         {
           "seq": 3,
-          "metric": 108
+          "metric": 108,
+          "usable": true
         },
         {
           "seq": 4,
-          "metric": 100
+          "metric": 100,
+          "usable": true
         }
       ],
       "selected": 0,
@@ -1548,11 +1580,13 @@
       "routes": [
         {
           "seq": 4,
-          "metric": 108
+          "metric": 108,
+          "usable": true
         },
         {
           "seq": 3,
-          "metric": 108
+          "metric": 108,
+          "usable": true
         }
       ],
       "selected": 0,
@@ -1564,11 +1598,13 @@
       "routes": [
         {
           "seq": 3,
-          "metric": 108
+          "metric": 108,
+          "usable": true
         },
         {
           "seq": 4,
-          "metric": 109
+          "metric": 109,
+          "usable": true
         }
       ],
       "selected": 0,
@@ -1580,11 +1616,13 @@
       "routes": [
         {
           "seq": 3,
-          "metric": 108
+          "metric": 108,
+          "usable": true
         },
         {
           "seq": 2,
-          "metric": 0
+          "metric": 0,
+          "usable": true
         }
       ],
       "selected": 0,
@@ -1599,15 +1637,18 @@
       "routes": [
         {
           "seq": 10,
-          "metric": 54
+          "metric": 54,
+          "usable": true
         },
         {
           "seq": 11,
-          "metric": 54
+          "metric": 54,
+          "usable": true
         },
         {
           "seq": 11,
-          "metric": 108
+          "metric": 108,
+          "usable": true
         }
       ],
       "selected": 0,
@@ -1619,15 +1660,18 @@
       "routes": [
         {
           "seq": 10,
-          "metric": 100
+          "metric": 100,
+          "usable": true
         },
         {
           "seq": 9,
-          "metric": 99
+          "metric": 99,
+          "usable": true
         },
         {
           "seq": 11,
-          "metric": 100
+          "metric": 100,
+          "usable": true
         }
       ],
       "selected": 0,
@@ -1639,15 +1683,18 @@
       "routes": [
         {
           "seq": 10,
-          "metric": 1000
+          "metric": 1000,
+          "usable": true
         },
         {
           "seq": 9,
-          "metric": 10
+          "metric": 10,
+          "usable": true
         },
         {
           "seq": 11,
-          "metric": 900
+          "metric": 900,
+          "usable": true
         }
       ],
       "selected": 0,
@@ -1659,11 +1706,13 @@
       "routes": [
         {
           "seq": 65535,
-          "metric": 54
+          "metric": 54,
+          "usable": true
         },
         {
           "seq": 0,
-          "metric": 54
+          "metric": 54,
+          "usable": true
         }
       ],
       "selected": 0,
@@ -1675,6 +1724,135 @@
       "routes": [],
       "selected": null,
       "selects": null
+    },
+    {
+      "feasibility_distance": null,
+      "link_cost": 54,
+      "routes": [
+        {
+          "seq": 3,
+          "metric": 108,
+          "usable": false
+        },
+        {
+          "seq": 3,
+          "metric": 104,
+          "usable": true
+        }
+      ],
+      "selected": 0,
+      "selects": 1
+    },
+    {
+      "feasibility_distance": null,
+      "link_cost": 54,
+      "routes": [
+        {
+          "seq": 3,
+          "metric": 108,
+          "usable": false
+        },
+        {
+          "seq": 3,
+          "metric": 500,
+          "usable": true
+        },
+        {
+          "seq": 3,
+          "metric": 200,
+          "usable": true
+        }
+      ],
+      "selected": 0,
+      "selects": 2
+    },
+    {
+      "feasibility_distance": null,
+      "link_cost": 54,
+      "routes": [
+        {
+          "seq": 3,
+          "metric": 108,
+          "usable": false
+        }
+      ],
+      "selected": 0,
+      "selects": null
+    },
+    {
+      "feasibility_distance": {
+        "seq": 10,
+        "metric": 162
+      },
+      "link_cost": 54,
+      "routes": [
+        {
+          "seq": 10,
+          "metric": 54,
+          "usable": false
+        },
+        {
+          "seq": 10,
+          "metric": 162,
+          "usable": true
+        }
+      ],
+      "selected": 0,
+      "selects": null
+    },
+    {
+      "feasibility_distance": null,
+      "link_cost": 54,
+      "routes": [
+        {
+          "seq": 3,
+          "metric": 108,
+          "usable": true
+        },
+        {
+          "seq": 3,
+          "metric": 10,
+          "usable": false
+        }
+      ],
+      "selected": 0,
+      "selects": 0
+    },
+    {
+      "feasibility_distance": null,
+      "link_cost": 54,
+      "routes": [
+        {
+          "seq": 3,
+          "metric": 108,
+          "usable": true
+        },
+        {
+          "seq": 4,
+          "metric": 108,
+          "usable": false
+        }
+      ],
+      "selected": 0,
+      "selects": 0
+    },
+    {
+      "feasibility_distance": null,
+      "link_cost": 54,
+      "routes": [
+        {
+          "seq": 3,
+          "metric": 10,
+          "usable": false
+        },
+        {
+          "seq": 3,
+          "metric": 108,
+          "usable": true
+        }
+      ],
+      "selected": null,
+      "selects": 1
     }
   ],
   "kept": [
@@ -3052,6 +3230,460 @@
       "selected": null,
       "was": true,
       "leaf": true
+    }
+  ],
+  "powers": [
+    {
+      "leaf": true,
+      "neighbours": [
+        {
+          "floor_sixteenths": -320,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -304,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -288,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -272,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -256,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -240,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -224,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -208,
+          "out_of_use": false
+        }
+      ],
+      "lowest": -9,
+      "full": 22,
+      "power": -3
+    },
+    {
+      "leaf": true,
+      "neighbours": [
+        {
+          "floor_sixteenths": -320,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -304,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -288,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -272,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -256,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -240,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -224,
+          "out_of_use": false
+        }
+      ],
+      "lowest": -9,
+      "full": 22,
+      "power": 22
+    },
+    {
+      "leaf": true,
+      "neighbours": [
+        {
+          "floor_sixteenths": -480,
+          "out_of_use": true
+        },
+        {
+          "floor_sixteenths": -320,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -304,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -288,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -272,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -256,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -240,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -224,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -208,
+          "out_of_use": false
+        }
+      ],
+      "lowest": -9,
+      "full": 22,
+      "power": -3
+    },
+    {
+      "leaf": false,
+      "neighbours": [
+        {
+          "floor_sixteenths": -480,
+          "out_of_use": true
+        },
+        {
+          "floor_sixteenths": -320,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -304,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -288,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -272,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -256,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -240,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -224,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -208,
+          "out_of_use": false
+        }
+      ],
+      "lowest": -9,
+      "full": 22,
+      "power": -4
+    },
+    {
+      "leaf": true,
+      "neighbours": [
+        {
+          "floor_sixteenths": -320,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -304,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -288,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -272,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -256,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -240,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -224,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -208,
+          "out_of_use": true
+        }
+      ],
+      "lowest": -9,
+      "full": 22,
+      "power": 22
+    },
+    {
+      "leaf": false,
+      "neighbours": [
+        {
+          "floor_sixteenths": -320,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -304,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -288,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -272,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -256,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -240,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -224,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -208,
+          "out_of_use": true
+        }
+      ],
+      "lowest": -9,
+      "full": 22,
+      "power": -3
+    },
+    {
+      "leaf": true,
+      "neighbours": [
+        {
+          "floor_sixteenths": -320,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -304,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -288,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -272,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -256,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -240,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -224,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -208,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": 0,
+          "out_of_use": true
+        }
+      ],
+      "lowest": -9,
+      "full": 22,
+      "power": -3
+    },
+    {
+      "leaf": true,
+      "neighbours": [
+        {
+          "floor_sixteenths": -304,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -288,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -272,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -256,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -240,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -224,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -208,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -320,
+          "out_of_use": true
+        },
+        {
+          "floor_sixteenths": 80,
+          "out_of_use": false
+        }
+      ],
+      "lowest": -9,
+      "full": 22,
+      "power": 15
+    },
+    {
+      "leaf": true,
+      "neighbours": [
+        {
+          "floor_sixteenths": -213,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -212,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -211,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -210,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -209,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -208,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -207,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -206,
+          "out_of_use": false
+        }
+      ],
+      "lowest": -9,
+      "full": 22,
+      "power": -2
+    },
+    {
+      "leaf": true,
+      "neighbours": [
+        {
+          "floor_sixteenths": -640,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -640,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -640,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -640,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -640,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -640,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -640,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": -640,
+          "out_of_use": false
+        }
+      ],
+      "lowest": -9,
+      "full": 22,
+      "power": -9
+    },
+    {
+      "leaf": true,
+      "neighbours": [
+        {
+          "floor_sixteenths": 320,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": 320,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": 320,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": 320,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": 320,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": 320,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": 320,
+          "out_of_use": false
+        },
+        {
+          "floor_sixteenths": 320,
+          "out_of_use": false
+        }
+      ],
+      "lowest": -9,
+      "full": 22,
+      "power": 22
     }
   ]
 }

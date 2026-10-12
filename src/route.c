@@ -1304,12 +1304,12 @@ static void heard_from(struct tern_route *r, uint8_t s, int8_t power, int16_t sn
  * waits on its answers or the last went within SOLICIT_GAP. While one is wanted or waits, the
  * relay it asks after stays the one it was. */
 static void want_solicit(struct tern_route *r, uint32_t after, bool anchored) {
-    if (!r->solicit_wanted && r->solicited < 0) {
+    if (!r->solicit_wanted && r->solicited < 0 && !r->solicit_out) {
         r->after = after;
         r->after_anchor = anchored;
     }
     r->solicit_wanted = true;
-    if (r->solicited < 0) {
+    if (r->solicited < 0 && !r->solicit_out) {
         tern_time next = r->solicit_last < 0 ? r->now : r->solicit_last + SOLICIT_GAP;
         r->attach_at = next > r->now ? next : r->now;
     }
@@ -1373,6 +1373,10 @@ static void attach(struct tern_route *r) {
     tern_time t = r->now;
     bool again = false, sparse, asks;
     uint8_t a;
+    if (r->solicit_out) {
+        r->attach_at = t + SOLICIT_GAP; /* nothing until the one handed over has gone */
+        return;
+    }
     if (r->solicited >= 0 && t >= r->solicited + SOLICIT_WAIT) {
         again = settle(r);
         r->solicited = -1;
@@ -1409,9 +1413,8 @@ static size_t send_solicit(struct tern_route *r, uint8_t *frame, int8_t *power) 
     b->have -= airtime(r, TERN_SOLICIT_LEN) * MILLION;
     r->solicit_id++;
     r->solicit_wanted = false;
-    r->solicited = r->now;
-    r->solicit_last = r->now;
-    r->attach_at = r->now + SOLICIT_WAIT;
+    r->solicit_out = true; /* its answers are waited for from when it goes */
+    r->attach_at = r->now + SOLICIT_GAP;
     r->out = false;
     *power = q.power;
     return tern_solicit_write(&q, frame);
@@ -1817,6 +1820,12 @@ size_t tern_route_poll(struct tern_route *r, tern_time now, uint8_t frame[TERN_R
         }
         trickle_begin(r);
     }
+    if (r->solicit_out) {
+        /* Polled again with the solicit handed over never said to have gone: it did not, and is
+         * asked again at the next SOLICIT_GAP. */
+        r->solicit_out = false;
+        r->solicit_wanted = true;
+    }
     if (r->attach_at >= 0 && now >= r->attach_at && soliciting(r)) {
         attach(r);
     }
@@ -1834,6 +1843,12 @@ size_t tern_route_poll(struct tern_route *r, tern_time now, uint8_t frame[TERN_R
 }
 
 void tern_route_sent(struct tern_route *r, tern_time now) {
+    if (r->solicit_out) {
+        r->solicit_out = false;
+        r->solicited = now;
+        r->solicit_last = now;
+        r->attach_at = now + SOLICIT_WAIT;
+    }
     if (r->out) {
         tern_time waited = now - r->out_at, kept = r->mac_wait - r->mac_wait / 8;
         r->mac_wait = waited > kept ? waited : kept;
