@@ -156,6 +156,44 @@ struct answered_case {
     enum tern_route_answered does;
     bool doubt_after;
     uint8_t unanswered_after;
+    int n;
+    struct {
+        bool up, out_of_use, heard, after;
+    } relays[5];
+};
+struct given_case {
+    int n;
+    struct {
+        bool relay, up, out_of_use;
+        int32_t margin;
+        int64_t heard_s, promise_s; /* -1 for no promise */
+    } relays[6];
+    int at, hops;
+    bool out_after[6];
+    bool asks;
+    int after;
+    bool anchored;
+};
+struct elsewhere_case {
+    bool up, out_of_use, relay;
+    uint16_t own_seq, offered_seq;
+    bool retracts, out_after;
+};
+struct sample_case {
+    const char *kind;
+    bool leaf, relay, kept;
+    int32_t floor;
+    uint8_t theirs;
+    bool up;
+    int8_t full, power;
+    int16_t snr_q;
+    uint8_t margin;
+    int32_t floor_after;
+    uint8_t theirs_after;
+    bool up_after;
+    bool answers;
+    uint8_t answer_margin;
+    int8_t answer_power;
 };
 
 struct power_case {
@@ -776,6 +814,140 @@ static void the_answers_say_whether_a_leaf_has_moved(void) {
                      c->does);
         CHECK(doubt == c->doubt_after);
         CHECK_EQ_U64(unanswered, c->unanswered_after);
+        for (int k = 0; k < c->n; k++) {
+            bool moved = c->does == TERN_ROUTE_MOVED || c->does == TERN_ROUTE_REATTACHES;
+            CHECK(tern_route_out_after(moved, c->relays[k].up, c->relays[k].out_of_use,
+                                       c->relays[k].heard) == c->relays[k].after);
+        }
+    }
+}
+
+/* A leaf's router, with the vector's relay neighbours, gives hops up at one of them. */
+static void hops_given_up_at_a_relay_take_it_out_of_use_and_ask(void) {
+    const int8_t full = 20;
+    const tern_time now = TERN_S(100000);
+    struct tern_lora lora = tern_region_lora(tern_region(TERN_REGION_US915));
+    struct tern_route_config config = tern_route_defaults(&lora, full, -9, false);
+    for (size_t i = 0; i < COUNT(givens); i++) {
+        const struct given_case *c = &givens[i];
+        struct tern_route_neighbour nb[6];
+        struct tern_route_dest dest[2];
+        struct tern_route r;
+        tern_route_init(&r, &config, VECTOR_OWN_ID, nb, 6, dest, 2, 0, 1, 0);
+        for (int k = 0; k < c->n; k++) {
+            nb[k] = (struct tern_route_neighbour){
+                .id = (uint32_t)k + 1,
+                .used = true,
+                .relay = c->relays[k].relay,
+                .up = c->relays[k].up,
+                .out_of_use = c->relays[k].out_of_use,
+                .theirs = 255,
+                .floor = 16 * full - c->relays[k].margin,
+                .heard = now - TERN_S(1) * c->relays[k].heard_s,
+                .promise = c->relays[k].promise_s < 0 ? TERN_ROUTE_NO_PROMISE
+                                                      : TERN_S(1) * c->relays[k].promise_s};
+        }
+        for (int k = 0; k < c->hops; k++) {
+            tern_route_lost(&r, now, (uint32_t)c->at + 1);
+        }
+        for (int k = 0; k < c->n; k++) {
+            CHECK(nb[k].out_of_use == c->out_after[k]);
+        }
+        CHECK(r.solicit_wanted == c->asks);
+        CHECK(!c->asks || (r.after == (uint32_t)c->after + 1 && r.after_anchor == c->anchored));
+    }
+}
+
+/* A router keeps the vector's neighbour, id 1, with a route to it through itself at own_seq, and
+ * a relay, id 2, offers a route to it at offered_seq. */
+static void a_leaf_heard_of_elsewhere_goes_out_of_use(void) {
+    struct tern_lora lora = tern_region_lora(tern_region(TERN_REGION_US915));
+    struct tern_route_config config = tern_route_defaults(&lora, 22, -9, true);
+    for (size_t i = 0; i < COUNT(elsewheres); i++) {
+        const struct elsewhere_case *c = &elsewheres[i];
+        struct tern_route_neighbour nb[4];
+        struct tern_route_dest dest[4];
+        struct tern_route r;
+        uint8_t frame[TERN_ROUTE_FRAME_MAX];
+        struct tern_announce a = {.sender = 2,
+                                  .number = 2,
+                                  .seq = 1,
+                                  .relay = true,
+                                  .promise = 60,
+                                  .round = 1,
+                                  .route_count = 1};
+        tern_route_init(&r, &config, VECTOR_OWN_ID, nb, 4, dest, 4, 0, 1, 0);
+        nb[0] = (struct tern_route_neighbour){.id = 1,
+                                              .used = true,
+                                              .relay = c->relay,
+                                              .up = c->up,
+                                              .out_of_use = c->out_of_use,
+                                              .theirs = 200,
+                                              .number = 1,
+                                              .named = 1};
+        nb[1] = (struct tern_route_neighbour){
+            .id = 2, .used = true, .relay = true, .theirs = 200, .number = 1, .named = 1};
+        dest[0] = (struct tern_route_dest){.id = 1, .used = true};
+        dest[0].e[0] = (struct tern_route_entry){.slot = 1, .seq = c->own_seq, .metric = 0};
+        a.routes[0] =
+            (struct tern_announce_route){1, c->offered_seq, c->retracts ? TERN_ROUTE_INF : 54};
+        tern_route_heard(&r, TERN_S(1), frame, tern_announce_write(&a, frame), 40);
+        CHECK(nb[0].out_of_use == c->out_after);
+    }
+}
+
+/* A router keeps the vector's neighbour, id 0x1234, and hears a solicit or an answer from it. */
+static void solicits_and_answers_are_heard_as_announces_are(void) {
+    struct tern_lora lora = tern_region_lora(tern_region(TERN_REGION_US915));
+    for (size_t i = 0; i < COUNT(samples); i++) {
+        const struct sample_case *c = &samples[i];
+        struct tern_route_config config = tern_route_defaults(&lora, c->full, -9, !c->leaf);
+        struct tern_route_neighbour nb[2];
+        struct tern_route_dest dest[2];
+        struct tern_route r;
+        uint8_t frame[TERN_ROUTE_FRAME_MAX];
+        size_t len;
+        tern_route_init(&r, &config, VECTOR_OWN_ID, nb, 2, dest, 2, 0, 1, 0);
+        nb[0] = (struct tern_route_neighbour){.id = 0x1234,
+                                              .used = c->kept,
+                                              .relay = c->relay,
+                                              .floor = c->floor,
+                                              .theirs = c->theirs,
+                                              .up = c->up,
+                                              .number = 1};
+        if (strcmp(c->kind, "solicit") == 0) {
+            len = tern_solicit_write(
+                &(struct tern_solicit){0x1234, 1, TERN_ROUTE_EVERYONE, c->power}, frame);
+        } else {
+            uint32_t to = strcmp(c->kind, "answer to me") == 0 ? VECTOR_OWN_ID : 0x9999;
+            len =
+                tern_answer_write(&(struct tern_answer){0x1234, to, 1, c->margin, c->power}, frame);
+        }
+        tern_route_heard(&r, TERN_S(1), frame, len, c->snr_q);
+        if (!c->kept) {
+            CHECK(!nb[0].used && !nb[1].used); /* nothing taken from a stranger */
+        } else {
+            CHECK_EQ_I64(nb[0].floor, c->floor_after);
+            CHECK_EQ_U64(nb[0].theirs, c->theirs_after);
+            CHECK(nb[0].up == c->up_after);
+        }
+        /* And what a relay answers a solicit with, once its wait is over. */
+        {
+            struct tern_answer got = {0};
+            bool answered = false;
+            int8_t dbm;
+            tern_time t = TERN_S(30);
+            while ((len = tern_route_poll(&r, t, frame, &dbm)) != 0) {
+                if (frame[0] == TERN_HDR_ANSWER && tern_answer_read(&got, frame, len)) {
+                    answered = true;
+                    CHECK_EQ_I64(dbm, got.power);
+                }
+                tern_route_sent(&r, t);
+            }
+            CHECK(answered == c->answers);
+            CHECK(!c->answers || (got.leaf == 0x1234 && got.margin == c->answer_margin &&
+                                  got.power == c->answer_power));
+        }
     }
 }
 
@@ -837,5 +1009,8 @@ int main(void) {
     RUN(the_answers_say_whether_a_leaf_has_moved);
     RUN(a_destination_is_a_leaf_as_it_says_or_as_its_route_lists_it);
     RUN(a_frame_for_every_neighbour_reaches_the_nearest_in_use);
+    RUN(hops_given_up_at_a_relay_take_it_out_of_use_and_ask);
+    RUN(a_leaf_heard_of_elsewhere_goes_out_of_use);
+    RUN(solicits_and_answers_are_heard_as_announces_are);
     return CHECK_DONE();
 }

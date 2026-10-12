@@ -241,12 +241,17 @@ def main():
             "waits": "TERN_ROUTE_WAITS", "moved": "TERN_ROUTE_MOVED",
             "reattaches": "TERN_ROUTE_REATTACHES"}
     L.append("static const struct answered_case answereds[] = {")
-    L += [
-        f"    {{{asked[c['asked']]}, {b(c['doubt'])}, {c['unanswered']}, {b(c['asked_heard'])}, "
-        f"{b(c['others_heard'])}, {now[c['anchor_now']]}, {b(c['attached_before'])}, "
-        f"{does[c['does']]}, {b(c['doubt_after'])}, {c['unanswered_after']}}},"
-        for c in v["answered"]
-    ]
+    for c in v["answered"]:
+        rs = ", ".join(
+            f"{{{b(x['up'])}, {b(x['out_of_use'])}, {b(x['heard'])}, {b(x['out_of_use_after'])}}}"
+            for x in c["relays"]
+        )
+        L.append(
+            f"    {{{asked[c['asked']]}, {b(c['doubt'])}, {c['unanswered']}, {b(c['asked_heard'])}, "
+            f"{b(c['others_heard'])}, {now[c['anchor_now']]}, {b(c['attached_before'])}, "
+            f"{does[c['does']]}, {b(c['doubt_after'])}, {c['unanswered_after']}, "
+            f"{len(c['relays'])}, {{{rs}}}}},"
+        )
     L.append("};")
 
     L.append("static const struct leaf_case leaves[] = {")
@@ -265,6 +270,42 @@ def main():
             f"    {{{b(c['leaf'])}, {c['lowest']}, {c['full']}, {len(c['neighbours'])}, "
             f"{{{ns}}}, {c['power']}}},"
         )
+    L.append("};")
+
+    def relays(rs):
+        return ", ".join(
+            f"{{{b(n['relay'])}, {b(n['up'])}, {b(n['out_of_use'])}, {n['margin_sixteenths']}, "
+            f"{n['heard_s']}, {-1 if n['promise_s'] is None else n['promise_s']}}}"
+            for n in rs
+        )
+
+    L.append("static const struct given_case givens[] = {")
+    for c in v["given_up"]:
+        outs = ", ".join(b(x) for x in c["out_of_use_after"])
+        L.append(
+            f"    {{{len(c['relays'])}, {{{relays(c['relays'])}}}, {c['at']}, {c['hops']}, "
+            f"{{{outs}}}, {b(c['asks'])}, {idx(c['after'])}, {b(c['anchored'])}}},"
+        )
+    L.append("};")
+
+    L.append("static const struct elsewhere_case elsewheres[] = {")
+    L += [
+        f"    {{{b(c['up'])}, {b(c['out_of_use'])}, {b(c['relay'])}, {c['own_seq']}, "
+        f"{c['offered_seq']}, {b(c['retracts'])}, {b(c['out_of_use_after'])}}},"
+        for c in v["elsewhere"]
+    ]
+    L.append("};")
+
+    L.append("static const struct sample_case samples[] = {")
+    L += [
+        f"    {{{json.dumps(c['kind'])}, {b(c['leaf'])}, {b(c['relay'])}, {b(c['kept'])}, "
+        f"{c['floor_sixteenths'] or 0}, {c['their_margin'] or 0}, {b(c['up'])}, "
+        f"{c['full_power']}, {c['power']}, {c['snr_quarter_db']}, {c['margin'] or 0}, "
+        f"{c['floor_after'] or 0}, {c['their_margin_after'] or 0}, {b(c['up_after'])}, "
+        f"{b(c['answer_margin'] is not None)}, {c['answer_margin'] or 0}, "
+        f"{c['answer_power'] or 0}}},"
+        for c in v["samples"]
+    ]
     L.append("};")
 
     with open(out, "w", encoding="utf-8") as f:

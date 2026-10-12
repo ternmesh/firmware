@@ -356,6 +356,11 @@ enum tern_route_answered {
     TERN_ROUTE_MOVED,      /* the relays that did not answer go out of use */
     TERN_ROUTE_REATTACHES, /* and it raises its seq and announces it, loud */
 };
+/* Whether a relay neighbour of a leaf is out of use once a solicit's answers are in: one heard
+ * from is in use again, and one whose link is up and that was not heard from goes out of use if
+ * the leaf has `moved` (TERN_ROUTE_MOVED or TERN_ROUTE_REATTACHES). */
+bool tern_route_out_after(bool moved, bool up, bool out_of_use, bool heard);
+
 enum tern_route_answered tern_route_answered(enum tern_route_asked asked, bool *doubt,
                                              uint8_t *unanswered, bool asked_heard,
                                              bool others_heard,

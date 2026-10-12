@@ -199,6 +199,10 @@ bool tern_answer_read(struct tern_answer *a, const uint8_t *frame, size_t len) {
 
 /* --- Rules --- */
 
+bool tern_route_out_after(bool moved, bool up, bool out_of_use, bool heard) {
+    return !heard && (out_of_use || (moved && up));
+}
+
 bool tern_route_is_leaf(bool kept, bool relay, bool selected, bool listed_leaf, bool was) {
     return kept ? !relay : selected ? listed_leaf : was;
 }
@@ -1348,7 +1352,8 @@ static bool settle(struct tern_route *r) {
     moved = does == TERN_ROUTE_MOVED || does == TERN_ROUTE_REATTACHES;
     for (size_t i = 0; moved && i < r->nb_cap; i++) {
         const struct tern_route_neighbour *n = &r->nb[i];
-        if (n->used && n->relay && n->heard < r->solicited && usable(r, (uint8_t)(i + 1), n->id)) {
+        if (n->used && n->relay && !n->out_of_use &&
+            tern_route_out_after(moved, n->up, n->out_of_use, n->heard >= r->solicited)) {
             take_out_of_use(r, (uint8_t)(i + 1));
         }
     }
