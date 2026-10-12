@@ -216,7 +216,15 @@ bool tern_flood_heard(struct tern_flood *f, tern_time now, const uint8_t *frame,
         f->counts.copies++;
         for (size_t i = 0; i < f->cap; i++) {
             struct tern_flood_slot *s = &f->slot[i];
-            if (s->state == TERN_FLOOD_FREE || s->own || memcmp(s->id, id, TERN_FLOOD_ID) != 0) {
+            if (s->state == TERN_FLOOD_FREE || memcmp(s->id, id, TERN_FLOOD_ID) != 0) {
+                continue;
+            }
+            if (s->own) {
+                /* Passed on: a node's own, once sent, is not sent again. */
+                if (s->copies > 0 && s->state != TERN_FLOOD_OUT) {
+                    f->counts.echoed++;
+                    s->state = TERN_FLOOD_FREE;
+                }
                 continue;
             }
             if (s->copies < UINT8_MAX) {
@@ -301,7 +309,7 @@ tern_time tern_flood_due(const struct tern_flood *f) {
     tern_time due = INT64_MAX;
     for (size_t i = 0; i < f->cap; i++) {
         const struct tern_flood_slot *s = &f->slot[i];
-        if (s->state == TERN_FLOOD_WAITING && s->at < due) {
+        if ((s->state == TERN_FLOOD_WAITING || s->state == TERN_FLOOD_ECHO) && s->at < due) {
             due = s->at;
         }
     }
@@ -343,6 +351,21 @@ size_t tern_flood_own_waiting(const struct tern_flood *f, struct tern_airtime_wa
 
 size_t tern_flood_poll(struct tern_flood *f, tern_time now, uint8_t frame[TERN_FLOOD_FRAME_MAX],
                        int8_t *power_dbm, enum tern_flood_kind *kind, uint8_t *handle) {
+    /* A node's own frame no copy of which has been heard is sent again, or let go of. */
+    for (size_t i = 0; i < f->cap; i++) {
+        struct tern_flood_slot *s = &f->slot[i];
+        if (s->state != TERN_FLOOD_ECHO || s->at > now) {
+            continue;
+        }
+        if (s->copies > f->config.resends) {
+            s->state = TERN_FLOOD_FREE;
+            continue;
+        }
+        f->counts.resent++;
+        s->state = TERN_FLOOD_WAITING;
+        s->at = now + (tern_time)rand_below(
+                          f, (uint64_t)f->config.wait * (uint64_t)airtime(f, s->len) + 1);
+    }
     /* Frames passed on go before the node's own, as for frames that follow routes; of each, the
      * one that has waited longest. */
     for (int own = 0; own <= 1; own++) {
@@ -426,8 +449,16 @@ void tern_flood_withdrawn(struct tern_flood *f, tern_time now, uint8_t handle) {
 }
 
 void tern_flood_sent(struct tern_flood *f, tern_time now, uint8_t handle) {
-    (void)now;
-    if (handle < f->cap && f->slot[handle].state == TERN_FLOOD_OUT) {
-        f->slot[handle].state = TERN_FLOOD_FREE;
+    if (handle >= f->cap || f->slot[handle].state != TERN_FLOOD_OUT) {
+        return;
+    }
+    struct tern_flood_slot *s = &f->slot[handle];
+    /* A node's own that a relay should pass on is listened for; anything else is done with. */
+    if (s->own && !s->dropped && f->config.resends && s->frame[1] >= 2) {
+        s->copies++;
+        s->state = TERN_FLOOD_ECHO;
+        s->at = now + (tern_time)f->config.echo * airtime(f, s->len);
+    } else {
+        s->state = TERN_FLOOD_FREE;
     }
 }
