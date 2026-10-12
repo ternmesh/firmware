@@ -430,7 +430,8 @@ struct tern_route_auth {
 /* Why a Trickle interval was cut short to I_MIN: what this node announces changed - a route
  * selected or lost on an announce heard, a link going up or down, a neighbour going out of use or
  * back, one forgotten, a starved destination retracted, the node done starting - or it was asked:
- * by a request for any route, for its own seq, or for a route it holds. */
+ * by a request for any route, for its own seq, or for a route it holds - or, a leaf, it moved and
+ * re-attached. */
 enum tern_route_reset {
     TERN_ROUTE_RESET_ROUTES,
     TERN_ROUTE_RESET_LINK,
@@ -439,18 +440,20 @@ enum tern_route_reset {
     TERN_ROUTE_RESET_RETRACT,
     TERN_ROUTE_RESET_STARTED,
     TERN_ROUTE_RESET_ASKED,
+    TERN_ROUTE_RESET_MOVED,
     TERN_ROUTE_RESET_COUNT,
 };
 
 /* Why an interval that reached its time announced: fewer than REDUNDANCY consistent announces
  * heard, kept quiet QUIET_MAX intervals running, changed routes of its own waiting, asked for its
- * seq, or starting. */
+ * seq, starting, or having moved and re-attached, its new seq to go. */
 enum tern_route_fire {
     TERN_ROUTE_FIRE_HEARD_FEW,
     TERN_ROUTE_FIRE_QUIET_MAX,
     TERN_ROUTE_FIRE_CHANGES,
     TERN_ROUTE_FIRE_ASKED,
     TERN_ROUTE_FIRE_STARTING,
+    TERN_ROUTE_FIRE_MOVED,
     TERN_ROUTE_FIRE_COUNT,
 };
 

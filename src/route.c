@@ -1438,6 +1438,7 @@ static bool settle(struct tern_route *r) {
         r->attached = slot(r, now_at)->id;
         r->seq++;
         COUNT(r->counts.reattached++);
+        COUNT(r->counts.resets[TERN_ROUTE_RESET_MOVED] += r->interval > r->config.i_min);
         r->asked = true;
         r->loud = true;
         r->interval = r->config.i_min;
@@ -1893,6 +1894,7 @@ size_t tern_route_poll(struct tern_route *r, tern_time now, uint8_t frame[TERN_R
             r->quiet >= r->config.quiet_max || r->urgent_count > 0 || r->asked || r->starting) {
 #ifdef TERN_ROUTE_COUNTS
             r->counts.fired[r->starting           ? TERN_ROUTE_FIRE_STARTING
+                            : r->asked && r->loud ? TERN_ROUTE_FIRE_MOVED
                             : r->asked            ? TERN_ROUTE_FIRE_ASKED
                             : r->urgent_count > 0 ? TERN_ROUTE_FIRE_CHANGES
                             : r->config.redundancy == 0 || r->heard < r->config.redundancy
