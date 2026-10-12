@@ -354,7 +354,7 @@ static void test_own(void) {
     enum tern_flood_kind kind;
     uint8_t h;
     start(&x, false, 8);
-    x.f.config.resends = 0; /* the allowance alone */
+    x.f.config.resends = 0;                                         /* the allowance alone */
     CHECK(!tern_flood_send(&x.f, 0, frame, make(frame, 30, 0, 0))); /* shorter than any */
     for (unsigned k = 0; k < 10; k++) {
         CHECK(tern_flood_send(&x.f, 0, frame, make(frame, 255, 0, k)));
