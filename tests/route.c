@@ -116,6 +116,48 @@ struct default_case {
     uint16_t link_cost, metric;
 };
 
+struct solicit_case {
+    struct tern_solicit fields;
+    uint8_t frame[TERN_SOLICIT_LEN];
+};
+struct answer_case {
+    struct tern_answer fields;
+    uint8_t frame[TERN_ANSWER_LEN];
+};
+struct listed_case {
+    uint16_t field;
+    bool retracts, leaf;
+    uint16_t metric, written;
+};
+struct anchor_case {
+    int n;
+    struct {
+        bool relay, up, out_of_use;
+        int32_t margin;
+        int64_t heard_s, promise_s; /* -1 for no promise */
+    } relays[6];
+    bool sparse;
+    int anchor;
+    bool asks;
+};
+struct answering_case {
+    int32_t own;
+    bool asked, answers;
+    uint8_t wait;
+    bool cancelled;
+};
+struct answered_case {
+    enum tern_route_asked asked;
+    bool doubt;
+    uint8_t unanswered;
+    bool asked_heard, others_heard;
+    enum tern_route_anchor_now anchor_now;
+    bool attached;
+    enum tern_route_answered does;
+    bool doubt_after;
+    uint8_t unanswered_after;
+};
+
 #include "routing.h"
 
 #define COUNT(a) (sizeof(a) / sizeof(a)[0])
@@ -413,6 +455,7 @@ static void a_router_signs_and_carries_its_address_while_it_is_needed(void) {
     struct tern_lora lora = tern_region_lora(us);
     struct tern_route_config config = tern_route_defaults(&lora, 22, -9, false);
     static const uint8_t seed_a[32] = {0x0A}, seed_b[32] = {0x0B};
+    config.reattach = false; /* two leaves, and no relay for either to ask after */
     struct tern_route_neighbour nb_a[4], nb_b[4];
     struct tern_route_dest dest_a[4], dest_b[4];
     struct tern_route a, b;
@@ -633,6 +676,92 @@ static void a_leaf_with_no_route_takes_its_nearest_relay(void) {
     CHECK_EQ_I64(tern_route_default(&relay, 1, true, false, 999999, 999999, NULL, 0), -1);
 }
 
+static void solicits_and_answers_are_written_and_read(void) {
+    for (size_t i = 0; i < COUNT(solicits); i++) {
+        const struct solicit_case *c = &solicits[i];
+        uint8_t frame[TERN_SOLICIT_LEN];
+        struct tern_solicit q;
+        CHECK_EQ_I64(tern_solicit_write(&c->fields, frame), TERN_SOLICIT_LEN);
+        CHECK(memcmp(frame, c->frame, TERN_SOLICIT_LEN) == 0);
+        CHECK(tern_route_frame(c->frame, TERN_SOLICIT_LEN));
+        CHECK(tern_solicit_read(&q, c->frame, TERN_SOLICIT_LEN));
+        CHECK(q.sender == c->fields.sender && q.id == c->fields.id);
+        CHECK(q.after == c->fields.after && q.power == c->fields.power);
+    }
+    for (size_t i = 0; i < COUNT(answers); i++) {
+        const struct answer_case *c = &answers[i];
+        uint8_t frame[TERN_ANSWER_LEN];
+        struct tern_answer a;
+        CHECK_EQ_I64(tern_answer_write(&c->fields, frame), TERN_ANSWER_LEN);
+        CHECK(memcmp(frame, c->frame, TERN_ANSWER_LEN) == 0);
+        CHECK(tern_route_frame(c->frame, TERN_ANSWER_LEN));
+        CHECK(tern_answer_read(&a, c->frame, TERN_ANSWER_LEN));
+        CHECK(a.sender == c->fields.sender && a.leaf == c->fields.leaf && a.id == c->fields.id);
+        CHECK(a.margin == c->fields.margin && a.power == c->fields.power);
+    }
+}
+
+static void a_listed_route_says_whether_it_is_to_a_leaf(void) {
+    for (size_t i = 0; i < COUNT(listeds); i++) {
+        const struct listed_case *c = &listeds[i];
+        bool leaf = false;
+        uint16_t metric = 0;
+        CHECK(tern_route_listed(c->field, &leaf, &metric) == !c->retracts);
+        CHECK(c->retracts || (leaf == c->leaf && metric == c->metric));
+        CHECK_EQ_U64(tern_route_listing(c->leaf, c->retracts ? TERN_ROUTE_INF : c->metric),
+                     c->written);
+    }
+}
+
+/* A neighbour's margin here is the leaf's own, `full - floor`, the relay having given it more. */
+static void a_leaf_asks_after_its_anchor_only_where_relays_are_few(void) {
+    const int8_t full = 20;
+    const tern_time now = TERN_S(100000);
+    for (size_t i = 0; i < COUNT(anchors); i++) {
+        const struct anchor_case *c = &anchors[i];
+        struct tern_route_neighbour nb[6] = {0};
+        bool sparse, asks;
+        for (int k = 0; k < c->n; k++) {
+            nb[k] = (struct tern_route_neighbour){
+                .id = (uint32_t)k + 1,
+                .used = true,
+                .relay = c->relays[k].relay,
+                .up = c->relays[k].up,
+                .out_of_use = c->relays[k].out_of_use,
+                .theirs = 255,
+                .floor = 16 * full - c->relays[k].margin,
+                .heard = now - TERN_S(1) * c->relays[k].heard_s,
+                .promise = c->relays[k].promise_s < 0 ? TERN_ROUTE_NO_PROMISE
+                                                      : TERN_S(1) * c->relays[k].promise_s};
+        }
+        CHECK_EQ_I64(tern_route_anchor(nb, (size_t)c->n, full, now, &sparse, &asks), c->anchor);
+        CHECK(sparse == c->sparse && asks == c->asks);
+    }
+}
+
+static void a_relay_answers_a_leaf_it_hears(void) {
+    for (size_t i = 0; i < COUNT(answerings); i++) {
+        const struct answering_case *c = &answerings[i];
+        uint8_t wait = 0;
+        bool cancelled = false;
+        CHECK(tern_route_answers(c->own, c->asked, &wait, &cancelled) == c->answers);
+        CHECK(!c->answers || (wait == c->wait && cancelled == c->cancelled));
+    }
+}
+
+static void the_answers_say_whether_a_leaf_has_moved(void) {
+    for (size_t i = 0; i < COUNT(answereds); i++) {
+        const struct answered_case *c = &answereds[i];
+        bool doubt = c->doubt;
+        uint8_t unanswered = c->unanswered;
+        CHECK_EQ_I64(tern_route_answered(c->asked, &doubt, &unanswered, c->asked_heard,
+                                         c->others_heard, c->anchor_now, c->attached),
+                     c->does);
+        CHECK(doubt == c->doubt_after);
+        CHECK_EQ_U64(unanswered, c->unanswered_after);
+    }
+}
+
 int main(void) {
     RUN(ids_come_from_addresses);
     RUN(a_leaf_with_no_route_takes_its_nearest_relay);
@@ -656,5 +785,10 @@ int main(void) {
     RUN(feasibility_is_babels);
     RUN(the_lowest_feasible_metric_is_selected_with_hysteresis);
     RUN(the_route_least_worth_keeping_gives_way);
+    RUN(solicits_and_answers_are_written_and_read);
+    RUN(a_listed_route_says_whether_it_is_to_a_leaf);
+    RUN(a_leaf_asks_after_its_anchor_only_where_relays_are_few);
+    RUN(a_relay_answers_a_leaf_it_hears);
+    RUN(the_answers_say_whether_a_leaf_has_moved);
     return CHECK_DONE();
 }

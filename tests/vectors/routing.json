@@ -1,5 +1,5 @@
 {
-  "description": "Routing, draft 0 (draft/routing.md). Routing ids, sequence numbers, promise codes and metrics are numbers; addresses and frames are hex. In floors, powers are dBm, snr_quarter_db is the signal-to-noise ratio in quarters of a decibel, as the SX126x reports it, and floor_sixteenths is the floor in sixteenths of a dBm. In links, own_margin_sixteenths is the node's full power less its floor for the neighbour, in sixteenths of a decibel, and their_margin is the margin byte the neighbour gave; either is null when it is missing, and the steps follow one another. In places, neighbours is a full table, each with the node's floor for it and whether its link is up, floor_sixteenths is the floor an announce from a node not in it gives, and replaces is an index into neighbours. In selection and kept, each route's metric is the one its neighbour announced, every link costs link_cost, and selected, selects and replaces are indexes into routes. In defaults, tried and next are indexes into neighbours, busy_ppm is the leaf's busy share in millionths, and metric is the default route's. Each announce is signed with seed, whose address is address, and carries the address in the frame if carries_address is true. A rejected frame MUST be discarded whether or not the receiver holds its sender's address. In verified, announce is an index into announces, held_address is the address the receiver holds for its sender (null for none), takes whether it takes the announce rather than discarding it, and holds_address the address it then holds for the sender, if the rest of the section then takes the announce from a neighbour.",
+  "description": "Routing, draft 0 (draft/routing.md). Routing ids, sequence numbers, promise codes and metrics are numbers; addresses and frames are hex. In floors, powers are dBm, snr_quarter_db is the signal-to-noise ratio in quarters of a decibel, as the SX126x reports it, and floor_sixteenths is the floor in sixteenths of a dBm. In links, own_margin_sixteenths is the node's full power less its floor for the neighbour, in sixteenths of a decibel, and their_margin is the margin byte the neighbour gave; either is null when it is missing, and the steps follow one another. In places, neighbours is a full table, each with the node's floor for it and whether its link is up, floor_sixteenths is the floor an announce from a node not in it gives, and replaces is an index into neighbours. In selection and kept, each route's metric is the one its neighbour announced, every link costs link_cost, and selected, selects and replaces are indexes into routes. In defaults, tried and next are indexes into neighbours, busy_ppm is the leaf's busy share in millionths, and metric is the default route's. Each announce is signed with seed, whose address is address, and carries the address in the frame if carries_address is true. A rejected frame MUST be discarded whether or not the receiver holds its sender's address. In verified, announce is an index into announces, held_address is the address the receiver holds for its sender (null for none), takes whether it takes the announce rather than discarding it, and holds_address the address it then holds for the sender, if the rest of the section then takes the announce from a neighbour. In listed, metric_field is a listed route's metric as it goes on the air, retracts whether it retracts the route, leaf and metric what it says otherwise (null for a retraction), and field what a node writes for them. In anchors, each of relays is a neighbour of a leaf, relay saying whether it is one, with whether its link is up, whether it is out of use, its link's margin in sixteenths of a decibel, the seconds since it was heard and its promise in seconds (null for none); sparse is whether the leaf solicits there, anchor an index into relays (null for none), and asks whether it asks after it on its SOLICIT_GAP. In answering, own_margin_sixteenths is the relay's full power less its floor for the leaf, asked whether the solicit asks after it, wait the most its answer waits in airtimes of the answer (null if it does not answer), and cancelled whether others' answers cancel it. In answered, asked is the relay the leaf asked after, its anchor when it asked, another or null for none; asked_heard and others_heard whether it heard from that relay and from any other in SOLICIT_WAIT; anchor_now whether its anchor now is the one it last re-attached to, another, or null for none; attached_before whether it has re-attached before; does is settled, again, waits, moved or reattaches.",
   "generator": "vectors/tools/routing.py",
   "ids": [
     {
@@ -324,6 +324,38 @@
       "seed": "e504638ece856468a5fa2dcde22d6488b01e18f5d4b37389fe568b5dee00e4a3",
       "address": "19dd846009f5b0274b07bc4347a3635a3fee4464f2720f79e233f38ce8f95108",
       "frame": "598326f1cf0103800105025800010e010119dd846009f5b0274b07bc4347a3635a3fee4464f2720f79e233f38ce8f951081147f82582536f641100070036e3a0302ee59bfdd259de29affbf5ce90678954be230af9918f66a795b1c3a2684e16473865ab2d6bf0c8db1b91ea4a0cabedd61cf2988a2a1ba4cd81f51ee30c"
+    },
+    {
+      "sender": 2394961521,
+      "number": 6,
+      "seq": 9,
+      "relay": true,
+      "starting": false,
+      "carries_address": false,
+      "promise": 600,
+      "round": 1,
+      "power": 8,
+      "neighbours": [],
+      "routes": [
+        {
+          "destination": 289929253,
+          "seq": 256,
+          "metric": 32822
+        },
+        {
+          "destination": 1752530551,
+          "seq": 3,
+          "metric": 32766
+        },
+        {
+          "destination": 3167332448,
+          "seq": 4,
+          "metric": 65535
+        }
+      ],
+      "seed": "c5bf3d9f0a38850460f4972f3e1c8b2feaed0a33c2d0a748de217bc947e64856",
+      "address": "dfc0ccb9e5961a0350bbb875ccce76e6947e7ad64643b3796d07f27e09a6f054",
+      "frame": "598ec036710006000901025800010800031147f8250100803668757e7700037ffebcc9a8600004ffffb81f5168d0dc2c3d6c92b7232b7172f040e141628e145409ee989de0fc90aef056fde517a7c50692b80fd352a342c9b3b2c0e07e8a36136e189364d7c25f7507"
     }
   ],
   "requests": [
@@ -353,6 +385,40 @@
         }
       ],
       "frame": "5abcc9a86002536f641100082068757e77ffff01"
+    }
+  ],
+  "solicits": [
+    {
+      "sender": 289929253,
+      "id": 0,
+      "after": 3167332448,
+      "power": 22,
+      "frame": "5b1147f8250000bcc9a86016"
+    },
+    {
+      "sender": 1752530551,
+      "id": 65535,
+      "after": 4294967295,
+      "power": -9,
+      "frame": "5b68757e77fffffffffffff7"
+    }
+  ],
+  "answers": [
+    {
+      "sender": 3167332448,
+      "leaf": 289929253,
+      "id": 0,
+      "margin": 128,
+      "power": 14,
+      "frame": "5cbcc9a8601147f8250000800e"
+    },
+    {
+      "sender": 1399809041,
+      "leaf": 1752530551,
+      "id": 65535,
+      "margin": 1,
+      "power": -9,
+      "frame": "5c536f641168757e77ffff01f7"
     }
   ],
   "rejected": [
@@ -411,6 +477,34 @@
     {
       "why": "a request with nothing in it",
       "frame": "5abcc9a86000"
+    },
+    {
+      "why": "a solicit a byte short",
+      "frame": "5b1147f8250001bcc9a860"
+    },
+    {
+      "why": "a solicit a byte long",
+      "frame": "5b1147f8250001bcc9a8601600"
+    },
+    {
+      "why": "a solicit from routing id 0",
+      "frame": "5b000000000001bcc9a86016"
+    },
+    {
+      "why": "a solicit from the receiver's own routing id",
+      "frame": "5b68757e770001bcc9a86016"
+    },
+    {
+      "why": "an answer a byte short",
+      "frame": "5cbcc9a8601147f82500018c"
+    },
+    {
+      "why": "an answer a byte long",
+      "frame": "5cbcc9a8601147f82500018c1600"
+    },
+    {
+      "why": "an answer from routing id ffffffff",
+      "frame": "5cffffffff1147f82500018c16"
     }
   ],
   "verified": [
@@ -1019,7 +1113,7 @@
         },
         {
           "seq": 9,
-          "metric": 65534,
+          "metric": 32766,
           "feasible": true
         }
       ]
@@ -1262,15 +1356,166 @@
       "routes": [
         {
           "seq": 1,
-          "metric": 65534
+          "metric": 32766
         },
         {
           "seq": 1,
-          "metric": 65520
+          "metric": 32752
         }
       ],
       "selected": 0,
       "selects": 0
+    },
+    {
+      "feasibility_distance": null,
+      "link_cost": 54,
+      "routes": [
+        {
+          "seq": 3,
+          "metric": 108
+        },
+        {
+          "seq": 4,
+          "metric": 108
+        }
+      ],
+      "selected": null,
+      "selects": 1
+    },
+    {
+      "feasibility_distance": null,
+      "link_cost": 54,
+      "routes": [
+        {
+          "seq": 4,
+          "metric": 108
+        },
+        {
+          "seq": 3,
+          "metric": 108
+        }
+      ],
+      "selected": null,
+      "selects": 0
+    },
+    {
+      "feasibility_distance": null,
+      "link_cost": 54,
+      "routes": [
+        {
+          "seq": 3,
+          "metric": 108
+        },
+        {
+          "seq": 4,
+          "metric": 108
+        }
+      ],
+      "selected": 0,
+      "selects": 1
+    },
+    {
+      "feasibility_distance": null,
+      "link_cost": 54,
+      "routes": [
+        {
+          "seq": 3,
+          "metric": 108
+        },
+        {
+          "seq": 4,
+          "metric": 100
+        }
+      ],
+      "selected": 0,
+      "selects": 1
+    },
+    {
+      "feasibility_distance": null,
+      "link_cost": 54,
+      "routes": [
+        {
+          "seq": 4,
+          "metric": 108
+        },
+        {
+          "seq": 3,
+          "metric": 108
+        }
+      ],
+      "selected": 0,
+      "selects": 0
+    },
+    {
+      "feasibility_distance": null,
+      "link_cost": 54,
+      "routes": [
+        {
+          "seq": 3,
+          "metric": 108
+        },
+        {
+          "seq": 4,
+          "metric": 109
+        }
+      ],
+      "selected": 0,
+      "selects": 0
+    },
+    {
+      "feasibility_distance": null,
+      "link_cost": 54,
+      "routes": [
+        {
+          "seq": 3,
+          "metric": 108
+        },
+        {
+          "seq": 2,
+          "metric": 0
+        }
+      ],
+      "selected": 0,
+      "selects": 1
+    },
+    {
+      "feasibility_distance": {
+        "seq": 10,
+        "metric": 162
+      },
+      "link_cost": 54,
+      "routes": [
+        {
+          "seq": 10,
+          "metric": 54
+        },
+        {
+          "seq": 11,
+          "metric": 54
+        },
+        {
+          "seq": 11,
+          "metric": 108
+        }
+      ],
+      "selected": 0,
+      "selects": 1
+    },
+    {
+      "feasibility_distance": null,
+      "link_cost": 54,
+      "routes": [
+        {
+          "seq": 65535,
+          "metric": 54
+        },
+        {
+          "seq": 0,
+          "metric": 54
+        }
+      ],
+      "selected": 0,
+      "selects": 1
     },
     {
       "feasibility_distance": null,
@@ -1516,13 +1761,13 @@
         },
         {
           "seq": 4,
-          "metric": 60000
+          "metric": 30000
         }
       ],
       "selected": 0,
       "offered": {
         "seq": 5,
-        "metric": 65000
+        "metric": 32000
       },
       "replaces": 1
     },
@@ -1544,7 +1789,7 @@
         },
         {
           "seq": 4,
-          "metric": 60000
+          "metric": 30000
         }
       ],
       "selected": 3,
@@ -1884,7 +2129,503 @@
       "tried": [],
       "next": 0,
       "link_cost": 11000,
-      "metric": 65534
+      "metric": 32766
+    }
+  ],
+  "listed": [
+    {
+      "metric_field": 54,
+      "retracts": false,
+      "leaf": false,
+      "metric": 54,
+      "field": 54
+    },
+    {
+      "metric_field": 32822,
+      "retracts": false,
+      "leaf": true,
+      "metric": 54,
+      "field": 32822
+    },
+    {
+      "metric_field": 32766,
+      "retracts": false,
+      "leaf": false,
+      "metric": 32766,
+      "field": 32766
+    },
+    {
+      "metric_field": 65534,
+      "retracts": false,
+      "leaf": true,
+      "metric": 32766,
+      "field": 65534
+    },
+    {
+      "metric_field": 0,
+      "retracts": false,
+      "leaf": false,
+      "metric": 0,
+      "field": 0
+    },
+    {
+      "metric_field": 32768,
+      "retracts": false,
+      "leaf": true,
+      "metric": 0,
+      "field": 32768
+    },
+    {
+      "metric_field": 65535,
+      "retracts": true,
+      "leaf": null,
+      "metric": null,
+      "field": 65535
+    },
+    {
+      "metric_field": 32767,
+      "retracts": true,
+      "leaf": null,
+      "metric": null,
+      "field": 65535
+    }
+  ],
+  "anchors": [
+    {
+      "relays": [
+        {
+          "relay": true,
+          "up": true,
+          "out_of_use": false,
+          "margin_sixteenths": 80,
+          "heard_s": 100,
+          "promise_s": 600
+        },
+        {
+          "relay": true,
+          "up": true,
+          "out_of_use": false,
+          "margin_sixteenths": 160,
+          "heard_s": 100,
+          "promise_s": 600
+        }
+      ],
+      "sparse": true,
+      "anchor": 1,
+      "asks": false
+    },
+    {
+      "relays": [
+        {
+          "relay": true,
+          "up": true,
+          "out_of_use": false,
+          "margin_sixteenths": 80,
+          "heard_s": 100,
+          "promise_s": 600
+        },
+        {
+          "relay": true,
+          "up": true,
+          "out_of_use": false,
+          "margin_sixteenths": 160,
+          "heard_s": 1300,
+          "promise_s": 600
+        }
+      ],
+      "sparse": true,
+      "anchor": 1,
+      "asks": true
+    },
+    {
+      "relays": [
+        {
+          "relay": true,
+          "up": true,
+          "out_of_use": false,
+          "margin_sixteenths": 160,
+          "heard_s": 1200,
+          "promise_s": 600
+        }
+      ],
+      "sparse": true,
+      "anchor": 0,
+      "asks": false
+    },
+    {
+      "relays": [
+        {
+          "relay": true,
+          "up": true,
+          "out_of_use": false,
+          "margin_sixteenths": 160,
+          "heard_s": 1201,
+          "promise_s": 600
+        }
+      ],
+      "sparse": true,
+      "anchor": 0,
+      "asks": true
+    },
+    {
+      "relays": [
+        {
+          "relay": true,
+          "up": true,
+          "out_of_use": false,
+          "margin_sixteenths": 160,
+          "heard_s": 99999,
+          "promise_s": null
+        }
+      ],
+      "sparse": true,
+      "anchor": 0,
+      "asks": false
+    },
+    {
+      "relays": [
+        {
+          "relay": true,
+          "up": true,
+          "out_of_use": true,
+          "margin_sixteenths": 300,
+          "heard_s": 10,
+          "promise_s": 600
+        },
+        {
+          "relay": true,
+          "up": false,
+          "out_of_use": false,
+          "margin_sixteenths": 400,
+          "heard_s": 10,
+          "promise_s": 600
+        },
+        {
+          "relay": false,
+          "up": true,
+          "out_of_use": false,
+          "margin_sixteenths": 900,
+          "heard_s": 10,
+          "promise_s": 600
+        }
+      ],
+      "sparse": true,
+      "anchor": null,
+      "asks": true
+    },
+    {
+      "relays": [],
+      "sparse": true,
+      "anchor": null,
+      "asks": true
+    },
+    {
+      "relays": [
+        {
+          "relay": true,
+          "up": true,
+          "out_of_use": false,
+          "margin_sixteenths": 16,
+          "heard_s": 10,
+          "promise_s": 600
+        },
+        {
+          "relay": true,
+          "up": true,
+          "out_of_use": false,
+          "margin_sixteenths": 32,
+          "heard_s": 10,
+          "promise_s": 600
+        },
+        {
+          "relay": true,
+          "up": true,
+          "out_of_use": false,
+          "margin_sixteenths": 48,
+          "heard_s": 10,
+          "promise_s": 600
+        },
+        {
+          "relay": true,
+          "up": true,
+          "out_of_use": false,
+          "margin_sixteenths": 64,
+          "heard_s": 10,
+          "promise_s": 600
+        },
+        {
+          "relay": true,
+          "up": true,
+          "out_of_use": false,
+          "margin_sixteenths": 80,
+          "heard_s": 10,
+          "promise_s": 600
+        }
+      ],
+      "sparse": false,
+      "anchor": 4,
+      "asks": false
+    },
+    {
+      "relays": [
+        {
+          "relay": true,
+          "up": true,
+          "out_of_use": false,
+          "margin_sixteenths": 16,
+          "heard_s": 10,
+          "promise_s": 600
+        },
+        {
+          "relay": true,
+          "up": true,
+          "out_of_use": false,
+          "margin_sixteenths": 32,
+          "heard_s": 10,
+          "promise_s": 600
+        },
+        {
+          "relay": true,
+          "up": true,
+          "out_of_use": false,
+          "margin_sixteenths": 48,
+          "heard_s": 10,
+          "promise_s": 600
+        },
+        {
+          "relay": true,
+          "up": true,
+          "out_of_use": false,
+          "margin_sixteenths": 64,
+          "heard_s": 10,
+          "promise_s": 600
+        },
+        {
+          "relay": true,
+          "up": true,
+          "out_of_use": false,
+          "margin_sixteenths": 80,
+          "heard_s": 2000,
+          "promise_s": 600
+        }
+      ],
+      "sparse": true,
+      "anchor": 4,
+      "asks": true
+    }
+  ],
+  "answering": [
+    {
+      "own_margin_sixteenths": 0,
+      "asked": true,
+      "answers": true,
+      "wait": 2,
+      "cancelled": false
+    },
+    {
+      "own_margin_sixteenths": 0,
+      "asked": false,
+      "answers": true,
+      "wait": 16,
+      "cancelled": true
+    },
+    {
+      "own_margin_sixteenths": -1,
+      "asked": true,
+      "answers": false,
+      "wait": null,
+      "cancelled": null
+    },
+    {
+      "own_margin_sixteenths": -1,
+      "asked": false,
+      "answers": false,
+      "wait": null,
+      "cancelled": null
+    },
+    {
+      "own_margin_sixteenths": 320,
+      "asked": false,
+      "answers": true,
+      "wait": 16,
+      "cancelled": true
+    },
+    {
+      "own_margin_sixteenths": -48,
+      "asked": true,
+      "answers": false,
+      "wait": null,
+      "cancelled": null
+    }
+  ],
+  "answered": [
+    {
+      "asked": "anchor",
+      "doubt": false,
+      "unanswered": 0,
+      "asked_heard": true,
+      "others_heard": true,
+      "anchor_now": "attached",
+      "attached_before": true,
+      "does": "settled",
+      "doubt_after": false,
+      "unanswered_after": 0
+    },
+    {
+      "asked": "anchor",
+      "doubt": true,
+      "unanswered": 2,
+      "asked_heard": true,
+      "others_heard": false,
+      "anchor_now": "attached",
+      "attached_before": true,
+      "does": "settled",
+      "doubt_after": false,
+      "unanswered_after": 0
+    },
+    {
+      "asked": "anchor",
+      "doubt": false,
+      "unanswered": 0,
+      "asked_heard": false,
+      "others_heard": true,
+      "anchor_now": "other",
+      "attached_before": true,
+      "does": "again",
+      "doubt_after": true,
+      "unanswered_after": 0
+    },
+    {
+      "asked": "anchor",
+      "doubt": false,
+      "unanswered": 0,
+      "asked_heard": false,
+      "others_heard": false,
+      "anchor_now": null,
+      "attached_before": true,
+      "does": "again",
+      "doubt_after": true,
+      "unanswered_after": 1
+    },
+    {
+      "asked": "anchor",
+      "doubt": false,
+      "unanswered": 2,
+      "asked_heard": false,
+      "others_heard": false,
+      "anchor_now": null,
+      "attached_before": true,
+      "does": "waits",
+      "doubt_after": true,
+      "unanswered_after": 3
+    },
+    {
+      "asked": "anchor",
+      "doubt": true,
+      "unanswered": 0,
+      "asked_heard": false,
+      "others_heard": true,
+      "anchor_now": "other",
+      "attached_before": true,
+      "does": "reattaches",
+      "doubt_after": false,
+      "unanswered_after": 0
+    },
+    {
+      "asked": "anchor",
+      "doubt": true,
+      "unanswered": 0,
+      "asked_heard": false,
+      "others_heard": true,
+      "anchor_now": "other",
+      "attached_before": false,
+      "does": "reattaches",
+      "doubt_after": false,
+      "unanswered_after": 0
+    },
+    {
+      "asked": "anchor",
+      "doubt": true,
+      "unanswered": 0,
+      "asked_heard": false,
+      "others_heard": true,
+      "anchor_now": "attached",
+      "attached_before": true,
+      "does": "moved",
+      "doubt_after": false,
+      "unanswered_after": 0
+    },
+    {
+      "asked": "anchor",
+      "doubt": true,
+      "unanswered": 0,
+      "asked_heard": false,
+      "others_heard": true,
+      "anchor_now": null,
+      "attached_before": true,
+      "does": "moved",
+      "doubt_after": false,
+      "unanswered_after": 0
+    },
+    {
+      "asked": "anchor",
+      "doubt": true,
+      "unanswered": 1,
+      "asked_heard": false,
+      "others_heard": false,
+      "anchor_now": "other",
+      "attached_before": true,
+      "does": "waits",
+      "doubt_after": false,
+      "unanswered_after": 2
+    },
+    {
+      "asked": "another",
+      "doubt": true,
+      "unanswered": 0,
+      "asked_heard": false,
+      "others_heard": true,
+      "anchor_now": "other",
+      "attached_before": true,
+      "does": "moved",
+      "doubt_after": false,
+      "unanswered_after": 0
+    },
+    {
+      "asked": null,
+      "doubt": false,
+      "unanswered": 0,
+      "asked_heard": false,
+      "others_heard": true,
+      "anchor_now": "other",
+      "attached_before": true,
+      "does": "reattaches",
+      "doubt_after": false,
+      "unanswered_after": 0
+    },
+    {
+      "asked": null,
+      "doubt": false,
+      "unanswered": 0,
+      "asked_heard": false,
+      "others_heard": true,
+      "anchor_now": "other",
+      "attached_before": false,
+      "does": "moved",
+      "doubt_after": false,
+      "unanswered_after": 0
+    },
+    {
+      "asked": null,
+      "doubt": false,
+      "unanswered": 1,
+      "asked_heard": false,
+      "others_heard": false,
+      "anchor_now": null,
+      "attached_before": false,
+      "does": "waits",
+      "doubt_after": false,
+      "unanswered_after": 2
     }
   ]
 }

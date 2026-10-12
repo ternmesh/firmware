@@ -181,6 +181,66 @@ def main():
     ]
     L.append("};")
 
+    L.append("static const struct solicit_case solicits[] = {")
+    L += [
+        f"    {{{{{c['sender']}u, {c['id']}, {c['after']}u, {c['power']}}}, {hexbytes(c['frame'])}}},"
+        for c in v["solicits"]
+    ]
+    L.append("};")
+
+    L.append("static const struct answer_case answers[] = {")
+    L += [
+        f"    {{{{{c['sender']}u, {c['leaf']}u, {c['id']}, {c['margin']}, {c['power']}}}, "
+        f"{hexbytes(c['frame'])}}},"
+        for c in v["answers"]
+    ]
+    L.append("};")
+
+    L.append("static const struct listed_case listeds[] = {")
+    L += [
+        f"    {{{c['metric_field']}, {b(c['retracts'])}, {b(c['leaf'])}, {c['metric'] or 0}, "
+        f"{c['field']}}},"
+        for c in v["listed"]
+    ]
+    L.append("};")
+
+    L.append("static const struct anchor_case anchors[] = {")
+    for c in v["anchors"]:
+        rs = ", ".join(
+            f"{{{b(n['relay'])}, {b(n['up'])}, {b(n['out_of_use'])}, {n['margin_sixteenths']}, "
+            f"{n['heard_s']}, {-1 if n['promise_s'] is None else n['promise_s']}}}"
+            for n in c["relays"]
+        ) or "{0}"
+        L.append(
+            f"    {{{len(c['relays'])}, {{{rs}}}, {b(c['sparse'])}, {idx(c['anchor'])}, "
+            f"{b(c['asks'])}}},"
+        )
+    L.append("};")
+
+    L.append("static const struct answering_case answerings[] = {")
+    L += [
+        f"    {{{c['own_margin_sixteenths']}, {b(c['asked'])}, {b(c['answers'])}, "
+        f"{c['wait'] or 0}, {b(c['cancelled'])}}},"
+        for c in v["answering"]
+    ]
+    L.append("};")
+
+    asked = {"anchor": "TERN_ROUTE_ASKED_ANCHOR", "another": "TERN_ROUTE_ASKED_ANOTHER",
+             None: "TERN_ROUTE_ASKED_NONE"}
+    now = {"attached": "TERN_ROUTE_ANCHOR_ATTACHED", "other": "TERN_ROUTE_ANCHOR_OTHER",
+           None: "TERN_ROUTE_ANCHOR_NONE"}
+    does = {"settled": "TERN_ROUTE_SETTLED", "again": "TERN_ROUTE_ASK_AGAIN",
+            "waits": "TERN_ROUTE_WAITS", "moved": "TERN_ROUTE_MOVED",
+            "reattaches": "TERN_ROUTE_REATTACHES"}
+    L.append("static const struct answered_case answereds[] = {")
+    L += [
+        f"    {{{asked[c['asked']]}, {b(c['doubt'])}, {c['unanswered']}, {b(c['asked_heard'])}, "
+        f"{b(c['others_heard'])}, {now[c['anchor_now']]}, {b(c['attached_before'])}, "
+        f"{does[c['does']]}, {b(c['doubt_after'])}, {c['unanswered_after']}}},"
+        for c in v["answered"]
+    ]
+    L.append("};")
+
     with open(out, "w", encoding="utf-8") as f:
         f.write("\n".join(L) + "\n")
 

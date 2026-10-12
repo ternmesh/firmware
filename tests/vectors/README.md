@@ -91,5 +91,10 @@ them.
 signs every announce: `routing_to_c.py` carries each announce's seed and the `verified` cases,
 and `tests/route.c` signs and checks them with the core's own Ed25519.
 
+`routing.json` is since as of [ternmesh/spec#44](https://github.com/ternmesh/spec/pull/44), leaves
+that move: solicits and answers, a listed route's leaf bit, a metric of at most `0x7FFE`, the
+newer of two routes as good, and the `anchors`, `answering` and `answered` cases, which
+`routing_to_c.py` carries to `tests/route.c`.
+
 When the specification's vectors change, copy the new file here in the same pull request that
 changes the code to match, and update the commit above.
