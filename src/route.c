@@ -557,7 +557,7 @@ static void trickle_reset(struct tern_route *r) {
 /* Adds a request to those waiting to go to `next`, or folds it into one already there. They go
  * after a jitter, so the requests one change sets off share frames, and the neighbours that heard
  * the same request do not all pass it on at once. */
-static void request(struct tern_route *r, uint32_t id, uint16_t seq, uint32_t next, uint8_t hops) {
+static bool request(struct tern_route *r, uint32_t id, uint16_t seq, uint32_t next, uint8_t hops) {
     for (size_t k = 0; k < r->ask_count; k++) {
         struct tern_route_request_waiting *a = &r->asks[k];
         if (a->next == next && a->destination == id) {
@@ -565,11 +565,11 @@ static void request(struct tern_route *r, uint32_t id, uint16_t seq, uint32_t ne
                 a->seq = seq;
             }
             a->hops = hops > a->hops ? hops : a->hops;
-            return;
+            return true;
         }
     }
     if (r->ask_count == TERN_ROUTE_ASKS) {
-        return; /* no room: a starved node asks again */
+        return false; /* no room: a starved node asks again */
     }
     r->asks[r->ask_count++] = (struct tern_route_request_waiting){
         .next = next, .destination = id, .seq = seq, .hops = hops};
@@ -577,6 +577,7 @@ static void request(struct tern_route *r, uint32_t id, uint16_t seq, uint32_t ne
         uint64_t window = (uint64_t)r->config.jitter * (uint64_t)airtime(r, ASK_FRAME);
         r->ask_at = r->now + (tern_time)rand_below(r, window + 1);
     }
+    return true;
 }
 
 /* When a request about a destination went, in milliseconds, kept in 32 bits: odd, so that 0 is
@@ -592,15 +593,17 @@ static bool asked_within(const struct tern_route *r, const struct tern_route_des
 /* Asks about a destination: for a seq newer than the feasibility distance, of the neighbour with
  * the best of the infeasible routes, as RFC 8966 allows, so that the request goes up one path and
  * not every neighbour's; or, having never announced a route to it, for whatever route a neighbour
- * has. */
-static void ask(struct tern_route *r, struct tern_route_dest *d) {
+ * has. False if there was no room to ask. */
+static bool ask(struct tern_route *r, struct tern_route_dest *d) {
     uint16_t seq = (uint16_t)(d->fd.seq + 1), best = INF;
     uint32_t next = TERN_ROUTE_EVERYONE;
-    d->asked = stamp(r->now);
     if (!d->fd.has) {
+        if (!request(r, d->id, 0, TERN_ROUTE_EVERYONE, 0)) {
+            return false;
+        }
+        d->asked = stamp(r->now);
         d->asked_seq = 0;
-        request(r, d->id, 0, TERN_ROUTE_EVERYONE, 0);
-        return;
+        return true;
     }
     for (int i = 0; i < TERN_ROUTE_KEPT; i++) {
         const struct tern_route_entry *e = &d->e[i];
@@ -617,8 +620,13 @@ static void ask(struct tern_route *r, struct tern_route_dest *d) {
             next = slot(r, e->slot)->id;
         }
     }
+    /* Counted as asked only once there is room for it: with none, it is asked at the next turn. */
+    if (!request(r, d->id, seq, next, r->config.hop_max)) {
+        return false;
+    }
+    d->asked = stamp(r->now);
     d->asked_seq = seq;
-    request(r, d->id, seq, next, r->config.hop_max);
+    return true;
 }
 
 /* A node with routes to a destination and none feasible asks at once, unless it asked within
@@ -663,9 +671,8 @@ static void ask_again(struct tern_route *r) {
                     r->changed = false;
                 }
             }
-        } else {
+        } else if (ask(r, d)) {
             d->tries++;
-            ask(r, d);
         }
     }
     if (r->starving) {
@@ -1243,7 +1250,8 @@ bool tern_route_answers(int32_t own, bool asked, uint8_t *wait, bool *cancelled)
 enum tern_route_answered tern_route_answered(enum tern_route_asked asked, bool *doubt,
                                              uint8_t *unanswered, bool asked_heard,
                                              bool others_heard,
-                                             enum tern_route_anchor_now anchor_now, bool attached) {
+                                             enum tern_route_anchor_now anchor_now, bool attached,
+                                             bool anchor_silent) {
     bool first;
     if (asked != TERN_ROUTE_ASKED_NONE && asked_heard) {
         *doubt = false;
@@ -1264,7 +1272,10 @@ enum tern_route_answered tern_route_answered(enum tern_route_asked asked, bool *
     *unanswered = 0;
     /* Having asked after none and never re-attached, the routes to it can lead nowhere else. */
     first = asked == TERN_ROUTE_ASKED_NONE && !attached;
-    return asked != TERN_ROUTE_ASKED_ANOTHER && anchor_now == TERN_ROUTE_ANCHOR_OTHER && !first
+    /* Re-attached too when the anchor it had when it asked another has gone silent with the rest.
+     */
+    return (asked != TERN_ROUTE_ASKED_ANOTHER || anchor_silent) &&
+                   anchor_now == TERN_ROUTE_ANCHOR_OTHER && !first
                ? TERN_ROUTE_REATTACHES
                : TERN_ROUTE_MOVED;
 }
@@ -1304,13 +1315,14 @@ static void heard_from(struct tern_route *r, uint8_t s, int8_t power, int16_t sn
     back_in_use(r, s);
 }
 
-/* A leaf wants to ask after the relay `after`, its anchor if `anchored`: at once, unless a solicit
- * waits on its answers or the last went within SOLICIT_GAP. While one is wanted or waits, the
- * relay it asks after stays the one it was. */
-static void want_solicit(struct tern_route *r, uint32_t after, bool anchored) {
+/* A leaf wants to ask after the relay `after`, its anchor being `anchor` (0 for none): at once,
+ * unless a solicit waits on its answers or the last went within SOLICIT_GAP. While one is wanted
+ * or waits, the relay it asks after stays the one it was. */
+static void want_solicit(struct tern_route *r, uint32_t after, uint32_t anchor) {
     if (!r->solicit_wanted && r->solicited < 0 && !r->solicit_out) {
         r->after = after;
-        r->after_anchor = anchored;
+        r->after_anchor = anchor == after;
+        r->asked_anchor = anchor;
     }
     r->solicit_wanted = true;
     if (r->solicited < 0 && !r->solicit_out) {
@@ -1321,7 +1333,7 @@ static void want_solicit(struct tern_route *r, uint32_t after, bool anchored) {
 
 /* The answers to a leaf's solicit are in. Returns whether it asks again at once. */
 static bool settle(struct tern_route *r) {
-    uint8_t w = r->after == TERN_ROUTE_EVERYONE ? 0 : slot_of(r, r->after), now_at = 0;
+    uint8_t w = r->after == TERN_ROUTE_EVERYONE ? 0 : slot_of(r, r->after), now_at = 0, anchor;
     bool others = false, moved;
     /* A relay asked after and since forgotten, its place given to another, was still asked after:
      * the routes to this leaf may lead there. */
@@ -1343,12 +1355,16 @@ static bool settle(struct tern_route *r) {
             now_at = (uint8_t)(i + 1);
         }
     }
+    /* The anchor it had when it asked, if not the relay asked after: silent too, it has moved. */
+    anchor = r->asked_anchor && r->asked_anchor != r->after ? slot_of(r, r->asked_anchor) : 0;
     does = tern_route_answered(asked, &r->doubt, &r->unanswered,
                                w && slot(r, w)->heard >= r->solicited, others,
                                !now_at                              ? TERN_ROUTE_ANCHOR_NONE
                                : slot(r, now_at)->id == r->attached ? TERN_ROUTE_ANCHOR_ATTACHED
                                                                     : TERN_ROUTE_ANCHOR_OTHER,
-                               r->attached != 0);
+                               r->attached != 0,
+                               r->asked_anchor && r->asked_anchor != r->after &&
+                                   !(anchor && slot(r, anchor)->heard >= r->solicited));
     moved = does == TERN_ROUTE_MOVED || does == TERN_ROUTE_REATTACHES;
     for (size_t i = 0; moved && i < r->nb_cap; i++) {
         const struct tern_route_neighbour *n = &r->nb[i];
@@ -1392,6 +1408,7 @@ static void attach(struct tern_route *r) {
         r->solicit_wanted = true;
         r->after = a ? slot(r, a)->id : TERN_ROUTE_EVERYONE;
         r->after_anchor = a != 0;
+        r->asked_anchor = a ? slot(r, a)->id : 0;
     }
     if (r->solicited < 0 && r->solicit_wanted &&
         (again || r->solicit_last < 0 || t - r->solicit_last >= SOLICIT_GAP)) {
@@ -1990,7 +2007,7 @@ void tern_route_lost(struct tern_route *r, tern_time now, uint32_t neighbour) {
         uint8_t a = anchor_slot(r, &sparse, NULL);
         if (sparse) {
             take_out_of_use(r, s);
-            want_solicit(r, n->id, a == s);
+            want_solicit(r, n->id, a ? slot(r, a)->id : 0);
         }
     }
     if (r->config.dead_hops && n->lost >= r->config.dead_hops) {

@@ -249,7 +249,7 @@ def main():
         L.append(
             f"    {{{asked[c['asked']]}, {b(c['doubt'])}, {c['unanswered']}, {b(c['asked_heard'])}, "
             f"{b(c['others_heard'])}, {now[c['anchor_now']]}, {b(c['attached_before'])}, "
-            f"{does[c['does']]}, {b(c['doubt_after'])}, {c['unanswered_after']}, "
+            f"{b(c['anchor_heard'] is False)}, {does[c['does']]}, {b(c['doubt_after'])}, {c['unanswered_after']}, "
             f"{len(c['relays'])}, {{{rs}}}}},"
         )
     L.append("};")
@@ -300,8 +300,10 @@ def main():
     L += [
         f"    {{{json.dumps(c['kind'])}, {b(c['leaf'])}, {b(c['relay'])}, {b(c['kept'])}, "
         f"{c['floor_sixteenths'] or 0}, {c['their_margin'] or 0}, {b(c['up'])}, "
+        f"{b(c['out_of_use'])}, "
         f"{c['full_power']}, {c['power']}, {c['snr_quarter_db']}, {c['margin'] or 0}, "
         f"{c['floor_after'] or 0}, {c['their_margin_after'] or 0}, {b(c['up_after'])}, "
+        f"{b(c['out_of_use_after'])}, "
         f"{b(c['answer_margin'] is not None)}, {c['answer_margin'] or 0}, "
         f"{c['answer_power'] or 0}}},"
         for c in v["samples"]

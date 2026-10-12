@@ -1,5 +1,5 @@
 {
-  "description": "Routing, draft 0 (draft/routing.md). Routing ids, sequence numbers, promise codes and metrics are numbers; addresses and frames are hex. In floors, powers are dBm, snr_quarter_db is the signal-to-noise ratio in quarters of a decibel, as the SX126x reports it, and floor_sixteenths is the floor in sixteenths of a dBm. In links, own_margin_sixteenths is the node's full power less its floor for the neighbour, in sixteenths of a decibel, and their_margin is the margin byte the neighbour gave; either is null when it is missing, and the steps follow one another. In places, neighbours is a full table, each with the node's floor for it, whether its link is up and whether it is out of use, floor_sixteenths is the floor an announce from a node not in it gives, and replaces is an index into neighbours. In selection and kept, each route's metric is the one its neighbour announced, every link costs link_cost, and selected, selects and replaces are indexes into routes. In defaults, each neighbour's out_of_use says whether it is out of use, tried and next are indexes into neighbours, busy_ppm is the leaf's busy share in millionths, and metric is the default route's. Each announce is signed with seed, whose address is address, and carries the address in the frame if carries_address is true. A rejected frame MUST be discarded whether or not the receiver holds its sender's address. In verified, announce is an index into announces, held_address is the address the receiver holds for its sender (null for none), takes whether it takes the announce rather than discarding it, and holds_address the address it then holds for the sender, if the rest of the section then takes the announce from a neighbour. In listed, metric_field is a listed route's metric as it goes on the air, retracts whether it retracts the route, leaf and metric what it says otherwise (null for a retraction), and field what a node writes for them. In anchors, each of relays is a neighbour of a leaf, relay saying whether it is one, with whether its link is up, whether it is out of use, its link's margin in sixteenths of a decibel, the seconds since it was heard and its promise in seconds (null for none); sparse is whether the leaf solicits there, anchor an index into relays (null for none), and asks whether it asks after it on its SOLICIT_GAP. In answering, own_margin_sixteenths is the relay's full power less its floor for the leaf, asked whether the solicit asks after it, wait the most its answer waits in airtimes of the answer (null if it does not answer), and cancelled whether others' answers cancel it. In answered, asked is the relay the leaf asked after, its anchor when it asked, another or null for none; asked_heard and others_heard whether it heard from that relay and from any other in SOLICIT_WAIT; anchor_now whether its anchor now is the one it last re-attached to, another, or null for none; attached_before whether it has re-attached before; does is settled, again, waits, moved or reattaches. In leaves, relay is what the destination's own last announce said of its role (null if the node does not keep it as a neighbour), listed whether each route the node holds to it was listed as one to a leaf, selected an index into listed (null for none), was what the node took before, and leaf what it takes now. In selection, a route whose usable is false goes through a neighbour the node may not use: its link is down or it is out of use. In powers, a node, a leaf or not, with the neighbours given, each with its floor and whether it is out of use, and with the lowest and full power given in dBm, sends a frame for every neighbour at power. In answered, relays are the leaf's relay neighbours, the one asked after first if any, each with whether its link is up, whether it was out of use, whether the leaf heard from it in SOLICIT_WAIT, and whether it is out of use after. In given_up, relays are a leaf's neighbours as in anchors, at the index of the one hops hops in a row are given up at, out_of_use_after whether each is then out of use, asks whether the leaf then asks, after the index it asks after (null for none) and anchored whether that was its anchor. In elsewhere, a node keeps a neighbour whose link is up or not, out of use or not and a relay or not, whose own last announce gave own_seq, and another neighbour offers a route to it at offered_seq, a retraction or not; out_of_use_after is whether the first is then out of use. In samples, a node, a leaf or not, keeps a neighbour, a relay or not, with floor_sixteenths, their_margin (0 for none) and its link up or not, and hears from it a solicit or an answer (an answer to me is one for this node) sent at power, heard at snr_quarter_db at SF9, with margin; its full power is full_power, and the floor, the margin and the link are then the ones after; a relay that answers a solicit answers with answer_margin at answer_power, both null where it does not answer. Where kept is false the node does not keep the sender, and takes nothing from the frame: it keeps no neighbour for it and answers nothing.",
+  "description": "Routing, draft 0 (draft/routing.md). Routing ids, sequence numbers, promise codes and metrics are numbers; addresses and frames are hex. In floors, powers are dBm, snr_quarter_db is the signal-to-noise ratio in quarters of a decibel, as the SX126x reports it, and floor_sixteenths is the floor in sixteenths of a dBm. In links, own_margin_sixteenths is the node's full power less its floor for the neighbour, in sixteenths of a decibel, and their_margin is the margin byte the neighbour gave; either is null when it is missing, and the steps follow one another. In places, neighbours is a full table, each with the node's floor for it, whether its link is up and whether it is out of use, floor_sixteenths is the floor an announce from a node not in it gives, and replaces is an index into neighbours. In selection and kept, each route's metric is the one its neighbour announced, every link costs link_cost, and selected, selects and replaces are indexes into routes. In defaults, each neighbour's out_of_use says whether it is out of use, tried and next are indexes into neighbours, busy_ppm is the leaf's busy share in millionths, and metric is the default route's. Each announce is signed with seed, whose address is address, and carries the address in the frame if carries_address is true. A rejected frame MUST be discarded whether or not the receiver holds its sender's address. In verified, announce is an index into announces, held_address is the address the receiver holds for its sender (null for none), takes whether it takes the announce rather than discarding it, and holds_address the address it then holds for the sender, if the rest of the section then takes the announce from a neighbour. In listed, metric_field is a listed route's metric as it goes on the air, retracts whether it retracts the route, leaf and metric what it says otherwise (null for a retraction), and field what a node writes for them. In anchors, each of relays is a neighbour of a leaf, relay saying whether it is one, with whether its link is up, whether it is out of use, its link's margin in sixteenths of a decibel, the seconds since it was heard and its promise in seconds (null for none); sparse is whether the leaf solicits there, anchor an index into relays (null for none), and asks whether it asks after it on its SOLICIT_GAP. In answering, own_margin_sixteenths is the relay's full power less its floor for the leaf, asked whether the solicit asks after it, wait the most its answer waits in airtimes of the answer (null if it does not answer), and cancelled whether others' answers cancel it. In answered, asked is the relay the leaf asked after, its anchor when it asked, another or null for none; asked_heard and others_heard whether it heard from that relay and from any other in SOLICIT_WAIT; anchor_now whether its anchor now is the one it last re-attached to, another, or null for none; attached_before whether it has re-attached before; does is settled, again, waits, moved or reattaches. In leaves, relay is what the destination's own last announce said of its role (null if the node does not keep it as a neighbour), listed whether each route the node holds to it was listed as one to a leaf, selected an index into listed (null for none), was what the node took before, and leaf what it takes now. In selection, a route whose usable is false goes through a neighbour the node may not use: its link is down or it is out of use. In powers, a node, a leaf or not, with the neighbours given, each with its floor and whether it is out of use, and with the lowest and full power given in dBm, sends a frame for every neighbour at power. In answered, relays are the leaf's relay neighbours, the one asked after first if any, each with whether its link is up, whether it was out of use, whether the leaf heard from it in SOLICIT_WAIT, and whether it is out of use after. In given_up, relays are a leaf's neighbours as in anchors, at the index of the one hops hops in a row are given up at, out_of_use_after whether each is then out of use, asks whether the leaf then asks, after the index it asks after (null for none) and anchored whether that was its anchor. In elsewhere, a node keeps a neighbour whose link is up or not, out of use or not and a relay or not, whose own last announce gave own_seq, and another neighbour offers a route to it at offered_seq, a retraction or not; out_of_use_after is whether the first is then out of use. In samples, a node, a leaf or not, keeps a neighbour, a relay or not, with floor_sixteenths, their_margin (0 for none) and its link up or not, and hears from it a solicit or an answer (an answer to me is one for this node) sent at power, heard at snr_quarter_db at SF9, with margin; its full power is full_power, and the floor, the margin and the link are then the ones after; a relay that answers a solicit answers with answer_margin at answer_power, both null where it does not answer. Where kept is false the node does not keep the sender, and takes nothing from the frame: it keeps no neighbour for it and answers nothing. out_of_use and out_of_use_after say whether the neighbour is out of use before and after: heard from, it is in use again. In answered, anchor_heard, where the leaf asked after a relay that was not its anchor, says whether it heard from the relay that was (null where there was none, or the anchor is the one asked after), and that relay is among relays.",
   "generator": "vectors/tools/routing.py",
   "ids": [
     {
@@ -2982,6 +2982,7 @@
       "others_heard": true,
       "anchor_now": "attached",
       "attached_before": true,
+      "anchor_heard": null,
       "relays": [
         {
           "up": true,
@@ -2992,6 +2993,12 @@
         {
           "up": true,
           "out_of_use": false,
+          "heard": true,
+          "out_of_use_after": false
+        },
+        {
+          "up": true,
+          "out_of_use": true,
           "heard": true,
           "out_of_use_after": false
         },
@@ -3026,6 +3033,7 @@
       "others_heard": false,
       "anchor_now": "attached",
       "attached_before": true,
+      "anchor_heard": null,
       "relays": [
         {
           "up": true,
@@ -3064,6 +3072,7 @@
       "others_heard": true,
       "anchor_now": "other",
       "attached_before": true,
+      "anchor_heard": null,
       "relays": [
         {
           "up": true,
@@ -3074,6 +3083,12 @@
         {
           "up": true,
           "out_of_use": false,
+          "heard": true,
+          "out_of_use_after": false
+        },
+        {
+          "up": true,
+          "out_of_use": true,
           "heard": true,
           "out_of_use_after": false
         },
@@ -3108,6 +3123,7 @@
       "others_heard": false,
       "anchor_now": null,
       "attached_before": true,
+      "anchor_heard": null,
       "relays": [
         {
           "up": true,
@@ -3146,6 +3162,7 @@
       "others_heard": false,
       "anchor_now": null,
       "attached_before": true,
+      "anchor_heard": null,
       "relays": [
         {
           "up": true,
@@ -3184,6 +3201,7 @@
       "others_heard": true,
       "anchor_now": "other",
       "attached_before": true,
+      "anchor_heard": null,
       "relays": [
         {
           "up": true,
@@ -3194,6 +3212,12 @@
         {
           "up": true,
           "out_of_use": false,
+          "heard": true,
+          "out_of_use_after": false
+        },
+        {
+          "up": true,
+          "out_of_use": true,
           "heard": true,
           "out_of_use_after": false
         },
@@ -3228,6 +3252,7 @@
       "others_heard": true,
       "anchor_now": "other",
       "attached_before": false,
+      "anchor_heard": null,
       "relays": [
         {
           "up": true,
@@ -3238,6 +3263,12 @@
         {
           "up": true,
           "out_of_use": false,
+          "heard": true,
+          "out_of_use_after": false
+        },
+        {
+          "up": true,
+          "out_of_use": true,
           "heard": true,
           "out_of_use_after": false
         },
@@ -3272,6 +3303,7 @@
       "others_heard": true,
       "anchor_now": "attached",
       "attached_before": true,
+      "anchor_heard": null,
       "relays": [
         {
           "up": true,
@@ -3282,6 +3314,12 @@
         {
           "up": true,
           "out_of_use": false,
+          "heard": true,
+          "out_of_use_after": false
+        },
+        {
+          "up": true,
+          "out_of_use": true,
           "heard": true,
           "out_of_use_after": false
         },
@@ -3316,6 +3354,7 @@
       "others_heard": true,
       "anchor_now": null,
       "attached_before": true,
+      "anchor_heard": null,
       "relays": [
         {
           "up": true,
@@ -3326,6 +3365,12 @@
         {
           "up": true,
           "out_of_use": false,
+          "heard": true,
+          "out_of_use_after": false
+        },
+        {
+          "up": true,
+          "out_of_use": true,
           "heard": true,
           "out_of_use_after": false
         },
@@ -3360,6 +3405,7 @@
       "others_heard": false,
       "anchor_now": "other",
       "attached_before": true,
+      "anchor_heard": null,
       "relays": [
         {
           "up": true,
@@ -3398,6 +3444,7 @@
       "others_heard": true,
       "anchor_now": "other",
       "attached_before": true,
+      "anchor_heard": null,
       "relays": [
         {
           "up": true,
@@ -3408,6 +3455,12 @@
         {
           "up": true,
           "out_of_use": false,
+          "heard": true,
+          "out_of_use_after": false
+        },
+        {
+          "up": true,
+          "out_of_use": true,
           "heard": true,
           "out_of_use_after": false
         },
@@ -3442,10 +3495,17 @@
       "others_heard": true,
       "anchor_now": "other",
       "attached_before": true,
+      "anchor_heard": null,
       "relays": [
         {
           "up": true,
           "out_of_use": false,
+          "heard": true,
+          "out_of_use_after": false
+        },
+        {
+          "up": true,
+          "out_of_use": true,
           "heard": true,
           "out_of_use_after": false
         },
@@ -3480,10 +3540,17 @@
       "others_heard": true,
       "anchor_now": "other",
       "attached_before": false,
+      "anchor_heard": null,
       "relays": [
         {
           "up": true,
           "out_of_use": false,
+          "heard": true,
+          "out_of_use_after": false
+        },
+        {
+          "up": true,
+          "out_of_use": true,
           "heard": true,
           "out_of_use_after": false
         },
@@ -3518,6 +3585,7 @@
       "others_heard": false,
       "anchor_now": null,
       "attached_before": false,
+      "anchor_heard": null,
       "relays": [
         {
           "up": true,
@@ -3550,6 +3618,7 @@
       "others_heard": true,
       "anchor_now": "other",
       "attached_before": true,
+      "anchor_heard": null,
       "relays": [
         {
           "up": true,
@@ -3560,6 +3629,12 @@
         {
           "up": true,
           "out_of_use": false,
+          "heard": true,
+          "out_of_use_after": false
+        },
+        {
+          "up": true,
+          "out_of_use": true,
           "heard": true,
           "out_of_use_after": false
         },
@@ -3594,10 +3669,17 @@
       "others_heard": true,
       "anchor_now": "other",
       "attached_before": true,
+      "anchor_heard": null,
       "relays": [
         {
           "up": true,
           "out_of_use": false,
+          "heard": true,
+          "out_of_use_after": false
+        },
+        {
+          "up": true,
+          "out_of_use": true,
           "heard": true,
           "out_of_use_after": false
         },
@@ -3621,6 +3703,165 @@
         }
       ],
       "does": "reattaches",
+      "doubt_after": false,
+      "unanswered_after": 0
+    },
+    {
+      "asked": "another",
+      "doubt": true,
+      "unanswered": 0,
+      "asked_heard": false,
+      "others_heard": true,
+      "anchor_now": "other",
+      "attached_before": true,
+      "anchor_heard": false,
+      "relays": [
+        {
+          "up": true,
+          "out_of_use": true,
+          "heard": false,
+          "out_of_use_after": true
+        },
+        {
+          "up": true,
+          "out_of_use": false,
+          "heard": false,
+          "out_of_use_after": true
+        },
+        {
+          "up": true,
+          "out_of_use": false,
+          "heard": true,
+          "out_of_use_after": false
+        },
+        {
+          "up": true,
+          "out_of_use": true,
+          "heard": true,
+          "out_of_use_after": false
+        },
+        {
+          "up": true,
+          "out_of_use": false,
+          "heard": false,
+          "out_of_use_after": true
+        },
+        {
+          "up": true,
+          "out_of_use": true,
+          "heard": false,
+          "out_of_use_after": true
+        },
+        {
+          "up": false,
+          "out_of_use": false,
+          "heard": false,
+          "out_of_use_after": false
+        }
+      ],
+      "does": "reattaches",
+      "doubt_after": false,
+      "unanswered_after": 0
+    },
+    {
+      "asked": "another",
+      "doubt": true,
+      "unanswered": 0,
+      "asked_heard": false,
+      "others_heard": true,
+      "anchor_now": "other",
+      "attached_before": true,
+      "anchor_heard": true,
+      "relays": [
+        {
+          "up": true,
+          "out_of_use": true,
+          "heard": false,
+          "out_of_use_after": true
+        },
+        {
+          "up": true,
+          "out_of_use": false,
+          "heard": true,
+          "out_of_use_after": false
+        },
+        {
+          "up": true,
+          "out_of_use": false,
+          "heard": true,
+          "out_of_use_after": false
+        },
+        {
+          "up": true,
+          "out_of_use": true,
+          "heard": true,
+          "out_of_use_after": false
+        },
+        {
+          "up": true,
+          "out_of_use": false,
+          "heard": false,
+          "out_of_use_after": true
+        },
+        {
+          "up": true,
+          "out_of_use": true,
+          "heard": false,
+          "out_of_use_after": true
+        },
+        {
+          "up": false,
+          "out_of_use": false,
+          "heard": false,
+          "out_of_use_after": false
+        }
+      ],
+      "does": "moved",
+      "doubt_after": false,
+      "unanswered_after": 0
+    },
+    {
+      "asked": "another",
+      "doubt": false,
+      "unanswered": 0,
+      "asked_heard": true,
+      "others_heard": false,
+      "anchor_now": "attached",
+      "attached_before": true,
+      "anchor_heard": true,
+      "relays": [
+        {
+          "up": true,
+          "out_of_use": true,
+          "heard": true,
+          "out_of_use_after": false
+        },
+        {
+          "up": true,
+          "out_of_use": false,
+          "heard": true,
+          "out_of_use_after": false
+        },
+        {
+          "up": true,
+          "out_of_use": false,
+          "heard": false,
+          "out_of_use_after": false
+        },
+        {
+          "up": true,
+          "out_of_use": true,
+          "heard": false,
+          "out_of_use_after": true
+        },
+        {
+          "up": false,
+          "out_of_use": false,
+          "heard": false,
+          "out_of_use_after": false
+        }
+      ],
+      "does": "settled",
       "doubt_after": false,
       "unanswered_after": 0
     }
@@ -4459,6 +4700,7 @@
       "floor_sixteenths": -320,
       "their_margin": 0,
       "up": false,
+      "out_of_use": false,
       "full_power": 22,
       "power": 14,
       "snr_quarter_db": 0,
@@ -4466,6 +4708,7 @@
       "floor_after": -234,
       "their_margin_after": 140,
       "up_after": true,
+      "out_of_use_after": false,
       "answer_margin": null,
       "answer_power": null
     },
@@ -4477,6 +4720,7 @@
       "floor_sixteenths": -320,
       "their_margin": 0,
       "up": false,
+      "out_of_use": false,
       "full_power": 22,
       "power": 14,
       "snr_quarter_db": 0,
@@ -4484,6 +4728,7 @@
       "floor_after": -234,
       "their_margin_after": 127,
       "up_after": false,
+      "out_of_use_after": false,
       "answer_margin": null,
       "answer_power": null
     },
@@ -4495,6 +4740,7 @@
       "floor_sixteenths": -320,
       "their_margin": 0,
       "up": false,
+      "out_of_use": false,
       "full_power": 22,
       "power": 14,
       "snr_quarter_db": 0,
@@ -4502,6 +4748,7 @@
       "floor_after": -234,
       "their_margin_after": 0,
       "up_after": false,
+      "out_of_use_after": false,
       "answer_margin": null,
       "answer_power": null
     },
@@ -4513,6 +4760,7 @@
       "floor_sixteenths": -320,
       "their_margin": 0,
       "up": false,
+      "out_of_use": false,
       "full_power": 22,
       "power": 14,
       "snr_quarter_db": 0,
@@ -4520,6 +4768,7 @@
       "floor_after": -234,
       "their_margin_after": 0,
       "up_after": false,
+      "out_of_use_after": false,
       "answer_margin": null,
       "answer_power": null
     },
@@ -4531,6 +4780,7 @@
       "floor_sixteenths": -320,
       "their_margin": 130,
       "up": true,
+      "out_of_use": false,
       "full_power": 22,
       "power": 14,
       "snr_quarter_db": -40,
@@ -4538,6 +4788,7 @@
       "floor_after": -194,
       "their_margin_after": 130,
       "up_after": true,
+      "out_of_use_after": false,
       "answer_margin": null,
       "answer_power": null
     },
@@ -4549,6 +4800,7 @@
       "floor_sixteenths": -320,
       "their_margin": 135,
       "up": true,
+      "out_of_use": false,
       "full_power": 22,
       "power": 22,
       "snr_quarter_db": -50,
@@ -4556,6 +4808,7 @@
       "floor_after": -152,
       "their_margin_after": 135,
       "up_after": true,
+      "out_of_use_after": false,
       "answer_margin": 159,
       "answer_power": 1
     },
@@ -4567,6 +4820,7 @@
       "floor_sixteenths": 480,
       "their_margin": 135,
       "up": true,
+      "out_of_use": false,
       "full_power": 22,
       "power": 22,
       "snr_quarter_db": -50,
@@ -4574,8 +4828,69 @@
       "floor_after": 448,
       "their_margin_after": 135,
       "up_after": false,
+      "out_of_use_after": false,
       "answer_margin": null,
       "answer_power": null
+    },
+    {
+      "kind": "answer to me",
+      "leaf": true,
+      "relay": true,
+      "kept": true,
+      "floor_sixteenths": -320,
+      "their_margin": 140,
+      "up": true,
+      "out_of_use": true,
+      "full_power": 22,
+      "power": 14,
+      "snr_quarter_db": 0,
+      "margin": 140,
+      "floor_after": -234,
+      "their_margin_after": 140,
+      "up_after": true,
+      "out_of_use_after": false,
+      "answer_margin": null,
+      "answer_power": null
+    },
+    {
+      "kind": "answer to another",
+      "leaf": true,
+      "relay": true,
+      "kept": true,
+      "floor_sixteenths": -320,
+      "their_margin": 130,
+      "up": true,
+      "out_of_use": true,
+      "full_power": 22,
+      "power": 14,
+      "snr_quarter_db": -40,
+      "margin": 200,
+      "floor_after": -194,
+      "their_margin_after": 130,
+      "up_after": true,
+      "out_of_use_after": false,
+      "answer_margin": null,
+      "answer_power": null
+    },
+    {
+      "kind": "solicit",
+      "leaf": false,
+      "relay": false,
+      "kept": true,
+      "floor_sixteenths": -320,
+      "their_margin": 135,
+      "up": true,
+      "out_of_use": true,
+      "full_power": 22,
+      "power": 22,
+      "snr_quarter_db": -50,
+      "margin": null,
+      "floor_after": -152,
+      "their_margin_after": 135,
+      "up_after": true,
+      "out_of_use_after": false,
+      "answer_margin": 159,
+      "answer_power": 1
     },
     {
       "kind": "solicit",
@@ -4585,6 +4900,8 @@
       "floor_sixteenths": null,
       "their_margin": null,
       "up": null,
+      "out_of_use": null,
+      "out_of_use_after": null,
       "full_power": 22,
       "power": 14,
       "snr_quarter_db": 0,
@@ -4603,6 +4920,8 @@
       "floor_sixteenths": null,
       "their_margin": null,
       "up": null,
+      "out_of_use": null,
+      "out_of_use_after": null,
       "full_power": 22,
       "power": 14,
       "snr_quarter_db": 0,

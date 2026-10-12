@@ -153,13 +153,14 @@ struct answered_case {
     bool asked_heard, others_heard;
     enum tern_route_anchor_now anchor_now;
     bool attached;
+    bool anchor_silent; /* anchor_heard false */
     enum tern_route_answered does;
     bool doubt_after;
     uint8_t unanswered_after;
     int n;
     struct {
         bool up, out_of_use, heard, after;
-    } relays[5];
+    } relays[8];
 };
 struct given_case {
     int n;
@@ -184,13 +185,13 @@ struct sample_case {
     bool leaf, relay, kept;
     int32_t floor;
     uint8_t theirs;
-    bool up;
+    bool up, out_of_use;
     int8_t full, power;
     int16_t snr_q;
     uint8_t margin;
     int32_t floor_after;
     uint8_t theirs_after;
-    bool up_after;
+    bool up_after, out_of_use_after;
     bool answers;
     uint8_t answer_margin;
     int8_t answer_power;
@@ -810,7 +811,8 @@ static void the_answers_say_whether_a_leaf_has_moved(void) {
         bool doubt = c->doubt;
         uint8_t unanswered = c->unanswered;
         CHECK_EQ_I64(tern_route_answered(c->asked, &doubt, &unanswered, c->asked_heard,
-                                         c->others_heard, c->anchor_now, c->attached),
+                                         c->others_heard, c->anchor_now, c->attached,
+                                         c->anchor_silent),
                      c->does);
         CHECK(doubt == c->doubt_after);
         CHECK_EQ_U64(unanswered, c->unanswered_after);
@@ -914,6 +916,7 @@ static void solicits_and_answers_are_heard_as_announces_are(void) {
                                               .floor = c->floor,
                                               .theirs = c->theirs,
                                               .up = c->up,
+                                              .out_of_use = c->out_of_use,
                                               .number = 1};
         if (strcmp(c->kind, "solicit") == 0) {
             len = tern_solicit_write(
@@ -930,6 +933,7 @@ static void solicits_and_answers_are_heard_as_announces_are(void) {
             CHECK_EQ_I64(nb[0].floor, c->floor_after);
             CHECK_EQ_U64(nb[0].theirs, c->theirs_after);
             CHECK(nb[0].up == c->up_after);
+            CHECK(nb[0].out_of_use == c->out_of_use_after);
         }
         /* And what a relay answers a solicit with, once its wait is over. */
         {
@@ -979,6 +983,52 @@ static void a_frame_for_every_neighbour_reaches_the_nearest_in_use(void) {
     }
 }
 
+/* A relay that loses its routes to more leaves at once than its requests have room for: those it
+ * could not ask about are not retracted as though it had, but asked about at the next interval. */
+static void a_request_with_no_room_is_not_counted_as_sent(void) {
+    struct tern_lora lora = tern_region_lora(tern_region(TERN_REGION_US915));
+    struct tern_route_config config = tern_route_defaults(&lora, 22, -9, true);
+    struct tern_route_neighbour nb[2];
+    static struct tern_route_dest dest[24];
+    struct tern_route r;
+    uint8_t frame[TERN_ROUTE_FRAME_MAX];
+    int8_t dbm;
+    int held = 0;
+    tern_route_init(&r, &config, VECTOR_OWN_ID, nb, 2, dest, 24, 0, 1, 0);
+    nb[0] = (struct tern_route_neighbour){.id = 0x100,
+                                          .used = true,
+                                          .relay = true,
+                                          .up = true,
+                                          .theirs = 200,
+                                          .floor = -320,
+                                          .number = 1,
+                                          .promise = TERN_ROUTE_NO_PROMISE};
+    for (int k = 0; k < 20; k++) {
+        dest[k] = (struct tern_route_dest){.id = 0x200u + (uint32_t)k,
+                                           .used = true,
+                                           .leaf = true,
+                                           .advertised = true,
+                                           .sel = 1,
+                                           .adv_seq = 1,
+                                           .adv_metric = 140,
+                                           .fd = {true, 1, 140}};
+        dest[k].e[0] = (struct tern_route_entry){.slot = 1, .leaf = true, .seq = 1, .metric = 70};
+    }
+    r.selected = 20;
+    for (int k = 0; k < 24; k++) { /* DEAD_HOPS: the relay behind them is forgotten */
+        tern_route_lost(&r, TERN_S(1), 0x100);
+    }
+    for (tern_time t = TERN_S(12); t <= TERN_S(23); t += TERN_S(11)) {
+        while (tern_route_poll(&r, t, frame, &dbm) != 0) {
+            tern_route_sent(&r, t);
+        }
+    }
+    for (int k = 0; k < 20; k++) {
+        held += dest[k].held;
+    }
+    CHECK_EQ_I64(held, 20 - TERN_ROUTE_ASKS);
+}
+
 int main(void) {
     RUN(ids_come_from_addresses);
     RUN(a_leaf_with_no_route_takes_its_nearest_relay);
@@ -1012,5 +1062,6 @@ int main(void) {
     RUN(hops_given_up_at_a_relay_take_it_out_of_use_and_ask);
     RUN(a_leaf_heard_of_elsewhere_goes_out_of_use);
     RUN(solicits_and_answers_are_heard_as_announces_are);
+    RUN(a_request_with_no_room_is_not_counted_as_sent);
     return CHECK_DONE();
 }

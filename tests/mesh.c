@@ -823,6 +823,36 @@ static void a_solicit_is_answered_from_when_it_goes(void) {
     CHECK(!net.node[2].nb[0].out_of_use && !net.node[2].nb[1].out_of_use);
 }
 
+/* A leaf gives hops up at a relay that is not its anchor, and asks after it; but it has moved from
+ * both, and a third answers. Its anchor, silent with the rest, goes out of use, and since the
+ * routes to the leaf lead there it re-attaches, though the relay it asked after was not its
+ * anchor. Relays 0, 1 and 2 in a line, leaf 3 beside relays 0 (its anchor) and 1. */
+static void a_leaf_whose_anchor_went_silent_too_re_attaches(void) {
+    uint16_t seq;
+    net_init(&net, 4);
+    net.node[3].relay = false;
+    link(&net, 0, 1, 20);
+    link(&net, 1, 2, 20);
+    link(&net, 3, 0, 30);
+    link(&net, 3, 1, 0);
+    start_all(&net);
+    run(&net, TERN_S(900));
+    CHECK_EQ_I64(hops(&net, 2, 3), 2);
+    seq = net.node[3].r.seq;
+    link(&net, 3, 0, NONE);
+    link(&net, 3, 1, NONE);
+    link(&net, 3, 2, 20);
+    run(&net, net.now + TERN_S(1200)); /* relay 2 hears the leaf, and keeps it */
+    for (int k = 0; k < 3; k++) {
+        tern_route_lost(&net.node[3].r, net.now, id_of(1));
+    }
+    run(&net, net.now + TERN_S(120));
+    CHECK(net.node[3].r.seq == (uint16_t)(seq + 1));
+    CHECK_EQ_I64(net.node[3].r.attached, id_of(2));
+    CHECK_EQ_I64(hops(&net, 0, 3), 3);
+    CHECK_EQ_I64(net.loops, 0);
+}
+
 int main(void) {
     RUN(two_nodes_find_each_other);
     RUN(a_line_is_routed_end_to_end);
@@ -846,5 +876,6 @@ int main(void) {
     RUN(a_leaf_that_becomes_a_relay_is_a_leaf_no_more);
     RUN(a_change_waiting_does_not_retract_a_route_held);
     RUN(a_solicit_is_answered_from_when_it_goes);
+    RUN(a_leaf_whose_anchor_went_silent_too_re_attaches);
     return CHECK_DONE();
 }

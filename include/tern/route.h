@@ -342,7 +342,8 @@ bool tern_route_answers(int32_t own, bool asked, uint8_t *wait, bool *cancelled)
  * already) and `unanswered` (solicits in a row with no answer at all) are the leaf's, and are
  * updated. `asked_heard` and `others_heard` say whether it heard from that relay and from any
  * other since, and `anchor_now` whether its anchor now is the one it last re-attached to, another
- * or none; `attached` whether it has re-attached before. */
+ * or none; `attached` whether it has re-attached before; and `anchor_silent`, having asked after
+ * another, whether the relay that was its anchor then was not heard from either. */
 enum tern_route_asked { TERN_ROUTE_ASKED_NONE, TERN_ROUTE_ASKED_ANCHOR, TERN_ROUTE_ASKED_ANOTHER };
 enum tern_route_anchor_now {
     TERN_ROUTE_ANCHOR_NONE,
@@ -364,7 +365,8 @@ bool tern_route_out_after(bool moved, bool up, bool out_of_use, bool heard);
 enum tern_route_answered tern_route_answered(enum tern_route_asked asked, bool *doubt,
                                              uint8_t *unanswered, bool asked_heard,
                                              bool others_heard,
-                                             enum tern_route_anchor_now anchor_now, bool attached);
+                                             enum tern_route_anchor_now anchor_now, bool attached,
+                                             bool anchor_silent);
 
 /* A default route's metric: `hops` links of `cost`, at most TERN_ROUTE_METRIC_MAX. */
 uint16_t tern_route_default_metric(uint8_t hops, uint16_t cost);
@@ -511,8 +513,9 @@ struct tern_route {
     bool solicit_out; /* a solicit handed over, not yet said to have gone */
     bool doubt;
     uint8_t unanswered;
-    uint32_t attached; /* the anchor it last re-attached to, 0 for none */
-    bool loud;         /* its next announce goes at full power, with its address */
+    uint32_t attached;     /* the anchor it last re-attached to, 0 for none */
+    uint32_t asked_anchor; /* its anchor when it asked, 0 for none */
+    bool loud;             /* its next announce goes at full power, with its address */
 
     bool out;           /* the last frame polled was an announce not yet reported sent */
     tern_time out_at;   /* when it was built */
