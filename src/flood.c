@@ -221,9 +221,13 @@ bool tern_flood_heard(struct tern_flood *f, tern_time now, const uint8_t *frame,
             }
             if (s->own) {
                 /* Passed on: a node's own, once sent, is not sent again. */
-                if (s->copies > 0 && s->state != TERN_FLOOD_OUT) {
+                if (s->copies > 0 && !(s->state == TERN_FLOOD_OUT && s->dropped)) {
                     f->counts.echoed++;
-                    s->state = TERN_FLOOD_FREE;
+                    if (s->state == TERN_FLOOD_OUT) {
+                        s->dropped = true; /* freed once the caller lets go of it */
+                    } else {
+                        s->state = TERN_FLOOD_FREE;
+                    }
                 }
                 continue;
             }
@@ -411,7 +415,6 @@ size_t tern_flood_poll(struct tern_flood *f, tern_time now, uint8_t frame[TERN_F
             if (f->budget) {
                 tern_airtime_charge(f->budget, now, s->frame[0], (bool)own, air);
             }
-            f->counts.resent += own && s->copies > 0;
             s->power = power(f);
             s->frame[2] = (uint8_t)s->power;
             s->state = TERN_FLOOD_OUT;
@@ -454,6 +457,7 @@ void tern_flood_sent(struct tern_flood *f, tern_time now, uint8_t handle) {
         return;
     }
     struct tern_flood_slot *s = &f->slot[handle];
+    f->counts.resent += s->own && s->copies > 0;
     /* A node's own that a relay should pass on is listened for; anything else is done with. */
     if (s->own && !s->dropped && f->config.resends && s->frame[1] >= 2) {
         s->copies++;

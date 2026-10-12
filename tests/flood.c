@@ -871,6 +871,23 @@ static void test_resends(void) {
     CHECK_EQ_U64(x.f.counts.resent, 2); /* let go of before it went again */
     CHECK_EQ_I64(tern_flood_due(&x.f), INT64_MAX);
 
+    /* Heard passed on while going again is with the caller: not wanted, and let go of. */
+    len = make(frame, TERN_FLOOD_GROUP_MIN, 0, 7);
+    CHECK(tern_flood_send(&x.f, now, frame, len));
+    CHECK(tern_flood_poll(&x.f, now, out, &dbm, &kind, &h) == len);
+    tern_flood_sent(&x.f, now, h);
+    now = tern_flood_due(&x.f);
+    CHECK(tern_flood_poll(&x.f, now, out, &dbm, &kind, &h) == 0);
+    now = tern_flood_due(&x.f);
+    CHECK(tern_flood_poll(&x.f, now, out, &dbm, &kind, &h) == len);
+    CHECK(tern_flood_wanted(&x.f, h));
+    CHECK(!tern_flood_heard(&x.f, now, out, len));
+    CHECK(!tern_flood_wanted(&x.f, h));
+    CHECK_EQ_U64(x.f.counts.echoed, 3);
+    tern_flood_withdrawn(&x.f, now, h);
+    CHECK_EQ_I64(tern_flood_due(&x.f), INT64_MAX);
+    CHECK_EQ_U64(x.f.counts.resent, 2); /* withdrawn, it never went */
+
     /* A flood of one hop, which no relay in a crowd passes on, is not listened for. */
     start(&x, false, 12);
     x.f.config.resends = 2;
