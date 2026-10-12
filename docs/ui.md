@@ -70,7 +70,7 @@ What it holds, as far as the drafts allow today:
 | Neighbours | who is heard, how well, how recently | — |
 | Contacts | an address, a local name, whether a session exists | a contact list; first contact settles the rest |
 | Messages | text, the contact, the time, and a delivery state | forwarding under the secured frame |
-| Airtime | what is used and what is left: the region's limit, and the node's budget | the budget is not drafted |
+| Airtime | what is used and what is left: the region's limit, and the node's budget | what is left of the budget: the companion protocol does not carry it yet ([draft/airtime.md](https://github.com/ternmesh/spec/blob/main/draft/airtime.md#not-yet-specified)) |
 | Power | battery and whether it is charging | the board |
 
 Delivery states follow the [forwarding draft](https://github.com/ternmesh/spec/blob/main/draft/forwarding.md):
@@ -99,7 +99,7 @@ On the boards Tern starts with, a 128×64 monochrome display and one button. Its
 | Messages | the latest few, newest first, with who they are from and their delivery state | one at a time; a long press shows the one before. A group's names the group, and who wrote it as far as the claimed routing id matches a contact |
 | Contact card | this node's address as a QR code and a short code to read aloud, for someone adding it | **Share**, the QR code and the short code, and **This node**, the short code and the address in hex |
 | Nearby | the nodes heard directly, with how well and how long ago | most recently heard first, seven to a screen; a long press shows the next. A node by a contact's name, else its routing id |
-| Air | the airtime account: used, allowed, and when more is free | the region's limit; the budget is not drafted |
+| Air | the airtime account: used, allowed, and when more is free | the region's limit; a message waiting for the budget says so, and how long, but what is left of it is not shown yet |
 | Mesh | routes and frame counts, for whoever is curious; the bench screen's pages, more or less | the bench pages, behind `screen bench on` |
 | Groups | the groups held, and handing one on by its join code | one at a time; a long press shows its join code as a QR code, saying beside it that whoever scans it can read the group, and another the next group. The code is the group's secret: shown only when asked for, gone with the page or a dark screen, and wiped once drawn. A name past 12 bytes is cut in the code to fit version 3, which joins the same group |
 | Phones | the phones paired, and forgetting them | the name it is seen as, "Tern" and a random tag, so a phone's list tells nodes apart; how many are bonded and whether one is connected; forgetting asks first |
@@ -179,7 +179,7 @@ the link between the node and the phone: what the node offers, and in what form.
 
 | Question | Depends on |
 |---|---|
-| How a node's airtime budget is shown, and what a user can do about it | the airtime budget, not drafted |
+| How what is left of a node's airtime budget is shown, and what a user can do about it | what a client is given of the budget, which [draft/airtime.md](https://github.com/ternmesh/spec/blob/main/draft/airtime.md#not-yet-specified) leaves open |
 | Group or broadcast messages, and whether the home screen is a channel or a list of conversations | broadcast, not drafted (forwarding.md lists it as not yet) |
 | The short code two people compare, the same in every implementation | settled: [draft/sharing.md](https://github.com/ternmesh/spec/blob/main/draft/sharing.md), shown by the Heltec V3 port |
 | Whether a node accepts first contact from a node it has no contact for | first contact |

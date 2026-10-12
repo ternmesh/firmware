@@ -57,38 +57,6 @@ uint32_t tern_flood_busy_drops(uint32_t busy_ppm, uint32_t at_ppm) {
     return (uint32_t)((uint64_t)(busy_ppm - at_ppm) * MILLION / (MILLION - at_ppm));
 }
 
-void tern_flood_bucket_init(struct tern_flood_bucket *b, uint32_t ppm, tern_time window,
-                            tern_time frame, tern_time now) {
-    b->ppm = ppm ? ppm : 1;
-    b->most = window * b->ppm > frame * MILLION ? window * b->ppm : frame * MILLION;
-    b->have = b->most;
-    b->at = now;
-}
-
-static void refill(struct tern_flood_bucket *b, tern_time now) {
-    tern_time dt = now - b->at;
-    if (dt > 0) {
-        b->have = dt >= b->most / b->ppm + 1 ? b->most : b->have + dt * b->ppm;
-        b->have = b->have > b->most ? b->most : b->have;
-        b->at = now;
-    }
-}
-
-bool tern_flood_bucket_pays(struct tern_flood_bucket *b, tern_time now, tern_time airtime) {
-    refill(b, now);
-    if (b->have < airtime * MILLION) {
-        return false;
-    }
-    b->have -= airtime * MILLION;
-    return true;
-}
-
-/* When a bucket that cannot pay for `airtime` now will be able to. */
-static tern_time pays_at(const struct tern_flood_bucket *b, tern_time airtime) {
-    int64_t short_by = airtime * MILLION - b->have;
-    return short_by <= 0 ? b->at : b->at + (short_by + b->ppm - 1) / b->ppm;
-}
-
 struct tern_flood_config tern_flood_defaults(void) {
     return (struct tern_flood_config){
         .hops = 5,
@@ -125,8 +93,8 @@ void tern_flood_init(struct tern_flood *f, const struct tern_flood_config *confi
         f->slot[i].state = TERN_FLOOD_FREE;
     }
     tern_time longest = airtime(f, TERN_FLOOD_FRAME_MAX);
-    tern_flood_bucket_init(&f->own, config->own_ppm, config->own_window, longest, now);
-    tern_flood_bucket_init(&f->relay, config->relay_ppm, config->relay_window, longest, now);
+    tern_airtime_bucket_init(&f->own, config->own_ppm, config->own_window, longest, now);
+    tern_airtime_bucket_init(&f->relay, config->relay_ppm, config->relay_window, longest, now);
 }
 
 static uint64_t rand_below(struct tern_flood *f, uint64_t n) {
@@ -194,17 +162,18 @@ static int8_t power(const struct tern_flood *f) {
 }
 
 bool tern_flood_own_room(const struct tern_flood *f, tern_time now, size_t len) {
-    struct tern_flood_bucket b = f->own; /* a copy: asking spends nothing */
-    refill(&b, now);
-    int64_t need = airtime(f, len) + airtime(f, TERN_FLOOD_FRAME_MAX);
+    struct tern_airtime_bucket b = f->own; /* a copy: asking spends nothing */
+    tern_time need = airtime(f, len) + airtime(f, TERN_FLOOD_FRAME_MAX);
     for (size_t i = 0; i < f->cap; i++) {
         const struct tern_flood_slot *s = &f->slot[i];
         if (s->own && s->state == TERN_FLOOD_WAITING) {
             need += airtime(f, s->len);
         }
     }
-    return b.have >= need * MILLION;
+    return tern_airtime_bucket_holds(&b, now, need);
 }
+
+void tern_flood_budget(struct tern_flood *f, struct tern_airtime *budget) { f->budget = budget; }
 
 bool tern_flood_send(struct tern_flood *f, tern_time now, const uint8_t *frame, size_t len) {
     struct tern_flood_slot *s;
@@ -339,6 +308,39 @@ tern_time tern_flood_due(const struct tern_flood *f) {
     return due;
 }
 
+size_t tern_flood_own_waiting(const struct tern_flood *f, struct tern_airtime_waiting *waiting,
+                              uint8_t *handles, size_t n) {
+    size_t count = 0;
+    tern_time after = INT64_MIN;
+    size_t after_i = 0;
+    /* In the order tern_flood_poll() takes them: the one that has waited longest first, and of two
+     * that have waited as long, the one in the earlier slot. */
+    while (count < n) {
+        const struct tern_flood_slot *next = NULL;
+        size_t next_i = 0;
+        for (size_t i = 0; i < f->cap; i++) {
+            const struct tern_flood_slot *s = &f->slot[i];
+            if (s->state != TERN_FLOOD_WAITING || !s->own) {
+                continue;
+            }
+            bool later = count == 0 || s->at > after || (s->at == after && i > after_i);
+            if (later && (next == NULL || s->at < next->at)) {
+                next = s;
+                next_i = i;
+            }
+        }
+        if (next == NULL) {
+            break;
+        }
+        waiting[count] = (struct tern_airtime_waiting){next->frame[0], airtime(f, next->len)};
+        handles[count] = (uint8_t)next_i;
+        count++;
+        after = next->at;
+        after_i = next_i;
+    }
+    return count;
+}
+
 size_t tern_flood_poll(struct tern_flood *f, tern_time now, uint8_t frame[TERN_FLOOD_FRAME_MAX],
                        int8_t *power_dbm, enum tern_flood_kind *kind, uint8_t *handle) {
     /* Frames passed on go before the node's own, as for frames that follow routes; of each, the
@@ -362,16 +364,29 @@ size_t tern_flood_poll(struct tern_flood *f, tern_time now, uint8_t frame[TERN_F
                 f->counts.busy++;
                 continue;
             }
-            struct tern_flood_bucket *b = own ? &f->own : &f->relay;
-            if (!tern_flood_bucket_pays(b, now, airtime(f, s->len))) {
+            /* Paid for by its allowance and, with a budget, its part too, or by neither. */
+            struct tern_airtime_bucket *b = own ? &f->own : &f->relay;
+            tern_time air = airtime(f, s->len);
+            bool part =
+                f->budget == NULL || tern_airtime_pays(f->budget, now, s->frame[0], (bool)own, air);
+            if (!part || !tern_airtime_bucket_holds(b, now, air)) {
                 if (own) {
-                    s->at = pays_at(b, airtime(f, s->len)); /* it waits for its allowance */
+                    /* It waits for both, and those behind it wait their turn. */
+                    tern_time at = now + tern_airtime_bucket_wait(b, now, air);
+                    tern_time part_at =
+                        f->budget ? tern_airtime_pays_at(f->budget, now, s->frame[0], true, air)
+                                  : now;
+                    s->at = part_at > at ? part_at : at;
                     s->at = s->at > now ? s->at : now + 1;
-                    break; /* and those behind it wait their turn */
+                    break;
                 }
                 s->state = TERN_FLOOD_FREE;
                 f->counts.unpaid++;
                 continue;
+            }
+            tern_airtime_bucket_charge(b, now, air);
+            if (f->budget) {
+                tern_airtime_charge(f->budget, now, s->frame[0], (bool)own, air);
             }
             s->power = power(f);
             s->frame[2] = (uint8_t)s->power;
@@ -396,10 +411,12 @@ void tern_flood_withdrawn(struct tern_flood *f, tern_time now, uint8_t handle) {
         return;
     }
     struct tern_flood_slot *s = &f->slot[handle];
-    struct tern_flood_bucket *b = s->own ? &f->own : &f->relay;
-    refill(b, now);
-    b->have += airtime(f, s->len) * MILLION;
-    b->have = b->have > b->most ? b->most : b->have;
+    tern_airtime_bucket_give(s->own ? &f->own : &f->relay, now, airtime(f, s->len));
+    struct tern_airtime_bucket *part =
+        f->budget ? tern_airtime_bucket(f->budget, s->frame[0], s->own) : NULL;
+    if (part != NULL) {
+        tern_airtime_bucket_give(part, now, airtime(f, s->len));
+    }
     if (s->dropped || !s->own) {
         s->state = TERN_FLOOD_FREE; /* a frame passed on is offered once */
     } else {

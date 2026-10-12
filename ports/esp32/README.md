@@ -14,7 +14,9 @@ boards' frames on. A board listens first: it asks its radio before every frame, 
 while one is being received (`status` counts the times a frame waited). A board holds a session
 with each of up to eight others. First contact follows routes too, so two boards can meet
 wherever one could send the other a message: through a relay, with neither hearing the other.
-There is no airtime budget yet.
+A board keeps to its [airtime budget](https://github.com/ternmesh/spec/blob/main/draft/airtime.md)
+as well as its region's limit: its own messages wait for it, and a phone is told so, with how
+long (`status` shows what is left of it); a relay drops what it cannot pay to pass on.
 
 ## Boards
 
