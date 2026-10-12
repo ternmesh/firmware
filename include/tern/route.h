@@ -401,6 +401,7 @@ struct tern_route_dest {
     bool listed : 1;     /* in the frame being built */
     bool leaf : 1;       /* it is known to be a leaf */
     bool held : 1;       /* a route to a leaf lost, not yet retracted while it is asked for */
+    bool pending : 1;    /* asked about again, its request not yet gone */
 };
 
 struct tern_route_bucket {

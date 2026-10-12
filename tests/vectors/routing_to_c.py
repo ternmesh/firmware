@@ -169,7 +169,8 @@ def main():
     L.append("static const struct kept_case kepts[] = {")
     L += [
         f"    {{{fd(c['feasibility_distance'])}, {routes(c['routes'], c['link_cost'])}, "
-        f"{idx(c['selected'])}, {{{c['offered']['seq']}, {c['offered']['metric']}, {c['link_cost']}}}, "
+        f"{idx(c['selected'])}, {{{c['offered']['seq']}, {c['offered']['metric']}, "
+        f"{c['link_cost'] if c['offered'].get('usable', True) else 'TERN_ROUTE_INF'}}}, "
         f"{idx(c['replaces'])}}},"
         for c in v["kept"]
     ]

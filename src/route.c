@@ -672,7 +672,13 @@ static void ask_again(struct tern_route *r) {
                 }
             }
         } else if (ask(r, d)) {
-            d->tries++;
+            /* A route to a leaf, held while it is asked for, counts a request only once it goes
+             * (send_asks()): one dropped must not bring its retraction nearer. */
+            if (patient(r, d)) {
+                d->pending = true;
+            } else {
+                d->tries++;
+            }
         }
     }
     if (r->starving) {
@@ -1201,6 +1207,16 @@ static size_t send_asks(struct tern_route *r, uint8_t *frame, int8_t *power) {
         return 0;
     }
     b->have -= airtime(r, len) * MILLION;
+    /* A starved destination's request counts only now it goes: one dropped, for want of room or
+     * of the cap, is asked again at the next request_interval. */
+    for (int k = 0; k < q.count; k++) {
+        struct tern_route_dest *d = dest_of(r, q.asks[k].destination);
+        if (d && d->pending) {
+            d->pending = false;
+            d->tries++;
+            d->asked = stamp(r->now);
+        }
+    }
     r->ask_count = kept;
     r->ask_at = kept ? r->now : -1;
     r->out = false;
