@@ -117,7 +117,8 @@ struct tern_flood_config {
     tern_time busy_span; /* the share is over this long at least, and twice it at most */
     /* A node's own frame that a relay should pass on - hops 2 or more - is listened for: if no
      * copy of it is heard within `echo` airtimes of its going, it is sent again, up to `resends`
-     * times - 254 at most, however many it says - each after a wait as a relay's. 0 for none. */
+     * times - 254 at most, however many it says - each after a wait as a relay's, and as a relay
+     * passes fewer on when its radio is busy (busy_ppm), sent again less often. 0 for none. */
     uint8_t resends;
     uint8_t echo;
 };
@@ -151,7 +152,7 @@ struct tern_flood_counts {
     uint32_t passed_on; /* frames taken to pass on */
     uint32_t cancelled; /* of them, dropped on hearing enough copies */
     uint32_t unpaid;    /* and dropped because the allowance could not pay */
-    uint32_t busy;      /* and dropped because the radio was busy */
+    uint32_t busy;      /* and dropped because the radio was busy, and own not sent again */
     uint32_t hop_limit; /* frames that had come as far as they may */
     uint32_t no_room;   /* and those there was no slot for */
     uint32_t refused;   /* of those taken, let go of as their kind's checks said */

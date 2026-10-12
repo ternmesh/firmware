@@ -366,6 +366,13 @@ size_t tern_flood_poll(struct tern_flood *f, tern_time now, uint8_t frame[TERN_F
             s->state = TERN_FLOOD_FREE;
             continue;
         }
+        /* A busy radio sends fewer again, as a busy relay passes fewer on. */
+        uint32_t drops = tern_flood_busy_drops(f->busy, f->config.busy_ppm);
+        if (drops != 0 && rand_below(f, MILLION) < drops) {
+            s->state = TERN_FLOOD_FREE;
+            f->counts.busy++;
+            continue;
+        }
         s->state = TERN_FLOOD_WAITING;
         s->at = now + (tern_time)rand_below(
                           f, (uint64_t)f->config.wait * (uint64_t)airtime(f, s->len) + 1);
