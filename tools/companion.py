@@ -5,6 +5,7 @@
     python3 tools/companion.py --port /dev/ttyUSB0 send <address> <text>
     python3 tools/companion.py --port /dev/ttyUSB0 contact <address> <name>
     python3 tools/companion.py --port /dev/ttyUSB0 end <address>
+    python3 tools/companion.py --port /dev/ttyUSB0 forget <address>
     python3 tools/companion.py --port /dev/ttyUSB0 set power 10
     python3 tools/companion.py --port /dev/ttyUSB0 watch
     python3 tools/companion.py --port /dev/ttyUSB0 group new <name>
@@ -18,7 +19,8 @@
     python3 tools/companion.py selftest tests/vectors/companion.json
 
 `contact` saves an address under a name, which also lets that node make first contact; `end` ends
-the session with one. `state` says hello, sets the node's clock from this computer's, and prints everything the node
+the session with one, and `forget` removes one as a contact, keeping its messages and any session.
+`state` says hello, sets the node's clock from this computer's, and prints everything the node
 holds. `send` sends a message and prints what becomes of it. `watch` prints news as it comes.
 `group` makes a group, invites a contact to one, takes the group an invite or a join code was to,
 prints a group's join code, writes to one or leaves it; a group is named by the sixteen digits
@@ -640,6 +642,9 @@ def run(args):
             raise SystemExit("this node's firmware is too old to end a session from here")
         node.request("END_SESSION", address=address(args.address))
         print("ended")
+    elif args.command == "forget":
+        node.request("REMOVE_CONTACT", address=address(args.address))
+        print("removed")
     elif args.command == "group":
         node.request("SYNC", after=0)  # for the names of contacts and groups
         for m in node.pending:
@@ -750,6 +755,8 @@ def main():
     c.add_argument("name")
     e = sub.add_parser("end")
     e.add_argument("address")
+    f = sub.add_parser("forget")
+    f.add_argument("address")
     t = sub.add_parser("set")
     t.add_argument("setting", choices=list(SETTING))
     t.add_argument("value")
