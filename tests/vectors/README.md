@@ -98,8 +98,9 @@ newer of two routes as good, and the `anchors`, `answering` and `answered` cases
 
 `airtime.json` is a copy of
 [`vectors/airtime.json`](https://github.com/ternmesh/spec/blob/main/vectors/airtime.json), as of
-[ternmesh/spec#44](https://github.com/ternmesh/spec/pull/44) (the airtime budget, draft 0, with
-the wait estimate that keeps the queue's order, and solicits and answers in the routing part).
+commit `792b718` (the airtime budget, draft 0, with the wait estimate that keeps the queue's
+order, solicits and answers in the routing part, and the own part at 2% and the relayed part at
+7%).
 `airtime_to_c.py` turns it into a header for `tests/airtime.c`.
 
 When the specification's vectors change, copy the new file here in the same pull request that

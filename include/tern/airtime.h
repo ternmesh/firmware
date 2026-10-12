@@ -12,8 +12,8 @@
  *
  * How much of its time a node may spend sending, in three parts. Routing's is the router's cap
  * (tern/route.h), unchanged: nothing here adds to it or takes from it. The other two are a token
- * bucket each: one for the frames the node writes, 1% of its time held for ten minutes, and, for a
- * relay, one for the frames it passes on, 8% held for a minute. A leaf has no part for frames
+ * bucket each: one for the frames the node writes, 2% of its time held for ten minutes, and, for a
+ * relay, one for the frames it passes on, 7% held for a minute. A leaf has no part for frames
  * passed on. The flooder's two allowances (tern/flood.h) stay, inside the parts: a flood is paid
  * for by its allowance and its part together, and the allowances are buckets of this kind.
  *
