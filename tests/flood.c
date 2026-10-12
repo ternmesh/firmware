@@ -964,6 +964,29 @@ static void test_resends(void) {
     CHECK_EQ_U64(x.f.counts.passed_on, 1);
     CHECK_EQ_U64(x.f.counts.no_room, 0);
 
+    /* And so does one waiting to go again, until it is with the caller. */
+    start(&x, true, 18);
+    neighbours(&x, 2, -160);
+    x.f.config.echo = 1;
+    for (unsigned k = 0; k < SLOTS; k++) {
+        len = make(frame, TERN_FLOOD_GROUP_MIN, 0, 40 + k);
+        CHECK(tern_flood_send(&x.f, 0, frame, len));
+        CHECK(tern_flood_poll(&x.f, 0, out, &dbm, &kind, &h) == len);
+        tern_flood_sent(&x.f, 0, h);
+    }
+    now = tern_flood_due(&x.f);
+    while (tern_flood_poll(&x.f, now, out, &dbm, &kind, &h) != 0) {
+        tern_flood_withdrawn(&x.f, now, h); /* the radio not free: it waits again */
+    }
+    for (unsigned k = 0; k < SLOTS; k++) {
+        CHECK_EQ_U64(x.slot[k].state, TERN_FLOOD_WAITING);
+    }
+    len = make(frame, TERN_FLOOD_GROUP_MIN, 0, 60);
+    CHECK(tern_flood_send(&x.f, now, frame, len));
+    CHECK(tern_flood_heard(&x.f, now, other, make(other, TERN_FLOOD_GROUP_MIN, 5, 2001)));
+    CHECK_EQ_U64(x.f.counts.passed_on, 1);
+    CHECK_EQ_U64(x.f.counts.no_room, 0);
+
     /* Nor is anything with no resends. */
     start(&x, false, 13);
     x.f.config.resends = 0;

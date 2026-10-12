@@ -131,10 +131,21 @@ static struct tern_flood_slot *free_slot(struct tern_flood *f) {
         }
     }
     /* None free: one only listened for gives way, its sending again given up - the one whose
-     * listening ends soonest. */
+     * listening ends soonest - and failing that, one waiting to go again, not yet charged for:
+     * the one that would go soonest. */
     struct tern_flood_slot *s = NULL;
     for (size_t i = 0; i < f->cap; i++) {
         if (f->slot[i].state == TERN_FLOOD_ECHO && (s == NULL || f->slot[i].at < s->at)) {
+            s = &f->slot[i];
+        }
+    }
+    if (s != NULL) {
+        return s;
+    }
+    for (size_t i = 0; i < f->cap; i++) {
+        const struct tern_flood_slot *c = &f->slot[i];
+        if (c->state == TERN_FLOOD_WAITING && c->own && c->copies > 0 &&
+            (s == NULL || c->at < s->at)) {
             s = &f->slot[i];
         }
     }
