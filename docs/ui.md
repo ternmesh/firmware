@@ -152,9 +152,11 @@ So:
 
 * **Names are local.** A contact is an address with a name the user gave it, kept on the node or
   the phone. Two people may call the same node different things.
-* **Addresses travel off the air,** or at least outside the mesh: a QR code shown on one screen
-  and scanned by a phone, a link sent by other means, or the full hex pasted from a console. The
-  exception is a presence card, which a user turns on to be found by the people near them.
+* **Addresses are handed over off the air,** or at least outside the mesh: a QR code shown on one
+  screen and scanned by a phone, a link sent by other means, or the full hex pasted from a
+  console. The one way a user hands theirs over on the air is a presence card, turned on to be
+  found by the people near them. That is about sharing on purpose: a node's announces carry its
+  address to its neighbours either way, as above.
 * **A short code to compare,** so two people standing together can check they have the right
   node: twelve digits from a hash of the address, the same in every implementation
   ([draft/sharing.md](https://github.com/ternmesh/spec/blob/main/draft/sharing.md)).
