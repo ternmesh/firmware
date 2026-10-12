@@ -118,7 +118,8 @@ struct tern_flood_config {
     /* A node's own frame that a relay should pass on - hops 2 or more - is listened for: if no
      * copy of it is heard within `echo` airtimes of its going, it is sent again, up to `resends`
      * times - 254 at most, however many it says - each after a wait as a relay's, and as a relay
-     * passes fewer on when its radio is busy (busy_ppm), sent again less often. 0 for none. */
+     * passes fewer on when its radio is busy (busy_ppm), sent again less often. A frame only
+     * listened for gives its slot up to any other that finds none free. 0 for none. */
     uint8_t resends;
     uint8_t echo;
 };

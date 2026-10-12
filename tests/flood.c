@@ -354,6 +354,7 @@ static void test_own(void) {
     enum tern_flood_kind kind;
     uint8_t h;
     start(&x, false, 8);
+    x.f.config.resends = 0; /* the allowance alone */
     CHECK(!tern_flood_send(&x.f, 0, frame, make(frame, 30, 0, 0))); /* shorter than any */
     for (unsigned k = 0; k < 10; k++) {
         CHECK(tern_flood_send(&x.f, 0, frame, make(frame, 255, 0, k)));
@@ -948,6 +949,20 @@ static void test_resends(void) {
     }
     CHECK_EQ_I64(tern_flood_due(&x.f), INT64_MAX);
     CHECK_EQ_U64(x.f.counts.resent, UINT8_MAX - 1);
+
+    /* A frame only listened for gives its slot up to one that finds none free. */
+    start(&x, true, 17);
+    neighbours(&x, 2, -160);
+    x.f.config.echo = 255;
+    for (unsigned k = 0; k < SLOTS + 2; k++) {
+        len = make(frame, TERN_FLOOD_GROUP_MIN, 0, 20 + k);
+        CHECK(tern_flood_send(&x.f, 0, frame, len));
+        CHECK(tern_flood_poll(&x.f, 0, out, &dbm, &kind, &h) == len);
+        tern_flood_sent(&x.f, 0, h);
+    }
+    CHECK(tern_flood_heard(&x.f, 0, other, make(other, TERN_FLOOD_GROUP_MIN, 5, 2000)));
+    CHECK_EQ_U64(x.f.counts.passed_on, 1);
+    CHECK_EQ_U64(x.f.counts.no_room, 0);
 
     /* Nor is anything with no resends. */
     start(&x, false, 13);

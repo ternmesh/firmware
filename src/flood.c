@@ -69,6 +69,8 @@ struct tern_flood_config tern_flood_defaults(void) {
         .relay_window = TERN_S(60),
         .busy_ppm = 200000,
         .busy_span = TERN_S(30),
+        .resends = 1,
+        .echo = 16,
     };
 }
 
@@ -128,7 +130,15 @@ static struct tern_flood_slot *free_slot(struct tern_flood *f) {
             return &f->slot[i];
         }
     }
-    return NULL;
+    /* None free: one only listened for gives way, its sending again given up - the one whose
+     * listening ends soonest. */
+    struct tern_flood_slot *s = NULL;
+    for (size_t i = 0; i < f->cap; i++) {
+        if (f->slot[i].state == TERN_FLOOD_ECHO && (s == NULL || f->slot[i].at < s->at)) {
+            s = &f->slot[i];
+        }
+    }
+    return s;
 }
 
 /* The relay neighbours: those the node may use that are relays. */
