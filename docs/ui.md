@@ -1,9 +1,8 @@
 # The user interface
 
-**Status:** a proposal, written to be argued with. Nothing here is decided, and nothing in it is
-protocol: how a node looks to the person holding it is this repository's business, not the
-specification's. But most of what a user needs to see is something the specification has not
-drafted yet, so each part below says which draft it waits on.
+**Status:** decided wherever the specification's drafts allow. Nothing in it is protocol: how a
+node looks to the person holding it is this repository's business, not the specification's. What
+is still open waits on a draft not yet written, and [Open questions](#open-questions) names which.
 
 This document is about the interface someone uses when they carry a Tern node about, as they
 would a Meshtastic or MeshCore one. The ESP32 port draws [a first version](../ports/esp32/README.md#the-screen)
@@ -38,8 +37,10 @@ need it, and it stays available, but it is not what the interface is built aroun
    shows. When something waits, the interface says why: no route yet, the node's budget, or the
    region's limit. A message is never shown as sent when it is only queued.
 3. **Nothing on the air that the protocol keeps off it.** Names and nicknames are kept on the
-   node and the phone, never sent. The protocol keeps both ends of a message out of the clear; the
-   interface must not undo that by, say, announcing a name.
+   node and the phone, and the one a user gives a contact is never sent. A name of the user's own
+   goes on the air only in a [presence card](https://github.com/ternmesh/spec/blob/main/draft/cards.md),
+   and only while they have cards on, which is off by default. The protocol keeps both ends of a
+   message out of the clear; the interface must not undo that by, say, announcing a name.
 4. **One model, many views.** The node keeps one account of its state. The screen, the serial
    console and a phone app are each a view of it, and none of them reaches into the protocol's
    structures for itself (see [The node model](#the-node-model)).
@@ -68,8 +69,8 @@ What it holds, as far as the drafts allow today:
 |---|---|---|
 | Identity | the address, the region and its settings, relay or leaf | — |
 | Neighbours | who is heard, how well, how recently | — |
-| Contacts | an address, a local name, whether a session exists | a contact list; first contact settles the rest |
-| Messages | text, the contact, the time, and a delivery state | forwarding under the secured frame |
+| Contacts | an address, a local name, whether a session exists | — ([Addresses and contacts](#addresses-and-contacts)) |
+| Messages | text, the contact or group, the time, and a delivery state | — |
 | Airtime | what is used and what is left: the region's limit, and the node's budget | what is left of the budget: the companion protocol does not carry it yet ([draft/airtime.md](https://github.com/ternmesh/spec/blob/main/draft/airtime.md#not-yet-specified)) |
 | Power | battery and whether it is charging | the board |
 
@@ -79,9 +80,9 @@ passing it on), **delivered** (the destination's acknowledgement came back), **n
 (the source gave up). Nothing in between is shown as more certain than it is.
 
 The model is a plain struct the caller owns, as the core's rules require of everything, so it can
-be tested on a host and two can live side by side in the simulator. Where it should live is open:
-in the port while there is one board, and probably in the core once a second board needs the same
-thing.
+be tested on a host and two can live side by side in the simulator. It lives in `ports/node/`, the
+node every port shares, and not in the core: the core is the protocol, and the model is how one
+node shows itself, which a simulated node does not need.
 
 The screen reads from a small first version of this (`ui_node` in `ports/node/ui.h`),
 filled from the radio, the router and the companion link. The link keeps the contacts and the
@@ -141,22 +142,40 @@ suggestion, and the group it joins is the same.
 ## Addresses and contacts
 
 This is the hardest part of the interface, and the part most unlike other meshes. A Tern address
-is a public key: sixty-four hex digits that nobody can read out, type or remember, and that the
-protocol never sends in clear. There are no node names on the air to fall back on.
+is a public key: sixty-four hex digits that nobody can read out, type or remember. A message
+never carries one in clear, though a node's own address does reach the nodes near it: in its
+signed announces ([draft/routing.md](https://github.com/ternmesh/spec/blob/main/draft/routing.md#what-an-observer-learns)),
+and in its card while its user has cards on. There are no node names on the air to fall back on,
+but a card's.
 
 So:
 
 * **Names are local.** A contact is an address with a name the user gave it, kept on the node or
   the phone. Two people may call the same node different things.
-* **Addresses travel off the air,** or at least outside the mesh: a QR code shown on one screen
-  and scanned by a phone, a link sent by other means, or the full hex pasted from a console.
+* **Addresses are handed over off the air,** or at least outside the mesh: a QR code shown on one
+  screen and scanned by a phone, a link sent by other means, or the full hex pasted from a
+  console. The one way a user hands theirs over on the air is a presence card, turned on to be
+  found by the people near them. That is about sharing on purpose: a node's announces carry its
+  address to its neighbours either way, as above.
 * **A short code to compare,** so two people standing together can check they have the right
   node: twelve digits from a hash of the address, the same in every implementation
   ([draft/sharing.md](https://github.com/ternmesh/spec/blob/main/draft/sharing.md)).
 
-Whether a node may learn a new contact over the air at all (someone it hears asking to make
-contact) is a question for the first-contact draft, not the interface. The demo's `accept`
-window is a stand-in, not a design.
+**Who may make contact.** A node takes first contact from an address saved as a contact, as
+[draft/companion.md](https://github.com/ternmesh/spec/blob/main/draft/companion.md) requires. From
+anyone else, a node with a client refuses, and tells the client who asked (`ASKED`). The app
+offers to save them, and once they are saved they are let in the next time they try: a person
+cannot decide inside a handshake, so saving a contact is how they say yes. A node with no client
+to ask, such as a relay on a mast, may take anyone. Someone nearby is found without a public
+channel through their [presence card](https://github.com/ternmesh/spec/blob/main/draft/cards.md),
+which carries the address to save. The bench demo's open door for a board with no session, and
+its `accept` window, are stand-ins for this until the demo goes
+([ports/esp32/README.md](../ports/esp32/README.md)).
+
+**Conversations, not a channel.** Tern has no public channel, so a client's home is a list of
+conversations, one for each contact and each group, newest first; the apps and the site's client
+are built so. The node's own screen, with room for one message, shows them all newest first on
+Messages, naming the contact or the group.
 
 ## The companion link
 
@@ -168,24 +187,29 @@ the link between the node and the phone: what the node offers, and in what form.
   contact, change a setting.
 * **Over what:** Bluetooth Low Energy for a phone, the USB serial port for a computer, the same
   framed protocol on both.
-* **Who defines it.** If anyone is to write their own app, as people have for other meshes, this
-  link has to be written down and kept stable. That makes it a specification section, in
-  `ternmesh/spec`, even though it never goes over LoRa.
-* **The ESP32's random numbers.** The Heltec port keeps the chip's noise source on, which it may
-  not do while Bluetooth is running. A port with Bluetooth has to gather the randomness it needs
-  for keys before the radio starts, or between uses of it. Solvable, but it shapes the port.
+* **Who defines it.** The specification, so that anyone can write their own app, as people have
+  for other meshes: [draft/companion.md](https://github.com/ternmesh/spec/blob/main/draft/companion.md),
+  even though it never goes over LoRa. The Android and Apple apps and the site's client speak it.
+* **The ESP32's random numbers.** The chip's noise source may not stay on while Bluetooth runs, so
+  the ESP32 port makes its identity from it before Bluetooth starts, and every key after from
+  Bluetooth's own entropy ([ports/esp32/README.md](../ports/esp32/README.md)). Measuring what
+  Bluetooth costs a battery is still to do.
 
 ## Open questions
 
 | Question | Depends on |
 |---|---|
 | How what is left of a node's airtime budget is shown, and what a user can do about it | what a client is given of the budget, which [draft/airtime.md](https://github.com/ternmesh/spec/blob/main/draft/airtime.md#not-yet-specified) leaves open |
-| Group or broadcast messages, and whether the home screen is a channel or a list of conversations | broadcast, not drafted (forwarding.md lists it as not yet) |
-| The short code two people compare, the same in every implementation | settled: [draft/sharing.md](https://github.com/ternmesh/spec/blob/main/draft/sharing.md), shown by the Heltec V3 port |
-| Whether a node accepts first contact from a node it has no contact for | first contact |
-| The companion protocol, and where it is specified | settled: [draft/companion.md](https://github.com/ternmesh/spec/blob/main/draft/companion.md), spoken over USB by the Heltec V3 port |
-| Where the node model lives once there are two boards | a second board |
-| What a leaf that sleeps on a schedule shows, and when | sleeping leaves, not drafted |
+| What a leaf that sleeps on a schedule shows, and when | sleeping leaves, not drafted ([draft/companion.md](https://github.com/ternmesh/spec/blob/main/draft/companion.md#not-yet-specified), [draft/airtime.md](https://github.com/ternmesh/spec/blob/main/draft/airtime.md#not-yet-specified)) |
+| Withdrawing a message that waits for the budget | [draft/airtime.md](https://github.com/ternmesh/spec/blob/main/draft/airtime.md#not-yet-specified), which leaves it open |
+
+Settled since this page was a proposal, and kept here so an old link finds its answer: the short
+code ([draft/sharing.md](https://github.com/ternmesh/spec/blob/main/draft/sharing.md)), the
+companion protocol ([draft/companion.md](https://github.com/ternmesh/spec/blob/main/draft/companion.md),
+over USB and Bluetooth), who may make contact and the home screen ([above](#addresses-and-contacts)),
+group messages ([draft/groups.md](https://github.com/ternmesh/spec/blob/main/draft/groups.md) over
+[draft/flooding.md](https://github.com/ternmesh/spec/blob/main/draft/flooding.md)), and where the
+node model lives ([above](#the-node-model)).
 
 ## What happened to the bench screen
 
