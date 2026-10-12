@@ -37,8 +37,10 @@ need it, and it stays available, but it is not what the interface is built aroun
    shows. When something waits, the interface says why: no route yet, the node's budget, or the
    region's limit. A message is never shown as sent when it is only queued.
 3. **Nothing on the air that the protocol keeps off it.** Names and nicknames are kept on the
-   node and the phone, never sent. The protocol keeps both ends of a message out of the clear; the
-   interface must not undo that by, say, announcing a name.
+   node and the phone, and the one a user gives a contact is never sent. A name of the user's own
+   goes on the air only in a [presence card](https://github.com/ternmesh/spec/blob/main/draft/cards.md),
+   and only while they have cards on, which is off by default. The protocol keeps both ends of a
+   message out of the clear; the interface must not undo that by, say, announcing a name.
 4. **One model, many views.** The node keeps one account of its state. The screen, the serial
    console and a phone app are each a view of it, and none of them reaches into the protocol's
    structures for itself (see [The node model](#the-node-model)).
@@ -140,15 +142,19 @@ suggestion, and the group it joins is the same.
 ## Addresses and contacts
 
 This is the hardest part of the interface, and the part most unlike other meshes. A Tern address
-is a public key: sixty-four hex digits that nobody can read out, type or remember, and that the
-protocol never sends in clear. There are no node names on the air to fall back on.
+is a public key: sixty-four hex digits that nobody can read out, type or remember. A message
+never carries one in clear, though a node's own address does reach the nodes near it: in its
+signed announces ([draft/routing.md](https://github.com/ternmesh/spec/blob/main/draft/routing.md#what-an-observer-learns)),
+and in its card while its user has cards on. There are no node names on the air to fall back on,
+but a card's.
 
 So:
 
 * **Names are local.** A contact is an address with a name the user gave it, kept on the node or
   the phone. Two people may call the same node different things.
 * **Addresses travel off the air,** or at least outside the mesh: a QR code shown on one screen
-  and scanned by a phone, a link sent by other means, or the full hex pasted from a console.
+  and scanned by a phone, a link sent by other means, or the full hex pasted from a console. The
+  exception is a presence card, which a user turns on to be found by the people near them.
 * **A short code to compare,** so two people standing together can check they have the right
   node: twelve digits from a hash of the address, the same in every implementation
   ([draft/sharing.md](https://github.com/ternmesh/spec/blob/main/draft/sharing.md)).
