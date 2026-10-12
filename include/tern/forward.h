@@ -186,7 +186,7 @@ void tern_forward_init(struct tern_forward *f, const struct tern_forward_config 
  * starts. A frame is then offered only once the budget lets it go (tern_airtime_pays()): one of the
  * node's own waits for it, holding up those of its own behind it and nothing else, and one passed
  * on that the budget will not pay for is dropped, as a frame not passed on is. Each is charged to
- * the budget when tern_forward_sent() says it has gone. */
+ * the budget as tern_forward_poll() hands it over, and given back by tern_forward_withdrawn(). */
 void tern_forward_budget(struct tern_forward *f, struct tern_airtime *budget);
 
 /* Sends a frame of this node's to `destination`. `frame` is whole but for its head, of which only

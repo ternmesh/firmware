@@ -530,6 +530,11 @@ size_t tern_forward_poll(struct tern_forward *f, tern_time now,
         &(struct tern_forward_head){go->frame[0], go->hops, go->power, go->next, dest_of(go)},
         go->frame);
     memcpy(frame, go->frame, go->len);
+    /* Charged as it is handed over, so that a caller taking several before any has gone cannot have
+     * each paid for with the same airtime; given back if it is withdrawn. */
+    if (f->budget) {
+        tern_airtime_charge(f->budget, now, go->frame[0], go->own, airtime(f, go->len));
+    }
     go->state = TERN_FORWARD_OUT;
     go->done = false;
     *power_dbm = go->power;
@@ -570,6 +575,11 @@ void tern_forward_withdrawn(struct tern_forward *f, tern_time now, uint8_t handl
     if (!s) {
         return;
     }
+    struct tern_airtime_bucket *part =
+        f->budget ? tern_airtime_bucket(f->budget, s->frame[0], s->own) : NULL;
+    if (part != NULL) {
+        tern_airtime_bucket_give(part, now, airtime(f, s->len));
+    }
     if (s->done) {
         start_waiting(f, s, now);
         rest(s, now);
@@ -585,9 +595,6 @@ void tern_forward_sent(struct tern_forward *f, tern_time now, uint8_t handle) {
         return;
     }
     bool listens = tern_forward_listens(s->frame, s->len);
-    if (f->budget) {
-        tern_airtime_charge(f->budget, now, s->frame[0], s->own, airtime(f, s->len));
-    }
     start_waiting(f, s, now);
     /* A frame not listened for says nothing of its next hop, however often it goes unanswered. */
     if (!s->done && listens && s->unheard < UINT8_MAX) {

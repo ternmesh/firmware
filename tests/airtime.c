@@ -340,6 +340,28 @@ static void the_forwarder_drops_what_it_cannot_pay_for(void) {
     CHECK_EQ_I64(fwd_go(&x, later, &kind), 0); /* nothing left to pass on */
 }
 
+/* A frame is paid for as it is handed over, so a caller taking two before either has gone cannot
+ * have both paid for with the same airtime; one withdrawn is given back. */
+static void the_forwarder_charges_as_it_hands_over(void) {
+    struct fwd x;
+    enum tern_forward_kind kind;
+    uint8_t frame[255], out[TERN_FORWARD_FRAME_MAX], h;
+    int8_t dbm;
+    fwd_start(&x, false);
+    tern_time air = tern_lora_airtime(&x.lora, 255);
+    x.a.own.have = air * 1000000; /* one frame's worth */
+    CHECK(tern_forward_send(&x.f, 0, FAR, frame, message(frame, 1), false, INT8_MIN));
+    CHECK(tern_forward_send(&x.f, 0, FAR, frame, message(frame, 2), false, INT8_MIN));
+    CHECK_EQ_I64(tern_forward_poll(&x.f, 0, out, &dbm, &kind, &h), 255);
+    CHECK_EQ_I64(x.a.own.have, 0);
+    uint8_t h2;
+    CHECK_EQ_I64(tern_forward_poll(&x.f, 0, out, &dbm, &kind, &h2), 0);
+    tern_forward_withdrawn(&x.f, 0, h);
+    CHECK_EQ_I64(x.a.own.have, air * 1000000);
+    CHECK_EQ_I64(tern_forward_poll(&x.f, 0, out, &dbm, &kind, &h2), 255);
+    CHECK_EQ_I64(out[TERN_FORWARD_HEAD], 1); /* the same one, still first */
+}
+
 /* A group frame of the node's own waits for its allowance and the own part together: here the
  * part, which holds less. */
 static void the_flooder_waits_for_both(void) {
@@ -382,6 +404,7 @@ int main(void) {
     RUN(a_leaf_passes_nothing_on);
     RUN(the_forwarder_holds_its_own);
     RUN(the_forwarder_drops_what_it_cannot_pay_for);
+    RUN(the_forwarder_charges_as_it_hands_over);
     RUN(the_flooder_waits_for_both);
     return CHECK_DONE();
 }
