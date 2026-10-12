@@ -30,13 +30,13 @@ run on another. Everything below holds for each, unless it says otherwise.
 | Heltec WiFi LoRa 32 V3, V3.1, V3.2 | `heltec-v3` | Runs | The first board. USB through a CP2102: the port is `/dev/ttyUSB0` or similar. |
 | Heltec WiFi LoRa 32 V4 (V4.2, V4.3) | `heltec-v4` | Built, not yet run on a board | Pin for pin a V3, with an amplifier after the radio for up to 28 dBm, and USB from the ESP32-S3 itself: the port is `/dev/ttyACM0` or similar. See [the V4](#the-heltec-v4). |
 | Heltec Wireless Stick Lite V3 | `heltec-wsl-v3` | Built, not yet run on a board | A V3 without its screen. USB through a CP2102. |
-| Heltec Wireless Tracker (V1.0, V1.1) | `heltec-tracker` | Built, not yet run on a board | Runs without its colour screen and its GNSS for now. USB from the ESP32-S3 itself. |
+| Heltec Wireless Tracker (V1.0, V1.1) | `heltec-tracker` | Built, not yet run on a board | Runs without its colour screen for now. Its GNSS, a UC6580, gives the node its fix on the V1.1; on the V1.0, whose supply turns on the other way, it stays off. USB from the ESP32-S3 itself. |
 | Heltec Vision Master E290 | `heltec-vme290` | Built, not yet run on a board | The usual screen, twice the size, on its e-paper: redrawn soon after a press or something new, and otherwise at most once a minute (`CONFIG_TERN_EPAPER_REFRESH_S`). The button is the one marked USER, not BOOT. USB from the ESP32-S3 itself. |
 | Heltec Vision Master E213 | `heltec-vme213` | Built, not yet run on a board | Runs without its e-paper for now, whose controller changed between revisions. As the E290 otherwise. |
 | Heltec Wireless Paper | `heltec-paper` | Built, not yet run on a board | Runs without its e-paper for now. USB through a CP2102. |
 | Heltec WiFi LoRa 32 V2 | `heltec-v2` | Built, not yet run on a board | A classic ESP32 and an SX1276, 2 to 17 dBm. USB through a CP2102. |
 | Heltec WiFi LoRa 32 V2.1 | `heltec-v21` | Built, not yet run on a board | A V2 that reads its battery on another pin: an image for the one does not read the other's battery. |
-| LilyGo T-Beam V1.0, V1.1 (868/915 MHz) | `lilygo-tbeam` | Built, not yet run on a board | A classic ESP32 and an SX1276, powered through an AXP192, which also measures its battery. Its button is the one marked IO38; its GPS is left off. A screen on its header is used if fitted. |
+| LilyGo T-Beam V1.0, V1.1 (868/915 MHz) | `lilygo-tbeam` | Built, not yet run on a board | A classic ESP32 and an SX1276, powered through an AXP192, which also measures its battery. Its button is the one marked IO38. Its GPS gives the node its fix, until a client turns it off. A screen on its header is used if fitted. |
 | LilyGo T-Beam V1.2 (868/915 MHz) | `lilygo-tbeam12` | Built, not yet run on a board | As the V1.1, with an AXP2101. |
 | LilyGo LoRa32 T3 V1.6.1 (868/915 MHz) | `lilygo-t3-v161` | Built, not yet run on a board | A classic ESP32 and an SX1276. Its only button is RESET, so it turns off only when its battery runs down. Not the 433 MHz board, which has an SX1278. |
 | LilyGo T3-S3 V1.2, V1.3 with an SX1276 (868/915 MHz) | `lilygo-t3s3` | Built, not yet run on a board | An ESP32-S3 with 4 MB of flash and an SX1276, 2 to 17 dBm. USB from the ESP32-S3 itself: the port is `/dev/ttyACM0` or similar. Not the SX1262 or SX1278 boards. |
@@ -499,8 +499,10 @@ What to know before trusting one with anything:
 A client can give the board its position and have it shared, as
 [positions](https://github.com/ternmesh/spec/blob/main/draft/positions.md) says, with the contacts
 and groups the user chooses, at the precision the user chooses: `SET_POSITION`, then `SHARE` or
-`SHARE_GROUP` (companion protocol version 5). The board has no receiver of its own, so it shares
-nothing until a client has given it a position. It works out the cell, decides when one is due,
+`SHARE_GROUP` (companion protocol version 5). A board with a satellite receiver (the T-Beam, the
+Wireless Tracker V1.1) finds its own: the receiver is on from the first start, and its fix and a
+client's are the board's, whichever is more recent. One without shares nothing until a client
+has given it a position. It works out the cell, decides when one is due,
 and sends it to a contact as a message for its node, sealed and acknowledged as a message is. What it receives from a
 contact is told to every client as a `POSITION`, and from a group member as a
 `GROUP_POSITION`.
@@ -524,6 +526,14 @@ contact is told to every client as a `POSITION`, and from a group member as a
   it, and a position from a group member is what that member claimed: any member could have
   written it. The board keeps the last from each of up to eight members of each group.
 * **Leaving a group** sends no stopped position: the group's keys go with it.
+* **The board's own fix** is told to every client as a `FIX` (companion protocol version 8):
+  where the board is, whose fix that is, the receiver's state (none, off, searching, fixed) and
+  how many satellites it used. It is what a phone's map opens on. It is news when the receiver's
+  state or the fix's source changes, and otherwise at most every ten seconds as the board moves.
+  `status` prints it too. A client turns the receiver off and on with `SET` 7, which the board
+  keeps across restarts; off, the last fix it gave stays the board's until a client gives a newer
+  one. A fix is the receiver's GGA (`tern/nmea.h`), its accuracy the dilution of precision times
+  five metres, an estimate; a receiver that gives no fix for five seconds is searching again.
 
 ## Presence cards
 

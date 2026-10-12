@@ -160,6 +160,12 @@ static void no_pin_does_two_jobs(void) {
         add_pin(b, used, &n, b->amp.enable);
         add_pin(b, used, &n, b->amp.tx[0]);
         add_pin(b, used, &n, b->amp.tx[1]);
+        if (board_has_gnss(b)) {
+            add_pin(b, used, &n, b->gnss.rx);
+            add_pin(b, used, &n, b->gnss.tx);
+            add_pin(b, used, &n, b->gnss.reset);
+            add_pin(b, used, &n, b->gnss.power);
+        }
         /* A power management chip's bus, if the board has one, may be the screen's. */
         if (b->pmu.chip != AXP_NONE &&
             (b->pmu.sda != b->screen.sda || b->pmu.scl != b->screen.scl)) {
@@ -184,6 +190,19 @@ static void no_pin_does_two_jobs(void) {
                 fprintf(stderr, "%s drives GPIO%d, which is an input\n", b->name, outputs[o]);
             }
             CHECK(output_ok(b, outputs[o]));
+        }
+        /* A receiver is heard on a pin, and what drives it can drive; its power is one supply,
+         * a rail the chip gives or a pin, or the board's. */
+        if (board_has_gnss(b)) {
+            CHECK(b->gnss.rx != BOARD_NO_PIN);
+            CHECK(output_ok(b, b->gnss.tx) && output_ok(b, b->gnss.reset) &&
+                  output_ok(b, b->gnss.power));
+            CHECK(b->gnss.rail == AXP_RAIL_NONE || b->gnss.power == BOARD_NO_PIN);
+            CHECK(b->gnss.rail == AXP_RAIL_NONE ||
+                  (b->pmu.chip != AXP_NONE && b->gnss.mv != 0 &&
+                   axp_rail_ok(b->pmu.chip, b->gnss.rail, b->gnss.mv)));
+        } else {
+            CHECK(b->gnss.rail == AXP_RAIL_NONE);
         }
         /* The radio is required, and BUSY is the SX1262's; the button wakes the board, so is an
          * RTC pin. */

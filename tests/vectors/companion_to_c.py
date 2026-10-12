@@ -27,13 +27,14 @@ TYPES = {
     "UPDATE_END": 0x32, "UPDATING": 0x46, "SET_POSITION": 0x33, "SHARE": 0x34,
     "SHARE_GROUP": 0x35, "POSITION": 0x8E, "GROUP_POSITION": 0x8F, "SHARING": 0x90,
     "GROUP_SHARING": 0x91, "CARD": 0x92, "CARD_GONE": 0x93, "GROUP_LINK": 0x26,
-    "JOIN_LINK": 0x27, "LINK": 0x47,
+    "JOIN_LINK": 0x27, "LINK": 0x47, "FIX": 0x94,
 }
 STRINGS = ("text", "name", "firmware", "region", "link")
 ADDRESSES = ("to", "address", "contact")
 OWN_STRINGS = ("board", "release", "card_name")  # strings with members of their own
 RENAMED = {"snr_quarter_db": "snr"}
-SET_VALUE = {1: "region", 2: "role", 3: "power", 4: "passkey", 5: "cards", 6: "text"}
+SET_VALUE = {1: "region", 2: "role", 3: "power", 4: "passkey", 5: "cards", 6: "text",
+             7: "receiver"}
 
 
 def hexbytes(h):

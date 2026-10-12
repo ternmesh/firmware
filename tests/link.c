@@ -125,6 +125,15 @@ static uint8_t board_set(void *ctx, const struct tern_companion_msg *m) {
         memcpy(b->view.card_name, m->text, m->text_len);
         b->view.card_name_len = m->text_len;
     }
+    /* The receiver too, on a board that has one: on, it searches until it has a fix. */
+    if (b->set_answer == 0 && m->setting == TERN_C_SET_RECEIVER) {
+        if (m->receiver > 1 || (m->receiver == 1 && b->view.receiver == TERN_C_RECEIVER_NONE)) {
+            return TERN_C_ERR_REFUSED;
+        }
+        if (b->view.receiver != TERN_C_RECEIVER_NONE) {
+            b->view.receiver = m->receiver ? TERN_C_RECEIVER_SEARCHING : TERN_C_RECEIVER_OFF;
+        }
+    }
     return b->set_answer;
 }
 
@@ -431,9 +440,11 @@ static void set_clock_for(const struct step *steps, size_t n, size_t i) {
 
 static enum tern_card_verdict dave_card(uint32_t number, tern_time now);
 
-/* What the node holds when a connection begins: Bob, his first message, and the ids from 17. */
+/* What the node holds when a connection begins: Bob, his first message, and the ids from 17. Its
+ * receiver is on, and has no fix yet. */
 static void begin(void) {
     start();
+    board.view.receiver = TERN_C_RECEIVER_SEARCHING;
     companion.contacts[0] = (struct link_contact){.used = true, .name_len = 3, .name = "Bob"};
     memcpy(companion.contacts[0].address, bob, TERN_ADDRESS_LEN);
     companion.next_id = 17;
@@ -502,6 +513,11 @@ static void follow(const char *name, const struct step *steps, size_t n, size_t 
             if (t == TERN_C_SET && i + 2 < n && steps[i + 2].frame[0] == TERN_C_SELF) {
                 board.clock = read_step(&steps[i + 2]).time;
             }
+            /* And one FIX tells of, the receiver's fix as old as the file has it by then. */
+            if (t == TERN_C_SET && i + 2 < n && steps[i + 2].frame[0] == TERN_C_FIX &&
+                companion.fix.source == TERN_C_SOURCE_RECEIVER) {
+                companion.fix.at = TERN_S(100) - TERN_S(read_step(&steps[i + 2]).age);
+            }
             link_receive(&companion, LINK_SERIAL, TERN_S(100), s->frame, s->len);
             continue;
         }
@@ -517,6 +533,11 @@ static void follow(const char *name, const struct step *steps, size_t n, size_t 
                 bob_writes_and_invites();
             } else if (m.type == TERN_C_POSITION && m.precision != 0) {
                 bob_is_at(&m, TERN_S(100));
+            } else if (m.type == TERN_C_FIX && m.source == TERN_C_SOURCE_RECEIVER) {
+                /* The receiver finds the sky. */
+                board.view.receiver = m.receiver;
+                link_receiver_fix(&companion, TERN_S(100) - TERN_S(m.age), m.lat, m.lon, m.altitude,
+                                  m.accuracy, m.satellites);
             } else if (m.type == TERN_C_CARD) {
                 CHECK(dave_card(2, TERN_S(100)) == TERN_CARD_ACCEPTED);
             } else if (m.type == TERN_C_CARD_GONE) {
@@ -566,6 +587,18 @@ static void the_exchange_is_followed_frame_for_frame(void) {
 static void an_older_client_has_no_join_codes(void) {
     begin();
     follow("older 6", older_6, COUNT(older_6), COUNT(older_6), NULL);
+}
+
+/* A client of version 7 is told nothing of the node's fix, and is refused SET 7 as a setting it
+ * does not have. A fix the receiver finds afterwards is no news to it either. */
+static void an_older_client_is_told_no_fix(void) {
+    begin();
+    follow("older 7", older_7, COUNT(older_7), COUNT(older_7), NULL);
+    board.n_out = 0;
+    board.view.receiver = TERN_C_RECEIVER_FIXED;
+    link_receiver_fix(&companion, TERN_S(101), 458325412, 68643871, 4809, 3, 9);
+    link_tick(&companion, TERN_S(110));
+    CHECK_EQ_U64(board.n_out, 0);
 }
 
 /* Clients of versions 3 and 4, to a node that holds a position from Bob and shares its own with
@@ -2464,10 +2497,117 @@ static void what_flash_holds_that_is_no_message_is_not_loaded(void) {
     CHECK(held(id) != NULL && held(id)->state == TERN_C_RECEIVED);
 }
 
+/* --- The node's own fix --------------------------------------------------------------------- */
+
+/* A client synced with a node whose receiver is on and has no fix yet. */
+static void receiver_start(void) {
+    start();
+    board.random = no_wait;
+    board.view.receiver = TERN_C_RECEIVER_SEARCHING;
+    companion.contacts[0] = (struct link_contact){.used = true, .name_len = 3, .name = "Bob"};
+    memcpy(companion.contacts[0].address, bob, TERN_ADDRESS_LEN);
+    hello();
+    request(&(struct tern_companion_msg){.type = TERN_C_SYNC, .seq = 2});
+}
+
+static void receiver_fixes(tern_time now, int32_t lat) {
+    board.view.receiver = TERN_C_RECEIVER_FIXED;
+    board.n_out = 0;
+    link_receiver_fix(&companion, now, lat, 68644000, 4806, 3, 9);
+}
+
+/* The receiver's first fix is news at once, as its source and the receiver's state changed; one
+ * after it that moved waits for LINK_QUIET, and is then told as the latest; one that has only
+ * grown older is no news. */
+static void a_fix_is_news_at_once_only_when_its_kind_changes(void) {
+    receiver_start();
+    receiver_fixes(TERN_S(101), 458325000);
+    CHECK_EQ_U64(board.n_out, 1);
+    CHECK_EQ_I64(sent(0).type, TERN_C_FIX);
+    CHECK_EQ_U64(sent(0).receiver, TERN_C_RECEIVER_FIXED);
+    CHECK_EQ_U64(sent(0).source, TERN_C_SOURCE_RECEIVER);
+    CHECK_EQ_I64(sent(0).lat, 458325000);
+    CHECK_EQ_U64(sent(0).satellites, 9);
+    CHECK_EQ_U64(sent(0).age, 0);
+
+    receiver_fixes(TERN_S(102), 458325010);
+    receiver_fixes(TERN_S(103), 458325020);
+    CHECK_EQ_U64(board.n_out, 0);
+    link_tick(&companion, TERN_S(105));
+    CHECK_EQ_U64(board.n_out, 0);
+    link_tick(&companion, TERN_S(101) + LINK_QUIET);
+    CHECK_EQ_U64(board.n_out, 1);
+    CHECK_EQ_I64(sent(0).lat, 458325020);
+    CHECK_EQ_U64(sent(0).age, 8);
+
+    /* Not moved since, only older: nothing, however long. */
+    board.n_out = 0;
+    link_tick(&companion, TERN_S(500));
+    CHECK_EQ_U64(board.n_out, 0);
+
+    /* The receiver loses the sky: its state is news, with the fix it last gave. */
+    board.view.receiver = TERN_C_RECEIVER_SEARCHING;
+    link_tick(&companion, TERN_S(502));
+    CHECK_EQ_U64(board.n_out, 1);
+    CHECK_EQ_U64(sent(0).receiver, TERN_C_RECEIVER_SEARCHING);
+    CHECK_EQ_U64(sent(0).source, TERN_C_SOURCE_RECEIVER);
+    CHECK_EQ_U64(sent(0).age, 399);
+}
+
+/* The more recent of the two fixes is the node's: a client's older than the receiver's is not
+ * taken, though it is answered; a newer one is, and says so at once. */
+static void the_more_recent_fix_is_the_nodes(void) {
+    receiver_start();
+    receiver_fixes(TERN_S(100), 458325000);
+    request_at(TERN_S(105), &(struct tern_companion_msg){.type = TERN_C_SET_POSITION,
+                                                         .seq = 3,
+                                                         .lat = 603946000,
+                                                         .lon = 52878000,
+                                                         .altitude = TERN_C_NO_ALTITUDE,
+                                                         .age = 10});
+    CHECK_EQ_I64(sent(0).type, TERN_C_OK);
+    CHECK_EQ_U64(board.n_out, 1);
+    CHECK_EQ_U64(companion.fix.source, TERN_C_SOURCE_RECEIVER);
+    request_at(TERN_S(106), &(struct tern_companion_msg){.type = TERN_C_SET_POSITION,
+                                                         .seq = 4,
+                                                         .lat = 603946000,
+                                                         .lon = 52878000,
+                                                         .altitude = TERN_C_NO_ALTITUDE,
+                                                         .age = 0});
+    CHECK_EQ_U64(board.n_out, 2);
+    CHECK_EQ_I64(sent(1).type, TERN_C_FIX);
+    CHECK_EQ_U64(sent(1).source, TERN_C_SOURCE_CLIENT);
+    CHECK_EQ_U64(sent(1).satellites, 0); /* a client's fix says nothing of satellites */
+    CHECK_EQ_I64(sent(1).lat, 603946000);
+    /* And the receiver's next is newer again. */
+    receiver_fixes(TERN_S(107), 458325000);
+    CHECK_EQ_U64(board.n_out, 1);
+    CHECK_EQ_U64(sent(0).source, TERN_C_SOURCE_RECEIVER);
+}
+
+/* What the receiver finds is what the node shares: a client need give it nothing. */
+static void the_receivers_fix_is_shared(void) {
+    receiver_start();
+    share_with_bob(TERN_S(100), 16, 0, 900, 0);
+    struct link_position_out out;
+    CHECK(!link_position_next(&companion, TERN_S(100), false, &out)); /* no fix yet */
+    receiver_fixes(TERN_S(101), 458325000);
+    CHECK(link_position_next(&companion, TERN_S(101), false, &out));
+    struct tern_position p, want;
+    CHECK(tern_position_read(&p, out.plaintext, out.len));
+    tern_position_locate(&want, 458325000, 68644000, 16);
+    CHECK_EQ_U64(p.row, want.row);
+    CHECK_EQ_U64(p.column, want.column);
+}
+
 int main(void) {
     RUN(the_exchange_is_followed_frame_for_frame);
     RUN(an_older_client_is_told_no_cards);
     RUN(an_older_client_has_no_join_codes);
+    RUN(an_older_client_is_told_no_fix);
+    RUN(a_fix_is_news_at_once_only_when_its_kind_changes);
+    RUN(the_more_recent_fix_is_the_nodes);
+    RUN(the_receivers_fix_is_shared);
     RUN(cards_are_the_newest_from_each);
     RUN(an_older_client_is_not_told_who_asked);
     RUN(an_older_client_is_told_no_positions);

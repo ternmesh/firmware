@@ -87,7 +87,7 @@ struct link_neighbour {
 };
 
 /* What main.c knows that the link does not keep: everything in SELF, NEIGHBOUR, AIRTIME and
- * POWER. */
+ * POWER, and the state of the board's satellite receiver, which FIX carries. */
 struct link_view {
     uint8_t address[TERN_ADDRESS_LEN];
     uint8_t role;
@@ -102,6 +102,7 @@ struct link_view {
     uint32_t period_s, allowed_ms, used_ms, wait_ms;
     uint16_t millivolts;
     uint8_t percent, power_flags;
+    uint8_t receiver; /* a TERN_C_RECEIVER_ state: none, off, searching or fixed */
 };
 
 /* What became of saving a message: saved, refused for want of room, or not written for any other
@@ -247,13 +248,16 @@ struct link_told {
     tern_time at;
 };
 
-/* The node's own position, as a client last gave it (SET_POSITION). */
+/* The node's own position: the more recent of the last its receiver gave (link_receiver_fix())
+ * and the last a client gave it (SET_POSITION), as draft/positions.md has a node take it. */
 struct link_fix {
     bool have;
-    int32_t lat, lon;  /* 10^-7 degree */
-    int16_t altitude;  /* TERN_C_NO_ALTITUDE for none */
-    uint16_t accuracy; /* metres, 0 for none */
-    tern_time at;      /* when the fix was taken: when it came, less its age */
+    uint8_t source;     /* TERN_C_SOURCE_RECEIVER or _CLIENT, while it has one */
+    int32_t lat, lon;   /* 10^-7 degree */
+    int16_t altitude;   /* above the ellipsoid; TERN_C_NO_ALTITUDE for none */
+    uint16_t accuracy;  /* metres, 0 for none */
+    uint8_t satellites; /* the receiver's fix's, 0 for a client's */
+    tern_time at;       /* when the fix was taken: when it came, less its age */
 };
 
 /* Sharing the node's position with one contact or group (SHARE, SHARE_GROUP), and what has gone
@@ -313,8 +317,8 @@ struct link_conn {
     uint8_t self_cards;
     uint8_t self_card_name_len;
     uint8_t self_card_name[TERN_COMPANION_NAME_MAX];
-    struct tern_companion_msg air, power;
-    tern_time air_at, power_at, look_at;
+    struct tern_companion_msg air, power, fix;
+    tern_time air_at, power_at, fix_at, look_at;
 };
 
 struct link {
@@ -382,9 +386,9 @@ void link_close(struct link *l, unsigned conn);
 /* One frame from the client on a connection. */
 void link_receive(struct link *l, unsigned conn, tern_time now, const uint8_t *frame, size_t len);
 
-/* Tells the client what has changed: neighbours, the air, power, the node itself. Call it often;
- * it looks at most every LINK_LOOK. A connection that has lapsed is ended here, and hears nothing
- * more until it says HELLO again. */
+/* Tells the client what has changed: neighbours, the air, power, the node itself and its fix.
+ * Call it often; it looks at most every LINK_LOOK. A connection that has lapsed is ended here,
+ * and hears nothing more until it says HELLO again. */
 void link_tick(struct link *l, tern_time now);
 
 /* The oldest message waiting that the forwarder has not been given, or NULL. */
@@ -504,6 +508,14 @@ void link_position_received(struct link *l, tern_time now, const uint8_t from[TE
  * `from` the routing id the frame gave. */
 void link_group_position_received(struct link *l, tern_time now, size_t place, uint32_t from,
                                   const uint8_t *plaintext, size_t len);
+
+/* A fix from the board's own satellite receiver, made at `now`, one the receiver says is valid:
+ * the node's from then on, being the most recent it has. Clients are told (FIX) at once if it is
+ * the first of the receiver's since a client's, or if the receiver's state in the view changed
+ * with it, and otherwise at most every LINK_QUIET. The receiver's state alone, a fix lost or the
+ * receiver turned off, link_tick() tells of. */
+void link_receiver_fix(struct link *l, tern_time now, int32_t lat, int32_t lon, int16_t altitude,
+                       uint16_t accuracy, uint8_t satellites);
 
 /* --- Cards ---------------------------------------------------------------------------------- */
 

@@ -26,11 +26,10 @@
 #include "tern/sx126x.h"
 #include "tern/sx127x.h"
 
+#include "driver/uart.h"
 #if CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
 #include "driver/usb_serial_jtag.h"
 #include "driver/usb_serial_jtag_vfs.h"
-#else
-#include "driver/uart.h"
 #endif
 
 /* The board the build chose, found by its name, so that the name a client is told and the pins
@@ -1013,6 +1012,11 @@ void board_off(uint32_t wake_after_s) {
     board_led(false);
     set(B->vext, !VEXT_ON);
     hold(B->vext);
+    /* A receiver on a switched supply is held off too; one on a rail goes with the rails. */
+    if (board_gnss() && B->gnss.power != BOARD_NO_PIN) {
+        (void)board_gnss_power(false);
+        hold(B->gnss.power);
+    }
     amp_off();
     pmu_off();
     gpio_deep_sleep_hold_en();
@@ -1032,6 +1036,78 @@ void board_off(uint32_t wake_after_s) {
     }
     esp_deep_sleep_start();
 }
+
+/* --- The satellite receiver ------------------------------------------------------------------ */
+
+/* UART1: UART0 may be the console's. Its buffer holds a few seconds of a receiver's sentences, so
+ * a turn of the loop held up by a frame on the air loses none. */
+#define GNSS_UART UART_NUM_1
+#define GNSS_BUFFER 2048
+
+static bool gnss_open;
+
+bool board_gnss(void) { return board_has_gnss(B); }
+
+/* The receiver's supply: a rail of the power management chip, a switched supply, or the board's. */
+static bool gnss_supply(bool on) {
+    if (B->gnss.rail != AXP_RAIL_NONE) {
+        return pmu_open() && axp_set_rail(&pmu, B->gnss.rail, on ? B->gnss.mv : 0);
+    }
+    if (B->gnss.power != BOARD_NO_PIN) {
+        gpio_config_t out = {.pin_bit_mask = bit(B->gnss.power), .mode = GPIO_MODE_OUTPUT};
+        if (gpio_config(&out) != ESP_OK) {
+            return false;
+        }
+        release(B->gnss.power);
+        set(B->gnss.power, on != B->gnss.power_low_on ? 1 : 0);
+    }
+    return true;
+}
+
+bool board_gnss_power(bool on) {
+    if (!board_gnss()) {
+        return !on;
+    }
+    if (!on) {
+        if (gnss_open) {
+            (void)uart_driver_delete(GNSS_UART);
+            gnss_open = false;
+        }
+        return gnss_supply(false);
+    }
+    if (!gnss_supply(true)) {
+        return false;
+    }
+    if (B->gnss.reset != BOARD_NO_PIN) {
+        gpio_config_t out = {.pin_bit_mask = bit(B->gnss.reset), .mode = GPIO_MODE_OUTPUT};
+        if (gpio_config(&out) != ESP_OK) {
+            return false;
+        }
+        set(B->gnss.reset, 1);
+    }
+    if (!gnss_open) {
+        uart_config_t cfg = {.baud_rate = (int)B->gnss.baud,
+                             .data_bits = UART_DATA_8_BITS,
+                             .parity = UART_PARITY_DISABLE,
+                             .stop_bits = UART_STOP_BITS_1,
+                             .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+                             .source_clk = UART_SCLK_DEFAULT};
+        int tx = B->gnss.tx == BOARD_NO_PIN ? UART_PIN_NO_CHANGE : B->gnss.tx;
+        if (uart_driver_install(GNSS_UART, GNSS_BUFFER, 0, 0, NULL, 0) != ESP_OK) {
+            return false;
+        }
+        if (uart_param_config(GNSS_UART, &cfg) != ESP_OK ||
+            uart_set_pin(GNSS_UART, tx, B->gnss.rx, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE) !=
+                ESP_OK) {
+            (void)uart_driver_delete(GNSS_UART);
+            return false;
+        }
+        gnss_open = true;
+    }
+    return true;
+}
+
+bool board_gnss_read(uint8_t *c) { return gnss_open && uart_read_bytes(GNSS_UART, c, 1, 0) == 1; }
 
 /* --- The console ----------------------------------------------------------------------------- */
 

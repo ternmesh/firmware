@@ -91,6 +91,14 @@ __attribute__((noreturn)) void board_off(uint32_t wake_after_s);
  * power coming on. */
 bool board_woke_by_timer(void);
 
+/* The board's satellite receiver, which sends NMEA 0183 sentences (tern/nmea.h) over a UART:
+ * whether it has one; powering it, with its UART open, or unpowering it; and its bytes as they
+ * come. Powered, it takes from seconds to minutes to find the sky. A board without one says
+ * false, answers true to being turned off, and has no bytes. */
+bool board_gnss(void);
+bool board_gnss_power(bool on);
+bool board_gnss_read(uint8_t *c); /* one byte if one has come, without waiting */
+
 /* The serial console, over USB: UART0 or USB Serial/JTAG, as the build's console is. */
 bool board_console_init(void);
 bool board_console_read(uint8_t *c); /* one byte if one has come, without waiting */

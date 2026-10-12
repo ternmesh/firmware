@@ -508,6 +508,16 @@ void board_off(uint32_t wake_after_s) {
     sys_poweroff();
 }
 
+/* --- The satellite receiver ------------------------------------------------------------------ */
+
+/* None is driven on this port yet. */
+bool board_gnss(void) { return false; }
+bool board_gnss_power(bool on) { return !on; }
+bool board_gnss_read(uint8_t *c) {
+    (void)c;
+    return false;
+}
+
 /* --- The console ----------------------------------------------------------------------------- */
 
 /* USB CDC ACM, which the board makes its console: printf() goes there too. */

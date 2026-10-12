@@ -167,6 +167,50 @@ static struct tern_companion_msg power_of(const struct link_view *v) {
                                        .flags = v->power_flags};
 }
 
+/* The node's own fix, as a FIX record: the receiver's state from the view, and the fix the node
+ * shares from, with its age as of now. */
+static struct tern_companion_msg fix_of(const struct link *l, tern_time now) {
+    struct tern_companion_msg m = {.type = TERN_C_FIX, .receiver = l->view.receiver};
+    const struct link_fix *f = &l->fix;
+    if (!f->have) {
+        return m;
+    }
+    m.source = f->source;
+    m.lat = f->lat;
+    m.lon = f->lon;
+    m.altitude = f->altitude;
+    m.accuracy = f->accuracy;
+    m.satellites = f->source == TERN_C_SOURCE_RECEIVER ? f->satellites : 0;
+    tern_time age = now > f->at ? (now - f->at) / TERN_S(1) : 0;
+    m.age = age > (tern_time)UINT32_MAX ? UINT32_MAX : (uint32_t)age;
+    return m;
+}
+
+/* Tells a client its node's fix when the receiver's state or the fix's source changed since it
+ * was last told, which it must hear of, or when the fix moved and it has not been told of one for
+ * LINK_QUIET. A fix that has only grown older is not news. */
+static void look_at_fix(struct link *l, struct link_conn *c, tern_time now) {
+    struct tern_companion_msg f = fix_of(l, now);
+    const struct tern_companion_msg *t = &c->fix;
+    bool kind = f.receiver != t->receiver || f.source != t->source;
+    bool moved = f.lat != t->lat || f.lon != t->lon || f.altitude != t->altitude ||
+                 f.accuracy != t->accuracy || f.satellites != t->satellites;
+    if (kind || (moved && now - c->fix_at >= LINK_QUIET)) {
+        c->fix = f;
+        c->fix_at = now;
+        tell(l, c, &c->fix);
+    }
+}
+
+/* The fix, after a request or the receiver changed it, to every client a sync has told one. */
+static void fix_news(struct link *l, tern_time now) {
+    for (size_t i = 0; i < LINK_CONNS; i++) {
+        if (l->conns[i].synced) {
+            look_at_fix(l, &l->conns[i], now);
+        }
+    }
+}
+
 /* A position held, as a POSITION or GROUP_POSITION record: the centre of its cell, and its age
  * as of now. Precision 0 when nothing is held. */
 static void put_position(struct tern_companion_msg *m, const struct tern_position *p, bool holds,
@@ -843,7 +887,9 @@ static void sync(struct link *l, const struct tern_companion_msg *q, tern_time n
     tell(l, c, &c->air);
     c->power = power_of(&l->view);
     tell(l, c, &c->power);
-    c->look_at = c->air_at = c->power_at = now;
+    c->fix = fix_of(l, now);
+    tell(l, c, &c->fix);
+    c->look_at = c->air_at = c->power_at = c->fix_at = now;
     c->synced = true;
     /* With the count as it stands, so that a client that missed the last of the news knows. */
     struct tern_companion_msg a = {.type = TERN_C_SYNCED, .seq = q->seq, .news = c->news};
@@ -1242,13 +1288,35 @@ static void set_position(struct link *l, const struct tern_companion_msg *q, ter
         error(l, q->seq, TERN_C_ERR_REFUSED);
         return;
     }
-    l->fix = (struct link_fix){.have = true,
-                               .lat = q->lat,
-                               .lon = q->lon,
-                               .altitude = q->altitude,
-                               .accuracy = q->accuracy,
-                               .at = now - TERN_S(q->age)};
+    /* The more recent of the two: a client's fix older than the receiver's last is not taken,
+     * though the request is answered as any is. */
+    tern_time at = now - TERN_S(q->age);
+    if (!l->fix.have || at >= l->fix.at) {
+        l->fix = (struct link_fix){.have = true,
+                                   .source = TERN_C_SOURCE_CLIENT,
+                                   .lat = q->lat,
+                                   .lon = q->lon,
+                                   .altitude = q->altitude,
+                                   .accuracy = q->accuracy,
+                                   .at = at};
+    }
     answer(l, TERN_C_OK, q->seq);
+    l->host.view(l->host.ctx, &l->view);
+    fix_news(l, now);
+}
+
+void link_receiver_fix(struct link *l, tern_time now, int32_t lat, int32_t lon, int16_t altitude,
+                       uint16_t accuracy, uint8_t satellites) {
+    l->fix = (struct link_fix){.have = true,
+                               .source = TERN_C_SOURCE_RECEIVER,
+                               .lat = lat,
+                               .lon = lon,
+                               .altitude = altitude,
+                               .accuracy = accuracy,
+                               .satellites = satellites,
+                               .at = now};
+    l->host.view(l->host.ctx, &l->view);
+    fix_news(l, now);
 }
 
 /* What SHARE and SHARE_GROUP set: 0, or the ERROR code to answer with. Turning off sharing that
@@ -1695,8 +1763,8 @@ static void receive(struct link *l, unsigned conn, tern_time now, const uint8_t 
             break;
         }
         answer(l, TERN_C_OK, q->seq);
-        /* A setting that takes effect at once, as cards do, is news now: one that takes a
-         * restart changes nothing SELF says until then. */
+        /* A setting that takes effect at once, as cards and the receiver do, is news now: one
+         * that takes a restart changes nothing SELF or FIX says until then. */
         l->host.view(l->host.ctx, &l->view);
         for (size_t i = 0; i < LINK_CONNS; i++) {
             struct link_conn *to = &l->conns[i];
@@ -1704,6 +1772,7 @@ static void receive(struct link *l, unsigned conn, tern_time now, const uint8_t 
                 news_self(l, to);
             }
         }
+        fix_news(l, now);
         break;
     }
     case TERN_C_SEND:
@@ -1845,6 +1914,7 @@ static void look(struct link *l, struct link_conn *c, tern_time now) {
         c->power_at = now;
         tell(l, c, &c->power);
     }
+    look_at_fix(l, c, now);
 }
 
 void link_tick(struct link *l, tern_time now) {
