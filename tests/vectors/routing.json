@@ -403,7 +403,24 @@
       "frame": "5b68757e77fffffffffffff7"
     }
   ],
-  "answers": false,
+  "answers": [
+    {
+      "sender": 3167332448,
+      "leaf": 289929253,
+      "id": 0,
+      "margin": 128,
+      "power": 14,
+      "frame": "5cbcc9a8601147f8250000800e"
+    },
+    {
+      "sender": 1399809041,
+      "leaf": 1752530551,
+      "id": 65535,
+      "margin": 1,
+      "power": -9,
+      "frame": "5c536f641168757e77ffff01f7"
+    }
+  ],
   "rejected": [
     {
       "why": "an announce a byte short",
