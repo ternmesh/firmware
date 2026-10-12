@@ -801,6 +801,17 @@ static void heard_for_node(const uint8_t *plain, size_t len, const uint8_t peer[
     tern_wipe(secret, sizeof secret);
 }
 
+/* Stores the router's sequence number whenever it has changed, so that a board made again starts
+ * from it: a request heard may raise it, and so may the router itself when a leaf re-attaches
+ * (tern/route.h), which happens in tern_route_poll(). Called after either. Returns whether what is
+ * stored is the router's: until it is, no routing frame goes, which might carry the new one. */
+static bool keep_seq(void) {
+    if (route.seq != route_seq_saved && store_save(NULL, "seq", &route.seq, sizeof route.seq)) {
+        route_seq_saved = route.seq;
+    }
+    return route.seq == route_seq_saved;
+}
+
 static void heard(const struct tern_radio_event *ev) {
     uint8_t msg[TERN_UNICAST_MAX_PLAINTEXT + 1];
     struct demo_received got;
@@ -826,9 +837,7 @@ static void heard(const struct tern_radio_event *ev) {
                 }
             }
         }
-        if (route.seq != route_seq_saved && store_save(NULL, "seq", &route.seq, sizeof route.seq)) {
-            route_seq_saved = route.seq;
-        }
+        keep_seq();
         return;
     }
     if (tern_flood_frame(ev->data, ev->len)) {
@@ -1531,8 +1540,16 @@ static void poll_route(void) {
         route_len = tern_route_poll(&route, now, route_frame, &route_dbm);
         route_retry = 0;
     }
-    if (route_len == 0 || now < route_retry ||
-        !tern_duty_allows(&duty, now, tern_lora_airtime(&cfg.mod, (uint32_t)route_len)) || held()) {
+    if (route_len == 0 || now < route_retry) {
+        return;
+    }
+    /* The frame waits while the seq it may carry is not yet stored, and the store is tried again a
+     * second on. */
+    if (!keep_seq()) {
+        route_retry = now + 1000000000LL;
+        return;
+    }
+    if (!tern_duty_allows(&duty, now, tern_lora_airtime(&cfg.mod, (uint32_t)route_len)) || held()) {
         return;
     }
     if (transmit_at(route_frame, route_len, route_dbm) != 0) {

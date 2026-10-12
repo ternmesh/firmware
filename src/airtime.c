@@ -9,7 +9,9 @@
 
 _Static_assert(TERN_AIRTIME_HDR_ACK == TERN_HDR_ACK, "an acknowledgement's hdr");
 _Static_assert(TERN_AIRTIME_HDR_ANNOUNCE == TERN_HDR_ANNOUNCE &&
-                   TERN_AIRTIME_HDR_REQUEST == TERN_HDR_REQUEST,
+                   TERN_AIRTIME_HDR_REQUEST == TERN_HDR_REQUEST &&
+                   TERN_AIRTIME_HDR_SOLICIT == TERN_HDR_SOLICIT &&
+                   TERN_AIRTIME_HDR_ANSWER == TERN_HDR_ANSWER,
                "routing's hdrs");
 _Static_assert(TERN_AIRTIME_HDR_GROUP == TERN_HDR_GROUP &&
                    TERN_AIRTIME_HDR_GROUP_NODE == TERN_HDR_GROUP_NODE &&

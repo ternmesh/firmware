@@ -565,6 +565,362 @@ static void restarts_heal(void) {
     CHECK(net.loop_longest < TERN_S(120));
 }
 
+/* Leaves that move (draft/routing.md): relays 0, 1 and 2 in a line, and leaf 3 beside relay 0. The
+ * leaf moves to relay 2, and gives up three hops at relay 0: it asks after it twice, relay 2
+ * answers, and it re-attaches there, raising its seq. Relay 0 hears of that seq from relay 1,
+ * takes the leaf out of use, and every route to it leads to relay 2. */
+static void a_leaf_that_moves_re_attaches(void) {
+    uint16_t seq;
+    net_init(&net, 4);
+    net.node[3].relay = false;
+    link(&net, 0, 1, 20);
+    link(&net, 1, 2, 20);
+    link(&net, 3, 0, 20);
+    start_all(&net);
+    run(&net, TERN_S(900));
+    CHECK_EQ_I64(hops(&net, 2, 3), 3);
+    seq = net.node[3].r.seq;
+    link(&net, 3, 0, NONE);
+    link(&net, 3, 2, 20);
+    /* Relay 2 keeps the leaf once it hears an announce of its, as a relay answers only a node it
+     * keeps. */
+    run(&net, net.now + TERN_S(1200));
+    CHECK(net.node[3].r.seq == seq);
+    for (int k = 0; k < 3; k++) {
+        tern_route_lost(&net.node[3].r, net.now, id_of(0));
+    }
+    run(&net, net.now + TERN_S(120));
+    CHECK(net.node[3].r.seq == (uint16_t)(seq + 1));
+    CHECK_EQ_I64(net.node[3].r.attached, id_of(2));
+    CHECK_EQ_I64(hops(&net, 3, 2), 1);
+    CHECK_EQ_I64(hops(&net, 2, 3), 1);
+    CHECK_EQ_I64(hops(&net, 1, 3), 2);
+    CHECK_EQ_I64(hops(&net, 0, 3), 3);
+    CHECK(net.node[0].nb[0].id == id_of(3) || net.node[0].nb[1].id == id_of(3));
+    for (int i = 0; i < NB; i++) {
+        if (net.node[0].nb[i].used && net.node[0].nb[i].id == id_of(3)) {
+            CHECK(net.node[0].nb[i].out_of_use);
+        }
+    }
+    CHECK_EQ_I64(net.loops, 0);
+}
+
+/* A leaf that has not moved, and loses three hops at its relay, asks after it; the relay answers,
+ * is in use again, and the leaf raises no seq: nothing moves. */
+static void a_leaf_that_stays_does_not_re_attach(void) {
+    uint16_t seq;
+    net_init(&net, 3);
+    net.node[2].relay = false;
+    link(&net, 0, 1, 20);
+    link(&net, 2, 0, 20);
+    link(&net, 2, 1, 0);
+    start_all(&net);
+    run(&net, TERN_S(900));
+    seq = net.node[2].r.seq;
+    for (int k = 0; k < 3; k++) {
+        tern_route_lost(&net.node[2].r, net.now, id_of(0));
+    }
+    CHECK(net.node[2].nb[0].out_of_use || net.node[2].nb[1].out_of_use);
+    run(&net, net.now + TERN_S(120));
+    CHECK(net.node[2].r.seq == seq);
+    CHECK(!net.node[2].nb[0].out_of_use && !net.node[2].nb[1].out_of_use);
+    CHECK_EQ_I64(net.node[2].r.unanswered, 0);
+    CHECK_EQ_I64(hops(&net, 1, 2), 1);
+    CHECK_EQ_I64(net.loops, 0);
+}
+
+/* Where a leaf hears more than SOLICIT_SPARSE relays, the one it gave hops up at likely still
+ * reaches it, and every relay around would answer: it does not ask. */
+static void a_leaf_among_many_relays_does_not_ask(void) {
+    net_init(&net, 6);
+    net.node[5].relay = false;
+    for (int i = 0; i < 5; i++) {
+        link(&net, 5, i, 20);
+        for (int k = i + 1; k < 5; k++) {
+            link(&net, i, k, 20);
+        }
+    }
+    start_all(&net);
+    run(&net, TERN_S(900));
+    for (int k = 0; k < 3; k++) {
+        tern_route_lost(&net.node[5].r, net.now, id_of(0));
+    }
+    for (int i = 0; i < NB; i++) {
+        CHECK(!net.node[5].nb[i].out_of_use);
+    }
+    CHECK(!net.node[5].r.solicit_wanted);
+}
+
+/* A relay that loses its route to a leaf waits for the leaf's newer seq before it retracts it:
+ * one request a request_interval on, and the retraction a request_interval after that. Meanwhile
+ * the relays behind it keep their routes, rather than starving and asking in turn. */
+static void a_route_to_a_leaf_is_repaired_patiently(void) {
+    uint32_t next;
+    uint16_t m;
+    net_init(&net, 3);
+    net.node[2].relay = false;
+    link(&net, 0, 1, 20);
+    link(&net, 1, 2, 20);
+    start_all(&net);
+    run(&net, TERN_S(900));
+    CHECK_EQ_I64(hops(&net, 0, 2), 2);
+    link(&net, 1, 2, NONE);
+    for (int k = 0; k < 24; k++) { /* DEAD_HOPS given up: relay 1 forgets the leaf */
+        tern_route_lost(&net.node[1].r, net.now, id_of(2));
+    }
+    CHECK(!tern_route_next(&net.node[1].r, id_of(2), &next, &m));
+    run(&net, net.now + TERN_S(15));
+    CHECK(tern_route_next(&net.node[0].r, id_of(2), &next, &m) && next == id_of(1));
+    CHECK_EQ_I64(net.node[1].requests, 1); /* and relay 0 passes it on to relay 1 */
+    run(&net, net.now + TERN_S(75));       /* the retraction goes as Trickle and the cap allow */
+    CHECK(!tern_route_next(&net.node[0].r, id_of(2), &next, &m));
+    CHECK_EQ_I64(net.loops, 0);
+}
+
+/* A leaf whose table is full, and whose links are all up, moves: the relay it left is out of use
+ * once it gives three hops up there, and gives its place to the relay where the leaf is now. Kept,
+ * it would hold the place until the leaf forgot it a day on, and the leaf could never take the new
+ * relay as a neighbour, nor its answers. Relays 0, 1 and 2 in a line, leaf 3 beside relay 0 and
+ * leaf 4, each node with room for two neighbours. */
+static void a_full_table_gives_up_a_relay_out_of_use(void) {
+    net_init(&net, 5);
+    net.nb_cap = 2;
+    net.node[3].relay = false;
+    net.node[4].relay = false;
+    link(&net, 0, 1, 20);
+    link(&net, 1, 2, 20);
+    link(&net, 3, 0, 20);
+    link(&net, 3, 4, 20);
+    start_all(&net);
+    run(&net, TERN_S(900));
+    CHECK_EQ_I64(hops(&net, 3, 0), 1);
+    link(&net, 3, 0, NONE);
+    link(&net, 3, 2, 20);
+    for (int k = 0; k < 3; k++) {
+        tern_route_lost(&net.node[3].r, net.now, id_of(0));
+    }
+    run(&net, net.now + TERN_S(1800));
+    CHECK_EQ_I64(hops(&net, 3, 2), 1);
+    CHECK_EQ_I64(hops(&net, 3, 0), 3);
+    CHECK_EQ_I64(hops(&net, 2, 3), 1);
+    CHECK_EQ_I64(net.loops, 0);
+}
+
+static struct tern_route_dest *dest_at(int at, int d) {
+    for (size_t i = 0; i < DESTS; i++) {
+        if (net.node[at].dest[i].used && net.node[at].dest[i].id == id_of(d)) {
+            return &net.node[at].dest[i];
+        }
+    }
+    return NULL;
+}
+
+/* A leaf that takes up the relay's role is taken for a relay everywhere: what a node lists of a
+ * destination's role comes from the destination itself, along the selected routes, and a bit left
+ * from before cannot pass back and forth between relays and outlive it. */
+static void a_leaf_that_becomes_a_relay_is_a_leaf_no_more(void) {
+    net_init(&net, 4);
+    net.node[3].relay = false;
+    link(&net, 0, 1, 20);
+    link(&net, 1, 2, 20);
+    link(&net, 3, 0, 20);
+    start_all(&net);
+    run(&net, TERN_S(900));
+    for (int i = 0; i < 3; i++) {
+        CHECK(dest_at(i, 3) && dest_at(i, 3)->leaf);
+    }
+    net.node[3].relay = true;
+    net.node[3].r.config.relay = true;
+    run(&net, net.now + TERN_S(3600));
+    for (int i = 0; i < 3; i++) {
+        CHECK(dest_at(i, 3) && !dest_at(i, 3)->leaf);
+    }
+    CHECK_EQ_I64(hops(&net, 2, 3), 3);
+}
+
+/* A route to a leaf with a change waiting to be announced, lost before the announce goes, is held
+ * as any route to a leaf lost is: the change does not go out as a retraction at once. */
+static void a_change_waiting_does_not_retract_a_route_held(void) {
+    uint32_t next;
+    uint16_t m;
+    struct tern_route_dest *d;
+    net_init(&net, 3);
+    net.node[2].relay = false;
+    link(&net, 0, 1, 20);
+    link(&net, 1, 2, 20);
+    start_all(&net);
+    run(&net, TERN_S(900));
+    d = dest_at(1, 2);
+    CHECK(d && !d->urgent);
+    d->urgent = true; /* as a new seq or metric would have it */
+    net.node[1].r.urgent_count++;
+    link(&net, 1, 2, NONE);
+    for (int k = 0; k < 24; k++) {
+        tern_route_lost(&net.node[1].r, net.now, id_of(2));
+    }
+    run(&net, net.now + TERN_S(15));
+    CHECK(tern_route_next(&net.node[0].r, id_of(2), &next, &m) && next == id_of(1));
+    CHECK_EQ_I64(net.node[1].r.urgent_count, 0);
+    run(&net, net.now + TERN_S(75));
+    CHECK(!tern_route_next(&net.node[0].r, id_of(2), &next, &m));
+}
+
+/* A frame of node i's on the air now, heard by every node on that hears it. */
+static void air(int i, const uint8_t *frame, size_t len, int8_t dbm) {
+    for (int k = 0; k < net.n; k++) {
+        int snr = net.snr[i][k] == NONE ? NONE : net.snr[i][k] + 4 * (dbm - FULL);
+        if (k != i && net.node[k].on && snr != NONE && snr >= SNR_FLOOR_Q) {
+            tern_route_heard(&net.node[k].r, net.now, frame, len, (int16_t)snr);
+        }
+    }
+}
+
+/* A solicit's answers are waited for from when it goes on the air, not from when the router built
+ * it: a board may hold a frame back for the region's limit or a busy radio. Held 15 s here, longer
+ * than SOLICIT_WAIT, it is not taken as unanswered the moment it goes. */
+static void a_solicit_is_answered_from_when_it_goes(void) {
+    uint8_t frame[TERN_ROUTE_FRAME_MAX], held[TERN_ROUTE_FRAME_MAX];
+    size_t len, held_len = 0;
+    int8_t dbm, held_dbm = 0;
+    struct tern_route *leaf = &net.node[2].r;
+    uint16_t seq;
+    net_init(&net, 3);
+    net.node[2].relay = false;
+    link(&net, 0, 1, 20);
+    link(&net, 2, 0, 20);
+    link(&net, 2, 1, 0);
+    start_all(&net);
+    run(&net, TERN_S(900));
+    seq = leaf->seq;
+    for (int k = 0; k < 3; k++) {
+        tern_route_lost(leaf, net.now, id_of(0));
+    }
+    while ((len = tern_route_poll(leaf, net.now, frame, &dbm)) != 0) {
+        if (frame[0] == TERN_HDR_SOLICIT) {
+            memcpy(held, frame, len);
+            held_len = len;
+            held_dbm = dbm;
+            break;
+        }
+        air(2, frame, len, dbm);
+        tern_route_sent(leaf, net.now);
+    }
+    CHECK(held_len == TERN_SOLICIT_LEN);
+    net.node[2].on = false; /* the board holds it, and asks its router for nothing */
+    run(&net, net.now + TERN_S(15));
+    net.node[2].on = true;
+    air(2, held, held_len, held_dbm);
+    tern_route_sent(leaf, net.now);
+    len = tern_route_poll(leaf, net.now, frame, &dbm);
+    CHECK(len == 0 || frame[0] != TERN_HDR_SOLICIT); /* no second of a pair yet */
+    CHECK(!leaf->doubt && leaf->unanswered == 0);
+    if (len) {
+        air(2, frame, len, dbm);
+        tern_route_sent(leaf, net.now);
+    }
+    run(&net, net.now + TERN_S(60));
+    CHECK(!leaf->doubt && leaf->unanswered == 0 && leaf->seq == seq);
+    CHECK(!net.node[2].nb[0].out_of_use && !net.node[2].nb[1].out_of_use);
+}
+
+/* A leaf gives hops up at a relay that is not its anchor, and asks after it; but it has moved from
+ * both, and a third answers. Its anchor, silent with the rest, goes out of use, and since the
+ * routes to the leaf lead there it re-attaches, though the relay it asked after was not its
+ * anchor. Relays 0, 1 and 2 in a line, leaf 3 beside relays 0 (its anchor) and 1. */
+static void a_leaf_whose_anchor_went_silent_too_re_attaches(void) {
+    uint16_t seq;
+    net_init(&net, 4);
+    net.node[3].relay = false;
+    link(&net, 0, 1, 20);
+    link(&net, 1, 2, 20);
+    link(&net, 3, 0, 30);
+    link(&net, 3, 1, 0);
+    start_all(&net);
+    run(&net, TERN_S(900));
+    CHECK_EQ_I64(hops(&net, 2, 3), 2);
+    seq = net.node[3].r.seq;
+    link(&net, 3, 0, NONE);
+    link(&net, 3, 1, NONE);
+    link(&net, 3, 2, 20);
+    run(&net, net.now + TERN_S(1200)); /* relay 2 hears the leaf, and keeps it */
+    for (int k = 0; k < 3; k++) {
+        tern_route_lost(&net.node[3].r, net.now, id_of(1));
+    }
+    run(&net, net.now + TERN_S(120));
+    CHECK(net.node[3].r.seq == (uint16_t)(seq + 1));
+    CHECK_EQ_I64(net.node[3].r.attached, id_of(2));
+    CHECK_EQ_I64(hops(&net, 0, 3), 3);
+    CHECK_EQ_I64(net.loops, 0);
+}
+
+/* A lost answer moves no leaf, raises no seq and takes no relay out of use. Leaf 3 hears relays 0
+ * (its anchor), 1 and 2, gives hops up at relay 1, which has gone, and asks after it twice. Its
+ * anchor answers the first of the pair, and its answer to the second is lost: it has not gone
+ * silent, and the leaf does not re-attach to relay 2, which answered both. */
+static void an_anchor_heard_in_the_first_of_a_pair_is_not_silent(void) {
+    uint16_t seq;
+    uint32_t attached;
+    net_init(&net, 4);
+    net.node[3].relay = false;
+    link(&net, 0, 1, 20);
+    link(&net, 1, 2, 20);
+    link(&net, 0, 2, 20);
+    link(&net, 3, 0, 30);
+    link(&net, 3, 1, 10);
+    link(&net, 3, 2, 0);
+    start_all(&net);
+    run(&net, TERN_S(900));
+    seq = net.node[3].r.seq;
+    attached = net.node[3].r.attached;
+    link(&net, 3, 1, NONE);
+    for (int k = 0; k < 3; k++) {
+        tern_route_lost(&net.node[3].r, net.now, id_of(1));
+    }
+    for (int k = 0; k < 60 && !net.node[3].r.doubt; k++) {
+        run(&net, net.now + TERN_S(1));
+    }
+    CHECK(net.node[3].r.doubt && net.node[3].r.anchor_heard_first);
+    net.snr[0][3] = NONE; /* the anchor's answer to the second is lost */
+    run(&net, net.now + TERN_S(30));
+    CHECK(net.node[3].r.seq == seq);
+    CHECK_EQ_I64(net.node[3].r.attached, attached);
+    /* Nor does the lost answer take the anchor out of use: it answered the first of the pair. */
+    for (int i = 0; i < NB; i++) {
+        if (net.node[3].nb[i].used && net.node[3].nb[i].id == id_of(0)) {
+            CHECK(!net.node[3].nb[i].out_of_use);
+        }
+    }
+    CHECK_EQ_I64(net.loops, 0);
+}
+
+/* A leaf that starts again numbers its solicits afresh. Its relays remember the last few they
+ * answered, so numbered from 0 again, its first after a restart would be taken for those and go
+ * unanswered, and the leaf, finding none, would give up asking. */
+static void a_leaf_that_restarts_is_answered_again(void) {
+    net_init(&net, 3);
+    net.node[2].relay = false;
+    link(&net, 0, 1, 20);
+    link(&net, 2, 0, 20);
+    link(&net, 2, 1, 0);
+    start_all(&net);
+    run(&net, TERN_S(900));
+    for (int round = 0; round < 4; round++) { /* solicits its relays remember */
+        for (int k = 0; k < 3; k++) {
+            tern_route_lost(&net.node[2].r, net.now, id_of(0));
+        }
+        run(&net, net.now + TERN_S(120));
+        CHECK_EQ_I64(net.node[2].r.unanswered, 0);
+    }
+    start(&net, 2, net.node[2].r.seq);
+    run(&net, net.now + TERN_S(900));
+    for (int k = 0; k < 3; k++) {
+        tern_route_lost(&net.node[2].r, net.now, id_of(0));
+    }
+    run(&net, net.now + TERN_S(120));
+    CHECK_EQ_I64(net.node[2].r.unanswered, 0);
+    CHECK(!net.node[2].nb[0].out_of_use && !net.node[2].nb[1].out_of_use);
+}
+
 int main(void) {
     RUN(two_nodes_find_each_other);
     RUN(a_line_is_routed_end_to_end);
@@ -580,5 +936,16 @@ int main(void) {
     RUN(tables_too_small_hold_what_they_can);
     RUN(routes_never_loop_whatever_is_lost);
     RUN(restarts_heal);
+    RUN(a_leaf_that_moves_re_attaches);
+    RUN(a_leaf_that_stays_does_not_re_attach);
+    RUN(a_leaf_among_many_relays_does_not_ask);
+    RUN(a_route_to_a_leaf_is_repaired_patiently);
+    RUN(a_full_table_gives_up_a_relay_out_of_use);
+    RUN(a_leaf_that_becomes_a_relay_is_a_leaf_no_more);
+    RUN(a_change_waiting_does_not_retract_a_route_held);
+    RUN(a_solicit_is_answered_from_when_it_goes);
+    RUN(a_leaf_whose_anchor_went_silent_too_re_attaches);
+    RUN(an_anchor_heard_in_the_first_of_a_pair_is_not_silent);
+    RUN(a_leaf_that_restarts_is_answered_again);
     return CHECK_DONE();
 }

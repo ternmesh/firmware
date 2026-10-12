@@ -111,23 +111,25 @@ static inline tern_time tern_airtime_bucket_wait(const struct tern_airtime_bucke
 /* The hdrs the rules tell apart, as their own headers name them (src/airtime.c checks that they
  * agree). */
 #define TERN_AIRTIME_HDR_ACK 0x50      /* TERN_HDR_ACK, tern/forward.h */
-#define TERN_AIRTIME_HDR_ANNOUNCE 0x59 /* TERN_HDR_ANNOUNCE and _REQUEST, tern/route.h */
+#define TERN_AIRTIME_HDR_ANNOUNCE 0x59 /* TERN_HDR_ANNOUNCE to _ANSWER, tern/route.h */
 #define TERN_AIRTIME_HDR_REQUEST 0x5A
+#define TERN_AIRTIME_HDR_SOLICIT 0x5B
+#define TERN_AIRTIME_HDR_ANSWER 0x5C
 #define TERN_AIRTIME_HDR_GROUP 0x60 /* TERN_HDR_GROUP, _GROUP_NODE and _CARD, tern/flood.h */
 #define TERN_AIRTIME_HDR_GROUP_NODE 0x61
 #define TERN_AIRTIME_HDR_CARD 0x68
 
 enum tern_airtime_part {
-    TERN_AIRTIME_ROUTING, /* announces and requests: the router's cap, not this */
+    TERN_AIRTIME_ROUTING, /* announces, requests, solicits, answers: the router's cap, not this */
     TERN_AIRTIME_OWN,     /* the node's own frames */
     TERN_AIRTIME_RELAYED, /* frames it passes on */
 };
 
-/* The part that pays for a frame with this hdr, the node's own or passed on. Every frame but an
- * announce or request is paid for here: a message, an acknowledgement, a first-contact frame or a
- * flood, and anything else a node might send. */
+/* The part that pays for a frame with this hdr, the node's own or passed on. Every frame but the
+ * router's (an announce, request, solicit or answer) is paid for here: a message, an
+ * acknowledgement, a first-contact frame or a flood, and anything else a node might send. */
 static inline enum tern_airtime_part tern_airtime_part(uint8_t hdr, bool own) {
-    if (hdr == TERN_AIRTIME_HDR_ANNOUNCE || hdr == TERN_AIRTIME_HDR_REQUEST) {
+    if (hdr >= TERN_AIRTIME_HDR_ANNOUNCE && hdr <= TERN_AIRTIME_HDR_ANSWER) {
         return TERN_AIRTIME_ROUTING;
     }
     return own ? TERN_AIRTIME_OWN : TERN_AIRTIME_RELAYED;

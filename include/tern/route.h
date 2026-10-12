@@ -20,8 +20,9 @@
  *
  * This is the simulator's candidate 3 (ternmesh/sim, src/distvec.c) as its defaults leave it, and
  * as far as choosing routes: the frames that follow them are tern/forward.h's, and broadcast is
- * flooding's, tern/flood.h. Electing relays and leaves that move are not here yet. Every
- * parameter is the simulator's default, and provisional.
+ * flooding's, tern/flood.h. A leaf that moves asks the relays around it, and re-attaches to one
+ * (the specification's "Leaves that move"). Electing relays is not here yet. Every parameter is
+ * the simulator's default, and provisional.
  *
  * The router owns no clock, radio or memory. The caller gives it tables to keep its neighbours and
  * destinations in, tells it the time, hands it the routing frames the radio receives, and asks it
@@ -39,16 +40,20 @@
  * cannot check (the specification's "Signed"): tern_route_auth() gives it the node's address and
  * the means to sign and check. A router never given them sends announces of the right size whose
  * signatures are zeros, and takes every announce unchecked; that is for a simulator, and for
- * tests that are about something else. Requests are not signed: the specification leaves that
- * open. */
+ * tests that are about something else. Requests, solicits and answers are not signed: the
+ * specification leaves that open. */
 
 #define TERN_ROUTE_EVERYONE 0xFFFFFFFFu /* in a request: every neighbour */
 #define TERN_ROUTE_INF 0xFFFFu          /* a metric that retracts a route */
+#define TERN_ROUTE_METRIC_MAX 0x7FFEu   /* the most a route's metric may be */
+#define TERN_ROUTE_LEAF 0x8000u         /* in a listed route's metric: its destination is a leaf */
 #define TERN_ROUTE_FRAME_MAX 255
 #define TERN_ROUTE_KEPT 4 /* routes kept for each destination */
 
 #define TERN_HDR_ANNOUNCE 0x59
 #define TERN_HDR_REQUEST 0x5A
+#define TERN_HDR_SOLICIT 0x5B
+#define TERN_HDR_ANSWER 0x5C
 
 #define TERN_ANNOUNCE_HEAD 17
 #define TERN_ANNOUNCE_SIG 64
@@ -59,10 +64,12 @@
 #define TERN_ANNOUNCE_LABEL_LEN 16
 #define TERN_REQUEST_HEAD 6
 #define TERN_REQUEST_MAX 35 /* requests a frame can hold */
+#define TERN_SOLICIT_LEN 12
+#define TERN_ANSWER_LEN 13
 
 /* Whether a frame is one of this layer's, by its first byte. */
 static inline bool tern_route_frame(const uint8_t *frame, size_t len) {
-    return len > 0 && (frame[0] == TERN_HDR_ANNOUNCE || frame[0] == TERN_HDR_REQUEST);
+    return len > 0 && frame[0] >= TERN_HDR_ANNOUNCE && frame[0] <= TERN_HDR_ANSWER;
 }
 
 /* --- Rules, each as the specification states it. The router is built from these, and the tests
@@ -121,9 +128,28 @@ struct tern_request {
     struct tern_request_ask asks[TERN_REQUEST_MAX];
 };
 
+/* A leaf asking the relays around it, and a relay's answer (the specification's "Leaves that
+ * move"). */
+struct tern_solicit {
+    uint32_t sender;
+    uint16_t id;
+    uint32_t after; /* the relay asked after, or TERN_ROUTE_EVERYONE */
+    int8_t power;
+};
+
+struct tern_answer {
+    uint32_t sender;
+    uint32_t leaf;
+    uint16_t id;
+    uint8_t margin;
+    int8_t power;
+};
+
 /* Writes a frame, returning its length, or 0 if it would not fit in a frame. */
 size_t tern_announce_write(const struct tern_announce *a, uint8_t frame[TERN_ROUTE_FRAME_MAX]);
 size_t tern_request_write(const struct tern_request *q, uint8_t frame[TERN_ROUTE_FRAME_MAX]);
+size_t tern_solicit_write(const struct tern_solicit *s, uint8_t frame[TERN_SOLICIT_LEN]);
+size_t tern_answer_write(const struct tern_answer *a, uint8_t frame[TERN_ANSWER_LEN]);
 
 /* What an announce's signature is over: the label and the frame up to the signature. Writes it to
  * m and returns its length. */
@@ -135,6 +161,19 @@ size_t tern_announce_signed(const uint8_t *frame, size_t len,
  * does not check, which needs the reader's keys. */
 bool tern_announce_read(struct tern_announce *a, const uint8_t *frame, size_t len);
 bool tern_request_read(struct tern_request *q, const uint8_t *frame, size_t len);
+bool tern_solicit_read(struct tern_solicit *s, const uint8_t *frame, size_t len);
+bool tern_answer_read(struct tern_answer *a, const uint8_t *frame, size_t len);
+
+/* A listed route's metric as it goes on the air: whether its destination is a leaf, and the
+ * metric; false for a retraction. And what is written for them, a metric of TERN_ROUTE_INF
+ * retracting. */
+bool tern_route_listed(uint16_t field, bool *leaf, uint16_t *metric);
+
+/* Whether a node takes a destination to be a leaf: as its own last announce said (`relay`), if the
+ * node keeps it as a neighbour (`kept`); otherwise as the neighbour of the selected route listed it
+ * (`listed_leaf`), if a route is `selected`; otherwise as it took it before (`was`). */
+bool tern_route_is_leaf(bool kept, bool relay, bool selected, bool listed_leaf, bool was);
+uint16_t tern_route_listing(bool leaf, uint16_t metric);
 
 /* A neighbour's floor, in sixteenths of a dBm, after an announce it sent at `power` dBm is heard
  * with a signal-to-noise ratio of `snr_q` quarters of a decibel at spreading factor `sf`. `floor`
@@ -182,7 +221,8 @@ struct tern_route_choice {
 
 bool tern_route_feasible(const struct tern_route_fd *fd, uint16_t seq, uint16_t metric);
 
-/* Which of `n` routes a node selects, having selected `selected` (-1 for none): an index, or -1. */
+/* Which of `n` routes a node selects, having selected `selected` (-1 for none): an index, or -1.
+ * Of routes as good, the newer seq. */
 int tern_route_select(const struct tern_route_fd *fd, const struct tern_route_choice *routes, int n,
                       int selected);
 
@@ -234,6 +274,10 @@ struct tern_route_config {
      * that takes one however busy its radio. */
     uint8_t default_hops;
     uint32_t default_busy_ppm;
+    /* Leaves that move (the specification's): a leaf that loses its relay asks the relays around
+     * it, and re-attaches to one; relays answer, take a leaf heard of elsewhere out of use, and
+     * repair routes to leaves patiently. Off is the router as it was before, for measuring. */
+    bool reattach;
 };
 
 /* The specification's parameters. */
@@ -251,6 +295,7 @@ struct tern_route_neighbour {
     bool owed;     /* found since the last announce: named before the rest */
     bool starting; /* its last announce said so */
     bool up;
+    bool out_of_use;   /* not used, its link and routes kept, until it is next heard */
     uint8_t theirs;    /* the margin it gave this node, or 0 for none */
     uint16_t number;   /* its last announce's */
     uint16_t named;    /* the announce it last named this node in */
@@ -264,9 +309,10 @@ struct tern_route_neighbour {
 };
 
 /* Which neighbour of a full table of `n` a node just heard takes the place of, `floor` being what
- * its one frame gives: the one with the highest floor of those whose link is not up, if the node
- * heard is 6 dB nearer; an index, or -1. A link that is up is never given up for one that might
- * come up. */
+ * its one frame gives: the one out of use with the highest floor, whatever its link and the floor
+ * heard; with none, the one with the highest floor of those whose link is not up, if the node
+ * heard is 6 dB nearer; an index, or -1. A link in use that is up is never given up for one that
+ * might come up. */
 int tern_route_place(const struct tern_route_neighbour *full, size_t n, int32_t floor);
 
 /* The neighbour of `n` a leaf hands a frame with no route to: the relay with the lowest floor of
@@ -278,11 +324,59 @@ int tern_route_default(const struct tern_route_neighbour *n, size_t count, bool 
                        uint32_t busy_ppm, uint32_t busy_max, const uint32_t *tried,
                        int tried_count);
 
-/* A default route's metric: `hops` links of `cost`, at most 0xFFFE. */
+/* A leaf's anchor among its `count` neighbours, its full power being `full` dBm: the relay it may
+ * use whose link has the highest margin; an index, or -1. `sparse` says whether it solicits there,
+ * hearing SOLICIT_SPARSE relays it may use or fewer within two of their promises, and `asks`
+ * whether it asks after its anchor on its SOLICIT_GAP: where it solicits, with no anchor, or one
+ * not heard within two of its promises. */
+int tern_route_anchor(const struct tern_route_neighbour *n, size_t count, int8_t full,
+                      tern_time now, bool *sparse, bool *asks);
+
+/* Whether a relay whose own margin for a leaf is `own`, in sixteenths of a decibel, answers its
+ * solicit, asked after or not; and if so the most its answer waits, in airtimes of the answer, and
+ * whether others' answers cancel it. */
+bool tern_route_answers(int32_t own, bool asked, uint8_t *wait, bool *cancelled);
+
+/* What a leaf does once a solicit's SOLICIT_WAIT is over. `asked` is the relay it asked after:
+ * its anchor when it asked, another, or none. `doubt` (that relay left one solicit unanswered
+ * already) and `unanswered` (solicits in a row with no answer at all) are the leaf's, and are
+ * updated. `asked_heard` and `others_heard` say whether it heard from that relay and from any
+ * other since, and `anchor_now` whether its anchor now is the one it last re-attached to, another
+ * or none; `attached` whether it has re-attached before; and `anchor_heard`, having asked after
+ * another, whether the relay that was its anchor then was heard from (1), not (0), or -1 where
+ * there was none. `anchor_heard_first`, the leaf's, is whether it was in the first solicit of the
+ * pair, and is updated: the anchor counts as silent only if it was in both. */
+enum tern_route_asked { TERN_ROUTE_ASKED_NONE, TERN_ROUTE_ASKED_ANCHOR, TERN_ROUTE_ASKED_ANOTHER };
+enum tern_route_anchor_now {
+    TERN_ROUTE_ANCHOR_NONE,
+    TERN_ROUTE_ANCHOR_ATTACHED,
+    TERN_ROUTE_ANCHOR_OTHER
+};
+enum tern_route_answered {
+    TERN_ROUTE_SETTLED,    /* the relay asked after answered: nothing is wrong */
+    TERN_ROUTE_ASK_AGAIN,  /* asks after it once more, at once */
+    TERN_ROUTE_WAITS,      /* for its next SOLICIT_GAP */
+    TERN_ROUTE_MOVED,      /* the relays that did not answer go out of use */
+    TERN_ROUTE_REATTACHES, /* and it raises its seq and announces it, loud */
+};
+/* Whether a relay neighbour of a leaf is out of use once a solicit's answers are in: one heard
+ * from, in this solicit or in the first of the pair, is in use; one whose link is up and that was
+ * heard in neither goes out of use if the leaf has `moved` (TERN_ROUTE_MOVED or
+ * TERN_ROUTE_REATTACHES). */
+bool tern_route_out_after(bool moved, bool up, bool out_of_use, bool heard, bool heard_first);
+
+enum tern_route_answered tern_route_answered(enum tern_route_asked asked, bool *doubt,
+                                             uint8_t *unanswered, bool asked_heard,
+                                             bool others_heard,
+                                             enum tern_route_anchor_now anchor_now, bool attached,
+                                             int anchor_heard, bool *anchor_heard_first);
+
+/* A default route's metric: `hops` links of `cost`, at most TERN_ROUTE_METRIC_MAX. */
 uint16_t tern_route_default_metric(uint8_t hops, uint16_t cost);
 
 struct tern_route_entry {
     uint8_t slot; /* the neighbour's place in the table plus 1; 0 for none */
+    bool leaf;    /* the neighbour listed the destination as a leaf */
     uint16_t seq;
     uint16_t metric; /* the neighbour's, without the link */
 };
@@ -305,6 +399,9 @@ struct tern_route_dest {
     bool advertised : 1; /* a route to it has been announced, and not retracted since */
     bool urgent : 1;     /* changed, and waiting to be announced */
     bool listed : 1;     /* in the frame being built */
+    bool leaf : 1;       /* it is known to be a leaf */
+    bool held : 1;       /* a route to a leaf lost, not yet retracted while it is asked for */
+    bool pending : 1;    /* asked about again, its request not yet gone */
 };
 
 struct tern_route_bucket {
@@ -314,7 +411,8 @@ struct tern_route_bucket {
     tern_time at;
 };
 
-#define TERN_ROUTE_ASKS 16 /* requests waiting to go */
+#define TERN_ROUTE_ASKS 16   /* requests waiting to go */
+#define TERN_ROUTE_ANSWERS 4 /* answers to solicits waiting to go */
 #define TERN_ROUTE_FORGOTTEN                                                                       \
     64 /* forgotten neighbours whose last numbers are kept: FORGOTTEN_KEPT */
 
@@ -390,6 +488,40 @@ struct tern_route {
     tern_time request_at; /* when starved destinations are asked about again, or -1 */
     uint32_t starving;
     tern_time house_at;
+
+    /* A relay's answers to solicits, waiting to go, and the last few it has answered. */
+    struct tern_route_answer_waiting {
+        struct tern_answer a;
+        tern_time at;
+        bool cancellable; /* by others' answers */
+        uint8_t heard;    /* others' answers to the same solicit */
+    } answers[TERN_ROUTE_ANSWERS];
+    size_t answer_count;
+    struct tern_route_answered_key {
+        uint32_t leaf;
+        uint16_t id;
+    } answered[8];
+    uint8_t answered_next;
+
+    /* A leaf's solicits: when it next looks, when the one waiting on answers went (-1 for none)
+     * and the last went (-1), how many it has sent, the relay it asks after and whether that was
+     * its anchor, and what tern_route_answered() keeps. */
+    tern_time attach_at;
+    tern_time solicited;
+    tern_time solicit_last;
+    uint16_t solicit_id;
+    uint32_t after;
+    bool after_anchor;
+    bool solicit_wanted;
+    bool solicit_now; /* the next frame polled is a solicit */
+    bool solicit_out; /* a solicit handed over, not yet said to have gone */
+    bool doubt;
+    uint8_t unanswered;
+    uint32_t attached;       /* the anchor it last re-attached to, 0 for none */
+    uint32_t asked_anchor;   /* its anchor when it asked, 0 for none */
+    bool anchor_heard_first; /* and heard in the first solicit of the pair */
+    tern_time pair_since;    /* when the first of a pair went */
+    bool loud;               /* its next announce goes at full power, with its address */
 
     bool out;           /* the last frame polled was an announce not yet reported sent */
     tern_time out_at;   /* when it was built */

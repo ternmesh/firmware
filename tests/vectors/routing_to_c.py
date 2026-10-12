@@ -28,7 +28,11 @@ def idx(v):
 
 
 def routes(rs, cost):
-    return "{" + ", ".join(f"{{{r['seq']}, {r['metric']}, {cost}}}" for r in rs) + "}"
+    """A route through a neighbour the node may not use costs TERN_ROUTE_INF."""
+    return "{" + ", ".join(
+        f"{{{r['seq']}, {r['metric']}, {cost if r.get('usable', True) else 'TERN_ROUTE_INF'}}}"
+        for r in rs
+    ) + "}"
 
 
 def main():
@@ -153,7 +157,10 @@ def main():
     L.append("static const struct place_case places[] = {")
     L += [
         f"    {{{len(c['neighbours'])}, {{"
-        + ", ".join(f"{{{n['floor_sixteenths']}, {b(n['up'])}}}" for n in c["neighbours"])
+        + ", ".join(
+            f"{{{n['floor_sixteenths']}, {b(n['up'])}, {b(n['out_of_use'])}}}"
+            for n in c["neighbours"]
+        )
         + f"}}, {c['floor_sixteenths']}, {idx(c['replaces'])}}},"
         for c in v["places"]
     ]
@@ -162,7 +169,8 @@ def main():
     L.append("static const struct kept_case kepts[] = {")
     L += [
         f"    {{{fd(c['feasibility_distance'])}, {routes(c['routes'], c['link_cost'])}, "
-        f"{idx(c['selected'])}, {{{c['offered']['seq']}, {c['offered']['metric']}, {c['link_cost']}}}, "
+        f"{idx(c['selected'])}, {{{c['offered']['seq']}, {c['offered']['metric']}, "
+        f"{c['link_cost'] if c['offered'].get('usable', True) else 'TERN_ROUTE_INF'}}}, "
         f"{idx(c['replaces'])}}},"
         for c in v["kept"]
     ]
@@ -172,12 +180,144 @@ def main():
     L += [
         f"    {{{len(c['neighbours'])}, {{"
         + ", ".join(
-            f"{{{n['floor_sixteenths']}, {b(n['up'])}, {b(n['relay'])}}}" for n in c["neighbours"]
+            f"{{{n['floor_sixteenths']}, {b(n['up'])}, {b(n['relay'])}, {b(n['out_of_use'])}}}"
+            for n in c["neighbours"]
         )
         + f"}}, {b(c['leaf'])}, {b(c['starting'])}, {c['busy_ppm']}, {len(c['tried'])}, {{"
         + (", ".join(str(t) for t in c["tried"]) or "0")
         + f"}}, {idx(c['next'])}, {c['link_cost']}, {c['metric']}}},"
         for c in v["defaults"]
+    ]
+    L.append("};")
+
+    L.append("static const struct solicit_case solicits[] = {")
+    L += [
+        f"    {{{{{c['sender']}u, {c['id']}, {c['after']}u, {c['power']}}}, {hexbytes(c['frame'])}}},"
+        for c in v["solicits"]
+    ]
+    L.append("};")
+
+    L.append("static const struct answer_case answers[] = {")
+    L += [
+        f"    {{{{{c['sender']}u, {c['leaf']}u, {c['id']}, {c['margin']}, {c['power']}}}, "
+        f"{hexbytes(c['frame'])}}},"
+        for c in v["answers"]
+    ]
+    L.append("};")
+
+    L.append("static const struct listed_case listeds[] = {")
+    L += [
+        f"    {{{c['metric_field']}, {b(c['retracts'])}, {b(c['leaf'])}, {c['metric'] or 0}, "
+        f"{c['field']}}},"
+        for c in v["listed"]
+    ]
+    L.append("};")
+
+    L.append("static const struct anchor_case anchors[] = {")
+    for c in v["anchors"]:
+        rs = ", ".join(
+            f"{{{b(n['relay'])}, {b(n['up'])}, {b(n['out_of_use'])}, {n['margin_sixteenths']}, "
+            f"{n['heard_s']}, {-1 if n['promise_s'] is None else n['promise_s']}}}"
+            for n in c["relays"]
+        ) or "{0}"
+        L.append(
+            f"    {{{len(c['relays'])}, {{{rs}}}, {b(c['sparse'])}, {idx(c['anchor'])}, "
+            f"{b(c['asks'])}}},"
+        )
+    L.append("};")
+
+    L.append("static const struct answering_case answerings[] = {")
+    L += [
+        f"    {{{c['own_margin_sixteenths']}, {b(c['asked'])}, {b(c['answers'])}, "
+        f"{c['wait'] or 0}, {b(c['cancelled'])}}},"
+        for c in v["answering"]
+    ]
+    L.append("};")
+
+    asked = {"anchor": "TERN_ROUTE_ASKED_ANCHOR", "another": "TERN_ROUTE_ASKED_ANOTHER",
+             None: "TERN_ROUTE_ASKED_NONE"}
+    now = {"attached": "TERN_ROUTE_ANCHOR_ATTACHED", "other": "TERN_ROUTE_ANCHOR_OTHER",
+           None: "TERN_ROUTE_ANCHOR_NONE"}
+    does = {"settled": "TERN_ROUTE_SETTLED", "again": "TERN_ROUTE_ASK_AGAIN",
+            "waits": "TERN_ROUTE_WAITS", "moved": "TERN_ROUTE_MOVED",
+            "reattaches": "TERN_ROUTE_REATTACHES"}
+    L.append("static const struct answered_case answereds[] = {")
+    for c in v["answered"]:
+        rs = ", ".join(
+            f"{{{b(x['up'])}, {b(x['out_of_use'])}, {b(x['heard'])}, {b(x['heard_first'])}, "
+            f"{b(x['out_of_use_after'])}}}"
+            for x in c["relays"]
+        )
+        L.append(
+            f"    {{{asked[c['asked']]}, {b(c['doubt'])}, {c['unanswered']}, {b(c['asked_heard'])}, "
+            f"{b(c['others_heard'])}, {now[c['anchor_now']]}, {b(c['attached_before'])}, "
+            f"{-1 if c['anchor_heard'] is None else int(c['anchor_heard'])}, "
+            f"{b(c['anchor_heard_first'])}, {does[c['does']]}, {b(c['doubt_after'])}, "
+            f"{c['unanswered_after']}, {b(c['anchor_heard_first_after'])}, "
+            f"{len(c['relays'])}, {{{rs}}}}},"
+        )
+    L.append("};")
+
+    L.append("static const struct leaf_case leaves[] = {")
+    for c in v["leaves"]:
+        sel = c["selected"]
+        L.append(
+            f"    {{{b(c['relay'] is not None)}, {b(bool(c['relay']))}, {b(sel is not None)}, "
+            f"{b(sel is not None and c['listed'][sel])}, {b(c['was'])}, {b(c['leaf'])}}},"
+        )
+    L.append("};")
+
+    L.append("static const struct power_case powers[] = {")
+    for c in v["powers"]:
+        ns = ", ".join(f"{{{n['floor_sixteenths']}, {b(n['out_of_use'])}}}" for n in c["neighbours"])
+        L.append(
+            f"    {{{b(c['leaf'])}, {c['lowest']}, {c['full']}, {len(c['neighbours'])}, "
+            f"{{{ns}}}, {c['power']}}},"
+        )
+    L.append("};")
+
+    def relays(rs):
+        return ", ".join(
+            f"{{{b(n['relay'])}, {b(n['up'])}, {b(n['out_of_use'])}, {n['margin_sixteenths']}, "
+            f"{n['heard_s']}, {-1 if n['promise_s'] is None else n['promise_s']}}}"
+            for n in rs
+        )
+
+    L.append("static const struct given_case givens[] = {")
+    for c in v["given_up"]:
+        outs = ", ".join(b(x) for x in c["out_of_use_after"])
+        L.append(
+            f"    {{{len(c['relays'])}, {{{relays(c['relays'])}}}, {c['at']}, {c['hops']}, "
+            f"{{{outs}}}, {b(c['asks'])}, {idx(c['after'])}, {b(c['anchored'])}}},"
+        )
+    L.append("};")
+
+    L.append("static const struct elsewhere_case elsewheres[] = {")
+    L += [
+        f"    {{{b(c['up'])}, {b(c['out_of_use'])}, {b(c['relay'])}, {c['own_seq']}, "
+        f"{c['offered_seq']}, {b(c['retracts'])}, {b(c['out_of_use_after'])}}},"
+        for c in v["elsewhere"]
+    ]
+    L.append("};")
+
+    L.append("static const struct sample_case samples[] = {")
+    L += [
+        f"    {{{json.dumps(c['kind'])}, {b(c['leaf'])}, {b(c['relay'])}, {b(c['kept'])}, "
+        f"{c['floor_sixteenths'] or 0}, {c['their_margin'] or 0}, {b(c['up'])}, "
+        f"{b(c['out_of_use'])}, "
+        f"{c['full_power']}, {c['power']}, {c['snr_quarter_db']}, {c['margin'] or 0}, "
+        f"{c['floor_after'] or 0}, {c['their_margin_after'] or 0}, {b(c['up_after'])}, "
+        f"{b(c['out_of_use_after'])}, "
+        f"{b(c['answer_margin'] is not None)}, {c['answer_margin'] or 0}, "
+        f"{c['answer_power'] or 0}}},"
+        for c in v["samples"]
+    ]
+    L.append("};")
+
+    L.append("static const struct again_case agains[] = {")
+    L += [
+        f"    {{{json.dumps(c['heard'])}, {b(c['out_of_use_after'])}}},"
+        for c in v["in_use_again"]
     ]
     L.append("};")
 

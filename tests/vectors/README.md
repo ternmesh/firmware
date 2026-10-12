@@ -91,11 +91,16 @@ them.
 signs every announce: `routing_to_c.py` carries each announce's seed and the `verified` cases,
 and `tests/route.c` signs and checks them with the core's own Ed25519.
 
+`routing.json` is as of [ternmesh/spec#44](https://github.com/ternmesh/spec/pull/44), leaves
+that move: solicits and answers, a listed route's leaf bit, a metric of at most `0x7FFE`, the
+newer of two routes as good, and the `anchors`, `answering` and `answered` cases, which
+`routing_to_c.py` carries to `tests/route.c`.
+
 `airtime.json` is a copy of
 [`vectors/airtime.json`](https://github.com/ternmesh/spec/blob/main/vectors/airtime.json), as of
-[ternmesh/spec#42](https://github.com/ternmesh/spec/pull/42) (the airtime budget, draft 0, with
-the wait estimate that keeps the queue's order). `airtime_to_c.py` turns it into a header for
-`tests/airtime.c`.
+[ternmesh/spec#44](https://github.com/ternmesh/spec/pull/44) (the airtime budget, draft 0, with
+the wait estimate that keeps the queue's order, and solicits and answers in the routing part).
+`airtime_to_c.py` turns it into a header for `tests/airtime.c`.
 
 When the specification's vectors change, copy the new file here in the same pull request that
 changes the code to match, and update the commit above.

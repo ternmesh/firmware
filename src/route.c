@@ -19,6 +19,16 @@
 #define FLAG_ADDRESS 0x04
 #define NS_PER_S 1000000000LL
 #define MILLION 1000000LL
+#define METRIC_MAX TERN_ROUTE_METRIC_MAX
+/* Leaves that move */
+#define SOLICIT_SPARSE 4 /* relays a leaf hears, at most, where it solicits */
+#define SOLICIT_HOPS 3   /* hops given up in a row at a relay before a leaf asks after it */
+#define SOLICIT_GAP TERN_S(60)
+#define SOLICIT_WAIT TERN_S(10)
+#define SOLICIT_TRIES 3  /* solicits in a row with no answer before a leaf waits for a new relay */
+#define ANSWER_WINDOW 16 /* airtimes an answer waits, at most, from a relay not asked after */
+#define ANSWER_CANCEL 3  /* answers to the same solicit that cancel a relay's own */
+#define LEAF_TRIES 1     /* requests a relay makes for a route to a leaf it has lost */
 
 /* --- Frames --- */
 
@@ -150,7 +160,65 @@ bool tern_request_read(struct tern_request *q, const uint8_t *frame, size_t len)
     return true;
 }
 
+size_t tern_solicit_write(const struct tern_solicit *s, uint8_t frame[TERN_SOLICIT_LEN]) {
+    frame[0] = TERN_HDR_SOLICIT;
+    put32(frame + 1, s->sender);
+    put16(frame + 5, s->id);
+    put32(frame + 7, s->after);
+    frame[11] = (uint8_t)s->power;
+    return TERN_SOLICIT_LEN;
+}
+
+bool tern_solicit_read(struct tern_solicit *s, const uint8_t *frame, size_t len) {
+    if (len != TERN_SOLICIT_LEN || frame[0] != TERN_HDR_SOLICIT || reserved(get32(frame + 1))) {
+        return false;
+    }
+    *s = (struct tern_solicit){get32(frame + 1), get16(frame + 5), get32(frame + 7),
+                               (int8_t)frame[11]};
+    return true;
+}
+
+size_t tern_answer_write(const struct tern_answer *a, uint8_t frame[TERN_ANSWER_LEN]) {
+    frame[0] = TERN_HDR_ANSWER;
+    put32(frame + 1, a->sender);
+    put32(frame + 5, a->leaf);
+    put16(frame + 9, a->id);
+    frame[11] = a->margin;
+    frame[12] = (uint8_t)a->power;
+    return TERN_ANSWER_LEN;
+}
+
+bool tern_answer_read(struct tern_answer *a, const uint8_t *frame, size_t len) {
+    if (len != TERN_ANSWER_LEN || frame[0] != TERN_HDR_ANSWER || reserved(get32(frame + 1))) {
+        return false;
+    }
+    *a = (struct tern_answer){get32(frame + 1), get32(frame + 5), get16(frame + 9), frame[11],
+                              (int8_t)frame[12]};
+    return true;
+}
+
 /* --- Rules --- */
+
+bool tern_route_out_after(bool moved, bool up, bool out_of_use, bool heard, bool heard_first) {
+    return !heard && !heard_first && (out_of_use || (moved && up));
+}
+
+bool tern_route_is_leaf(bool kept, bool relay, bool selected, bool listed_leaf, bool was) {
+    return kept ? !relay : selected ? listed_leaf : was;
+}
+
+bool tern_route_listed(uint16_t field, bool *leaf, uint16_t *metric) {
+    if ((field & 0x7FFFu) == 0x7FFFu) {
+        return false;
+    }
+    *leaf = (field & TERN_ROUTE_LEAF) != 0;
+    *metric = (uint16_t)(field & 0x7FFFu);
+    return true;
+}
+
+uint16_t tern_route_listing(bool leaf, uint16_t metric) {
+    return metric >= INF ? INF : (uint16_t)((leaf ? TERN_ROUTE_LEAF : 0) | metric);
+}
 
 uint32_t tern_route_id(const uint8_t address[TERN_ADDRESS_LEN]) {
     static const uint8_t label[] = "tern routing id";
@@ -210,6 +278,16 @@ bool tern_route_link_up(bool up, int32_t own, uint8_t theirs) {
 
 int tern_route_place(const struct tern_route_neighbour *full, size_t n, int32_t floor) {
     int worst = -1;
+    /* One out of use first, whatever its link and the floor heard: a leaf that has moved keeps its
+     * links to the relays it left up, and would have no place for one where it is now. */
+    for (size_t i = 0; i < n; i++) {
+        if (full[i].out_of_use && (worst < 0 || full[i].floor > full[worst].floor)) {
+            worst = (int)i;
+        }
+    }
+    if (worst >= 0) {
+        return worst;
+    }
     for (size_t i = 0; i < n; i++) {
         if (!full[i].up && (worst < 0 || full[i].floor > full[worst].floor)) {
             worst = (int)i;
@@ -244,31 +322,47 @@ bool tern_route_feasible(const struct tern_route_fd *fd, uint16_t seq, uint16_t 
 
 static uint16_t total(uint16_t metric, uint16_t cost) {
     uint32_t t = (uint32_t)metric + cost;
-    return metric == INF || cost == INF ? INF : t >= INF ? INF - 1 : (uint16_t)t;
+    return metric == INF || cost == INF ? INF : t > METRIC_MAX ? METRIC_MAX : (uint16_t)t;
 }
 
-int tern_route_select(const struct tern_route_fd *fd, const struct tern_route_choice *routes, int n,
-                      int selected) {
+/* tern_route_select(), and with `newer_wins` false as it was before leaves moved. */
+static int select_route(const struct tern_route_fd *fd, const struct tern_route_choice *routes,
+                        int n, int selected, bool newer_wins) {
     int best = -1;
     uint32_t best_total = INF, cur_total = INF;
+    for (int i = 0; i < n; i++) {
+        uint16_t t = total(routes[i].metric, routes[i].cost);
+        if (i == selected && t != INF && tern_route_feasible(fd, routes[i].seq, routes[i].metric)) {
+            cur_total = t;
+        }
+    }
     for (int i = 0; i < n; i++) {
         uint16_t t = total(routes[i].metric, routes[i].cost);
         if (t == INF || !tern_route_feasible(fd, routes[i].seq, routes[i].metric)) {
             continue;
         }
-        if (i == selected) {
-            cur_total = t;
+        /* With a route selected, only one lower by more than a tenth of it, or as good and newer,
+         * may take its place. */
+        if (cur_total != INF &&
+            (i == selected || !(10 * t < 9 * cur_total ||
+                                (newer_wins && t <= cur_total &&
+                                 tern_route_newer(routes[i].seq, routes[selected].seq))))) {
+            continue;
         }
-        if (t < best_total) {
+        /* Of routes as good, the newer seq: a leaf that has moved raised it, and one as short at
+         * the old seq leads to where it was. */
+        if (t < best_total ||
+            (newer_wins && t == best_total && tern_route_newer(routes[i].seq, routes[best].seq))) {
             best = i;
             best_total = t;
         }
     }
-    /* The route selected is kept unless another is lower by more than a tenth of it. */
-    if (cur_total != INF && best != selected && !(10 * best_total < 9 * cur_total)) {
-        return selected;
-    }
-    return best;
+    return cur_total != INF && best < 0 ? selected : best;
+}
+
+int tern_route_select(const struct tern_route_fd *fd, const struct tern_route_choice *routes, int n,
+                      int selected) {
+    return select_route(fd, routes, n, selected, true);
 }
 
 /* What a route is worth keeping. */
@@ -341,6 +435,7 @@ struct tern_route_config tern_route_defaults(const struct tern_lora *lora, int8_
         .address_every = 8,
         .default_hops = 6,
         .default_busy_ppm = 500000,
+        .reattach = true,
     };
 }
 
@@ -420,7 +515,7 @@ static struct tern_route_entry *entry_by(struct tern_route_dest *d, uint8_t s) {
  * destination itself, or a relay once this node is done starting. */
 static bool usable(const struct tern_route *r, uint8_t s, uint32_t id) {
     const struct tern_route_neighbour *n = slot(r, s);
-    return n->used && n->up && (n->id == id || (n->relay && !r->starting));
+    return n->used && n->up && !n->out_of_use && (n->id == id || (n->relay && !r->starting));
 }
 
 static void choices(const struct tern_route *r, const struct tern_route_dest *d,
@@ -462,7 +557,7 @@ static void trickle_reset(struct tern_route *r) {
 /* Adds a request to those waiting to go to `next`, or folds it into one already there. They go
  * after a jitter, so the requests one change sets off share frames, and the neighbours that heard
  * the same request do not all pass it on at once. */
-static void request(struct tern_route *r, uint32_t id, uint16_t seq, uint32_t next, uint8_t hops) {
+static bool request(struct tern_route *r, uint32_t id, uint16_t seq, uint32_t next, uint8_t hops) {
     for (size_t k = 0; k < r->ask_count; k++) {
         struct tern_route_request_waiting *a = &r->asks[k];
         if (a->next == next && a->destination == id) {
@@ -470,11 +565,11 @@ static void request(struct tern_route *r, uint32_t id, uint16_t seq, uint32_t ne
                 a->seq = seq;
             }
             a->hops = hops > a->hops ? hops : a->hops;
-            return;
+            return true;
         }
     }
     if (r->ask_count == TERN_ROUTE_ASKS) {
-        return; /* no room: a starved node asks again */
+        return false; /* no room: a starved node asks again */
     }
     r->asks[r->ask_count++] = (struct tern_route_request_waiting){
         .next = next, .destination = id, .seq = seq, .hops = hops};
@@ -482,6 +577,7 @@ static void request(struct tern_route *r, uint32_t id, uint16_t seq, uint32_t ne
         uint64_t window = (uint64_t)r->config.jitter * (uint64_t)airtime(r, ASK_FRAME);
         r->ask_at = r->now + (tern_time)rand_below(r, window + 1);
     }
+    return true;
 }
 
 /* When a request about a destination went, in milliseconds, kept in 32 bits: odd, so that 0 is
@@ -497,15 +593,17 @@ static bool asked_within(const struct tern_route *r, const struct tern_route_des
 /* Asks about a destination: for a seq newer than the feasibility distance, of the neighbour with
  * the best of the infeasible routes, as RFC 8966 allows, so that the request goes up one path and
  * not every neighbour's; or, having never announced a route to it, for whatever route a neighbour
- * has. */
-static void ask(struct tern_route *r, struct tern_route_dest *d) {
+ * has. False if there was no room to ask. */
+static bool ask(struct tern_route *r, struct tern_route_dest *d) {
     uint16_t seq = (uint16_t)(d->fd.seq + 1), best = INF;
     uint32_t next = TERN_ROUTE_EVERYONE;
-    d->asked = stamp(r->now);
     if (!d->fd.has) {
+        if (!request(r, d->id, 0, TERN_ROUTE_EVERYONE, 0)) {
+            return false;
+        }
+        d->asked = stamp(r->now);
         d->asked_seq = 0;
-        request(r, d->id, 0, TERN_ROUTE_EVERYONE, 0);
-        return;
+        return true;
     }
     for (int i = 0; i < TERN_ROUTE_KEPT; i++) {
         const struct tern_route_entry *e = &d->e[i];
@@ -522,13 +620,22 @@ static void ask(struct tern_route *r, struct tern_route_dest *d) {
             next = slot(r, e->slot)->id;
         }
     }
+    /* Counted as asked only once there is room for it: with none, it is asked at the next turn. */
+    if (!request(r, d->id, seq, next, r->config.hop_max)) {
+        return false;
+    }
+    d->asked = stamp(r->now);
     d->asked_seq = seq;
-    request(r, d->id, seq, next, r->config.hop_max);
+    return true;
 }
 
 /* A node with routes to a destination and none feasible asks at once, unless it asked within
  * request_interval, and then again every request_interval until a route comes: a request is one
  * frame, and as easily lost as any. */
+static bool patient(const struct tern_route *r, const struct tern_route_dest *d) {
+    return r->config.reattach && d->leaf;
+}
+
 static void starved(struct tern_route *r, struct tern_route_dest *d) {
     if (d->tries == 0) {
         d->tries = 1;
@@ -537,7 +644,9 @@ static void starved(struct tern_route *r, struct tern_route_dest *d) {
             r->request_at = r->now + r->config.request_interval;
         }
     }
-    if (!asked_within(r, d)) {
+    /* A route to a leaf is first asked for a request_interval on: a leaf that has moved raises its
+     * seq itself, and it may come first. */
+    if (!asked_within(r, d) && !patient(r, d)) {
         ask(r, d);
     }
 }
@@ -549,12 +658,27 @@ static void ask_again(struct tern_route *r) {
         if (!d->used || d->tries == 0) {
             continue;
         }
-        if (d->sel || d->tries >= r->config.request_tries) {
+        if (d->sel || d->tries >= (patient(r, d) ? LEAF_TRIES + 1 : r->config.request_tries)) {
             d->tries = 0;
             r->starving--;
-        } else {
-            d->tries++;
-            ask(r, d);
+            if (d->held) {
+                /* No route came while it asked: retracted now. */
+                d->held = false;
+                if (!d->sel) {
+                    push_urgent(r, d);
+                    r->changed = true;
+                    trickle_reset(r);
+                    r->changed = false;
+                }
+            }
+        } else if (ask(r, d)) {
+            /* A route to a leaf, held while it is asked for, counts a request only once it goes
+             * (send_asks()): one dropped must not bring its retraction nearer. */
+            if (patient(r, d)) {
+                d->pending = true;
+            } else {
+                d->tries++;
+            }
         }
     }
     if (r->starving) {
@@ -568,7 +692,7 @@ static void ask_again(struct tern_route *r) {
  * changed. */
 static void reselect(struct tern_route *r, struct tern_route_dest *d) {
     struct tern_route_choice c[TERN_ROUTE_KEPT];
-    bool infeasible = false, was = d->sel != 0;
+    bool infeasible = false, was = d->sel != 0, leaf_changed;
     int cur = -1, chosen;
     uint16_t t;
     choices(r, d, c);
@@ -579,16 +703,37 @@ static void reselect(struct tern_route *r, struct tern_route_dest *d) {
         infeasible |= total(c[i].metric, c[i].cost) != INF &&
                       !tern_route_feasible(&d->fd, c[i].seq, c[i].metric);
     }
-    chosen = tern_route_select(&d->fd, c, TERN_ROUTE_KEPT, cur);
+    chosen = select_route(&d->fd, c, TERN_ROUTE_KEPT, cur, r->config.reattach);
     d->sel = chosen >= 0 ? d->e[chosen].slot : 0;
-    if (chosen < 0 && infeasible) {
+    /* Whether it is a leaf: as it says itself, if it is a neighbour, or else as the selected route
+     * lists it - never as another route does, so a role given up cannot outlive itself. */
+    {
+        uint8_t s = slot_of(r, d->id);
+        bool leaf = tern_route_is_leaf(s != 0, s && slot(r, s)->relay, chosen >= 0,
+                                       chosen >= 0 && d->e[chosen].leaf, d->leaf);
+        leaf_changed = leaf != d->leaf;
+        d->leaf = leaf;
+    }
+    /* A route to a leaf this node announced is asked for even with nothing infeasible left: only
+     * the leaf's newer seq can bring one back. */
+    if (chosen < 0 && (infeasible || (patient(r, d) && d->advertised))) {
         starved(r, d);
     }
+    /* And it is not retracted while it is asked for. */
+    d->held = chosen < 0 && patient(r, d) && d->tries && (d->held || d->advertised);
     if (!r->config.relay) {
         return;
     }
     r->selected = r->selected - was + (chosen >= 0);
     if (chosen < 0) {
+        if (d->held) {
+            /* A change waiting to be announced would go as a retraction: none goes yet. */
+            if (d->urgent) {
+                d->urgent = false;
+                r->urgent_count--;
+            }
+            return;
+        }
         if (d->advertised || was) {
             push_urgent(r, d); /* to retract it */
             r->changed = true;
@@ -597,22 +742,35 @@ static void reselect(struct tern_route *r, struct tern_route_dest *d) {
     }
     t = total(c[chosen].metric, c[chosen].cost);
     if (!d->advertised || tern_route_newer(c[chosen].seq, d->adv_seq) ||
-        4 * (t > d->adv_metric ? t - d->adv_metric : d->adv_metric - t) > d->adv_metric) {
+        4 * (t > d->adv_metric ? t - d->adv_metric : d->adv_metric - t) > d->adv_metric ||
+        (leaf_changed && r->config.reattach)) {
         push_urgent(r, d);
         r->changed = true;
     }
 }
 
-/* What the neighbour in slot `s` announces about a destination. */
-static void update(struct tern_route *r, uint32_t id, uint16_t seq, uint16_t metric, uint8_t s) {
+static void take_out_of_use(struct tern_route *r, uint8_t s);
+
+/* What the neighbour in slot `s` announces about a destination, and whether it is a leaf. */
+static void update(struct tern_route *r, uint32_t id, uint16_t seq, uint16_t metric, uint8_t s,
+                   bool leaf) {
     struct tern_route_dest *d;
     struct tern_route_entry *e;
+    uint8_t direct;
     if (id == r->id || reserved(id)) {
         return;
     }
     d = metric == INF ? dest_of(r, id) : dest_make(r, id);
     if (!d) {
         return;
+    }
+    /* A leaf this node hears, heard of elsewhere with a seq newer than its own announces brought,
+     * has re-attached where this node did not hear it: it has moved away. */
+    direct = metric != INF && r->config.reattach ? slot_of(r, id) : 0;
+    if (direct && direct != s && !slot(r, direct)->relay && slot(r, direct)->up &&
+        !slot(r, direct)->out_of_use && entry_by(d, direct) &&
+        tern_route_newer(seq, entry_by(d, direct)->seq)) {
+        take_out_of_use(r, direct);
     }
     e = entry_by(d, s);
     if (metric == INF) {
@@ -623,6 +781,7 @@ static void update(struct tern_route *r, uint32_t id, uint16_t seq, uint16_t met
     } else if (e) {
         e->seq = seq;
         e->metric = metric;
+        e->leaf = leaf;
     } else {
         /* A free place, or else that of the route least worth keeping, if this is worth more. */
         struct tern_route_choice c[TERN_ROUTE_KEPT], mine = {seq, metric, INF};
@@ -643,7 +802,8 @@ static void update(struct tern_route *r, uint32_t id, uint16_t seq, uint16_t met
         if (place < 0) {
             return;
         }
-        d->e[place] = (struct tern_route_entry){.slot = s, .seq = seq, .metric = metric};
+        d->e[place] =
+            (struct tern_route_entry){.slot = s, .leaf = leaf, .seq = seq, .metric = metric};
     }
     reselect(r, d);
 }
@@ -652,6 +812,34 @@ static void reselect_through(struct tern_route *r, uint8_t s) {
     for (size_t i = 0; i < r->dest_cap; i++) {
         if (r->dest[i].used && entry_by(&r->dest[i], s)) {
             reselect(r, &r->dest[i]);
+        }
+    }
+}
+
+/* The neighbour in slot `s` goes out of use, its link and routes kept, until it is next heard. A
+ * relay's announces change with it; a leaf's do not. */
+static void take_out_of_use(struct tern_route *r, uint8_t s) {
+    struct tern_route_neighbour *n = slot(r, s);
+    if (n->out_of_use) {
+        return;
+    }
+    n->out_of_use = true;
+    reselect_through(r, s);
+    if (r->config.relay && n->up) {
+        r->changed = true;
+        trickle_reset(r);
+    }
+}
+
+/* Something was heard from the neighbour in slot `s`: in use again, if it was out of it. */
+static void back_in_use(struct tern_route *r, uint8_t s) {
+    struct tern_route_neighbour *n = slot(r, s);
+    if (n->out_of_use) {
+        n->out_of_use = false;
+        reselect_through(r, s);
+        if (r->config.relay && n->up) {
+            r->changed = true;
+            trickle_reset(r);
         }
     }
 }
@@ -710,7 +898,9 @@ static int8_t power_all(const struct tern_route *r) {
     for (size_t i = 0; k && i < r->nb_cap; i++) {
         const struct tern_route_neighbour *n = &r->nb[i];
         unsigned at;
-        if (!n->used || (have == k && n->floor >= low[k - 1])) {
+        /* A leaf leaves out the neighbours it has given up on. */
+        if (!n->used || (n->out_of_use && !r->config.relay) ||
+            (have == k && n->floor >= low[k - 1])) {
             continue;
         }
         at = have < k ? have++ : k - 1;
@@ -755,7 +945,7 @@ static void refill(struct tern_route_bucket *b, tern_time now) {
  * it finds a neighbour, which may not hold it, and at least once in every so many, for any that
  * missed those. */
 static bool carries_address(const struct tern_route *r) {
-    return r->starting || r->address_owed ||
+    return r->starting || r->address_owed || r->loud ||
            r->since_address + 1u >= (r->config.address_every ? r->config.address_every : 1u);
 }
 
@@ -829,7 +1019,8 @@ static bool advertise(struct tern_route *r, struct tern_route_dest *d,
     } else {
         return false;
     }
-    *out = (struct tern_announce_route){d->id, seq, metric};
+    *out = (struct tern_announce_route){d->id, seq,
+                                        tern_route_listing(r->config.reattach && d->leaf, metric)};
     return true;
 }
 
@@ -858,7 +1049,7 @@ static size_t build(struct tern_route *r, uint8_t *frame, int8_t *power) {
         .relay = r->config.relay,
         .starting = r->starting != 0,
         .promise = tern_route_promise_code(promise(r)),
-        .power = power_all(r),
+        .power = r->loud ? r->config.full_dbm : power_all(r),
         .carries_address = carries_address(r),
     };
     size_t room = named_room(r), start = r->nb_cap ? r->named_cursor % r->nb_cap : 0;
@@ -974,6 +1165,7 @@ static size_t announce(struct tern_route *r, uint8_t *frame, int8_t *power) {
     }
     r->number++;
     r->asked = false;
+    r->loud = false;
     r->out = true;
     r->out_at = r->now;
     if (++r->burst >= r->config.burst) {
@@ -1015,6 +1207,16 @@ static size_t send_asks(struct tern_route *r, uint8_t *frame, int8_t *power) {
         return 0;
     }
     b->have -= airtime(r, len) * MILLION;
+    /* A starved destination's request counts only now it goes: one dropped, for want of room or
+     * of the cap, is asked again at the next request_interval. */
+    for (int k = 0; k < q.count; k++) {
+        struct tern_route_dest *d = dest_of(r, q.asks[k].destination);
+        if (d && d->pending) {
+            d->pending = false;
+            d->tries++;
+            d->asked = stamp(r->now);
+        }
+    }
     r->ask_count = kept;
     r->ask_at = kept ? r->now : -1;
     r->out = false;
@@ -1022,12 +1224,343 @@ static size_t send_asks(struct tern_route *r, uint8_t *frame, int8_t *power) {
     return len;
 }
 
+/* --- Leaves that move --- */
+
+static int32_t link_margin(const struct tern_route_neighbour *n, int8_t full) {
+    int32_t own = 16 * (int32_t)full - n->floor, theirs = 16 * ((int32_t)n->theirs - MARGIN_ZERO);
+    return own < theirs ? own : theirs;
+}
+
+/* Whether a neighbour has been heard within two of its promises. */
+static bool lately(const struct tern_route_neighbour *n, tern_time now) {
+    return now - n->heard <= 2 * n->promise;
+}
+
+int tern_route_anchor(const struct tern_route_neighbour *n, size_t count, int8_t full,
+                      tern_time now, bool *sparse, bool *asks) {
+    int best = -1;
+    unsigned heard = 0;
+    for (size_t i = 0; i < count; i++) {
+        if (!n[i].used || !n[i].relay || !n[i].up || n[i].out_of_use) {
+            continue;
+        }
+        heard += lately(&n[i], now);
+        if (best < 0 || link_margin(&n[i], full) > link_margin(&n[best], full)) {
+            best = (int)i;
+        }
+    }
+    *sparse = heard <= SOLICIT_SPARSE;
+    *asks = *sparse && (best < 0 || !lately(&n[best], now));
+    return best;
+}
+
+bool tern_route_answers(int32_t own, bool asked, uint8_t *wait, bool *cancelled) {
+    if (own < LINK_MARGIN) {
+        return false;
+    }
+    *wait = asked ? 2 : ANSWER_WINDOW; /* JITTER, or ANSWER_WINDOW */
+    *cancelled = !asked;
+    return true;
+}
+
+enum tern_route_answered tern_route_answered(enum tern_route_asked asked, bool *doubt,
+                                             uint8_t *unanswered, bool asked_heard,
+                                             bool others_heard,
+                                             enum tern_route_anchor_now anchor_now, bool attached,
+                                             int anchor_heard, bool *anchor_heard_first) {
+    bool silent;
+    bool first;
+    if (asked != TERN_ROUTE_ASKED_NONE && asked_heard) {
+        *doubt = false;
+        *unanswered = 0;
+        *anchor_heard_first = false;
+        return TERN_ROUTE_SETTLED;
+    }
+    /* A solicit another relay answered had an answer: the streak of those with none is broken. */
+    *unanswered = others_heard ? 0 : (uint8_t)(*unanswered + (*unanswered < UINT8_MAX));
+    /* Asked after twice before anything moves: a lost answer moves no leaf that has not moved. */
+    if (asked != TERN_ROUTE_ASKED_NONE && !*doubt) {
+        *doubt = true;
+        *anchor_heard_first = anchor_heard == 1; /* kept for the second of the pair */
+        return *unanswered < SOLICIT_TRIES ? TERN_ROUTE_ASK_AGAIN : TERN_ROUTE_WAITS;
+    }
+    *doubt = false;
+    /* The anchor it had when it asked another is silent only if it was in both of the pair. */
+    silent = anchor_heard == 0 && !*anchor_heard_first;
+    *anchor_heard_first = false;
+    if (!others_heard) {
+        return TERN_ROUTE_WAITS;
+    }
+    *unanswered = 0;
+    /* Having asked after none and never re-attached, the routes to it can lead nowhere else. */
+    first = asked == TERN_ROUTE_ASKED_NONE && !attached;
+    /* Re-attached too when the anchor it had when it asked another has gone silent with the rest.
+     */
+    return (asked != TERN_ROUTE_ASKED_ANOTHER || silent) && anchor_now == TERN_ROUTE_ANCHOR_OTHER &&
+                   !first
+               ? TERN_ROUTE_REATTACHES
+               : TERN_ROUTE_MOVED;
+}
+
+static bool soliciting(const struct tern_route *r) {
+    return r->config.reattach && !r->config.relay;
+}
+
+/* A leaf's anchor's slot, or 0; and whether it solicits here, and asks after it. */
+static uint8_t anchor_slot(const struct tern_route *r, bool *sparse, bool *asks) {
+    bool sp, as;
+    int i = tern_route_anchor(r->nb, r->nb_cap, r->config.full_dbm, r->now, &sp, &as);
+    if (sparse) {
+        *sparse = sp;
+    }
+    if (asks) {
+        *asks = as;
+    }
+    return i < 0 ? 0 : (uint8_t)(i + 1);
+}
+
+/* A frame heard from the neighbour in slot `s`, sent at `power` dBm and heard at `snr_q`: as an
+ * announce's, a sample for its floor, and a sign of life. */
+static void heard_from(struct tern_route *r, uint8_t s, int8_t power, int16_t snr_q) {
+    struct tern_route_neighbour *n = slot(r, s);
+    bool was_up = n->up;
+    n->floor = tern_route_floor(false, n->floor, power, snr_q, r->config.lora.sf);
+    n->heard = r->now;
+    n->lost = 0;
+    n->up = tern_route_link_up(was_up, 16 * (int32_t)r->config.full_dbm - n->floor, n->theirs);
+    if (n->up != was_up) {
+        r->changed = true;
+        reselect_through(r, s);
+        trickle_reset(r);
+        r->changed = false;
+    }
+    back_in_use(r, s);
+}
+
+/* A leaf wants to ask after the relay `after`, its anchor being `anchor` (0 for none): at once,
+ * unless a solicit waits on its answers or the last went within SOLICIT_GAP. While one is wanted
+ * or waits, the relay it asks after stays the one it was. */
+static void want_solicit(struct tern_route *r, uint32_t after, uint32_t anchor) {
+    if (!r->solicit_wanted && r->solicited < 0 && !r->solicit_out) {
+        r->after = after;
+        r->after_anchor = anchor == after;
+        r->asked_anchor = anchor;
+    }
+    r->solicit_wanted = true;
+    if (r->solicited < 0 && !r->solicit_out) {
+        tern_time next = r->solicit_last < 0 ? r->now : r->solicit_last + SOLICIT_GAP;
+        r->attach_at = next > r->now ? next : r->now;
+    }
+}
+
+/* The answers to a leaf's solicit are in. Returns whether it asks again at once. */
+static bool settle(struct tern_route *r) {
+    uint8_t w = r->after == TERN_ROUTE_EVERYONE ? 0 : slot_of(r, r->after), now_at = 0, anchor;
+    bool others = false, moved;
+    /* A relay asked after and since forgotten, its place given to another, was still asked after:
+     * the routes to this leaf may lead there. */
+    enum tern_route_asked asked = r->after == TERN_ROUTE_EVERYONE ? TERN_ROUTE_ASKED_NONE
+                                  : r->after_anchor || (w && anchor_slot(r, NULL, NULL) == w)
+                                      ? TERN_ROUTE_ASKED_ANCHOR
+                                      : TERN_ROUTE_ASKED_ANOTHER;
+    enum tern_route_answered does;
+    /* What goes out of use is what was silent through the whole pair, if this is its second. */
+    tern_time since = r->doubt ? r->pair_since : r->solicited;
+    for (size_t i = 0; i < r->nb_cap; i++) {
+        const struct tern_route_neighbour *n = &r->nb[i];
+        if (!n->used || !n->relay || n->heard < since) {
+            continue;
+        }
+        others |= i + 1 != w && n->heard >= r->solicited;
+        /* Its anchor once those that did not answer are out of use. */
+        if (n->up && !n->out_of_use &&
+            (!now_at || link_margin(n, r->config.full_dbm) >
+                            link_margin(slot(r, now_at), r->config.full_dbm))) {
+            now_at = (uint8_t)(i + 1);
+        }
+    }
+    /* The anchor it had when it asked, if not the relay asked after: silent too, it has moved. */
+    anchor = r->asked_anchor && r->asked_anchor != r->after ? slot_of(r, r->asked_anchor) : 0;
+    does = tern_route_answered(asked, &r->doubt, &r->unanswered,
+                               w && slot(r, w)->heard >= r->solicited, others,
+                               !now_at                              ? TERN_ROUTE_ANCHOR_NONE
+                               : slot(r, now_at)->id == r->attached ? TERN_ROUTE_ANCHOR_ATTACHED
+                                                                    : TERN_ROUTE_ANCHOR_OTHER,
+                               r->attached != 0,
+                               !r->asked_anchor || r->asked_anchor == r->after    ? -1
+                               : anchor && slot(r, anchor)->heard >= r->solicited ? 1
+                                                                                  : 0,
+                               &r->anchor_heard_first);
+    moved = does == TERN_ROUTE_MOVED || does == TERN_ROUTE_REATTACHES;
+    for (size_t i = 0; moved && i < r->nb_cap; i++) {
+        const struct tern_route_neighbour *n = &r->nb[i];
+        if (n->used && n->relay && !n->out_of_use &&
+            tern_route_out_after(moved, n->up, n->out_of_use, n->heard >= r->solicited,
+                                 n->heard >= since)) {
+            take_out_of_use(r, (uint8_t)(i + 1));
+        }
+    }
+    if (moved && now_at && asked == TERN_ROUTE_ASKED_NONE && !r->attached) {
+        r->attached = slot(r, now_at)->id; /* its first */
+    }
+    if (does == TERN_ROUTE_REATTACHES) {
+        /* Its new seq goes to the relays now around it, loud, and from them everywhere. */
+        r->attached = slot(r, now_at)->id;
+        r->seq++;
+        r->asked = true;
+        r->loud = true;
+        r->interval = r->config.i_min;
+        trickle_begin(r);
+    }
+    if (does == TERN_ROUTE_ASK_AGAIN) {
+        r->pair_since = r->solicited;
+    }
+    return does == TERN_ROUTE_ASK_AGAIN;
+}
+
+/* A leaf looks at its solicits: the answers to one are in, one wanted may go, or every
+ * SOLICIT_GAP, whether its anchor has gone quiet. */
+static void attach(struct tern_route *r) {
+    tern_time t = r->now;
+    bool again = false, sparse, asks;
+    uint8_t a;
+    if (r->solicit_out) {
+        r->attach_at = t + SOLICIT_GAP; /* nothing until the one handed over has gone */
+        return;
+    }
+    if (r->solicited >= 0 && t >= r->solicited + SOLICIT_WAIT) {
+        again = settle(r);
+        r->solicited = -1;
+        r->solicit_wanted |= again;
+    }
+    a = anchor_slot(r, &sparse, &asks);
+    if (r->solicited < 0 && !r->solicit_wanted && r->unanswered < SOLICIT_TRIES && asks) {
+        r->solicit_wanted = true;
+        r->after = a ? slot(r, a)->id : TERN_ROUTE_EVERYONE;
+        r->after_anchor = a != 0;
+        r->asked_anchor = a ? slot(r, a)->id : 0;
+    }
+    if (r->solicited < 0 && r->solicit_wanted &&
+        (again || r->solicit_last < 0 || t - r->solicit_last >= SOLICIT_GAP)) {
+        r->solicit_now = true;
+    }
+    r->attach_at = t + SOLICIT_GAP;
+    if (r->solicited >= 0) {
+        r->attach_at = r->solicited + SOLICIT_WAIT;
+    } else if (r->solicit_wanted && r->solicit_last + SOLICIT_GAP > t) {
+        r->attach_at = r->solicit_last + SOLICIT_GAP;
+    }
+}
+
+/* Sends the solicit wanted at full power, out of the requests' share of the cap; one it cannot
+ * pay for is dropped, and asked again at the next SOLICIT_GAP. */
+static size_t send_solicit(struct tern_route *r, uint8_t *frame, int8_t *power) {
+    struct tern_route_bucket *b = &r->requests;
+    struct tern_solicit q = {r->id, (uint16_t)(r->solicit_id + 1), r->after, r->config.full_dbm};
+    r->solicit_now = false;
+    refill(b, r->now);
+    if (b->have < airtime(r, TERN_SOLICIT_LEN) * MILLION) {
+        return 0;
+    }
+    b->have -= airtime(r, TERN_SOLICIT_LEN) * MILLION;
+    r->solicit_id++;
+    r->solicit_wanted = false;
+    r->solicit_out = true; /* its answers are waited for from when it goes */
+    r->attach_at = r->now + SOLICIT_GAP;
+    r->out = false;
+    *power = q.power;
+    return tern_solicit_write(&q, frame);
+}
+
+/* Sends the first answer whose time has come, out of the requests' share of the cap; one it
+ * cannot pay for is not sent. */
+static size_t send_answer(struct tern_route *r, uint8_t *frame, int8_t *power) {
+    struct tern_route_bucket *b = &r->requests;
+    size_t k = 0, len = 0;
+    for (; k < r->answer_count && r->answers[k].at > r->now; k++) {
+    }
+    if (k == r->answer_count) {
+        return 0;
+    }
+    refill(b, r->now);
+    if (b->have >= airtime(r, TERN_ANSWER_LEN) * MILLION) {
+        b->have -= airtime(r, TERN_ANSWER_LEN) * MILLION;
+        len = tern_answer_write(&r->answers[k].a, frame);
+        *power = r->answers[k].a.power;
+        r->out = false;
+    }
+    r->answers[k] = r->answers[--r->answer_count];
+    return len;
+}
+
+/* A solicit from a neighbour this node keeps: a sample for its floor, and from a relay that hears
+ * it well enough, an answer, after a random wait, and the leaf named first in its next announce. */
+static void on_solicit(struct tern_route *r, const struct tern_solicit *q, int16_t snr_q) {
+    uint8_t s = q->sender == r->id ? 0 : slot_of(r, q->sender), wait;
+    bool asked = q->after == r->id, cancellable;
+    struct tern_route_neighbour *n;
+    if (!s) {
+        return;
+    }
+    heard_from(r, s, q->power, snr_q);
+    n = slot(r, s);
+    if (!r->config.relay || !tern_route_answers(16 * (int32_t)r->config.full_dbm - n->floor, asked,
+                                                &wait, &cancellable)) {
+        return;
+    }
+    for (size_t k = 0; k < sizeof r->answered / sizeof r->answered[0]; k++) {
+        if (r->answered[k].leaf == q->sender && r->answered[k].id == q->id) {
+            return; /* answered once */
+        }
+    }
+    r->answered[r->answered_next] = (struct tern_route_answered_key){q->sender, q->id};
+    r->answered_next =
+        (uint8_t)((r->answered_next + 1) % (sizeof r->answered / sizeof r->answered[0]));
+    n->owed = true;
+    if (r->answer_count == TERN_ROUTE_ANSWERS) {
+        return;
+    }
+    wait = asked ? r->config.jitter : wait;
+    r->answers[r->answer_count++] = (struct tern_route_answer_waiting){
+        .a = {r->id, q->sender, q->id, tern_route_margin(r->config.full_dbm, n->floor),
+              power_to(r, q->sender)},
+        .at = r->now +
+              (tern_time)rand_below(r, (uint64_t)wait * (uint64_t)airtime(r, TERN_ANSWER_LEN) + 1),
+        .cancellable = cancellable,
+    };
+}
+
+/* An answer. Others' answers to a solicit this node is to answer count toward cancelling its own;
+ * a leaf takes one for itself from a relay it keeps as the margin that relay gives it, and names
+ * the relay first in its next announce; and any node takes it as a sample for its sender. */
+static void on_answer(struct tern_route *r, const struct tern_answer *a, int16_t snr_q) {
+    uint8_t s = a->sender == r->id ? 0 : slot_of(r, a->sender);
+    for (size_t k = 0; a->sender != r->id && k < r->answer_count;) {
+        struct tern_route_answer_waiting *w = &r->answers[k];
+        if (w->a.leaf == a->leaf && w->a.id == a->id && w->cancellable &&
+            ++w->heard >= ANSWER_CANCEL) {
+            r->answers[k] = r->answers[--r->answer_count];
+            continue;
+        }
+        k++;
+    }
+    if (!s) {
+        return;
+    }
+    if (a->leaf == r->id && soliciting(r) && slot(r, s)->relay) {
+        slot(r, s)->theirs = a->margin;
+        slot(r, s)->named = slot(r, s)->number;
+        slot(r, s)->owed = true;
+    }
+    heard_from(r, s, a->power, snr_q);
+}
+
 /* --- Receiving --- */
 
 static void on_announce(struct tern_route *r, const struct tern_announce *a, int16_t snr_q) {
     uint8_t s = slot_of(r, a->sender);
     struct tern_route_neighbour *n;
-    bool fresh = s == 0, was_relay, was_up, news, named = false;
+    bool fresh = s == 0, was_relay, was_up, was_out, news, named = false;
     if (a->sender == r->id) {
         return;
     }
@@ -1071,6 +1604,9 @@ static void on_announce(struct tern_route *r, const struct tern_announce *a, int
     n->relay = a->relay;
     /* A neighbour that has taken up or given up the relay's role, or a relay new to this node. */
     news = fresh ? n->relay : n->relay != was_relay;
+    if (news && n->relay) {
+        r->unanswered = 0; /* a relay new to it: worth asking again */
+    }
     n->promise = tern_route_promise_time(a->promise);
     n->floor = tern_route_floor(fresh, n->floor, a->power, snr_q, r->config.lora.sf);
     for (int k = 0; k < a->named_count; k++) {
@@ -1085,14 +1621,21 @@ static void on_announce(struct tern_route *r, const struct tern_announce *a, int
     }
     r->changed = fresh;
     was_up = n->up;
+    was_out = n->out_of_use;
+    n->out_of_use = false;
     n->up = tern_route_link_up(was_up, 16 * (int32_t)r->config.full_dbm - n->floor, n->theirs);
-    if (n->up != was_up || (news && !fresh)) {
-        r->changed = true;
+    if (n->up != was_up || (news && !fresh) || was_out) {
+        r->changed |= n->up != was_up || (news && !fresh) || (was_out && r->config.relay);
         reselect_through(r, s); /* routes through it now usable, or not */
     }
-    update(r, a->sender, a->seq, 0, s);
+    update(r, a->sender, a->seq, 0, s, !a->relay);
     for (int k = 0; n->relay && !a->starting && k < a->route_count; k++) {
-        update(r, a->routes[k].destination, a->routes[k].seq, a->routes[k].metric, s);
+        bool leaf = false;
+        uint16_t metric = INF;
+        if (!tern_route_listed(a->routes[k].metric, &leaf, &metric)) {
+            metric = INF;
+        }
+        update(r, a->routes[k].destination, a->routes[k].seq, metric, s, leaf);
     }
     if (r->changed) {
         trickle_reset(r);
@@ -1209,6 +1752,16 @@ void tern_route_heard(struct tern_route *r, tern_time now, const uint8_t *frame,
                 on_ask(r, &q.asks[k]);
             }
         }
+    } else if (len > 0 && frame[0] == TERN_HDR_SOLICIT && r->config.reattach) {
+        struct tern_solicit q;
+        if (tern_solicit_read(&q, frame, len)) {
+            on_solicit(r, &q, snr_q);
+        }
+    } else if (len > 0 && frame[0] == TERN_HDR_ANSWER && r->config.reattach) {
+        struct tern_answer a;
+        if (tern_answer_read(&a, frame, len)) {
+            on_answer(r, &a, snr_q);
+        }
     }
 }
 
@@ -1236,6 +1789,10 @@ void tern_route_init(struct tern_route *r, const struct tern_route_config *confi
         .interval = config->i_min,
         .ask_at = -1,
         .request_at = -1,
+        .attach_at = -1,
+        .solicited = -1,
+        .solicit_last = -1,
+        .after = TERN_ROUTE_EVERYONE,
         .rng = seed ? seed : 1,
         .now = now,
     };
@@ -1246,6 +1803,9 @@ void tern_route_init(struct tern_route *r, const struct tern_route_config *confi
         r->dest[i].used = false;
     }
     r->number = (uint16_t)rand_below(r, 0x10000);
+    /* Solicits are numbered from a random place too: the relays that answered them before a
+     * restart remember the last few, and would take the same numbers again for those. */
+    r->solicit_id = (uint16_t)rand_below(r, 0x10000);
     bucket_init(&r->announces, config->announce_ppm, config->cap_window,
                 airtime(r, TERN_ROUTE_FRAME_MAX), now);
     bucket_init(&r->requests, config->request_ppm, config->cap_window,
@@ -1255,6 +1815,9 @@ void tern_route_init(struct tern_route *r, const struct tern_route_config *confi
     r->learn_until = now + config->learn_for;
     trickle_begin(r);
     r->house_at = now + house_period(r);
+    if (soliciting(r)) {
+        r->attach_at = now + (tern_time)rand_below(r, (uint64_t)SOLICIT_GAP);
+    }
 }
 
 tern_time tern_route_due(const struct tern_route *r) {
@@ -1263,6 +1826,10 @@ tern_time tern_route_due(const struct tern_route *r) {
     t = r->announcing && r->announce_at < t ? r->announce_at : t;
     t = r->ask_at >= 0 && r->ask_at < t ? r->ask_at : t;
     t = r->request_at >= 0 && r->request_at < t ? r->request_at : t;
+    t = soliciting(r) && r->attach_at >= 0 && r->attach_at < t ? r->attach_at : t;
+    for (size_t k = 0; k < r->answer_count; k++) {
+        t = r->answers[k].at < t ? r->answers[k].at : t;
+    }
     return t;
 }
 
@@ -1308,7 +1875,20 @@ size_t tern_route_poll(struct tern_route *r, tern_time now, uint8_t frame[TERN_R
         }
         trickle_begin(r);
     }
-    if (r->ask_at >= 0 && now >= r->ask_at) {
+    if (r->solicit_out) {
+        /* Polled again with the solicit handed over never said to have gone: it did not, and is
+         * asked again at the next SOLICIT_GAP. */
+        r->solicit_out = false;
+        r->solicit_wanted = true;
+    }
+    if (r->attach_at >= 0 && now >= r->attach_at && soliciting(r)) {
+        attach(r);
+    }
+    len = send_answer(r, frame, power_dbm);
+    if (len == 0 && r->solicit_now) {
+        len = send_solicit(r, frame, power_dbm);
+    }
+    if (len == 0 && r->ask_at >= 0 && now >= r->ask_at) {
         len = send_asks(r, frame, power_dbm);
     }
     if (len == 0 && r->announcing && now >= r->announce_at) {
@@ -1318,6 +1898,12 @@ size_t tern_route_poll(struct tern_route *r, tern_time now, uint8_t frame[TERN_R
 }
 
 void tern_route_sent(struct tern_route *r, tern_time now) {
+    if (r->solicit_out) {
+        r->solicit_out = false;
+        r->solicited = now;
+        r->solicit_last = now;
+        r->attach_at = now + SOLICIT_WAIT;
+    }
     if (r->out) {
         tern_time waited = now - r->out_at, kept = r->mac_wait - r->mac_wait / 8;
         r->mac_wait = waited > kept ? waited : kept;
@@ -1346,7 +1932,7 @@ int tern_route_default(const struct tern_route_neighbour *n, size_t count, bool 
      * though the relay holds the link up from its side. */
     for (int pass = 0; pass < 2 && best < 0; pass++) {
         for (size_t i = 0; i < count; i++) {
-            if (n[i].used && (n[i].up || pass) && n[i].relay &&
+            if (n[i].used && (n[i].up || pass) && n[i].relay && !n[i].out_of_use &&
                 !tried_already(n[i].id, tried, tried_count) &&
                 (best < 0 || n[i].floor < n[best].floor)) {
                 best = (int)i;
@@ -1358,7 +1944,7 @@ int tern_route_default(const struct tern_route_neighbour *n, size_t count, bool 
 
 uint16_t tern_route_default_metric(uint8_t hops, uint16_t cost) {
     uint32_t t = (uint32_t)hops * cost;
-    return t >= INF ? INF - 1 : (uint16_t)t;
+    return t > METRIC_MAX ? METRIC_MAX : (uint16_t)t;
 }
 
 /* A leaf's default: the slot of its nearest relay not in `tried`, or 0. */
@@ -1447,6 +2033,16 @@ void tern_route_lost(struct tern_route *r, tern_time now, uint32_t neighbour) {
     if (n->lost < UINT8_MAX) {
         n->lost++;
     }
+    /* A leaf that solicits sends no more through a relay that keeps losing its frames, and asks
+     * after it: if it is there, its answer brings it back. */
+    if (soliciting(r) && n->relay && n->lost >= SOLICIT_HOPS && usable(r, s, n->id)) {
+        bool sparse;
+        uint8_t a = anchor_slot(r, &sparse, NULL);
+        if (sparse) {
+            take_out_of_use(r, s);
+            want_solicit(r, n->id, a ? slot(r, a)->id : 0);
+        }
+    }
     if (r->config.dead_hops && n->lost >= r->config.dead_hops) {
         forget(r, s);
     }
@@ -1456,24 +2052,13 @@ void tern_route_passed(struct tern_route *r, tern_time now, uint32_t neighbour, 
                        int16_t snr_q) {
     uint8_t s = slot_of(r, neighbour);
     struct tern_route_neighbour *n;
-    bool was_up;
     r->now = now;
     if (!s) {
         return;
     }
     n = slot(r, s);
-    n->floor = tern_route_floor(false, n->floor, power, snr_q, r->config.lora.sf);
-    n->heard = now;
-    n->lost = 0;
     n->boost = n->boost > 0 ? (uint8_t)(n->boost - 1) : 0;
-    was_up = n->up;
-    n->up = tern_route_link_up(was_up, 16 * (int32_t)r->config.full_dbm - n->floor, n->theirs);
-    if (n->up != was_up) {
-        r->changed = true;
-        reselect_through(r, s);
-        trickle_reset(r);
-        r->changed = false;
-    }
+    heard_from(r, s, power, snr_q);
 }
 
 void tern_route_want(struct tern_route *r, tern_time now, uint32_t destination) {
