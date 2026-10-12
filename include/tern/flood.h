@@ -40,7 +40,9 @@
 #define TERN_FLOOD_CARD_MIN 103 /* a card with no name */
 #define TERN_FLOOD_CARD_MAX 134 /* and one with the longest */
 #define TERN_FLOOD_CARD_HOPS 2  /* CARD_HOPS: what a card's flood starts with, at most */
-#define TERN_FLOOD_SEEN 128     /* frames a node must be able to hold as seen */
+#define TERN_FLOOD_POSITION_HOPS                                                                   \
+    2                       /* POSITION_HOPS: what a position's flood to a group starts with */
+#define TERN_FLOOD_SEEN 128 /* frames a node must be able to hold as seen */
 #define TERN_FLOOD_SLOTS_MAX 255
 #define TERN_FLOOD_FLOOR_UNKNOWN INT32_MAX
 
@@ -60,9 +62,20 @@ static inline bool tern_flood_frame(const uint8_t *frame, size_t len) {
     }
 }
 
-/* The hops a flood of this kind starts with, at most: a card's are fewer (draft/cards.md). */
+/* The hops a flood of this kind starts with, at most: a card's are fewer (draft/cards.md). A relay
+ * reads a frame's hops as no more than this too. */
 static inline uint8_t tern_flood_most(uint8_t hdr, uint8_t hops) {
     return hdr == TERN_HDR_CARD && hops > TERN_FLOOD_CARD_HOPS ? TERN_FLOOD_CARD_HOPS : hops;
+}
+
+/* The hops a node's own flood of this kind starts with: as tern_flood_most(), and a group's frame
+ * for the node - a position, the only kind one carries - no more than POSITION_HOPS
+ * (draft/positions.md). A relay does not hold a position to it: that is not specified. */
+static inline uint8_t tern_flood_starts(uint8_t hdr, uint8_t hops) {
+    if (hdr == TERN_HDR_GROUP_NODE && hops > TERN_FLOOD_POSITION_HOPS) {
+        return TERN_FLOOD_POSITION_HOPS;
+    }
+    return tern_flood_most(hdr, hops);
 }
 
 /* --- Rules, each as the specification states it, checked against its vectors. --- */
@@ -174,7 +187,8 @@ void tern_flood_init(struct tern_flood *f, const struct tern_flood_config *confi
 void tern_flood_budget(struct tern_flood *f, struct tern_airtime *budget);
 
 /* Floods a frame of this node's. `frame` is whole but for hops and power, which are filled in
- * here: hops as the config says, or CARD_HOPS for a card if that is fewer. It goes when the
+ * here: hops as the config says, or fewer for a card or a position (tern_flood_starts()). It goes
+ * when the
  * allowance for the node's own frames, and the budget's own part if there is a budget, can pay
  * for it. False if it is not a frame of this layer's,
  * or there is no slot for it. */

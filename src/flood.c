@@ -183,7 +183,7 @@ bool tern_flood_send(struct tern_flood *f, tern_time now, const uint8_t *frame, 
     *s = (struct tern_flood_slot){
         .state = TERN_FLOOD_WAITING, .own = true, .len = (uint8_t)len, .at = now};
     memcpy(s->frame, frame, len);
-    s->frame[1] = tern_flood_most(frame[0], f->config.hops);
+    s->frame[1] = tern_flood_starts(frame[0], f->config.hops);
     tern_flood_id(frame, len, s->id);
     take(f, s->id);
     return true;

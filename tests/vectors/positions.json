@@ -1630,10 +1630,10 @@
       "from": 489570112,
       "count": 9,
       "hdr": 97,
-      "hops": 5,
+      "hops": 2,
       "power": 14,
       "content": "0260c1309c",
-      "frame": "61050e505050505050505095a335ade1bc6617b929a6a1043eb7d6e6b0c2bbea158f2c5e"
+      "frame": "61020e505050505050505095a335ade1bc6617b929a6a1043eb7d6e6b0c2bbea158f2c5e"
     }
   ],
   "receiving": [
