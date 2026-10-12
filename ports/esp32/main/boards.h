@@ -114,6 +114,19 @@ struct board_def {
         struct board_rail rails[3];
     } pmu;
 
+    /* A satellite receiver that sends NMEA 0183 over a UART at `baud`, 8N1, or none (baud 0).
+     * With one, each of its pins is given, BOARD_NO_PIN for none: `rx` is the ESP32's pin that
+     * hears the receiver, `tx` the one that could tell it something, and `reset` is held high to
+     * let it run. It is powered by a rail of the power management chip at `mv`, or by the supply
+     * `power` turns on (high, or low with power_low_on), or with the board if neither. */
+    struct {
+        uint32_t baud;
+        int8_t rx, tx, reset, power;
+        bool power_low_on;
+        enum axp_rail rail;
+        uint16_t mv;
+    } gnss;
+
     int8_t max_dbm; /* the most this board puts into its antenna, as its maker rates it */
 };
 
@@ -136,6 +149,9 @@ extern const struct board_def *const board_defs[];
 
 /* The board with that name, or NULL. */
 const struct board_def *board_def_named(const char *name);
+
+/* Whether the board has a satellite receiver. */
+bool board_has_gnss(const struct board_def *b);
 
 /* Whether the board has a screen, and whether it is e-paper. */
 bool board_has_screen(const struct board_def *b);

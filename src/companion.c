@@ -27,6 +27,9 @@ enum field {
     PRECISION, /* u8 */
     SHARED,    /* u8: SHARE's and SHARING's fields */
     ACC8,      /* u8, into accuracy */
+    RECEIVER,  /* u8 */
+    SOURCE,    /* u8 */
+    SATS,      /* u8, into satellites */
     POWER,     /* i8 */
     SNR,       /* i8 */
     HEARD,     /* u16, into heard */
@@ -127,6 +130,7 @@ static const struct layout layouts[] = {
     {TERN_C_GROUP_SHARING, {GROUP, PRECISION, SHARED, INTERVAL, MINUTES}},
     {TERN_C_CARD, {ADDRESS, HEARD32, NAME}},
     {TERN_C_CARD_GONE, {ADDRESS}},
+    {TERN_C_FIX, {RECEIVER, SOURCE, LAT, LON, ALTITUDE, ACC16, AGE32, SATS}},
 };
 
 /* A later version adds fields only at the end of a frame: from field `from` on, a type's fields
@@ -150,6 +154,9 @@ static bool added_later(uint8_t type, size_t i, uint8_t version) {
 }
 
 uint8_t tern_companion_setting_since(uint8_t setting) {
+    if (setting == TERN_C_SET_RECEIVER) {
+        return 8;
+    }
     return setting == TERN_C_SET_CARDS || setting == TERN_C_SET_CARD_NAME ? 6 : 0;
 }
 
@@ -171,6 +178,8 @@ static enum field setting_value(uint8_t setting, uint8_t version) {
         return CARDS;
     case TERN_C_SET_CARD_NAME:
         return NAME;
+    case TERN_C_SET_RECEIVER:
+        return RECEIVER;
     default:
         return END;
     }
@@ -186,6 +195,9 @@ static const struct layout *layout_of(uint8_t type) {
 }
 
 uint8_t tern_companion_since(uint8_t type) {
+    if (type == TERN_C_FIX) {
+        return 8;
+    }
     if (type == TERN_C_GROUP_LINK || type == TERN_C_JOIN_LINK || type == TERN_C_LINK) {
         return 7;
     }
@@ -277,6 +289,12 @@ static void *member(struct tern_companion_msg *m, enum field f) {
         return &m->news;
     case CARDS:
         return &m->cards;
+    case RECEIVER:
+        return &m->receiver;
+    case SOURCE:
+        return &m->source;
+    case SATS:
+        return &m->satellites;
     case PRECISION:
         return &m->precision;
     case SHARED:

@@ -71,6 +71,7 @@
 #include "tern/forward.h"
 #include "tern/group.h"
 #include "tern/lora.h"
+#include "tern/nmea.h"
 #include "tern/position.h"
 #include "tern/radio.h"
 #include "tern/region.h"
@@ -320,6 +321,9 @@ struct settings {
     uint8_t cards; /* 1 to send them */
     uint8_t card_name_len;
     uint8_t card_name[TERN_CARD_NAME_MAX];
+    /* And the satellite receiver (draft/companion.md, SET 7), on on a board that saved none. Four
+     * bytes, for the reason screen_flags is. */
+    uint32_t receiver_off; /* 1 if a client turned it off */
 };
 #define SCREEN_BENCH 0x01u /* screen_flags: the bench screen's pages follow the user's */
 #if CONFIG_TERN_SCREEN_BENCH
@@ -327,9 +331,17 @@ struct settings {
 #else
 #define SCREEN_FLAGS 0u
 #endif
-static struct settings settings = {
-    SETTINGS_MAGIC, 0, 0xFF, POWER_UNSET, PASSKEY_RANDOM, CONFIG_TERN_SCREEN_SLEEP_S,
-    SCREEN_FLAGS,   0, 0,    {0}};
+static struct settings settings = {SETTINGS_MAGIC,
+                                   0,
+                                   0xFF,
+                                   POWER_UNSET,
+                                   PASSKEY_RANDOM,
+                                   CONFIG_TERN_SCREEN_SLEEP_S,
+                                   SCREEN_FLAGS,
+                                   0,
+                                   0,
+                                   {0},
+                                   0};
 
 /* The bench: test frames sent on a timer, and counts of what was received. */
 #define BEACON_LEN 24
@@ -1822,6 +1834,94 @@ static uint32_t duty_wait_ms(tern_time now) {
 }
 
 /* The SNR, in quarter-dB, a neighbour's last announce was heard at, or 0 if it is not known. */
+/* --- The satellite receiver ------------------------------------------------------------------ */
+
+#define RECEIVER_BYTES 256      /* read in one turn of the loop, at most: a second of sentences */
+#define RECEIVER_LOST TERN_S(5) /* a receiver that has given no fix this long has none */
+
+/* The board's receiver (board.h), as FIX tells a client of it: none, off, searching or fixed. */
+static uint8_t receiver = TERN_C_RECEIVER_NONE;
+static struct tern_nmea nmea;
+static tern_time receiver_fixed_at;
+static struct tern_nmea_fix receiver_last; /* the last fix it gave, for 'status' */
+
+/* Turns the receiver on or off, as the setting says: a fix it gave stays the node's until a newer
+ * comes (draft/companion.md, SET 7). */
+static void receiver_power(bool on) {
+    if (!board_gnss()) {
+        receiver = TERN_C_RECEIVER_NONE;
+        return;
+    }
+    bool running = receiver == TERN_C_RECEIVER_SEARCHING || receiver == TERN_C_RECEIVER_FIXED;
+    if (receiver != TERN_C_RECEIVER_NONE && running == on) {
+        return;
+    }
+    if (!board_gnss_power(on) && on) {
+        printf("the satellite receiver did not start\n");
+        (void)board_gnss_power(false);
+        on = false;
+    }
+    tern_nmea_init(&nmea);
+    receiver = on ? TERN_C_RECEIVER_SEARCHING : TERN_C_RECEIVER_OFF;
+}
+
+/* What the receiver has said since the last turn: each fix goes to the link, which tells clients
+ * and shares it as the user chose. A receiver that says it has none, or falls silent, is
+ * searching again. */
+static void poll_receiver(void) {
+    if (receiver != TERN_C_RECEIVER_SEARCHING && receiver != TERN_C_RECEIVER_FIXED) {
+        return;
+    }
+    tern_time now = board_now();
+    uint8_t c;
+    struct tern_nmea_fix fix;
+    for (int n = 0; n < RECEIVER_BYTES && board_gnss_read(&c); n++) {
+        switch (tern_nmea_push(&nmea, c, &fix)) {
+        case TERN_NMEA_FIX:
+            receiver = TERN_C_RECEIVER_FIXED;
+            receiver_fixed_at = now;
+            receiver_last = fix;
+            link_receiver_fix(&companion, now, fix.lat, fix.lon,
+                              fix.altitude == TERN_NMEA_NO_ALTITUDE ? TERN_C_NO_ALTITUDE
+                                                                    : fix.altitude,
+                              fix.accuracy, fix.satellites);
+            break;
+        case TERN_NMEA_NO_FIX:
+            receiver = TERN_C_RECEIVER_SEARCHING;
+            break;
+        case TERN_NMEA_NOTHING:
+            break;
+        }
+    }
+    if (receiver == TERN_C_RECEIVER_FIXED && now - receiver_fixed_at > RECEIVER_LOST) {
+        receiver = TERN_C_RECEIVER_SEARCHING;
+    }
+}
+
+/* Degrees, from 10^-7 degree, to the seventh place. */
+static void print_degrees(int32_t e7) {
+    printf("%s%ld.%07ld", e7 < 0 ? "-" : "", labs((long)(e7 / 10000000)),
+           labs((long)(e7 % 10000000)));
+}
+
+static void receiver_status(void) {
+    static const char *const said[] = {"none", "off", "searching for a fix", "fixed"};
+    if (receiver == TERN_C_RECEIVER_NONE) {
+        return;
+    }
+    printf("satellite receiver: %s", said[receiver]);
+    if (receiver_fixed_at != 0) {
+        const struct tern_nmea_fix *f = &receiver_last;
+        printf("; last fix %lld s ago at ",
+               (long long)((board_now() - receiver_fixed_at) / 1000000000LL));
+        print_degrees(f->lat);
+        printf(", ");
+        print_degrees(f->lon);
+        printf(", from %u satellites", (unsigned)f->satellites);
+    }
+    printf(". A client turns it on and off.\n");
+}
+
 static int8_t snr_of(uint32_t id) {
     int8_t snr = 0;
     for (size_t k = 0; k < NEIGHBOURS; k++) {
@@ -1864,6 +1964,7 @@ static void link_view(void *ctx, struct link_view *v) {
     }
     v->millivolts = battery_mv;
     v->percent = power_percent(battery_mv); /* 255, unknown, when there is no battery */
+    v->receiver = receiver;
 }
 
 static const struct tern_region *region_named(const uint8_t *name, size_t len) {
@@ -1947,6 +2048,14 @@ static uint8_t link_set(void *ctx, const struct tern_companion_msg *m) {
         next.card_name_len = m->text_len;
         restart = false;
         break;
+    case TERN_C_SET_RECEIVER:
+        /* A board without one may turn it off, and has nothing to turn on. */
+        if (m->receiver > 1 || (m->receiver == 1 && !board_gnss())) {
+            return TERN_C_ERR_REFUSED;
+        }
+        next.receiver_off = m->receiver ? 0 : 1;
+        restart = false;
+        break;
     default:
         return TERN_C_ERR_UNKNOWN;
     }
@@ -1961,6 +2070,9 @@ static uint8_t link_set(void *ctx, const struct tern_companion_msg *m) {
     ble_passkey(settings.passkey);
     if (renamed || off) {
         card_changed();
+    }
+    if (m->setting == TERN_C_SET_RECEIVER) {
+        receiver_power(!settings.receiver_off);
     }
     return 0;
 }
@@ -2305,6 +2417,7 @@ static void status(void) {
         printf("first contact: under way, as the %s\n",
                demo.h.phase == DEMO_INITIATING ? "initiator" : "responder");
     }
+    receiver_status();
     peers();
     if (board_now() < demo.accept_until) {
         printf("accepting contact from a new peer for another %lld s\n",
@@ -3504,7 +3617,9 @@ void node_main(void) {
     saved.screen_flags = SCREEN_FLAGS;
     saved.cards = 0;
     saved.card_name_len = 0;
+    saved.receiver_off = 0;
     if ((store_load(NULL, "settings", &saved, sizeof saved) ||
+         store_load(NULL, "settings", &saved, offsetof(struct settings, receiver_off)) ||
          store_load(NULL, "settings", &saved, offsetof(struct settings, cards)) ||
          store_load(NULL, "settings", &saved, offsetof(struct settings, screen_flags)) ||
          store_load(NULL, "settings", &saved, offsetof(struct settings, screen_sleep))) &&
@@ -3692,6 +3807,7 @@ void node_main(void) {
         printf("this firmware, new from an update, started: it is kept\n");
     }
     demo_trust(&demo, link_trusted, NULL);
+    receiver_power(!settings.receiver_off);
     link_open(&companion, LINK_SERIAL, LINK_LAPSE, 0);
     /* The board's own connection, for what is typed at its console. */
     link_open(&companion, LINK_BOARD, 0, 0);
@@ -3733,6 +3849,7 @@ void node_main(void) {
         poll_button();
         poll_screen();
         poll_battery();
+        poll_receiver();
         if (transmitting && board_now() > tx_deadline) {
             /* TX_DONE never came. Listen again rather than stay busy for ever. */
             printf("the radio never said the frame had gone; listening again\n");

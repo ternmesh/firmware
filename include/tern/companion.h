@@ -8,7 +8,7 @@
 #include "tern/address.h"
 #include "tern/time.h"
 
-/* The companion protocol: version 7 of draft/companion.md in ternmesh/spec.
+/* The companion protocol: version 8 of draft/companion.md in ternmesh/spec.
  *
  * The link between a node and the client driving it, a phone or a computer, over USB serial, TCP
  * or Bluetooth LE. It never goes over LoRa. This is the part every node and every client needs:
@@ -16,7 +16,7 @@
  * text console. What a node answers and when is the node's business, not the core's (in the node
  * every port shares, ports/node/link.c). */
 
-#define TERN_COMPANION_VERSION 7
+#define TERN_COMPANION_VERSION 8
 #define TERN_COMPANION_MAX_FRAME 180
 #define TERN_COMPANION_STREAM_MAX (TERN_COMPANION_MAX_FRAME + 6) /* magic, length, CRC */
 #define TERN_COMPANION_NAME_MAX 31
@@ -87,6 +87,7 @@ enum tern_companion_type {
     TERN_C_GROUP_SHARING = 0x91,
     TERN_C_CARD = 0x92, /* version 6, as is the one after it */
     TERN_C_CARD_GONE = 0x93,
+    TERN_C_FIX = 0x94, /* version 8 */
 };
 
 /* The first version of the protocol that defines a type: a node sends a client no frame its
@@ -104,6 +105,7 @@ enum tern_companion_setting {
     TERN_C_SET_PASSKEY = 4,   /* passkey */
     TERN_C_SET_CARDS = 5,     /* cards: version 6, as is the one after it */
     TERN_C_SET_CARD_NAME = 6, /* text */
+    TERN_C_SET_RECEIVER = 7,  /* receiver: version 8 */
 };
 
 /* The first version of the protocol that defines a setting of SET's. */
@@ -154,6 +156,21 @@ enum tern_companion_why {
 #define TERN_C_SHARE_ACCURACY 0x02
 #define TERN_C_NO_ALTITUDE (-32768) /* a position's altitude, when there is none */
 
+/* FIX's receiver: the node's satellite receiver, as it is now. */
+enum tern_companion_receiver {
+    TERN_C_RECEIVER_NONE = 0,
+    TERN_C_RECEIVER_OFF = 1,
+    TERN_C_RECEIVER_SEARCHING = 2,
+    TERN_C_RECEIVER_FIXED = 3,
+};
+
+/* FIX's source: whose fix the node uses. */
+enum tern_companion_source {
+    TERN_C_SOURCE_NONE = 0,
+    TERN_C_SOURCE_RECEIVER = 1,
+    TERN_C_SOURCE_CLIENT = 2,
+};
+
 /* Any frame, as its fields. Each type uses the members its table in the draft names, under the
  * same names (SYNCED's news is `news`), with three folded together: the one string a frame carries
  * (text, name, firmware, region, link, or SET's region or card name) is `text`; the one address
@@ -161,11 +178,12 @@ enum tern_companion_why {
  * `heard` is NEIGHBOUR's u16 or CARD's u32. INFO's board and release, SELF's card_name, and
  * UPDATE_DATA's data, have members of their own. A position's `accuracy` and `age` are one
  * member each, though SET_POSITION's are wider than the news'. SET's value is `text`,
- * `role`, `power`, `passkey` or `cards` as `setting` says. Members a type does not use are ignored
- * when writing and left as they were when reading. */
+ * `role`, `power`, `passkey`, `cards` or `receiver` as `setting` says. Members a type does not use
+ * are ignored when writing and left as they were when reading. */
 struct tern_companion_msg {
     uint8_t type, seq;
     uint8_t version, setting, code, role, session, flags, state, reason, percent, why, news, cards;
+    uint8_t receiver, source, satellites; /* FIX's, and receiver SET 7's value */
     int8_t power, snr;
     uint16_t millivolts;
     uint32_t heard;

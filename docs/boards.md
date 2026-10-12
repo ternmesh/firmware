@@ -10,12 +10,12 @@ between the core and a port is [architecture.md](architecture.md); this is about
 | Heltec WiFi LoRa 32 V3 | ESP32-S3 | SX1262 | [`ports/esp32/`](../ports/esp32/) | Runs |
 | Heltec WiFi LoRa 32 V4 (V4.2, V4.3) | ESP32-S3 | SX1262, 28 dBm amplifier | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board |
 | Heltec Wireless Stick Lite V3 | ESP32-S3 | SX1262 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board |
-| Heltec Wireless Tracker (V1.0, V1.1) | ESP32-S3 | SX1262 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board; no screen yet (an 80x160 TFT) |
+| Heltec Wireless Tracker (V1.0, V1.1) | ESP32-S3 | SX1262 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board; no screen yet (an 80x160 TFT); the V1.1's GNSS gives the node its fix |
 | Heltec Vision Master E290 | ESP32-S3 | SX1262 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board; its e-paper is driven (SSD1680) |
 | Heltec Vision Master E213 | ESP32-S3 | SX1262 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board; no screen yet (e-paper) |
 | Heltec Wireless Paper | ESP32-S3 | SX1262 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board; no screen yet (e-paper) |
 | Heltec WiFi LoRa 32 V2, V2.1 | ESP32 | SX1276 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board |
-| LilyGo T-Beam V1.0, V1.1 (AXP192) and V1.2 (AXP2101), 868/915 MHz | ESP32 | SX1276 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board; its GPS is left off |
+| LilyGo T-Beam V1.0, V1.1 (AXP192) and V1.2 (AXP2101), 868/915 MHz | ESP32 | SX1276 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board; its GPS gives the node its fix |
 | LilyGo LoRa32 T3 V1.6.1 (868/915 MHz) | ESP32 | SX1276 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board; no user button, so it turns off only when its battery runs down |
 | LilyGo T3-S3 V1.2, V1.3 with an SX1276 (868/915 MHz) | ESP32-S3 | SX1276 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board |
 | Heltec Mesh Node T114 V2 | nRF52840 | SX1262 | [`ports/nrf52/`](../ports/nrf52/) | Built, not yet run on a board |

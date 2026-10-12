@@ -26,7 +26,9 @@ prints a group's join code, writes to one or leaves it; a group is named by the 
 `group code` prints it only for the group asked for, and nothing here keeps it. `position` tells the
 node where it is, in degrees, and `share` has the node send that to a contact or a group, as a
 cell of a grid as coarse as `precision` says, 1 to 24, until `share ... 0` stops it. `watch`
-speaks version 1 and is told of messages only: `--speak 7 watch` is told of all of it.
+speaks version 1 and is told of messages only: `--speak 8 watch` is told of all of it.
+`set receiver 0` turns off the node's satellite receiver, if it has one, and `set receiver 1` turns
+it on again; `state` prints the node's fix, whether its receiver's or the last a client gave.
 `update` gives the node a new image of its firmware, going on from where the node's bytes end if
 it was given part of the same image before, and the node restarts into it.
 While it waits for news it sends PING every IDLE seconds, as the specification asks, and if the
@@ -56,7 +58,7 @@ MAX_FRAME, MAGIC = 180, b"\xf5\x54"
 # brought; `--speak` says another, so that `watch` is told of groups, positions or cards.
 VERSION = 1
 # The latest version the frames below are, which selftest reads the vectors by.
-LATEST = 7
+LATEST = 8
 UPDATE_CHUNK = 172
 ANSWER_WAIT = 5.0
 IDLE = 20.0  # the most a client lets pass after an answer before it asks again
@@ -130,6 +132,8 @@ FRAMES = {
                              ("interval", "H"), ("minutes", "H")]),
     0x92: ("CARD", [("address", "addr"), ("heard", "I"), ("name", "str")]),
     0x93: ("CARD_GONE", [("address", "addr")]),
+    0x94: ("FIX", [("receiver", "B"), ("source", "B"), ("lat", "i"), ("lon", "i"),
+                   ("altitude", "h"), ("accuracy", "H"), ("age", "I"), ("satellites", "B")]),
 }
 # Fields a later version added at the end of a frame: an earlier version's frame stops before them.
 LATER = {(0x43, "news"): 3, (0x42, "board"): 4, (0x42, "release"): 4, (0x80, "cards"): 6,
@@ -137,11 +141,11 @@ LATER = {(0x43, "news"): 3, (0x42, "board"): 4, (0x42, "release"): 4, (0x80, "ca
 BYTES = {"addr": 32, "gid": 8, "digest": 32}
 TYPE = {name: t for t, (name, _) in FRAMES.items()}
 SETTINGS = {1: ("region", "str"), 2: ("role", "B"), 3: ("power", "b"), 4: ("passkey", "I"),
-            5: ("cards", "B"), 6: ("card_name", "str")}
+            5: ("cards", "B"), 6: ("card_name", "str"), 7: ("receiver", "B")}
 SETTING = {name: (n, kind) for n, (name, kind) in SETTINGS.items()}
 # The version a setting came with, where it was not there from the first: a node refuses it of a
 # client that speaks an earlier one.
-SINCE = {"cards": 6, "card_name": 6}
+SINCE = {"cards": 6, "card_name": 6, "receiver": 8}
 # What a node holds with an id and a state, which a sync sends again: one id space for the three.
 HELD = ("MESSAGE", "GROUP_MESSAGE", "INVITE")
 STATES = ["waiting", "sent", "delivered", "not delivered", "received"]
@@ -482,6 +486,17 @@ def describe(m, names):
         return f"card {m['name']!r}: {m['address'].hex()}, heard {m['heard']} s ago"
     if t == "CARD_GONE":
         return f"card gone: {m['address'].hex()}"
+    if t == "FIX":
+        receiver = {0: "no satellite receiver", 1: "receiver off", 2: "receiver searching",
+                    3: "receiver fixed"}.get(m["receiver"], "receiver searching")
+        if not m["source"]:
+            return f"fix: none ({receiver})"
+        whose = "the receiver's" if m["source"] == 1 else "a client's"
+        more = "" if m["altitude"] == -32768 else f", {m['altitude']} m up"
+        more += f", within {m['accuracy']} m" if m["accuracy"] else ""
+        more += f", from {m['satellites']} satellites" if m["satellites"] else ""
+        return (f"fix: {m['lat'] / 1e7:.7f}, {m['lon'] / 1e7:.7f}{more}, {m['age']} s old, "
+                f"{whose} ({receiver})")
     return str(m)
 
 

@@ -134,10 +134,12 @@ const struct board_def board_heltec_wsl_v3 = {
 /* The Heltec Wireless Tracker V1.1, from its datasheet (Wireless Tracker1.1), schematic
  * (HTIT-Tracker_V0.5), pin map and hardware update log. PRG on GPIO0, the LED on GPIO18, and the
  * battery through 390k over 100k onto GPIO1, behind a switch GPIO2 turns on when high. Its 80x160
- * colour TFT and its GNSS are on a supply GPIO3 turns on (high on the V1.1, low on the V1.0), left
- * off. USB from the ESP32-S3's own port (boards/heltec-tracker.defaults). Rated 21 dBm, give or
- * take a decibel. The V1.0's radio, button, LED and battery are on the same pins
- * (HTIT-Tracker_V0.3), so the image runs on it too. */
+ * colour TFT, left dark, and its GNSS, a UC6580, are on a supply GPIO3 turns on (high on the V1.1,
+ * low on the V1.0). The UC6580 sends NMEA at 115200 baud from its TX to GPIO33, takes GPIO34 on its
+ * RX, and is out of reset while GPIO35 is high. USB from the ESP32-S3's own port
+ * (boards/heltec-tracker.defaults). Rated 21 dBm, give or take a decibel. The V1.0's radio,
+ * button, LED and battery are on the same pins (HTIT-Tracker_V0.3), so the image runs on it too,
+ * but its GNSS stays unpowered: its supply turns on low. */
 const struct board_def board_heltec_tracker = {
     .name = "heltec-tracker",
     .title = "Heltec Wireless Tracker",
@@ -150,6 +152,7 @@ const struct board_def board_heltec_tracker = {
     .vext_high_on = true,
     .battery = {.sense = 1, .enable = 2, .top_k = 390, .bottom_k = 100},
     .amp = NO_AMP,
+    .gnss = {.baud = 115200, .rx = 33, .tx = 34, .reset = 35, .power = 3},
     .max_dbm = SX1262_MAX_DBM,
 };
 
@@ -311,12 +314,21 @@ const struct board_def board_lilygo_t3_v161 = {
  * a power management chip on I2C at SDA 21 and SCL 22. LilyGo's examples drive its SX1276 on
  * PA_BOOST. The button marked IO38 is GPIO38, pulled up on the board (the ESP32 has no pull-up
  * there), and the red LED is GPIO4, lit when low. A 128x64 SSD1306 may be fitted to the header, on
- * the same I2C bus. The battery, an 18650 in its holder, is measured by the chip. Its GPS is left
- * unpowered. Each image is for one radio: these are the SX1276's, 868/915 MHz; the SX1278's is
+ * the same I2C bus. The battery, an 18650 in its holder, is measured by the chip. Its GPS, a u-blox
+ * NEO-6M or NEO-M8N, sends NMEA at 9600 baud from its TX to GPIO34 and takes GPIO12 on its RX; it
+ * is on a rail of the chip, and unpowered until the node turns it on. Each image is for one
+ * radio: these are the SX1276's, 868/915 MHz; the SX1278's is
  * for 433 MHz, and LilyGo does not give the SX1262's TCXO.
  *
  * V1.0 and V1.1 have an AXP192: the radio on LDO2, the GPS on LDO3, the header's supply on DC-DC1
  * (VCC_2.5V, which LilyGo sets to 3.3 V for a screen), the ESP32 on DC-DC3, left alone. */
+/* The T-Beam's GPS, on a rail of its power management chip. */
+#define TBEAM_GPS(rail_)                                                                           \
+    {                                                                                              \
+        .baud = 9600, .rx = 34, .tx = 12, .reset = BOARD_NO_PIN, .power = BOARD_NO_PIN,            \
+        .rail = (rail_), .mv = 3300                                                                \
+    }
+
 const struct board_def board_lilygo_tbeam = {
     .name = "lilygo-tbeam",
     .title = "LilyGo T-Beam V1.1",
@@ -333,6 +345,7 @@ const struct board_def board_lilygo_tbeam = {
             .sda = 21,
             .scl = 22,
             .rails = {{AXP_LDO2, 3300}, {AXP_DCDC1, 3300}, {AXP_LDO3, 0}}},
+    .gnss = TBEAM_GPS(AXP_LDO3),
     .max_dbm = PA_BOOST_MAX_DBM,
 };
 
@@ -352,6 +365,7 @@ const struct board_def board_lilygo_tbeam12 = {
     .battery = {.sense = BOARD_NO_PIN, .enable = BOARD_NO_PIN},
     .amp = NO_AMP,
     .pmu = {.chip = AXP2101, .sda = 21, .scl = 22, .rails = {{AXP_ALDO2, 3300}, {AXP_ALDO3, 0}}},
+    .gnss = TBEAM_GPS(AXP_ALDO3),
     .max_dbm = PA_BOOST_MAX_DBM,
 };
 
@@ -436,6 +450,8 @@ uint16_t board_battery_pin_mv(const struct board_def *b) {
     unsigned total = (unsigned)b->battery.top_k + b->battery.bottom_k;
     return (uint16_t)(BOARD_CELL_FULL_MV * (unsigned)b->battery.bottom_k / total);
 }
+
+bool board_has_gnss(const struct board_def *b) { return b->gnss.baud != 0; }
 
 bool board_has_screen(const struct board_def *b) {
     return board_epaper(b) ? b->screen.cs != BOARD_NO_PIN : b->screen.sda != BOARD_NO_PIN;
