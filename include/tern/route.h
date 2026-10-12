@@ -427,6 +427,67 @@ struct tern_route_auth {
                    const uint8_t sig[TERN_ANNOUNCE_SIG]);
 };
 
+/* Why a Trickle interval was cut short to I_MIN: what this node announces changed - a route
+ * selected or lost on an announce heard, a link going up or down, a neighbour going out of use or
+ * back, one forgotten, a starved destination retracted, the node done starting - or it was asked:
+ * by a request for any route, for its own seq, or for a route it holds. */
+enum tern_route_reset {
+    TERN_ROUTE_RESET_ROUTES,
+    TERN_ROUTE_RESET_LINK,
+    TERN_ROUTE_RESET_NEIGHBOUR,
+    TERN_ROUTE_RESET_FORGOTTEN,
+    TERN_ROUTE_RESET_RETRACT,
+    TERN_ROUTE_RESET_STARTED,
+    TERN_ROUTE_RESET_ASKED,
+    TERN_ROUTE_RESET_COUNT,
+};
+
+/* Why an interval that reached its time announced: fewer than REDUNDANCY consistent announces
+ * heard, kept quiet QUIET_MAX intervals running, changed routes of its own waiting, asked for its
+ * seq, or starting. */
+enum tern_route_fire {
+    TERN_ROUTE_FIRE_HEARD_FEW,
+    TERN_ROUTE_FIRE_QUIET_MAX,
+    TERN_ROUTE_FIRE_CHANGES,
+    TERN_ROUTE_FIRE_ASKED,
+    TERN_ROUTE_FIRE_STARTING,
+    TERN_ROUTE_FIRE_COUNT,
+};
+
+/* Why a route was queued to go first in the next announce, as changed: it had never been
+ * announced, its selected route's seq is newer, its metric moved by more than CHANGE, whether its
+ * destination is a leaf changed, it is retracted, or a request asked for it. */
+enum tern_route_change {
+    TERN_ROUTE_CHANGE_NEW,
+    TERN_ROUTE_CHANGE_SEQ,
+    TERN_ROUTE_CHANGE_METRIC,
+    TERN_ROUTE_CHANGE_LEAF,
+    TERN_ROUTE_CHANGE_RETRACT,
+    TERN_ROUTE_CHANGE_ASKED,
+    TERN_ROUTE_CHANGE_COUNT,
+};
+
+/* What the router has done, since it started: for measuring what routing costs, never read by
+ * the router itself. */
+struct tern_route_counts {
+    uint32_t fires;                           /* Trickle intervals that reached their time */
+    uint32_t suppressed;                      /* of them, kept quiet */
+    uint32_t fired[TERN_ROUTE_FIRE_COUNT];    /* and the rest, by why they announced */
+    uint32_t resets[TERN_ROUTE_RESET_COUNT];  /* intervals cut short, by why */
+    uint32_t queued[TERN_ROUTE_CHANGE_COUNT]; /* routes queued as changed, not already, by why */
+    uint32_t reattached;                      /* seq raised, having moved */
+    uint32_t raised;                          /* seq raised, asked by a request */
+    uint32_t announces;                       /* announce frames built */
+    uint32_t burst;                           /* of them, after the first of an announcing */
+    uint32_t at_max;                          /* of them, with the interval at I_MAX */
+    uint64_t bytes;                           /* their lengths, summed */
+    uint32_t routes;                          /* routes they carried */
+    uint32_t changed;                         /* of those, changed ones sent first */
+    uint32_t named;                           /* neighbours they named */
+    uint32_t addressed;                       /* of them, carrying the address */
+    uint32_t requests;                        /* request frames built */
+};
+
 struct tern_route {
     struct tern_route_config config;
     struct tern_route_auth auth; /* all NULL until tern_route_auth() */
@@ -468,6 +529,7 @@ struct tern_route {
     bool fired;
     uint8_t heard;
     uint8_t quiet;
+    struct tern_route_counts counts;
 
     struct tern_route_bucket announces; /* the cap, in two */
     struct tern_route_bucket requests;
