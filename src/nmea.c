@@ -73,6 +73,9 @@ static bool decimal(struct field f, unsigned places, int64_t *out) {
         return false;
     }
     for (; after < places; after++) {
+        if (v > INT64_MAX / 10) {
+            return false;
+        }
         v *= 10;
     }
     *out = negative ? -v : v;

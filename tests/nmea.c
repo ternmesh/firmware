@@ -111,6 +111,12 @@ static void a_place_that_is_not_one_is_no_fix(void) {
     CHECK(read_body("GPGGA,0,,N,00651.8640,E,1,09,0.62,0,M,0,M,,", &fix) == TERN_NMEA_NO_FIX);
     CHECK(read_body("GPGGA,0,45x9.9500,N,00651.8640,E,1,09,0.62,0,M,0,M,,", &fix) ==
           TERN_NMEA_NO_FIX);
+    /* Digits that fit 64 bits until the places are filled in are not a number either. */
+    CHECK(read_body("GPGGA,0,922337203685477,N,00651.8640,E,1,09,0.62,0,M,0,M,,", &fix) ==
+          TERN_NMEA_NO_FIX);
+    CHECK(read_body("GPGGA,0,4549.9500,N,00651.8640,E,1,09,0.62,922337203685477,M,0,M,,", &fix) ==
+          TERN_NMEA_FIX);
+    CHECK_EQ_I64(fix.altitude, TERN_NMEA_NO_ALTITUDE);
 }
 
 /* Without the geoid's separation the height above the ellipsoid cannot be had, and the fix has
