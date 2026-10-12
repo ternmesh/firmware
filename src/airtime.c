@@ -40,9 +40,9 @@ uint8_t tern_airtime_reason(bool route, bool session, uint32_t region_wait_s,
 
 struct tern_airtime_config tern_airtime_defaults(void) {
     return (struct tern_airtime_config){
-        .own_ppm = 10000,
+        .own_ppm = 20000,
         .own_window = TERN_S(600),
-        .relay_ppm = 80000,
+        .relay_ppm = 70000,
         .relay_window = TERN_S(60),
     };
 }

@@ -293,21 +293,21 @@ static void the_forwarder_holds_its_own(void) {
     uint8_t frame[255];
     fwd_start(&x, false);
     tern_time air = tern_lora_airtime(&x.lora, 255);
-    /* 6 s of the own part goes in fourteen 255-byte frames; the next waits. */
+    /* With the own part empty, as twenty-nine 255-byte frames leave its 12 s, the next waits. */
     x.a.own.have = 0;
     CHECK(tern_forward_send(&x.f, 0, FAR, frame, message(frame, 1), false, INT8_MIN));
     CHECK(tern_forward_send(&x.f, 0, FAR, frame, message(frame, 2), false, INT8_MIN));
     CHECK_EQ_I64(fwd_go(&x, 0, &kind), 0);
     tern_time due = tern_forward_due(&x.f);
-    CHECK_EQ_I64(due, air * 1000000 / 10000); /* 40.7808 s */
+    CHECK_EQ_I64(due, air * 1000000 / 20000); /* 20.3904 s */
     struct tern_airtime_waiting w[SLOTS];
     uint8_t h[SLOTS];
     uint16_t wait_s[SLOTS];
     size_t n = tern_forward_own_waiting(&x.f, w, h, SLOTS);
     CHECK_EQ_I64(n, 2);
     tern_airtime_waits(&x.a, NULL, 0, w, n, wait_s);
-    CHECK_EQ_I64(wait_s[0], 41);
-    CHECK_EQ_I64(wait_s[1], 82);
+    CHECK_EQ_I64(wait_s[0], 21);
+    CHECK_EQ_I64(wait_s[1], 41);
     CHECK_EQ_I64(fwd_go(&x, due - 1, &kind), 0);
     CHECK_EQ_I64(fwd_go(&x, due, &kind), 255);
     CHECK_EQ_I64(kind, TERN_FORWARD_OWN);
@@ -383,7 +383,7 @@ static void the_flooder_waits_for_both(void) {
     CHECK(tern_flood_send(&fl, 0, frame, 255));
     CHECK_EQ_I64(tern_flood_poll(&fl, 0, frame, &dbm, &kind, &h), 0);
     tern_time due = tern_flood_due(&fl);
-    CHECK_EQ_I64(due, air * 1000000 / 10000);
+    CHECK_EQ_I64(due, air * 1000000 / 20000);
     CHECK_EQ_I64(fl.own.have, fl.own.most); /* charged to neither */
     CHECK_EQ_I64(tern_flood_poll(&fl, due, frame, &dbm, &kind, &h), 255);
     CHECK_EQ_I64(x.a.own.have, 0);
