@@ -677,6 +677,35 @@ static void a_route_to_a_leaf_is_repaired_patiently(void) {
     CHECK_EQ_I64(net.loops, 0);
 }
 
+/* A leaf whose table is full, and whose links are all up, moves: the relay it left is out of use
+ * once it gives three hops up there, and gives its place to the relay where the leaf is now. Kept,
+ * it would hold the place until the leaf forgot it a day on, and the leaf could never take the new
+ * relay as a neighbour, nor its answers. Relays 0, 1 and 2 in a line, leaf 3 beside relay 0 and
+ * leaf 4, each node with room for two neighbours. */
+static void a_full_table_gives_up_a_relay_out_of_use(void) {
+    net_init(&net, 5);
+    net.nb_cap = 2;
+    net.node[3].relay = false;
+    net.node[4].relay = false;
+    link(&net, 0, 1, 20);
+    link(&net, 1, 2, 20);
+    link(&net, 3, 0, 20);
+    link(&net, 3, 4, 20);
+    start_all(&net);
+    run(&net, TERN_S(900));
+    CHECK_EQ_I64(hops(&net, 3, 0), 1);
+    link(&net, 3, 0, NONE);
+    link(&net, 3, 2, 20);
+    for (int k = 0; k < 3; k++) {
+        tern_route_lost(&net.node[3].r, net.now, id_of(0));
+    }
+    run(&net, net.now + TERN_S(1800));
+    CHECK_EQ_I64(hops(&net, 3, 2), 1);
+    CHECK_EQ_I64(hops(&net, 3, 0), 3);
+    CHECK_EQ_I64(hops(&net, 2, 3), 1);
+    CHECK_EQ_I64(net.loops, 0);
+}
+
 int main(void) {
     RUN(two_nodes_find_each_other);
     RUN(a_line_is_routed_end_to_end);
@@ -696,5 +725,6 @@ int main(void) {
     RUN(a_leaf_that_stays_does_not_re_attach);
     RUN(a_leaf_among_many_relays_does_not_ask);
     RUN(a_route_to_a_leaf_is_repaired_patiently);
+    RUN(a_full_table_gives_up_a_relay_out_of_use);
     return CHECK_DONE();
 }

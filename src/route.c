@@ -270,6 +270,16 @@ bool tern_route_link_up(bool up, int32_t own, uint8_t theirs) {
 
 int tern_route_place(const struct tern_route_neighbour *full, size_t n, int32_t floor) {
     int worst = -1;
+    /* One out of use first, whatever its link and the floor heard: a leaf that has moved keeps its
+     * links to the relays it left up, and would have no place for one where it is now. */
+    for (size_t i = 0; i < n; i++) {
+        if (full[i].out_of_use && (worst < 0 || full[i].floor > full[worst].floor)) {
+            worst = (int)i;
+        }
+    }
+    if (worst >= 0) {
+        return worst;
+    }
     for (size_t i = 0; i < n; i++) {
         if (!full[i].up && (worst < 0 || full[i].floor > full[worst].floor)) {
             worst = (int)i;
@@ -1291,8 +1301,10 @@ static void want_solicit(struct tern_route *r, uint32_t after, bool anchored) {
 static bool settle(struct tern_route *r) {
     uint8_t w = r->after == TERN_ROUTE_EVERYONE ? 0 : slot_of(r, r->after), now_at = 0;
     bool others = false, moved;
-    enum tern_route_asked asked = !w ? TERN_ROUTE_ASKED_NONE
-                                  : r->after_anchor || anchor_slot(r, NULL, NULL) == w
+    /* A relay asked after and since forgotten, its place given to another, was still asked after:
+     * the routes to this leaf may lead there. */
+    enum tern_route_asked asked = r->after == TERN_ROUTE_EVERYONE ? TERN_ROUTE_ASKED_NONE
+                                  : r->after_anchor || (w && anchor_slot(r, NULL, NULL) == w)
                                       ? TERN_ROUTE_ASKED_ANCHOR
                                       : TERN_ROUTE_ASKED_ANOTHER;
     enum tern_route_answered does;
@@ -1322,7 +1334,7 @@ static bool settle(struct tern_route *r) {
             take_out_of_use(r, (uint8_t)(i + 1));
         }
     }
-    if (moved && now_at && !w && !r->attached) {
+    if (moved && now_at && asked == TERN_ROUTE_ASKED_NONE && !r->attached) {
         r->attached = slot(r, now_at)->id; /* its first */
     }
     if (does == TERN_ROUTE_REATTACHES) {

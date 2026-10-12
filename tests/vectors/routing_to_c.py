@@ -153,7 +153,10 @@ def main():
     L.append("static const struct place_case places[] = {")
     L += [
         f"    {{{len(c['neighbours'])}, {{"
-        + ", ".join(f"{{{n['floor_sixteenths']}, {b(n['up'])}}}" for n in c["neighbours"])
+        + ", ".join(
+            f"{{{n['floor_sixteenths']}, {b(n['up'])}, {b(n['out_of_use'])}}}"
+            for n in c["neighbours"]
+        )
         + f"}}, {c['floor_sixteenths']}, {idx(c['replaces'])}}},"
         for c in v["places"]
     ]
@@ -172,7 +175,8 @@ def main():
     L += [
         f"    {{{len(c['neighbours'])}, {{"
         + ", ".join(
-            f"{{{n['floor_sixteenths']}, {b(n['up'])}, {b(n['relay'])}}}" for n in c["neighbours"]
+            f"{{{n['floor_sixteenths']}, {b(n['up'])}, {b(n['relay'])}, {b(n['out_of_use'])}}}"
+            for n in c["neighbours"]
         )
         + f"}}, {b(c['leaf'])}, {b(c['starting'])}, {c['busy_ppm']}, {len(c['tried'])}, {{"
         + (", ".join(str(t) for t in c["tried"]) or "0")

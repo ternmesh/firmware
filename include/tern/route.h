@@ -304,9 +304,10 @@ struct tern_route_neighbour {
 };
 
 /* Which neighbour of a full table of `n` a node just heard takes the place of, `floor` being what
- * its one frame gives: the one with the highest floor of those whose link is not up, if the node
- * heard is 6 dB nearer; an index, or -1. A link that is up is never given up for one that might
- * come up. */
+ * its one frame gives: the one out of use with the highest floor, whatever its link and the floor
+ * heard; with none, the one with the highest floor of those whose link is not up, if the node
+ * heard is 6 dB nearer; an index, or -1. A link in use that is up is never given up for one that
+ * might come up. */
 int tern_route_place(const struct tern_route_neighbour *full, size_t n, int32_t floor);
 
 /* The neighbour of `n` a leaf hands a frame with no route to: the relay with the lowest floor of

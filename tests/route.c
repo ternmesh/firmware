@@ -89,7 +89,7 @@ struct place_case {
     int n;
     struct {
         int32_t floor;
-        bool up;
+        bool up, out_of_use;
     } neighbours[4];
     int32_t floor;
     int replaces;
@@ -106,7 +106,7 @@ struct default_case {
     int n;
     struct {
         int32_t floor;
-        bool up, relay;
+        bool up, relay, out_of_use;
     } neighbours[4];
     bool leaf, starting;
     uint32_t busy;
@@ -567,8 +567,10 @@ static void a_full_table_gives_the_place_the_specification_says(void) {
         const struct place_case *c = &places[i];
         struct tern_route_neighbour nb[4] = {0};
         for (int k = 0; k < c->n; k++) {
-            nb[k] = (struct tern_route_neighbour){
-                .used = true, .floor = c->neighbours[k].floor, .up = c->neighbours[k].up};
+            nb[k] = (struct tern_route_neighbour){.used = true,
+                                                  .floor = c->neighbours[k].floor,
+                                                  .up = c->neighbours[k].up,
+                                                  .out_of_use = c->neighbours[k].out_of_use};
         }
         CHECK_EQ_I64(tern_route_place(nb, (size_t)c->n, c->floor), c->replaces);
     }
@@ -658,6 +660,7 @@ static void a_leaf_with_no_route_takes_its_nearest_relay(void) {
                                                   .used = true,
                                                   .relay = c->neighbours[k].relay,
                                                   .up = c->neighbours[k].up,
+                                                  .out_of_use = c->neighbours[k].out_of_use,
                                                   .floor = c->neighbours[k].floor};
         }
         for (int k = 0; k < c->tried_count; k++) {
