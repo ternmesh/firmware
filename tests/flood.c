@@ -777,6 +777,40 @@ static void test_cards(void) {
     }
 }
 
+/* A position to a group, the group's frame for the node, starts with POSITION_HOPS where the
+ * group's words start with FLOOD_HOPS; a relay passes one on as any other frame, its hops not held
+ * to POSITION_HOPS. */
+static void test_positions(void) {
+    struct tern_flood_config d = tern_flood_defaults();
+    CHECK(d.hops > TERN_FLOOD_POSITION_HOPS);
+    uint8_t frame[TERN_FLOOD_FRAME_MAX], out[TERN_FLOOD_FRAME_MAX];
+    int8_t dbm;
+    enum tern_flood_kind kind;
+    uint8_t h;
+    for (int node = 0; node < 2; node++) {
+        struct node x;
+        start(&x, false, 5 + (uint64_t)node);
+        size_t len = make(frame, TERN_FLOOD_GROUP_MIN, 0, 4);
+        frame[0] = node ? TERN_HDR_GROUP_NODE : TERN_HDR_GROUP;
+        CHECK(tern_flood_send(&x.f, 0, frame, len));
+        CHECK(tern_flood_poll(&x.f, 0, out, &dbm, &kind, &h) == len);
+        CHECK(kind == TERN_FLOOD_OWN && out[1] == (node ? TERN_FLOOD_POSITION_HOPS : d.hops));
+        tern_flood_sent(&x.f, 0, h);
+    }
+
+    struct node x;
+    start(&x, true, 7);
+    neighbours(&x, 9, -160);
+    size_t len = make(frame, TERN_FLOOD_GROUP_MIN, d.hops, 5);
+    frame[0] = TERN_HDR_GROUP_NODE;
+    CHECK(tern_flood_heard(&x.f, 0, frame, len));
+    tern_time due = tern_flood_due(&x.f);
+    CHECK(due != INT64_MAX);
+    CHECK(tern_flood_poll(&x.f, due, out, &dbm, &kind, &h) == len);
+    CHECK(kind == TERN_FLOOD_RELAY && out[1] == d.hops - 1);
+    tern_flood_sent(&x.f, due, h);
+}
+
 int main(void) {
     RUN(test_heads);
     RUN(test_rules);
@@ -795,5 +829,6 @@ int main(void) {
     RUN(test_power);
     RUN(test_reach);
     RUN(test_cards);
+    RUN(test_positions);
     return CHECK_DONE();
 }

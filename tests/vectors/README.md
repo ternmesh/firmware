@@ -92,6 +92,9 @@ them.
 signs every announce: `routing_to_c.py` carries each announce's seed and the `verified` cases,
 and `tests/route.c` signs and checks them with the core's own Ed25519.
 
+`positions.json` is as of [ternmesh/spec#48](https://github.com/ternmesh/spec/pull/48), whose
+group frame starts with `POSITION_HOPS`.
+
 `routing.json` is as of [ternmesh/spec#44](https://github.com/ternmesh/spec/pull/44), leaves
 that move: solicits and answers, a listed route's leaf bit, a metric of at most `0x7FFE`, the
 newer of two routes as good, and the `anchors`, `answering` and `answered` cases, which
