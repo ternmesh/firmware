@@ -1173,7 +1173,57 @@ static void a_request_the_cap_cannot_pay_for_is_not_counted_as_sent(void) {
     CHECK(!dest[0].held);
 }
 
+/* The router's counts add up: every interval that reaches its time is kept quiet or announces,
+ * for one reason; every announce built is counted with its length; a lone relay, hearing nothing,
+ * announces for having heard too few, or for starting, and its interval comes to I_MAX. A
+ * neighbour heard and then lost cuts the interval short, and that is counted by its cause. */
+static void the_routers_counts_add_up(void) {
+    const struct tern_region *us = tern_region(TERN_REGION_US915);
+    struct tern_lora lora = tern_region_lora(us);
+    struct tern_route_config config = tern_route_defaults(&lora, 22, -9, true);
+    struct tern_route_neighbour nb[4];
+    struct tern_route_dest dest[4];
+    struct tern_route r;
+    uint8_t frame[TERN_ROUTE_FRAME_MAX];
+    int8_t dbm;
+    tern_time now = 0;
+    uint64_t bytes = 0;
+    uint32_t built = 0;
+    tern_route_init(&r, &config, 0x1234, nb, 4, dest, 4, 0, 7, 0);
+    for (int step = 0; step < 400; step++) {
+        now = tern_route_due(&r) > now ? tern_route_due(&r) : now + TERN_S(1);
+        size_t len;
+        while ((len = tern_route_poll(&r, now, frame, &dbm)) != 0) {
+            tern_route_sent(&r, now);
+            if (frame[0] == TERN_HDR_ANNOUNCE) {
+                built++;
+                bytes += len;
+            }
+        }
+    }
+    const struct tern_route_counts *c = &r.counts;
+    uint32_t fired = 0;
+    for (int k = 0; k < TERN_ROUTE_FIRE_COUNT; k++) {
+        fired += c->fired[k];
+    }
+    CHECK(c->fires > 10);
+    CHECK_EQ_U64(c->fires, c->suppressed + fired);
+    CHECK_EQ_U64(c->suppressed, 0); /* it hears nothing */
+    CHECK_EQ_U64(fired, c->fired[TERN_ROUTE_FIRE_HEARD_FEW] + c->fired[TERN_ROUTE_FIRE_STARTING]);
+    CHECK_EQ_U64(c->announces, built);
+    CHECK_EQ_U64(c->bytes, bytes);
+    CHECK(c->at_max > 0 && c->at_max < c->announces);
+    CHECK_EQ_U64(c->routes, 0);
+    CHECK(c->addressed > 0);
+    uint32_t resets = 0;
+    for (int k = 0; k < TERN_ROUTE_RESET_COUNT; k++) {
+        resets += c->resets[k];
+    }
+    CHECK_EQ_U64(resets, c->resets[TERN_ROUTE_RESET_STARTED]);
+}
+
 int main(void) {
+    RUN(the_routers_counts_add_up);
     RUN(ids_come_from_addresses);
     RUN(a_leaf_with_no_route_takes_its_nearest_relay);
     RUN(sequence_numbers_wrap);
