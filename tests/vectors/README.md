@@ -91,5 +91,11 @@ them.
 signs every announce: `routing_to_c.py` carries each announce's seed and the `verified` cases,
 and `tests/route.c` signs and checks them with the core's own Ed25519.
 
+`airtime.json` is a copy of
+[`vectors/airtime.json`](https://github.com/ternmesh/spec/blob/main/vectors/airtime.json), as of
+[ternmesh/spec#42](https://github.com/ternmesh/spec/pull/42) (the airtime budget, draft 0, with
+the wait estimate that keeps the queue's order). `airtime_to_c.py` turns it into a header for
+`tests/airtime.c`.
+
 When the specification's vectors change, copy the new file here in the same pull request that
 changes the code to match, and update the commit above.

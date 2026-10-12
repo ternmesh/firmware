@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "tern/airtime.h"
 #include "tern/route.h"
 #include "tern/time.h"
 
@@ -23,6 +24,10 @@
  * First contact's four frames (tern/contact.h) go the same way. The node that begins a handshake
  * keeps each of its two as it keeps a message, until the handshake's next frame answers it
  * (tern_forward_done()) or it has been tried often enough (tern_forward_contact_failed()).
+ *
+ * Given an airtime budget (tern/airtime.h), it keeps to it: a frame of the node's own waits until
+ * its part holds it, one passed on that its part does not hold is dropped, and an acknowledgement
+ * goes whatever its part holds.
  *
  * Like the router it owns no clock, radio or memory, and what a frame holds past its head is the
  * caller's: for a message, the secured unicast frame's tag, ciphertext and check (tern/unicast.h).
@@ -158,6 +163,7 @@ struct tern_forward_counts {
     uint32_t sent_again; /* hops sent again */
     uint32_t given_up;   /* hops given up on */
     uint32_t salvaged;   /* of them, tried another way */
+    uint32_t unpaid;     /* frames passed on that the budget could not pay for, and dropped */
 };
 
 struct tern_forward {
@@ -166,6 +172,7 @@ struct tern_forward {
     struct tern_forward_slot *slot;
     size_t cap;
     uint64_t rng;
+    struct tern_airtime *budget; /* or NULL, for none */
     struct tern_forward_counts counts;
 };
 
@@ -174,6 +181,13 @@ struct tern_forward {
 void tern_forward_init(struct tern_forward *f, const struct tern_forward_config *config,
                        struct tern_route *route, struct tern_forward_slot *slots, size_t cap,
                        uint64_t seed);
+
+/* Holds the forwarder to an airtime budget, which the caller keeps, or with NULL to none, as it
+ * starts. A frame is then offered only once the budget lets it go (tern_airtime_pays()): one of the
+ * node's own waits for it, holding up those of its own behind it and nothing else, and one passed
+ * on that the budget will not pay for is dropped, as a frame not passed on is. Each is charged to
+ * the budget when tern_forward_sent() says it has gone. */
+void tern_forward_budget(struct tern_forward *f, struct tern_airtime *budget);
 
 /* Sends a frame of this node's to `destination`. `frame` is whole but for its head, of which only
  * hdr is read: the rest is filled in here. `tracked` is for a message, or a first-contact frame
@@ -223,6 +237,13 @@ bool tern_forward_contact_failed(struct tern_forward *f, uint8_t *hdr,
 
 /* When tern_forward_poll() next has something to do, or INT64_MAX. */
 tern_time tern_forward_due(const struct tern_forward *f);
+
+/* The node's own frames waiting to go, in the order they will: the airtime of each and its hdr,
+ * for tern_airtime_waits(), and the slot it is in (a handle, as tern_forward_poll() gives). At most
+ * `n` are written; the number written is returned. Acknowledgements are not among them, since
+ * nothing holds them. */
+size_t tern_forward_own_waiting(const struct tern_forward *f, struct tern_airtime_waiting *waiting,
+                                uint8_t *handles, size_t n);
 
 enum tern_forward_kind {
     TERN_FORWARD_OWN,   /* this node's message, or first-contact frame */

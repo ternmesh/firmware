@@ -30,6 +30,7 @@ endif()
 # (cmake/arm-none-eabi.cmake) and for a host. Board ports and the Linux build link against it.
 add_library(tern
     src/address.c
+    src/airtime.c
     src/aes.c
     src/card.c
     src/ccm.c
@@ -61,7 +62,7 @@ target_compile_options(tern PRIVATE ${TERN_WARNINGS})
 
 include(CTest)
 if(BUILD_TESTING)
-    foreach(t address card companion contact crypto duty flood forward group listen lora mesh position radio region route share sx126x sx127x lr11xx unicast)
+    foreach(t address airtime card companion contact crypto duty flood forward group listen lora mesh position radio region route share sx126x sx127x lr11xx unicast)
         add_executable(test_${t} tests/${t}.c)
         target_link_libraries(test_${t} PRIVATE tern)
         # The test files define their cases as static functions, so the prototype warning is
@@ -159,6 +160,17 @@ if(BUILD_TESTING)
         VERBATIM)
     target_sources(test_group PRIVATE ${groups_h})
     target_include_directories(test_group PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/vectors)
+
+    set(airtime_h ${CMAKE_CURRENT_BINARY_DIR}/vectors/airtime.h)
+    add_custom_command(
+        OUTPUT ${airtime_h}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/vectors
+        COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tests/vectors/airtime_to_c.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/vectors/airtime.json ${airtime_h}
+        DEPENDS tests/vectors/airtime_to_c.py tests/vectors/airtime.json
+        VERBATIM)
+    target_sources(test_airtime PRIVATE ${airtime_h})
+    target_include_directories(test_airtime PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/vectors)
 
     set(cards_h ${CMAKE_CURRENT_BINARY_DIR}/vectors/cards.h)
     add_custom_command(

@@ -20,6 +20,7 @@ idf_component_register(
         ${node}/power.c
         ${node}/axp.c
         ${root}/src/address.c
+        ${root}/src/airtime.c
         ${root}/src/aes.c
         ${root}/src/card.c
         ${root}/src/ccm.c

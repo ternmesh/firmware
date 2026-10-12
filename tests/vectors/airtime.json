@@ -1,0 +1,1477 @@
+{
+  "description": "The airtime budget, draft 0 (draft/airtime.md). Shares are in millionths of a node's time and windows in seconds; a bucket fills at its share and holds its window of that, or one 255-byte frame if that is more, and is full at time 0. In parts, most_ppm is everything a node of that role may spend, routing at its largest, and relayed_ppm is null for a node that passes nothing on. In classes, part is the part of the budget that pays for a frame with that hdr, the node's own or passed on; flood_allowance names the bucket of draft/flooding.md that pays for it too; unpaid is what becomes of it when they do not all hold its airtime: it waits, it is dropped, or it is sent and charged, the bucket going no lower than empty; null where Routes' cap decides. In spends, a node of that role on that profile, every bucket full at time 0, is offered each frame in order at at_ns; airtime_ns is its time on the air (vectors/phy.json), and sent says whether it goes then; a frame that goes is charged to every bucket that pays for it, and one that does not to none. In estimates, the frames spent go as in spends, and at at_ns the node's own frames waiting go in the order given; wait_s is how many seconds, rounded up, until it goes: when every bucket that pays for it holds its airtime, and not before the frame ahead of it, each frame charged to its buckets as it goes. In reasons, a message of the node's own waits with or without a route and a session, and for the region's limit and the budget as long as given, in seconds; reason and wait are what the companion protocol shows.",
+  "generator": "vectors/tools/airtime.py",
+  "parts": [
+    {
+      "role": "relay",
+      "own_ppm": 10000,
+      "own_window_s": 600,
+      "relayed_ppm": 80000,
+      "relayed_window_s": 60,
+      "routing_ppm": 5000,
+      "learning_ppm": 1875,
+      "most_ppm": 96875
+    },
+    {
+      "role": "leaf",
+      "own_ppm": 10000,
+      "own_window_s": 600,
+      "relayed_ppm": null,
+      "relayed_window_s": null,
+      "routing_ppm": 5000,
+      "learning_ppm": 0,
+      "most_ppm": 15000
+    }
+  ],
+  "classes": [
+    {
+      "hdr": 72,
+      "own": true,
+      "part": "own",
+      "flood_allowance": null,
+      "unpaid": "waits"
+    },
+    {
+      "hdr": 72,
+      "own": false,
+      "part": "relayed",
+      "flood_allowance": null,
+      "unpaid": "dropped"
+    },
+    {
+      "hdr": 73,
+      "own": true,
+      "part": "own",
+      "flood_allowance": null,
+      "unpaid": "waits"
+    },
+    {
+      "hdr": 73,
+      "own": false,
+      "part": "relayed",
+      "flood_allowance": null,
+      "unpaid": "dropped"
+    },
+    {
+      "hdr": 80,
+      "own": true,
+      "part": "own",
+      "flood_allowance": null,
+      "unpaid": "sent"
+    },
+    {
+      "hdr": 80,
+      "own": false,
+      "part": "relayed",
+      "flood_allowance": null,
+      "unpaid": "sent"
+    },
+    {
+      "hdr": 81,
+      "own": true,
+      "part": "own",
+      "flood_allowance": null,
+      "unpaid": "waits"
+    },
+    {
+      "hdr": 81,
+      "own": false,
+      "part": "relayed",
+      "flood_allowance": null,
+      "unpaid": "dropped"
+    },
+    {
+      "hdr": 82,
+      "own": true,
+      "part": "own",
+      "flood_allowance": null,
+      "unpaid": "waits"
+    },
+    {
+      "hdr": 82,
+      "own": false,
+      "part": "relayed",
+      "flood_allowance": null,
+      "unpaid": "dropped"
+    },
+    {
+      "hdr": 83,
+      "own": true,
+      "part": "own",
+      "flood_allowance": null,
+      "unpaid": "waits"
+    },
+    {
+      "hdr": 83,
+      "own": false,
+      "part": "relayed",
+      "flood_allowance": null,
+      "unpaid": "dropped"
+    },
+    {
+      "hdr": 84,
+      "own": true,
+      "part": "own",
+      "flood_allowance": null,
+      "unpaid": "waits"
+    },
+    {
+      "hdr": 84,
+      "own": false,
+      "part": "relayed",
+      "flood_allowance": null,
+      "unpaid": "dropped"
+    },
+    {
+      "hdr": 89,
+      "own": true,
+      "part": "routing",
+      "flood_allowance": null,
+      "unpaid": null
+    },
+    {
+      "hdr": 89,
+      "own": false,
+      "part": "routing",
+      "flood_allowance": null,
+      "unpaid": null
+    },
+    {
+      "hdr": 90,
+      "own": true,
+      "part": "routing",
+      "flood_allowance": null,
+      "unpaid": null
+    },
+    {
+      "hdr": 90,
+      "own": false,
+      "part": "routing",
+      "flood_allowance": null,
+      "unpaid": null
+    },
+    {
+      "hdr": 96,
+      "own": true,
+      "part": "own",
+      "flood_allowance": "flood_own",
+      "unpaid": "waits"
+    },
+    {
+      "hdr": 96,
+      "own": false,
+      "part": "relayed",
+      "flood_allowance": "flood_relay",
+      "unpaid": "dropped"
+    },
+    {
+      "hdr": 97,
+      "own": true,
+      "part": "own",
+      "flood_allowance": "flood_own",
+      "unpaid": "waits"
+    },
+    {
+      "hdr": 97,
+      "own": false,
+      "part": "relayed",
+      "flood_allowance": "flood_relay",
+      "unpaid": "dropped"
+    },
+    {
+      "hdr": 104,
+      "own": true,
+      "part": "own",
+      "flood_allowance": "flood_own",
+      "unpaid": "waits"
+    },
+    {
+      "hdr": 104,
+      "own": false,
+      "part": "relayed",
+      "flood_allowance": "flood_relay",
+      "unpaid": "dropped"
+    }
+  ],
+  "spends": [
+    {
+      "name": "own",
+      "role": "leaf",
+      "profile": "EU868",
+      "frames": [
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "sent": false
+        },
+        {
+          "at_ns": 11711999999,
+          "hdr": 72,
+          "own": true,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "sent": false
+        },
+        {
+          "at_ns": 11712000000,
+          "hdr": 72,
+          "own": true,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "sent": true
+        },
+        {
+          "at_ns": 11712000000,
+          "hdr": 82,
+          "own": true,
+          "length": 60,
+          "airtime_ns": 121088000,
+          "sent": false
+        },
+        {
+          "at_ns": 600000000000,
+          "hdr": 72,
+          "own": true,
+          "length": 67,
+          "airtime_ns": 131328000,
+          "sent": true
+        }
+      ]
+    },
+    {
+      "name": "acknowledgements",
+      "role": "leaf",
+      "profile": "EU868",
+      "frames": [
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 80,
+          "own": true,
+          "length": 19,
+          "airtime_ns": 59648000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 80,
+          "own": true,
+          "length": 19,
+          "airtime_ns": 59648000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 80,
+          "own": true,
+          "length": 19,
+          "airtime_ns": 59648000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 80,
+          "own": true,
+          "length": 19,
+          "airtime_ns": 59648000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 80,
+          "own": true,
+          "length": 19,
+          "airtime_ns": 59648000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 80,
+          "own": true,
+          "length": 19,
+          "airtime_ns": 59648000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 23,
+          "airtime_ns": 69888000,
+          "sent": false
+        },
+        {
+          "at_ns": 40780799999,
+          "hdr": 72,
+          "own": true,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "sent": false
+        },
+        {
+          "at_ns": 40780800000,
+          "hdr": 72,
+          "own": true,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "sent": true
+        }
+      ]
+    },
+    {
+      "name": "own-floods",
+      "role": "relay",
+      "profile": "EU868",
+      "frames": [
+        {
+          "at_ns": 0,
+          "hdr": 96,
+          "own": true,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 96,
+          "own": true,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 96,
+          "own": true,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 96,
+          "own": true,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 96,
+          "own": true,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 96,
+          "own": true,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 96,
+          "own": true,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 96,
+          "own": true,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "sent": false
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 104,
+          "own": true,
+          "length": 134,
+          "airtime_ns": 228608000,
+          "sent": false
+        }
+      ]
+    },
+    {
+      "name": "relayed",
+      "role": "relay",
+      "profile": "US915",
+      "frames": [
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": false,
+          "length": 255,
+          "airtime_ns": 320768000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": false,
+          "length": 255,
+          "airtime_ns": 320768000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": false,
+          "length": 255,
+          "airtime_ns": 320768000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": false,
+          "length": 255,
+          "airtime_ns": 320768000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": false,
+          "length": 255,
+          "airtime_ns": 320768000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": false,
+          "length": 255,
+          "airtime_ns": 320768000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": false,
+          "length": 255,
+          "airtime_ns": 320768000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": false,
+          "length": 255,
+          "airtime_ns": 320768000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": false,
+          "length": 255,
+          "airtime_ns": 320768000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": false,
+          "length": 255,
+          "airtime_ns": 320768000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": false,
+          "length": 255,
+          "airtime_ns": 320768000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": false,
+          "length": 255,
+          "airtime_ns": 320768000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": false,
+          "length": 255,
+          "airtime_ns": 320768000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": false,
+          "length": 255,
+          "airtime_ns": 320768000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": false,
+          "length": 255,
+          "airtime_ns": 320768000,
+          "sent": false
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255,
+          "airtime_ns": 320768000,
+          "sent": true
+        },
+        {
+          "at_ns": 0,
+          "hdr": 80,
+          "own": false,
+          "length": 19,
+          "airtime_ns": 54528000,
+          "sent": true
+        },
+        {
+          "at_ns": 825599999,
+          "hdr": 72,
+          "own": false,
+          "length": 255,
+          "airtime_ns": 320768000,
+          "sent": false
+        },
+        {
+          "at_ns": 825600000,
+          "hdr": 72,
+          "own": false,
+          "length": 255,
+          "airtime_ns": 320768000,
+          "sent": true
+        }
+      ]
+    },
+    {
+      "name": "relayed-floods",
+      "role": "relay",
+      "profile": "US915",
+      "frames": [
+        {
+          "at_ns": 0,
+          "hdr": 96,
+          "own": false,
+          "length": 255,
+          "airtime_ns": 320768000,
+          "sent": true
+        },
+        {
+          "at_ns": 10000000,
+          "hdr": 96,
+          "own": false,
+          "length": 255,
+          "airtime_ns": 320768000,
+          "sent": true
+        },
+        {
+          "at_ns": 20000000,
+          "hdr": 96,
+          "own": false,
+          "length": 255,
+          "airtime_ns": 320768000,
+          "sent": true
+        },
+        {
+          "at_ns": 30000000,
+          "hdr": 96,
+          "own": false,
+          "length": 255,
+          "airtime_ns": 320768000,
+          "sent": true
+        },
+        {
+          "at_ns": 40000000,
+          "hdr": 96,
+          "own": false,
+          "length": 255,
+          "airtime_ns": 320768000,
+          "sent": true
+        },
+        {
+          "at_ns": 50000000,
+          "hdr": 96,
+          "own": false,
+          "length": 255,
+          "airtime_ns": 320768000,
+          "sent": false
+        },
+        {
+          "at_ns": 60000000,
+          "hdr": 96,
+          "own": false,
+          "length": 255,
+          "airtime_ns": 320768000,
+          "sent": false
+        },
+        {
+          "at_ns": 1000000000,
+          "hdr": 81,
+          "own": false,
+          "length": 56,
+          "airtime_ns": 95488000,
+          "sent": true
+        },
+        {
+          "at_ns": 1000000000,
+          "hdr": 97,
+          "own": false,
+          "length": 31,
+          "airtime_ns": 69888000,
+          "sent": true
+        }
+      ]
+    }
+  ],
+  "estimates": [
+    {
+      "name": "messages",
+      "role": "leaf",
+      "profile": "EU868",
+      "spent": [
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        }
+      ],
+      "at_ns": 0,
+      "waiting": [
+        {
+          "hdr": 72,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "wait_s": 12
+        },
+        {
+          "hdr": 72,
+          "length": 67,
+          "airtime_ns": 131328000,
+          "wait_s": 25
+        },
+        {
+          "hdr": 72,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "wait_s": 66
+        }
+      ]
+    },
+    {
+      "name": "later",
+      "role": "leaf",
+      "profile": "EU868",
+      "spent": [
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        }
+      ],
+      "at_ns": 30000000000,
+      "waiting": [
+        {
+          "hdr": 72,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "wait_s": 0
+        },
+        {
+          "hdr": 72,
+          "length": 67,
+          "airtime_ns": 131328000,
+          "wait_s": 0
+        },
+        {
+          "hdr": 72,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "wait_s": 36
+        }
+      ]
+    },
+    {
+      "name": "group-behind-message",
+      "role": "relay",
+      "profile": "EU868",
+      "spent": [
+        {
+          "at_ns": 0,
+          "hdr": 96,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 96,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 96,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 96,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 96,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 96,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 96,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        }
+      ],
+      "at_ns": 0,
+      "waiting": [
+        {
+          "hdr": 72,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "wait_s": 0
+        },
+        {
+          "hdr": 96,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "wait_s": 53
+        },
+        {
+          "hdr": 96,
+          "length": 120,
+          "airtime_ns": 208128000,
+          "wait_s": 95
+        }
+      ]
+    },
+    {
+      "name": "us915",
+      "role": "relay",
+      "profile": "US915",
+      "spent": [
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 72,
+          "own": true,
+          "length": 255
+        }
+      ],
+      "at_ns": 0,
+      "waiting": [
+        {
+          "hdr": 72,
+          "length": 23,
+          "airtime_ns": 59648000,
+          "wait_s": 0
+        },
+        {
+          "hdr": 72,
+          "length": 23,
+          "airtime_ns": 59648000,
+          "wait_s": 0
+        },
+        {
+          "hdr": 72,
+          "length": 23,
+          "airtime_ns": 59648000,
+          "wait_s": 0
+        },
+        {
+          "hdr": 72,
+          "length": 23,
+          "airtime_ns": 59648000,
+          "wait_s": 2
+        }
+      ]
+    },
+    {
+      "name": "message-behind-group",
+      "role": "relay",
+      "profile": "EU868",
+      "spent": [
+        {
+          "at_ns": 0,
+          "hdr": 96,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 96,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 96,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 96,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 96,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 96,
+          "own": true,
+          "length": 255
+        },
+        {
+          "at_ns": 0,
+          "hdr": 96,
+          "own": true,
+          "length": 255
+        }
+      ],
+      "at_ns": 0,
+      "waiting": [
+        {
+          "hdr": 96,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "wait_s": 53
+        },
+        {
+          "hdr": 72,
+          "length": 255,
+          "airtime_ns": 407808000,
+          "wait_s": 53
+        }
+      ]
+    }
+  ],
+  "reasons": [
+    {
+      "route": false,
+      "session": true,
+      "region_wait_s": 0,
+      "budget_wait_s": 30,
+      "reason": 1,
+      "wait": 0
+    },
+    {
+      "route": true,
+      "session": false,
+      "region_wait_s": 0,
+      "budget_wait_s": 30,
+      "reason": 2,
+      "wait": 0
+    },
+    {
+      "route": true,
+      "session": true,
+      "region_wait_s": 0,
+      "budget_wait_s": 30,
+      "reason": 4,
+      "wait": 30
+    },
+    {
+      "route": true,
+      "session": true,
+      "region_wait_s": 30,
+      "budget_wait_s": 0,
+      "reason": 3,
+      "wait": 30
+    },
+    {
+      "route": true,
+      "session": true,
+      "region_wait_s": 120,
+      "budget_wait_s": 30,
+      "reason": 3,
+      "wait": 120
+    },
+    {
+      "route": true,
+      "session": true,
+      "region_wait_s": 30,
+      "budget_wait_s": 120,
+      "reason": 4,
+      "wait": 120
+    },
+    {
+      "route": true,
+      "session": true,
+      "region_wait_s": 45,
+      "budget_wait_s": 45,
+      "reason": 3,
+      "wait": 45
+    },
+    {
+      "route": true,
+      "session": true,
+      "region_wait_s": 0,
+      "budget_wait_s": 70000,
+      "reason": 4,
+      "wait": 65535
+    }
+  ]
+}
