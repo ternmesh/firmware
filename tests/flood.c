@@ -888,6 +888,23 @@ static void test_resends(void) {
     CHECK_EQ_I64(tern_flood_due(&x.f), INT64_MAX);
     CHECK_EQ_U64(x.f.counts.resent, 2); /* withdrawn, it never went */
 
+    /* Its own is known as its own while it listens, however many floods have come since. */
+    start(&x, false, 16);
+    x.f.config.resends = 2;
+    x.f.config.echo = 255;
+    len = make(frame, TERN_FLOOD_GROUP_MIN, 0, 9);
+    CHECK(tern_flood_send(&x.f, 0, frame, len));
+    CHECK(tern_flood_poll(&x.f, 0, out, &dbm, &kind, &h) == len);
+    tern_flood_sent(&x.f, 0, h);
+    uint8_t other[TERN_FLOOD_FRAME_MAX];
+    for (unsigned k = 0; k < TERN_FLOOD_SEEN + 1; k++) {
+        CHECK(tern_flood_heard(&x.f, 1, other, make(other, TERN_FLOOD_GROUP_MIN, 5, 1000 + k)));
+    }
+    out[1] = 4;
+    CHECK(!tern_flood_heard(&x.f, 2, out, len));
+    CHECK_EQ_U64(x.f.counts.echoed, 1);
+    CHECK_EQ_I64(tern_flood_due(&x.f), INT64_MAX);
+
     /* A radio never idle sends its own once and not again, as a busy relay passes none on. */
     start(&x, false, 15);
     x.f.config.resends = 2;

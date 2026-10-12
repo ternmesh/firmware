@@ -206,12 +206,27 @@ bool tern_flood_cancel(struct tern_flood *f, tern_time now, const uint8_t id[TER
     return false;
 }
 
+/* Whether a frame of the node's own with this id is still held: sent, or yet to go again. */
+static bool own_held(const struct tern_flood *f, const uint8_t id[TERN_FLOOD_ID]) {
+    for (size_t i = 0; i < f->cap; i++) {
+        const struct tern_flood_slot *s = &f->slot[i];
+        if (s->state != TERN_FLOOD_FREE && s->own && memcmp(s->id, id, TERN_FLOOD_ID) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool tern_flood_heard(struct tern_flood *f, tern_time now, const uint8_t *frame, size_t len) {
     uint8_t id[TERN_FLOOD_ID];
     if (!tern_flood_frame(frame, len)) {
         return false;
     }
     tern_flood_id(frame, len, id);
+    /* A node's own still held is seen, however many others have come since. */
+    if (!seen(f, id) && own_held(f, id)) {
+        take(f, id);
+    }
     if (seen(f, id)) {
         f->counts.copies++;
         for (size_t i = 0; i < f->cap; i++) {
