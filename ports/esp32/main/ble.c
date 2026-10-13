@@ -6,6 +6,7 @@
 #include "esp_random.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
+#include "freertos/task.h"
 #include "host/ble_hs.h"
 #include "host/util/util.h"
 #include "nimble/nimble_port.h"
@@ -360,6 +361,16 @@ void ble_send(const uint8_t *frame, size_t len) {
     waiting[i].len = (uint8_t)len;
     n_waiting++;
     pump();
+}
+
+bool ble_flush(uint32_t ms) {
+    for (uint32_t waited = 0;; waited += 10) {
+        pump();
+        if (n_waiting == 0 || waited >= ms) {
+            return n_waiting == 0;
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
 }
 
 void ble_forget(void) {

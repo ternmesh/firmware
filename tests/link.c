@@ -85,6 +85,8 @@ struct board {
     unsigned begun, runs;
     bool write_fails;
     uint8_t run_answer;
+    unsigned offs;      /* how many times OFF asked the board to turn off */
+    uint8_t off_answer; /* what the board answers OFF with: 0 to turn off */
     uint8_t out[96][TERN_COMPANION_MAX_FRAME];
     size_t out_len[96];
     unsigned out_conn[96];
@@ -327,6 +329,12 @@ static uint8_t board_update_run(void *ctx) {
     return b->run_answer;
 }
 
+static uint8_t board_off(void *ctx) {
+    struct board *b = ctx;
+    b->offs++;
+    return b->off_answer;
+}
+
 static struct board board;
 static struct link companion;
 
@@ -379,6 +387,7 @@ static void start(void) {
         .update_begin = board_update_begin,
         .update_write = board_update_write,
         .update_run = board_update_run,
+        .off = board_off,
     };
     board.random = made_secret;
     link_init(&companion, &host);
@@ -580,6 +589,8 @@ static void the_exchange_is_followed_frame_for_frame(void) {
      * took nothing. */
     CHECK(companion.groups[0].used && companion.groups[1].used && !companion.groups[2].used);
     CHECK(companion.groups[0].name_len == 3 && memcmp(companion.groups[0].name, "Hut", 3) == 0);
+    /* And with the board asked, once, to turn off: its OK was the last frame. */
+    CHECK_EQ_U64(board.offs, 1);
 }
 
 /* A client of version 6 may not ask for a join code, nor join from one: the node answers either
@@ -587,6 +598,33 @@ static void the_exchange_is_followed_frame_for_frame(void) {
 static void an_older_client_has_no_join_codes(void) {
     begin();
     follow("older 6", older_6, COUNT(older_6), COUNT(older_6), NULL);
+}
+
+/* A client of version 8 may not turn the node off: the node answers OFF as a request it does not
+ * know from that client, and the board is not asked. */
+static void an_older_client_cannot_turn_the_node_off(void) {
+    begin();
+    follow("older 8", older_8, COUNT(older_8), COUNT(older_8), NULL);
+    CHECK_EQ_U64(board.offs, 0);
+}
+
+/* OFF is answered before the board turns off, and with what the board says: a board that will
+ * not answers the ERROR it gives, and the client is told. */
+static void off_is_answered_as_the_board_says(void) {
+    start();
+    hello();
+    board.n_out = 0;
+    request(&(struct tern_companion_msg){.type = TERN_C_OFF, .seq = 2});
+    CHECK_EQ_U64(board.offs, 1);
+    CHECK_EQ_U64(board.n_out, 1);
+    CHECK_EQ_I64(sent(0).type, TERN_C_OK);
+    CHECK_EQ_U64(sent(0).seq, 2);
+    board.n_out = 0;
+    board.off_answer = TERN_C_ERR_NOT_NOW;
+    request(&(struct tern_companion_msg){.type = TERN_C_OFF, .seq = 3});
+    CHECK_EQ_U64(board.n_out, 1);
+    CHECK_EQ_I64(sent(0).type, TERN_C_ERROR);
+    CHECK_EQ_U64(sent(0).code, TERN_C_ERR_NOT_NOW);
 }
 
 /* A client of version 7 is told nothing of the node's fix, and is refused SET 7 as a setting it
@@ -2605,6 +2643,8 @@ int main(void) {
     RUN(an_older_client_is_told_no_cards);
     RUN(an_older_client_has_no_join_codes);
     RUN(an_older_client_is_told_no_fix);
+    RUN(an_older_client_cannot_turn_the_node_off);
+    RUN(off_is_answered_as_the_board_says);
     RUN(a_fix_is_news_at_once_only_when_its_kind_changes);
     RUN(the_more_recent_fix_is_the_nodes);
     RUN(the_receivers_fix_is_shared);

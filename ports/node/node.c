@@ -273,6 +273,7 @@ static struct tern_companion_parser parser;
 static uint32_t clock_base; /* seconds since 1970 as a client last set them, or 0 */
 static tern_time clock_at;
 static bool restart_due; /* a setting saved that takes a restart, once its answer has gone */
+static bool off_due;     /* a client sent OFF: the board turns off once its answer has gone */
 static bool have_ble;
 static char ble_name[BLE_NAME_LEN + 1]; /* what Bluetooth advertises the node as (ble.h) */
 static uint16_t battery_mv;             /* 0 for none, or not read */
@@ -441,6 +442,13 @@ static uint8_t link_update_run(void *ctx) {
     }
     printf("the update is whole: restarting into %s\n", version);
     restart_due = true;
+    return 0;
+}
+
+/* OFF: every board can be turned on again, by PRG or by RESET, so none refuses it. */
+static uint8_t link_off(void *ctx) {
+    (void)ctx;
+    off_due = true;
     return 0;
 }
 
@@ -2717,9 +2725,28 @@ static void console_text(void *ctx, uint8_t c) {
     }
 }
 
+__attribute__((noreturn)) static void turn_off(enum ui_off why);
+
 /* A setting that takes a restart is applied once its answer has gone: out of the console, and given
- * a moment to leave as a notification. */
+ * a moment to leave as a notification. OFF is the same, but for what the board does after. */
 static void restart_if_due(void) {
+    if (off_due) {
+        link_group_heard(&companion);
+        (void)link_keep_writers(&companion);
+        printf("a client asked: turning off. PRG or RESET turns it on again.\n");
+        fflush(stdout);
+        board_console_flush(500);
+        /* The answer may still be queued for Bluetooth, behind news, if the stack had no buffer
+         * for it: it is the one frame the client must have. Five seconds outlasts the longest
+         * connection interval Bluetooth allows, four, and keeps within the QUIET the specification
+         * gives a node to turn off in. Past that the board turns off anyway, as it was asked: a
+         * client with no answer takes it as gone, and one that asks again is not answered. */
+        if (have_ble && !ble_flush(5000)) {
+            printf("bluetooth: the answer to OFF may not have reached the client\n");
+        }
+        plat_sleep_ms(200);
+        turn_off(UI_OFF_ASKED);
+    }
     if (restart_due) {
         link_group_heard(&companion); /* whatever the minute has not yet written */
         (void)link_keep_writers(&companion);
@@ -3255,7 +3282,7 @@ __attribute__((noreturn)) static void turn_off(enum ui_off why) {
         printf("the battery is empty (%u mV): turning off. It turns on again once it is "
                "charged, or at a press of PRG.\n",
                (unsigned)battery_mv);
-    } else {
+    } else if (why == UI_OFF_PRESSED) {
         printf("PRG held: turning off. A press of PRG turns it on again.\n");
     }
     if (have_screen) {
@@ -3793,6 +3820,7 @@ void node_main(void) {
         .update_begin = link_update_begin,
         .update_write = link_update_write,
         .update_run = link_update_run,
+        .off = link_off,
     };
     uint32_t room = plat_update_room();
     if (room != 0) {

@@ -77,11 +77,12 @@ builds what a release carries, for each board an image for each region, into `re
   boards. The RAK4631 has none: its LED and the console say what it is doing.
 * **The button.** The T114's USER button and the Wio Tracker L1's menu button do what PRG does on
   the Heltec ESP32 boards. RST resets the board, and twice quickly opens the bootloader. The
-  RAK4631's base boards have only RST, so the RAK4631 turns off only when its battery runs down.
+  RAK4631's base boards have only RST, so the RAK4631 turns off only when its battery runs down or
+  a client turns it off, and RST turns it on again.
 * **Off.** Held for five seconds, the button turns the board off as on the ESP32 boards: the
   screen unpowered and the chip in System OFF, drawing a few microamps, until the button is pressed.
   System OFF has no timer, so a board off for an empty battery waits idle instead, and looks at the
-  battery again every half hour.
+  battery again every half hour. A client turns it off the same way with `OFF`.
 * **Updates over the link** are not here yet: `INFO` names no board, and the phone apps do not
   offer one. Copy the new `.uf2` on instead, which keeps everything the board has saved.
 * **Erasing.** The Reset page wipes the flash's storage and restarts. The time on the air is

@@ -593,6 +593,13 @@ static void off_says_how_to_turn_it_on(void) {
     CHECK_ROW(5, "Charge it: it turns");
     CHECK_ROW(6, "on again by itself,");
     CHECK_ROW(7, "or press PRG.");
+    display_init(&d);
+    ui_off(UI_OFF_ASKED, &d);
+    picture("off-asked");
+    CHECK_ROW(0, "Turned off");
+    CHECK_ROW(2, "by a phone or");
+    CHECK_ROW(5, "Press PRG or RESET");
+    CHECK_ROW(6, "to turn it on again.");
 }
 
 static void pairing_shows_the_passkey(void) {

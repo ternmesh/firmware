@@ -16,6 +16,7 @@
     python3 tools/companion.py --port /dev/ttyUSB0 position <lat> <lon>
     python3 tools/companion.py --port /dev/ttyUSB0 share <address or group> <precision>
     python3 tools/companion.py --port /dev/ttyUSB0 update tern-heltec-v3-eu868-0.2.0-app.bin
+    python3 tools/companion.py --port /dev/ttyUSB0 off
     python3 tools/companion.py selftest tests/vectors/companion.json
 
 `contact` saves an address under a name, which also lets that node make first contact; `end` ends
@@ -33,6 +34,7 @@ speaks version 1 and is told of messages only: `--speak 8 watch` is told of all 
 it on again; `state` prints the node's fix, whether its receiver's or the last a client gave.
 `update` gives the node a new image of its firmware, going on from where the node's bytes end if
 it was given part of the same image before, and the node restarts into it.
+`off` turns the node off; nothing on the port turns it on again, only its own button.
 While it waits for news it sends PING every IDLE seconds, as the specification asks, and if the
 node took it for gone anyway, it says HELLO again and syncs what it missed.
 The node's console text, which shares the port, is printed on stderr with --console.
@@ -56,11 +58,11 @@ import time
 MAX_FRAME, MAGIC = 180, b"\xf5\x54"
 # The version `send` and `watch` speak, and the commands that were there from the first: 1, at
 # which a node tells them of messages and nothing a later version brought. `state`, `update`,
-# `group`, `position` and `share` say the latest, as does a `set` of a setting a later version
-# brought; `--speak` says another, so that `watch` is told of groups, positions or cards.
+# `group`, `position`, `share` and `off` say the latest, as does a `set` of a setting a later
+# version brought; `--speak` says another, so that `watch` is told of groups, positions or cards.
 VERSION = 1
 # The latest version the frames below are, which selftest reads the vectors by.
-LATEST = 8
+LATEST = 9
 UPDATE_CHUNK = 172
 ANSWER_WAIT = 5.0
 IDLE = 20.0  # the most a client lets pass after an answer before it asks again
@@ -73,6 +75,7 @@ FRAMES = {
     0x03: ("PING", []),
     0x04: ("SET_TIME", [("time", "I")]),
     0x05: ("SET", [("setting", "B")]),
+    0x06: ("OFF", []),
     0x10: ("SEND", [("ref", "I"), ("to", "addr"), ("text", "str")]),
     0x11: ("READ", [("through", "I")]),
     0x18: ("SAVE_CONTACT", [("address", "addr"), ("name", "str")]),
@@ -600,7 +603,7 @@ def joins_codes(info):
 
 
 def run(args):
-    latest = ("state", "update", "group", "position", "share")
+    latest = ("state", "update", "group", "position", "share", "off")
     speak = LATEST if args.command in latest else VERSION
     if args.command == "set":
         speak = max(speak, SINCE.get(args.setting, VERSION))
@@ -642,6 +645,11 @@ def run(args):
             raise SystemExit("this node's firmware is too old to end a session from here")
         node.request("END_SESSION", address=address(args.address))
         print("ended")
+    elif args.command == "off":
+        if info["version"] < 9:
+            raise SystemExit("this node's firmware is too old to be turned off from here")
+        node.request("OFF")
+        print("turned off: press its button to turn it on again")
     elif args.command == "forget":
         node.request("REMOVE_CONTACT", address=address(args.address))
         print("removed")
@@ -795,6 +803,7 @@ def main():
     w.add_argument("--seconds", type=float, help="stop after this long (default: never)")
     u = sub.add_parser("update")
     u.add_argument("image", help="the firmware's -app.bin image for this node's board and region")
+    sub.add_parser("off", help="turn the node off; only its own button turns it on again")
     x = sub.add_parser("selftest")
     x.add_argument("vectors")
     args = p.parse_args()

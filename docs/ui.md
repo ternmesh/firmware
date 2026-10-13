@@ -115,7 +115,9 @@ message shown is read once a press says someone saw it. The screen goes dark aft
 battery, and lights when a message arrives, showing it; while one is unread the LED blinks a
 moment every few seconds, for a node in sight with its screen dark. Holding the button for five seconds turns
 the node off, with a countdown from the second second so that letting go keeps it on, as Meshtastic
-does; a press turns it on again. A node turns itself off when its battery is empty, and says so.
+does; a press turns it on again. A phone or computer can turn it off too, over the companion
+protocol (`OFF`), and the screen says so. A node turns itself off when its battery is empty, and
+says so.
 Boards with more buttons or a touch screen get more, but nothing should need them.
 
 Two screens come before the pages. At start, the node's name and firmware version, then its

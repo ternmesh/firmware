@@ -60,6 +60,10 @@ bool ble_poll(struct ble_event *e);
  * for it, since a sync sends far more frames at once than a stack has buffers. */
 void ble_send(const uint8_t *frame, size_t len);
 
+/* Sends what ble_send() queued, waiting up to `ms` for the stack to take it all: for a frame that
+ * has to leave before the board stops, as OFF's answer does. True if nothing is left waiting. */
+bool ble_flush(uint32_t ms);
+
 /* Forgets every bonded client, and drops the one connected. */
 void ble_forget(void);
 

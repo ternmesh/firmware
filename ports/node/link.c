@@ -1753,6 +1753,17 @@ static void receive(struct link *l, unsigned conn, tern_time now, const uint8_t 
         l->host.set_time(l->host.ctx, q->time);
         answer(l, TERN_C_OK, q->seq);
         break;
+    case TERN_C_OFF: {
+        /* Answered before the board goes, so that the client knows the drop is the one it asked
+         * for: the host turns off only once the answer is out. */
+        uint8_t code = l->host.off(l->host.ctx);
+        if (code != 0) {
+            error(l, q->seq, code);
+        } else {
+            answer(l, TERN_C_OK, q->seq);
+        }
+        break;
+    }
     case TERN_C_SET: {
         /* A setting a later version added is one this client's version does not have. */
         uint8_t code = c->version < tern_companion_setting_since(q->setting)

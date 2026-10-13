@@ -8,7 +8,7 @@
 #include "tern/address.h"
 #include "tern/time.h"
 
-/* The companion protocol: version 8 of draft/companion.md in ternmesh/spec.
+/* The companion protocol: version 9 of draft/companion.md in ternmesh/spec.
  *
  * The link between a node and the client driving it, a phone or a computer, over USB serial, TCP
  * or Bluetooth LE. It never goes over LoRa. This is the part every node and every client needs:
@@ -16,7 +16,7 @@
  * text console. What a node answers and when is the node's business, not the core's (in the node
  * every port shares, ports/node/link.c). */
 
-#define TERN_COMPANION_VERSION 8
+#define TERN_COMPANION_VERSION 9
 #define TERN_COMPANION_MAX_FRAME 180
 #define TERN_COMPANION_STREAM_MAX (TERN_COMPANION_MAX_FRAME + 6) /* magic, length, CRC */
 #define TERN_COMPANION_NAME_MAX 31
@@ -38,6 +38,7 @@ enum tern_companion_type {
     TERN_C_PING = 0x03,
     TERN_C_SET_TIME = 0x04,
     TERN_C_SET = 0x05,
+    TERN_C_OFF = 0x06, /* version 9 */
     TERN_C_SEND = 0x10,
     TERN_C_READ = 0x11,
     TERN_C_SAVE_CONTACT = 0x18,

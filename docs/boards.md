@@ -16,7 +16,7 @@ between the core and a port is [architecture.md](architecture.md); this is about
 | Heltec Wireless Paper | ESP32-S3 | SX1262 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board; no screen yet (e-paper) |
 | Heltec WiFi LoRa 32 V2, V2.1 | ESP32 | SX1276 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board |
 | LilyGo T-Beam V1.0, V1.1 (AXP192) and V1.2 (AXP2101), 868/915 MHz | ESP32 | SX1276 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board; its GPS gives the node its fix |
-| LilyGo LoRa32 T3 V1.6.1 (868/915 MHz) | ESP32 | SX1276 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board; no user button, so it turns off only when its battery runs down |
+| LilyGo LoRa32 T3 V1.6.1 (868/915 MHz) | ESP32 | SX1276 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board; no user button, so it turns off only when its battery runs down or a client turns it off |
 | LilyGo T3-S3 V1.2, V1.3 with an SX1276 (868/915 MHz) | ESP32-S3 | SX1276 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board |
 | Heltec Mesh Node T114 V2 | nRF52840 | SX1262 | [`ports/nrf52/`](../ports/nrf52/) | Built, not yet run on a board |
 | RAKwireless RAK4631 (on a RAK19007 or RAK19003) | nRF52840 | SX1262 | [`ports/nrf52/`](../ports/nrf52/) | Built, not yet run on a board; no user button |
