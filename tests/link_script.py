@@ -76,6 +76,7 @@ def main():
         run(port, "group", "join", RIDGE.lower(), expect=["joined group c8eafadc0857a696"])
         run(port, "group", "code", "c8eafadc0857a696", expect=[RIDGE])
         run(port, "state", expect=["group 'Ridge walkers'"])
+        run(port, "off", expect=["turned off: press its button to turn it on again"])
     finally:
         board.stdin.close()
         board.wait(timeout=10)

@@ -246,6 +246,13 @@ static uint8_t update_run(void *ctx) {
     return 0;
 }
 
+static uint8_t off(void *ctx) {
+    (void)ctx;
+    static const char line[] = "(turning off)\r\n";
+    to_port(line, sizeof line - 1);
+    return 0;
+}
+
 int main(int argc, char **argv) {
     master = posix_openpt(O_RDWR | O_NOCTTY);
     if (master < 0 || grantpt(master) != 0 || unlockpt(master) != 0) {
@@ -295,7 +302,8 @@ int main(int argc, char **argv) {
                              .update_room = sizeof image,
                              .update_begin = update_begin,
                              .update_write = update_write,
-                             .update_run = update_run};
+                             .update_run = update_run,
+                             .off = off};
     link_init(&node, &host);
     link_open(&node, LINK_SERIAL, lapse, 0);
     struct tern_companion_parser parser;

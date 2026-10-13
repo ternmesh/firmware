@@ -174,6 +174,9 @@ struct link_host {
     bool (*update_begin)(void *ctx, uint32_t size);
     bool (*update_write)(void *ctx, uint32_t offset, const uint8_t *data, size_t len);
     uint8_t (*update_run)(void *ctx);
+    /* OFF: 0 if the board will turn off once the answer is out, or the ERROR code to answer with.
+     * Every connection drops then, and nothing on the link turns the board on again. */
+    uint8_t (*off)(void *ctx);
 };
 
 /* An update under way: the image's size and digest, how much of it the node holds, and the digest

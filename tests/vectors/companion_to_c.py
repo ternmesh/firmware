@@ -27,7 +27,7 @@ TYPES = {
     "UPDATE_END": 0x32, "UPDATING": 0x46, "SET_POSITION": 0x33, "SHARE": 0x34,
     "SHARE_GROUP": 0x35, "POSITION": 0x8E, "GROUP_POSITION": 0x8F, "SHARING": 0x90,
     "GROUP_SHARING": 0x91, "CARD": 0x92, "CARD_GONE": 0x93, "GROUP_LINK": 0x26,
-    "JOIN_LINK": 0x27, "LINK": 0x47, "FIX": 0x94,
+    "JOIN_LINK": 0x27, "LINK": 0x47, "FIX": 0x94, "OFF": 0x06,
 }
 STRINGS = ("text", "name", "firmware", "region", "link")
 ADDRESSES = ("to", "address", "contact")

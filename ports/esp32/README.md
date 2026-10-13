@@ -38,7 +38,7 @@ run on another. Everything below holds for each, unless it says otherwise.
 | Heltec WiFi LoRa 32 V2.1 | `heltec-v21` | Built, not yet run on a board | A V2 that reads its battery on another pin: an image for the one does not read the other's battery. |
 | LilyGo T-Beam V1.0, V1.1 (868/915 MHz) | `lilygo-tbeam` | Built, not yet run on a board | A classic ESP32 and an SX1276, powered through an AXP192, which also measures its battery. Its button is the one marked IO38. Its GPS gives the node its fix, until a client turns it off. A screen on its header is used if fitted. |
 | LilyGo T-Beam V1.2 (868/915 MHz) | `lilygo-tbeam12` | Built, not yet run on a board | As the V1.1, with an AXP2101. |
-| LilyGo LoRa32 T3 V1.6.1 (868/915 MHz) | `lilygo-t3-v161` | Built, not yet run on a board | A classic ESP32 and an SX1276. Its only button is RESET, so it turns off only when its battery runs down. Not the 433 MHz board, which has an SX1278. |
+| LilyGo LoRa32 T3 V1.6.1 (868/915 MHz) | `lilygo-t3-v161` | Built, not yet run on a board | A classic ESP32 and an SX1276. Its only button is RESET, so it turns off only when its battery runs down or a client turns it off, and RESET turns it on again. Not the 433 MHz board, which has an SX1278. |
 | LilyGo T3-S3 V1.2, V1.3 with an SX1276 (868/915 MHz) | `lilygo-t3s3` | Built, not yet run on a board | An ESP32-S3 with 4 MB of flash and an SX1276, 2 to 17 dBm. USB from the ESP32-S3 itself: the port is `/dev/ttyACM0` or similar. Not the SX1262 or SX1278 boards. |
 
 A screen fitted to a board's header, as the T-Beam's is, is taken to be a 0.96-inch SSD1306. A
@@ -173,7 +173,9 @@ Holding PRG for five seconds turns the board off. From the second second the scr
 down, and letting go before the end leaves it on. Off, the board is in deep sleep with its
 display and radio unpowered, drawing tens of microamps, and a press of PRG starts it again, as
 at power on. Its identity, sessions, contacts, groups, settings and messages are in flash, and
-are there when it starts.
+are there when it starts. A client can turn it off the same way with `OFF` (companion protocol
+version 9): the board answers, then says **Turned off by a phone or computer** and goes. A board
+with no button but RESET, such as the T3 V1.6.1, is turned on again by RESET.
 
 To start:
 

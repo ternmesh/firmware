@@ -682,6 +682,12 @@ void ui_off(enum ui_off why, struct display *d) {
         line(f.rows[5], "Charge it: it turns");
         line(f.rows[6], "on again by itself,");
         line(f.rows[7], "or press PRG.");
+    } else if (why == UI_OFF_ASKED) {
+        line(f.rows[0], "Turned off");
+        line(f.rows[2], "by a phone or");
+        line(f.rows[3], "computer.");
+        line(f.rows[5], "Press PRG or RESET");
+        line(f.rows[6], "to turn it on again.");
     } else {
         line(f.rows[0], "Turned off");
         line(f.rows[3], "Press PRG to turn");

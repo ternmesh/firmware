@@ -158,6 +158,7 @@ enum ui_fault {
 enum ui_off {
     UI_OFF_PRESSED, /* PRG was held down */
     UI_OFF_EMPTY,   /* the battery is too low to run on */
+    UI_OFF_ASKED,   /* a client sent OFF */
 };
 
 /* Draws the warning while PRG is held to turn the board off: `seconds` more and it goes. */

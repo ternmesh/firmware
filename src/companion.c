@@ -83,6 +83,7 @@ static const struct layout layouts[] = {
     {TERN_C_PING, {END}},
     {TERN_C_SET_TIME, {TIME}},
     {TERN_C_SET, {SETTING}},
+    {TERN_C_OFF, {END}},
     {TERN_C_SEND, {REF, ADDRESS, TEXT}},
     {TERN_C_READ, {THROUGH}},
     {TERN_C_SAVE_CONTACT, {ADDRESS, NAME}},
@@ -195,6 +196,9 @@ static const struct layout *layout_of(uint8_t type) {
 }
 
 uint8_t tern_companion_since(uint8_t type) {
+    if (type == TERN_C_OFF) {
+        return 9;
+    }
     if (type == TERN_C_FIX) {
         return 8;
     }
