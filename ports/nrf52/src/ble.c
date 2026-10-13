@@ -332,6 +332,16 @@ void ble_send(const uint8_t *frame, size_t len) {
     pump();
 }
 
+bool ble_flush(uint32_t ms) {
+    for (uint32_t waited = 0;; waited += 10) {
+        pump();
+        if (n_waiting == 0 || waited >= ms) {
+            return n_waiting == 0;
+        }
+        k_msleep(10);
+    }
+}
+
 /* bt_unpair() with any address forgets every bond, and drops the client connected. */
 void ble_forget(void) { (void)bt_unpair(BT_ID_DEFAULT, BT_ADDR_LE_ANY); }
 
