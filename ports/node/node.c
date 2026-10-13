@@ -2737,8 +2737,11 @@ static void restart_if_due(void) {
         fflush(stdout);
         board_console_flush(500);
         /* The answer may still be queued for Bluetooth, behind news, if the stack had no buffer
-         * for it: it is the one frame the client must have. */
-        if (have_ble && !ble_flush(1000)) {
+         * for it: it is the one frame the client must have. Five seconds outlasts the longest
+         * connection interval Bluetooth allows, four, and keeps within the QUIET the specification
+         * gives a node to turn off in. Past that the board turns off anyway, as it was asked: a
+         * client with no answer takes it as gone, and one that asks again is not answered. */
+        if (have_ble && !ble_flush(5000)) {
             printf("bluetooth: the answer to OFF may not have reached the client\n");
         }
         plat_sleep_ms(200);
