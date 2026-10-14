@@ -3280,7 +3280,7 @@ static void screen_flush(void) {
 __attribute__((noreturn)) static void turn_off(enum ui_off why) {
     if (why == UI_OFF_EMPTY) {
         printf("the battery is empty (%u mV): turning off. It turns on again once it is "
-               "charged, or at a press of PRG.\n",
+               "charged.\n",
                (unsigned)battery_mv);
     } else if (why == UI_OFF_PRESSED) {
         printf("PRG held: turning off. A press of PRG turns it on again.\n");

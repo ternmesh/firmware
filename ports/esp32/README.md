@@ -249,8 +249,9 @@ each revision.
 
 At 10% or less, Home says **Low** before the charge. Below 3.3 V on two readings in a row the
 board turns itself off, saying **Battery empty**, rather than run the cell down until it browns
-out; it wakes every half hour to look again and starts once the battery is back above 3.45 V, or
-at a press of PRG. It will not start below 3.3 V.
+out; it wakes every half hour to look again and starts once the battery is back above 3.45 V. It
+will not start below 3.3 V, whether woken by the timer, PRG or RESET: a press then shows **Battery
+empty** again.
 
 The board has no wire from its charger to the chip, so Home's **Chg** is inferred from the
 voltage: plugging a charger in lifts it at once by 30 mV or more, and unplugging drops it as

@@ -591,8 +591,8 @@ static void off_says_how_to_turn_it_on(void) {
     picture("off-empty");
     CHECK_ROW(0, "Battery empty");
     CHECK_ROW(5, "Charge it: it turns");
-    CHECK_ROW(6, "on again by itself,");
-    CHECK_ROW(7, "or press PRG.");
+    CHECK_ROW(6, "on again by itself.");
+    CHECK_ROW(7, "");
     display_init(&d);
     ui_off(UI_OFF_ASKED, &d);
     picture("off-asked");
