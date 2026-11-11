@@ -70,8 +70,10 @@ static void news_self(struct link *l, struct link_conn *c) {
     m.cards = v->cards;
     memcpy(m.card_name, v->card_name, v->card_name_len);
     m.card_name_len = v->card_name_len;
+    m.most = v->most;
     c->self_role = v->role;
     c->self_power = v->power;
+    c->self_most = v->most;
     c->self_region = v->region;
     c->self_cards = v->cards;
     memcpy(c->self_card_name, v->card_name, v->card_name_len);
@@ -81,8 +83,9 @@ static void news_self(struct link *l, struct link_conn *c) {
 
 /* Whether SELF says something other than what the client was last told: its time aside. */
 static bool self_changed(const struct link_view *v, const struct link_conn *c) {
-    return v->role != c->self_role || v->power != c->self_power || v->region != c->self_region ||
-           v->cards != c->self_cards || v->card_name_len != c->self_card_name_len ||
+    return v->role != c->self_role || v->power != c->self_power || v->most != c->self_most ||
+           v->region != c->self_region || v->cards != c->self_cards ||
+           v->card_name_len != c->self_card_name_len ||
            memcmp(v->card_name, c->self_card_name, v->card_name_len) != 0;
 }
 
@@ -1765,10 +1768,17 @@ static void receive(struct link *l, unsigned conn, tern_time now, const uint8_t 
         break;
     }
     case TERN_C_SET: {
-        /* A setting a later version added is one this client's version does not have. */
-        uint8_t code = c->version < tern_companion_setting_since(q->setting)
-                           ? (uint8_t)TERN_C_ERR_UNKNOWN
-                           : l->host.set(l->host.ctx, q);
+        /* A setting a later version added is one this client's version does not have; and to a
+         * client before version 10, a power of -128 is a power, which no radio sends at. */
+        uint8_t code;
+        if (c->version < tern_companion_setting_since(q->setting)) {
+            code = TERN_C_ERR_UNKNOWN;
+        } else if (q->setting == TERN_C_SET_POWER && q->power == TERN_C_POWER_MOST &&
+                   c->version < 10) {
+            code = TERN_C_ERR_REFUSED;
+        } else {
+            code = l->host.set(l->host.ctx, q);
+        }
         if (code != 0) {
             error(l, q->seq, code);
             break;

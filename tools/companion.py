@@ -7,6 +7,7 @@
     python3 tools/companion.py --port /dev/ttyUSB0 end <address>
     python3 tools/companion.py --port /dev/ttyUSB0 forget <address>
     python3 tools/companion.py --port /dev/ttyUSB0 set power 10
+    python3 tools/companion.py --port /dev/ttyUSB0 set power most
     python3 tools/companion.py --port /dev/ttyUSB0 watch
     python3 tools/companion.py --port /dev/ttyUSB0 group new <name>
     python3 tools/companion.py --port /dev/ttyUSB0 group invite <group> <address>
@@ -62,7 +63,9 @@ MAX_FRAME, MAGIC = 180, b"\xf5\x54"
 # version brought; `--speak` says another, so that `watch` is told of groups, positions or cards.
 VERSION = 1
 # The latest version the frames below are, which selftest reads the vectors by.
-LATEST = 9
+LATEST = 10
+# SET 3's value for the most a node may transmit at, rather than a power (version 10).
+POWER_MOST = -128
 UPDATE_CHUNK = 172
 ANSWER_WAIT = 5.0
 IDLE = 20.0  # the most a client lets pass after an answer before it asks again
@@ -107,7 +110,7 @@ FRAMES = {
     0x46: ("UPDATING", [("offset", "I")]),
     0x47: ("LINK", [("link", "str")]),
     0x80: ("SELF", [("address", "addr"), ("role", "B"), ("region", "str"), ("power", "b"),
-                    ("time", "I"), ("cards", "B"), ("card_name", "str")]),
+                    ("time", "I"), ("cards", "B"), ("card_name", "str"), ("most", "B")]),
     0x81: ("CONTACT", [("address", "addr"), ("session", "B"), ("name", "str")]),
     0x82: ("CONTACT_GONE", [("address", "addr")]),
     0x83: ("MESSAGE", [("id", "I"), ("contact", "addr"), ("time", "I"), ("flags", "B"),
@@ -142,7 +145,7 @@ FRAMES = {
 }
 # Fields a later version added at the end of a frame: an earlier version's frame stops before them.
 LATER = {(0x43, "news"): 3, (0x42, "board"): 4, (0x42, "release"): 4, (0x80, "cards"): 6,
-         (0x80, "card_name"): 6}
+         (0x80, "card_name"): 6, (0x80, "most"): 10}
 BYTES = {"addr": 32, "gid": 8, "digest": 32}
 TYPE = {name: t for t, (name, _) in FRAMES.items()}
 SETTINGS = {1: ("region", "str"), 2: ("role", "B"), 3: ("power", "b"), 4: ("passkey", "I"),
@@ -415,7 +418,8 @@ def describe(m, names):
         if "cards" in m:
             cards = f"\n  cards {'on' if m['cards'] else 'off'}, as {m['card_name']!r}"
         return (f"this node: {m['address'].hex()}\n  a {'relay' if m['role'] else 'leaf'} in "
-                f"{m['region'] or 'no region'}, at {m['power']} dBm{cards}")
+                f"{m['region'] or 'no region'}, at {m['power']} dBm"
+                f"{', the most it may' if m.get('most') else ''}{cards}")
     if t == "CONTACT":
         names[m["address"]] = m["name"]
         return (f"contact {m['name']!r}: {m['address'].hex()}"
@@ -607,6 +611,8 @@ def run(args):
     speak = LATEST if args.command in latest else VERSION
     if args.command == "set":
         speak = max(speak, SINCE.get(args.setting, VERSION))
+        if args.setting == "power" and args.value == "most":
+            speak = max(speak, 10)
     if args.speak is not None:
         speak = args.speak
     node = Node(Port(args.port), args.console, args.idle, speak)
@@ -697,7 +703,10 @@ def run(args):
         print("sharing is off" if not args.precision else "sharing")
     elif args.command == "set":
         n, kind = SETTING[args.setting]
-        value = args.value if kind == "str" else int(args.value, 0)
+        if args.setting == "power" and args.value == "most":
+            value = POWER_MOST
+        else:
+            value = args.value if kind == "str" else int(args.value, 0)
         node.request("SET", setting=n, value=value)
         print("set")
     elif args.command == "update":
