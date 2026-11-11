@@ -283,7 +283,7 @@ void board_led(bool on) { set(&led, on ? 1 : 0); }
 #define PIC_H 64
 #define CELL_W 6 /* a character's columns in the picture, its space included */
 #define GRID_W ((PIC_W / CELL_W) * 11 + 4) /* the picture drawn along the grid: 235 columns */
-#define LONG_MAX 320                       /* the longest side of a panel drawn into */
+#define PANEL_LONG_MAX 320                 /* the longest side of a panel drawn into */
 #define NO_COL 0xFFu                       /* a panel column outside the picture */
 
 /* Colours as the panel takes them: RGB565 sent its high byte first, where Zephyr keeps the low
@@ -296,12 +296,12 @@ void board_led(bool on) { set(&led, on ? 1 : 0); }
 
 #if DT_HAS_CHOSEN(zephyr_display)
 
-static bool paged;                /* monochrome, in pages: each page goes as it is */
-static int panel_w, panel_h;      /* a colour panel's size, its long side down */
-static int tall = 1;              /* panel rows to a picture row */
-static int at_y;                  /* where the picture's rows start across the short side */
-static uint8_t col_of[LONG_MAX];  /* the picture column each panel row along the long side shows */
-static uint16_t strip[PIC_W * 8]; /* a page, turned, a few panel rows at a time */
+static bool paged;                     /* monochrome, in pages: each page goes as it is */
+static int panel_w, panel_h;           /* a colour panel's size, its long side down */
+static int tall = 1;                   /* panel rows to a picture row */
+static int at_y;                       /* where the picture's rows start across the short side */
+static uint8_t col_of[PANEL_LONG_MAX]; /* the picture column each panel row shows */
+static uint16_t strip[PIC_W * 8];      /* a page, turned, a few panel rows at a time */
 
 static int panel_write(int x, int y, int w, int h, const void *pixels, size_t len) {
     struct display_buffer_descriptor d = {.buf_size = (uint32_t)len,
@@ -340,7 +340,7 @@ bool board_screen_init(void) {
         }
     } else if (caps.current_pixel_format == PIXEL_FORMAT_RGB_565 &&
                caps.x_resolution >= PIC_H + 8 && caps.y_resolution >= PIC_W &&
-               caps.y_resolution <= LONG_MAX) {
+               caps.y_resolution <= PANEL_LONG_MAX) {
         panel_w = caps.x_resolution;
         panel_h = caps.y_resolution;
         bool grid = panel_h >= GRID_W && panel_w >= 2 * PIC_H;
