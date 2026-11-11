@@ -81,6 +81,7 @@ struct ui_node {
     bool phone;      /* a client is connected over Bluetooth */
     bool bluetooth;  /* Bluetooth started, so phones can pair */
     const char *ble_name; /* what it advertises the node as, which a phone lists it by */
+    const char *button;   /* what the board's button is marked (board.h), or NULL for none */
     uint8_t paired;       /* phones that have paired and are remembered */
     /* Holding PRG on the Phones or Reset page asks first: held once, the page asks to be sure,
      * for `confirm_s` more seconds, and held again in that time, it acts. 0 when it is not
@@ -164,8 +165,9 @@ enum ui_off {
 /* Draws the warning while PRG is held to turn the board off: `seconds` more and it goes. */
 void ui_turning_off(unsigned seconds, struct display *d);
 
-/* Draws what the board says as it turns off, and how to turn it on again. */
-void ui_off(enum ui_off why, struct display *d);
+/* Draws what the board says as it turns off, and how to turn it on again: by `button`, what the
+ * board's button is marked, or RESET if it is NULL. */
+void ui_off(enum ui_off why, const char *button, struct display *d);
 
 /* Draws the screen shown while the board starts: its name, its firmware's version, and, once they
  * are known, its region and short code. */

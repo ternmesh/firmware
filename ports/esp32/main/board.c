@@ -353,6 +353,13 @@ static bool can_pull_up(int pin) { return !(B->soc == BOARD_ESP32 && pin >= 34);
 
 /* Set up the first time it is read, so that PRG works before the radio has started, or when it
  * never does (main.c's halt()). */
+const char *board_button_name(void) {
+    if (B->button == BOARD_NO_PIN) {
+        return NULL;
+    }
+    return B->button_name != NULL ? B->button_name : "PRG";
+}
+
 bool board_button(void) {
     static bool ready;
     if (B->button == BOARD_NO_PIN) {

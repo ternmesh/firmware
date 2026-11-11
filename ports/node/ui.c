@@ -32,6 +32,12 @@ line(char *out, const char *fmt, ...) {
     va_end(ap);
 }
 
+/* What the board's button is marked, to name it in a line: a page that names it is reached only by
+ * pressing it, so a board without one never shows it. */
+static const char *button_of(const struct ui_node *n) {
+    return n->button != NULL ? n->button : "PRG";
+}
+
 /* A line with `left` at its start and `right` at its end; `left` gives way if both do not fit. */
 static void ends(char *out, const char *left, const char *right) {
     int room = COLS - (int)strlen(right);
@@ -426,7 +432,7 @@ static bool groups(const struct ui_node *n, struct frame *f, struct display *d) 
     snprintf(where, sizeof where, "%u/%u", (unsigned)n->group_shown + 1, (unsigned)n->groups);
     ends(f->rows[0], "Groups", where);
     line(f->rows[2], "%s", name[0] != '\0' ? name : "(no name)");
-    line(f->rows[4], "Hold PRG to show its");
+    line(f->rows[4], "Hold %s to show its", button_of(n));
     line(f->rows[5], "join code. Whoever");
     line(f->rows[6], "scans it can read");
     line(f->rows[7], "the group.");
@@ -465,7 +471,7 @@ static void phones(const struct ui_node *n, struct frame *f) {
     }
     if (n->confirm_s > 0 && n->paired > 0) {
         asking(f->rows[0], "Forget phones?", n->confirm_s);
-        line(f->rows[2], "Hold PRG again to");
+        line(f->rows[2], "Hold %s again to", button_of(n));
         line(f->rows[3], "forget %u phone%s.", (unsigned)n->paired, n->paired == 1 ? "" : "s");
         line(f->rows[4], "Each must pair again.");
         line(f->rows[7], "A press keeps them");
@@ -485,7 +491,7 @@ static void phones(const struct ui_node *n, struct frame *f) {
     f->big = 2;
     snprintf(f->big_text, sizeof f->big_text, "%u paired", (unsigned)n->paired);
     line(f->rows[4], n->phone ? "One is connected" : "None connected");
-    line(f->rows[6], "Hold PRG to forget");
+    line(f->rows[6], "Hold %s to forget", button_of(n));
     line(f->rows[7], "them all.");
 }
 
@@ -494,7 +500,7 @@ static void phones(const struct ui_node *n, struct frame *f) {
 static void reset(const struct ui_node *n, struct frame *f) {
     if (n->confirm_s > 0) {
         asking(f->rows[0], "Erase everything?", n->confirm_s);
-        line(f->rows[2], "Hold PRG again to");
+        line(f->rows[2], "Hold %s again to", button_of(n));
         line(f->rows[3], "erase it all. It");
         line(f->rows[4], "starts again with a");
         line(f->rows[5], "new address.");
@@ -506,7 +512,7 @@ static void reset(const struct ui_node *n, struct frame *f) {
     line(f->rows[3], "contacts, groups,");
     line(f->rows[4], "messages, phones and");
     line(f->rows[5], "settings: a new node.");
-    line(f->rows[7], "Hold PRG to erase");
+    line(f->rows[7], "Hold %s to erase", button_of(n));
 }
 
 static void draw(const struct frame *f, struct display *d) {
@@ -672,7 +678,7 @@ void ui_turning_off(unsigned seconds, struct display *d) {
     draw(&f, d);
 }
 
-void ui_off(enum ui_off why, struct display *d) {
+void ui_off(enum ui_off why, const char *button, struct display *d) {
     struct frame f;
     blank(&f);
     if (why == UI_OFF_EMPTY) {
@@ -685,11 +691,15 @@ void ui_off(enum ui_off why, struct display *d) {
         line(f.rows[0], "Turned off");
         line(f.rows[2], "by a phone or");
         line(f.rows[3], "computer.");
-        line(f.rows[5], "Press PRG or RESET");
+        if (button != NULL) {
+            line(f.rows[5], "Press %s or RESET", button);
+        } else {
+            line(f.rows[5], "Press RESET");
+        }
         line(f.rows[6], "to turn it on again.");
     } else {
         line(f.rows[0], "Turned off");
-        line(f.rows[3], "Press PRG to turn");
+        line(f.rows[3], "Press %s to turn", button != NULL ? button : "RESET");
         line(f.rows[4], "it on again.");
     }
     draw(&f, d);

@@ -241,6 +241,8 @@ void board_radio_sleep(void) {
 
 /* --- The button and the LED ------------------------------------------------------------------ */
 
+const char *board_button_name(void) { return button.port != NULL ? CONFIG_TERN_BUTTON_NAME : NULL; }
+
 bool board_button(void) {
     static bool ready;
     if (button.port == NULL) {

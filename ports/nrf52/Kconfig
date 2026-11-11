@@ -20,6 +20,14 @@ menu "Tern demo"
         help
             The board's name, as its maker sells it.
 
+    config TERN_BUTTON_NAME
+        string
+        default "USER" if BOARD_HELTEC_T114_V2
+        default "PRG"
+        help
+            What the board's button is marked, as its user looks for it, at most four
+            characters. A board with no button (sw0) has none, whatever this says.
+
     rsource "../node/Kconfig.tern"
 
 endmenu

@@ -2695,12 +2695,14 @@ static void command(char *line) {
             printf("Bluetooth did not start\n");
         }
     } else if (line[0] != '\0') {
+        const char *key = board_button_name();
         printf("commands: contact <address>, accept, peers, to <number>, send <text>, drop "
                "<number>, groups, group ..., status, routes, selftest, forget "
-               "(Bluetooth clients), screen sleep <seconds>, screen bench on|off. Holding "
-               "PRG on a bench page sends a ping. For the bench: bench on|off, sync <hex>, power "
-               "<dBm>, freq <Hz>, "
-               "sf <n>, bw <Hz>, beacon <count> <ms>, counts [reset].\n");
+               "(Bluetooth clients), screen sleep <seconds>, screen bench on|off.%s%s%s For the "
+               "bench: bench on|off, sync <hex>, power <dBm>, freq <Hz>, "
+               "sf <n>, bw <Hz>, beacon <count> <ms>, counts [reset].\n",
+               key != NULL ? " Holding " : "", key != NULL ? key : "",
+               key != NULL ? " on a bench page sends a ping." : "");
     }
 }
 
@@ -2733,7 +2735,9 @@ static void restart_if_due(void) {
     if (off_due) {
         link_group_heard(&companion);
         (void)link_keep_writers(&companion);
-        printf("a client asked: turning off. PRG or RESET turns it on again.\n");
+        const char *key = board_button_name();
+        printf("a client asked: turning off. %s%sRESET turns it on again.\n",
+               key != NULL ? key : "", key != NULL ? " or " : "");
         fflush(stdout);
         board_console_flush(500);
         /* The answer may still be queued for Bluetooth, behind news, if the stack had no buffer
@@ -3027,6 +3031,7 @@ static void fill_ui(struct ui_node *u) {
     u->dbm = cfg.tx_power_dbm;
     memcpy(u->address, demo.id.address, TERN_ADDRESS_LEN);
     u->bench = bench;
+    u->button = board_button_name();
     u->battery = power_percent(battery_mv);
     u->charging = watch.charging;
     u->phone = phone;
@@ -3174,7 +3179,10 @@ static void screen_failed(void) {
     screen_failures++;
     if (screen_failures >= SCREEN_TRIES) {
         have_screen = false;
-        printf("the screen stopped answering; carrying on without it. PRG now sends a ping.\n");
+        const char *key = board_button_name();
+        printf("the screen stopped answering; carrying on without it.%s%s%s\n",
+               key != NULL ? " " : "", key != NULL ? key : "",
+               key != NULL ? " now sends a ping." : "");
     }
 }
 
@@ -3283,13 +3291,14 @@ __attribute__((noreturn)) static void turn_off(enum ui_off why) {
                "charged.\n",
                (unsigned)battery_mv);
     } else if (why == UI_OFF_PRESSED) {
-        printf("PRG held: turning off. A press of PRG turns it on again.\n");
+        printf("%s held: turning off. A press of %s turns it on again.\n", board_button_name(),
+               board_button_name());
     }
     if (have_screen) {
         if (screen_asleep) {
             board_screen_power(true);
         }
-        ui_off(why, &screen);
+        ui_off(why, board_button_name(), &screen);
         screen_flush();
         plat_sleep_ms(2000);
     }
@@ -3364,7 +3373,8 @@ static void poll_led(void) {
 /* Restarts the board to be erased, as the board next starts (plat_store_start()). Nothing is saved
  * first: all of it goes. */
 __attribute__((noreturn)) static void erase_and_restart(void) {
-    printf("PRG held on Reset: erasing this board and starting again, with a new address\n");
+    printf("%s held on Reset: erasing this board and starting again, with a new address\n",
+           board_button_name());
     if (have_screen) {
         ui_erasing(&screen);
         screen_flush();
@@ -3405,7 +3415,8 @@ static void screen_hold(void) {
             erase_and_restart();
         }
         ble_forget();
-        printf("PRG held on Phones: every Bluetooth client is forgotten, and must pair again\n");
+        printf("%s held on Phones: every Bluetooth client is forgotten, and must pair again\n",
+               board_button_name());
         return;
     }
     if (screen_page == UI_GROUPS) {
@@ -3845,14 +3856,19 @@ void node_main(void) {
     if (!have_battery) {
         printf("the battery's ADC did not start: the battery is reported as unknown\n");
     }
-    if (have_screen) {
-        printf("\nTern demo on the %s. Type 'status'. PRG shows the screen's next page; "
+    const char *key = board_button_name();
+    if (have_screen && key != NULL) {
+        printf("\nTern demo on the %s. Type 'status'. %s shows the screen's next page; "
                "'screen bench on' adds the bench pages.\n",
-               board_title());
-    } else {
-        printf("\nTern demo on the %s, with no screen found. Type 'status', or press PRG "
+               board_title(), key);
+    } else if (have_screen) {
+        printf("\nTern demo on the %s. Type 'status'.\n", board_title());
+    } else if (key != NULL) {
+        printf("\nTern demo on the %s, with no screen found. Type 'status', or press %s "
                "to ping.\n",
-               board_title());
+               board_title(), key);
+    } else {
+        printf("\nTern demo on the %s, with no screen found. Type 'status'.\n", board_title());
     }
     pairing_passkey = PAIRING_NONE;
     start_bluetooth();
