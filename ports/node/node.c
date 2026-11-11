@@ -3557,6 +3557,18 @@ __attribute__((noreturn)) static void halt(enum ui_fault why, int code) {
     }
 }
 
+/* The power the build sends at in region r, into the antenna: the most the board gives that the
+ * region allows (TERN_TX_POWER_MOST), as far as it can reach, or the power the build sets. Power
+ * control sends each frame lower where its neighbour needs less. */
+static int8_t build_power(const struct tern_region *r) {
+#ifdef CONFIG_TERN_TX_POWER_MOST
+    return tern_region_nearest_dbm(r, board_power_max(), TX_MIN_DBM, CONFIG_TERN_ANTENNA_DBI);
+#else
+    (void)r;
+    return CONFIG_TERN_TX_POWER_DBM;
+#endif
+}
+
 void node_main(void) {
     /* Turned off for an empty battery, and woken to look at it again: off again at once, with
      * nothing lit, unless it has been charged a little. The radio is still asleep. */
@@ -3636,7 +3648,7 @@ void node_main(void) {
 #else
     region = tern_region(TERN_REGION_US915);
 #endif
-    int8_t power = CONFIG_TERN_TX_POWER_DBM;
+    int8_t power = build_power(region);
     /* What a client set, over what the build chose. Each was checked against the region and the
      * antenna when it was set; if the pair no longer fits, the build's settings are used. */
     struct settings saved;
@@ -3655,10 +3667,10 @@ void node_main(void) {
     }
     const struct tern_region *chosen =
         settings.region != 0 ? tern_region((enum tern_region_id)settings.region) : NULL;
-    int8_t chosen_power = settings.power != POWER_UNSET ? settings.power : power;
     if (chosen == NULL) {
         chosen = region;
     }
+    int8_t chosen_power = settings.power != POWER_UNSET ? settings.power : build_power(chosen);
     if (board_power_ok(chosen_power) &&
         tern_region_radio(chosen, chosen_power, CONFIG_TERN_ANTENNA_DBI, &cfg) == TERN_OK) {
         region = chosen;
