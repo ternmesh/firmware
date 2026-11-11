@@ -107,10 +107,10 @@
 /* Saved by a build that does not send at the most by itself, once a client asks for the most
  * (companion SET 3 of -128): a power no radio sends at. A build that does keeps POWER_UNSET. */
 #define POWER_MOST (INT8_MIN + 1)
-#define SCREEN_MS 500      /* how often the bench screen is drawn again */
-#define BOOT_MS 2500       /* how long the boot screen stays up once the board has started */
-#define BATTERY_S 30       /* how often the battery is read */
-#define HOLD_MS 1000       /* how long PRG is held to send a ping */
+#define SCREEN_MS 500 /* how often the bench screen is drawn again */
+#define BOOT_MS 2500  /* how long the boot screen stays up once the board has started */
+#define BATTERY_S 30  /* how often the battery is read */
+#define HOLD_MS 1000  /* how long PRG is held to send a ping */
 
 /* How long the clients must have been quiet before a setting that takes a restart is applied: one
  * that sends several at once, as setting a new node up does, has them all applied by one restart,
@@ -287,7 +287,7 @@ static tern_time clock_at;
 #define RESTART_QUIET 1
 #define RESTART_NOW 2
 static uint8_t restart_due;
-static bool off_due;     /* a client sent OFF: the board turns off once its answer has gone */
+static bool off_due; /* a client sent OFF: the board turns off once its answer has gone */
 static bool have_ble;
 static char ble_name[BLE_NAME_LEN + 1]; /* what Bluetooth advertises the node as (ble.h) */
 static uint16_t battery_mv;             /* 0 for none, or not read */
