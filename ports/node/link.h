@@ -93,6 +93,7 @@ struct link_view {
     uint8_t role;
     const char *region;
     int8_t power;
+    uint8_t most;  /* 1 if `power` is the most the node may send at, which it works out */
     uint32_t time; /* seconds since 1970, or 0 */
     uint8_t cards; /* 1 if the node sends cards, 0 if not */
     uint8_t card_name_len;
@@ -316,6 +317,7 @@ struct link_conn {
     size_t n_told;
     uint8_t self_role;
     int8_t self_power;
+    uint8_t self_most;
     const char *self_region;
     uint8_t self_cards;
     uint8_t self_card_name_len;

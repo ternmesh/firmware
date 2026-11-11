@@ -113,8 +113,10 @@ static void board_view(void *ctx, struct link_view *v) {
 
 static uint8_t board_set(void *ctx, const struct tern_companion_msg *m) {
     struct board *b = ctx;
+    /* The most is what the vectors' node works out it may send at, 22 dBm: SELF then says so. */
     if (b->set_answer == 0 && m->setting == TERN_C_SET_POWER) {
-        b->view.power = m->power;
+        b->view.most = m->power == TERN_C_POWER_MOST;
+        b->view.power = b->view.most ? 22 : m->power;
     }
     /* Cards are on or off at once, and a value but those two is refused, as the board's are. */
     if (b->set_answer == 0 && m->setting == TERN_C_SET_CARDS) {

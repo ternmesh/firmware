@@ -16,8 +16,10 @@
  * text console. What a node answers and when is the node's business, not the core's (in the node
  * every port shares, ports/node/link.c). */
 
-#define TERN_COMPANION_VERSION 9
+#define TERN_COMPANION_VERSION 10
 #define TERN_COMPANION_MAX_FRAME 180
+/* SET 3's power that is the most the node may send at, which it works out (version 10). */
+#define TERN_C_POWER_MOST INT8_MIN
 #define TERN_COMPANION_STREAM_MAX (TERN_COMPANION_MAX_FRAME + 6) /* magic, length, CRC */
 #define TERN_COMPANION_NAME_MAX 31
 #define TERN_COMPANION_TEXT_MAX 128
@@ -102,7 +104,7 @@ bool tern_companion_news(uint8_t type);
 enum tern_companion_setting {
     TERN_C_SET_REGION = 1,    /* text */
     TERN_C_SET_ROLE = 2,      /* role */
-    TERN_C_SET_POWER = 3,     /* power */
+    TERN_C_SET_POWER = 3,     /* power, or TERN_C_POWER_MOST */
     TERN_C_SET_PASSKEY = 4,   /* passkey */
     TERN_C_SET_CARDS = 5,     /* cards: version 6, as is the one after it */
     TERN_C_SET_CARD_NAME = 6, /* text */
@@ -185,6 +187,7 @@ struct tern_companion_msg {
     uint8_t type, seq;
     uint8_t version, setting, code, role, session, flags, state, reason, percent, why, news, cards;
     uint8_t receiver, source, satellites; /* FIX's, and receiver SET 7's value */
+    uint8_t most; /* SELF's: 1 if `power` is the most the node may send at, which it works out */
     int8_t power, snr;
     uint16_t millivolts;
     uint32_t heard;
