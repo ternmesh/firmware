@@ -3671,6 +3671,19 @@ void node_main(void) {
         chosen = region;
     }
     int8_t chosen_power = settings.power != POWER_UNSET ? settings.power : build_power(chosen);
+    /* A power a client saved that the region's limits, as this build has them, no longer allow:
+     * moved inside them, keeping the region, rather than dropped with it. What was saved is
+     * kept, so it holds again if the limits come back. */
+    if (settings.power != POWER_UNSET) {
+        int8_t fit =
+            tern_region_nearest_dbm(chosen, chosen_power, TX_MIN_DBM, CONFIG_TERN_ANTENNA_DBI);
+        if (fit != chosen_power) {
+            printf("the power a client saved, %d dBm, is not one %s allows into this antenna: "
+                   "sending at %d dBm\n",
+                   chosen_power, chosen->name, fit);
+            chosen_power = fit;
+        }
+    }
     if (board_power_ok(chosen_power) &&
         tern_region_radio(chosen, chosen_power, CONFIG_TERN_ANTENNA_DBI, &cfg) == TERN_OK) {
         region = chosen;
