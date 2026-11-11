@@ -66,6 +66,8 @@ struct board_def {
     /* Low while it is pressed; it also wakes the board, so an RTC pin. BOARD_NO_PIN for a board
      * with none but RESET, which board_off() then leaves to wake it. */
     int8_t button;
+    /* What the button is marked, at most four characters; NULL for PRG. */
+    const char *button_name;
     int8_t led;      /* BOARD_NO_PIN for none */
     bool led_low_on; /* lit when low, rather than high */
 

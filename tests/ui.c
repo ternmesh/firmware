@@ -582,23 +582,50 @@ static void holding_prg_counts_down_to_off(void) {
 
 static void off_says_how_to_turn_it_on(void) {
     display_init(&d);
-    ui_off(UI_OFF_PRESSED, &d);
+    ui_off(UI_OFF_PRESSED, "PRG", &d);
     picture("off");
     CHECK_ROW(0, "Turned off");
     CHECK_ROW(3, "Press PRG to turn");
     display_init(&d);
-    ui_off(UI_OFF_EMPTY, &d);
+    ui_off(UI_OFF_EMPTY, "PRG", &d);
     picture("off-empty");
     CHECK_ROW(0, "Battery empty");
     CHECK_ROW(5, "Charge it: it turns");
     CHECK_ROW(6, "on again by itself.");
     CHECK_ROW(7, "");
     display_init(&d);
-    ui_off(UI_OFF_ASKED, &d);
+    ui_off(UI_OFF_ASKED, "PRG", &d);
     picture("off-asked");
     CHECK_ROW(0, "Turned off");
     CHECK_ROW(2, "by a phone or");
     CHECK_ROW(5, "Press PRG or RESET");
+    CHECK_ROW(6, "to turn it on again.");
+}
+
+/* The button is named as the board marks it, and a board with none is turned on by RESET. */
+static void the_button_is_named_as_the_board_marks_it(void) {
+    struct ui_node n = alone();
+    n.button = "USER";
+    draw(&n, UI_RESET, "reset-user");
+    CHECK_ROW(7, "Hold USER to erase");
+    n.confirm_s = 10;
+    draw(&n, UI_RESET, "x");
+    CHECK_ROW(2, "Hold USER again to");
+    n.confirm_s = 0;
+    n.bluetooth = true;
+    n.ble_name = "Tern 7KQ3";
+    n.paired = 2;
+    draw(&n, UI_PHONES, "x");
+    CHECK_ROW(6, "Hold USER to forget");
+    display_init(&d);
+    ui_off(UI_OFF_PRESSED, "USER", &d);
+    CHECK_ROW(3, "Press USER to turn");
+    display_init(&d);
+    ui_off(UI_OFF_ASKED, "IO38", &d);
+    CHECK_ROW(5, "Press IO38 or RESET");
+    display_init(&d);
+    ui_off(UI_OFF_ASKED, NULL, &d);
+    CHECK_ROW(5, "Press RESET");
     CHECK_ROW(6, "to turn it on again.");
 }
 
@@ -736,6 +763,7 @@ static void an_unchanged_page_is_not_sent_again(void) {
 int main(int argc, char **argv) {
     pictures = argc > 1 ? argv[1] : NULL;
     RUN(home_says_it_is_listening);
+    RUN(the_button_is_named_as_the_board_marks_it);
     RUN(home_puts_new_messages_first);
     RUN(the_air_says_when_it_is_full);
     RUN(the_bar_shows_what_is_used);

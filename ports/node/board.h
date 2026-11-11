@@ -48,6 +48,11 @@ tern_time board_now(void);
 /* The board's button (PRG on the Heltecs), which reads true while it is held. */
 bool board_button(void);
 
+/* What the button is marked on the board, as its user looks for it: PRG on most Heltecs, USER on
+ * the T114 and the Vision Masters, IO38 on the T-Beams. At most four characters, so that the
+ * screen's lines that name it fit. NULL for a board with no button but RESET. */
+const char *board_button_name(void);
+
 void board_led(bool on);
 
 /* The screen: a 128x64 OLED, or a larger panel the board draws the 128x64 picture on. Powers it,
