@@ -154,17 +154,24 @@ static __noinit uint32_t wiped;
 #define WIPED 0x57495045u /* "WIPE" */
 
 /* Whether the storage partition holds a LittleFS volume, which is how Meshtastic and MeshCore keep
- * their files on these boards: its superblock has the name "littlefs" eight bytes into a block. */
+ * their files on these boards. Its superblock has the name "littlefs" in a block: eight bytes in
+ * for LittleFS 2, and forty for LittleFS 1 (a 16-byte directory header, then 24 of the
+ * superblock's own before the name). Adafruit's nRF52 core, which Meshtastic builds on, uses
+ * LittleFS 1 with 128-byte blocks, from 0xED000: 4 KB into this partition, so every 128 bytes is
+ * looked at. */
 static bool holds_littlefs(void) {
+    static const off_t name_at[] = {8, 40};
     const struct flash_area *fa;
     bool found = false;
     if (flash_area_open(PARTITION_ID(storage_partition), &fa) != 0) {
         return false;
     }
-    for (off_t at = 0; !found && at + 16 <= (off_t)fa->fa_size; at += 4096) {
-        char name[8];
-        found = flash_area_read(fa, at + 8, name, sizeof name) == 0 &&
-                memcmp(name, "littlefs", sizeof name) == 0;
+    for (off_t at = 0; !found && at + 128 <= (off_t)fa->fa_size; at += 128) {
+        for (size_t i = 0; !found && i < sizeof name_at / sizeof name_at[0]; i++) {
+            char name[8];
+            found = flash_area_read(fa, at + name_at[i], name, sizeof name) == 0 &&
+                    memcmp(name, "littlefs", sizeof name) == 0;
+        }
     }
     flash_area_close(fa);
     return found;
