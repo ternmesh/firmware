@@ -263,8 +263,10 @@ void board_led(bool on) { set(&led, on ? 1 : 0); }
  * its lowest bit at the top. A monochrome panel that keeps its memory in such pages (Zephyr's
  * SCREEN_INFO_MONO_VTILED: the SSD1306 and the SH1106) takes each page as it is. A colour panel is
  * drawn into: the T114's 135x240 is mounted on its side, so the picture is turned to lie along it,
- * at one panel pixel a picture pixel, in its middle. That is small on a 1.14" panel; a layout of
- * its own is for later (docs/boards.md). */
+ * and made as large as the panel holds, its shape kept, at most twice: on the T114, 15 panel pixels
+ * to 8 of the picture, 240 by 120, in its middle. Not a whole number, so of every eight rows or
+ * columns of the picture one is a panel pixel and seven are two. A layout of its own for the larger
+ * panel is for later (docs/boards.md). */
 #define PIC_W 128
 #define PIC_H 64
 #define LIT 0xFFFFu
@@ -272,9 +274,10 @@ void board_led(bool on) { set(&led, on ? 1 : 0); }
 
 #if DT_HAS_CHOSEN(zephyr_display)
 
-static bool paged;                /* monochrome, in pages: each page goes as it is */
-static int panel_w, panel_h;      /* a colour panel's size, its long side down */
-static uint16_t strip[PIC_W * 8]; /* one page, turned: 8 panel columns by 128 panel rows */
+static bool paged;                   /* monochrome, in pages: each page goes as it is */
+static int panel_w, panel_h;         /* a colour panel's size, its long side down */
+static int scale_n = 1, scale_d = 1; /* panel pixels to picture pixels, scale_n to scale_d */
+static uint16_t strip[PIC_W * 8];    /* a page, turned and scaled, a few panel rows at a time */
 
 static int panel_write(int x, int y, int w, int h, const void *pixels, size_t len) {
     struct display_buffer_descriptor d = {.buf_size = (uint32_t)len,
@@ -315,6 +318,18 @@ bool board_screen_init(void) {
                caps.x_resolution >= PIC_H + 8 && caps.y_resolution >= PIC_W) {
         panel_w = caps.x_resolution;
         panel_h = caps.y_resolution;
+        /* As large as fits both ways, at most twice, so that a page's strip stays small. */
+        if (panel_h * PIC_H <= panel_w * PIC_W) {
+            scale_n = panel_h;
+            scale_d = PIC_W;
+        } else {
+            scale_n = panel_w;
+            scale_d = PIC_H;
+        }
+        if (scale_n > 2 * scale_d) {
+            scale_n = 2;
+            scale_d = 1;
+        }
         /* Dark all over. */
         for (size_t i = 0; i < sizeof strip / sizeof strip[0]; i++) {
             strip[i] = DARK;
@@ -336,31 +351,48 @@ bool board_screen_page(int page, const uint8_t data[128]) {
     if (paged) {
         return panel_write(0, page * 8, PIC_W, 8, data, PIC_W) == 0;
     }
-    /* Picture row y = 8 * page + bit lies at panel column x; picture column c at panel row. One
-     * way round or, with TERN_SCREEN_FLIP, the other. */
-    int at_x = (panel_h - PIC_W) / 2; /* where the picture's width starts along the long side */
-    int at_y = (panel_w - PIC_H) / 2;
-    int y0 = at_y + 8 * page;
+    /* The scaled picture is w_all by h_all, its rows across the panel's columns and its columns
+     * down the panel's rows; a panel pixel t along either shows the picture's t * d / n. One way
+     * round or, with TERN_SCREEN_FLIP, the other. */
+    const int n = scale_n, d = scale_d;
+    int w_all = PIC_W * n / d, h_all = PIC_H * n / d;
+    int at_x = (panel_h - w_all) / 2; /* where the picture's width starts along the long side */
+    int at_y = (panel_w - h_all) / 2;
+    int ra = (8 * page * n + d - 1) / d; /* the scaled rows this page's eight become: [ra, rb) */
+    int rb = (8 * (page + 1) * n + d - 1) / d;
+    int w = rb - ra;
 #if CONFIG_TERN_SCREEN_FLIP
-    int x = y0;                       /* panel column of the page's first row */
-    int top = panel_h - at_x - PIC_W; /* panel row of the picture's last column */
-    for (int r = 0; r < PIC_W; r++) {
-        uint8_t col = data[PIC_W - 1 - r];
-        for (int i = 0; i < 8; i++) {
-            strip[r * 8 + i] = (col >> i) & 1 ? LIT : DARK;
-        }
-    }
+    int x = at_y + ra; /* panel column of the page's first row */
 #else
-    int x = panel_w - 1 - (y0 + 7);
-    int top = at_x;
-    for (int r = 0; r < PIC_W; r++) {
-        uint8_t col = data[r];
-        for (int i = 0; i < 8; i++) {
-            strip[r * 8 + i] = (col >> (7 - i)) & 1 ? LIT : DARK;
+    int x = panel_w - at_y - rb; /* panel column of the page's last row */
+#endif
+    int rows = (int)(sizeof strip / sizeof strip[0]) / w; /* panel rows a strip holds */
+    for (int l0 = 0; l0 < w_all; l0 += rows) {
+        int l1 = l0 + rows < w_all ? l0 + rows : w_all;
+        for (int l = l0; l < l1; l++) {
+            uint8_t col = data[l * d / n];
+#if CONFIG_TERN_SCREEN_FLIP
+            uint16_t *out = &strip[(l1 - 1 - l) * w];
+            for (int j = 0; j < w; j++) {
+                out[j] = (col >> ((ra + j) * d / n - 8 * page)) & 1 ? LIT : DARK;
+            }
+#else
+            uint16_t *out = &strip[(l - l0) * w];
+            for (int j = 0; j < w; j++) {
+                out[j] = (col >> ((rb - 1 - j) * d / n - 8 * page)) & 1 ? LIT : DARK;
+            }
+#endif
+        }
+#if CONFIG_TERN_SCREEN_FLIP
+        int top = panel_h - at_x - l1;
+#else
+        int top = at_x + l0;
+#endif
+        if (panel_write(x, top, w, l1 - l0, strip, (size_t)(w * (l1 - l0)) * 2) != 0) {
+            return false;
         }
     }
-#endif
-    return panel_write(x, top, 8, PIC_W, strip, sizeof strip) == 0;
+    return true;
 }
 
 bool board_screen_power(bool on) {
