@@ -387,22 +387,27 @@ confirmed on a bench.
 
 AU915, NZ915, CL915 and TH920 are US915's channel at what each country allows a board to radiate:
 30 dBm EIRP in Australia, 36 dBm in New Zealand, Thailand and the US, 26 dBm in Chile. MY919 is
-the same 500 kHz a megahertz lower, at 26 dBm. RU868 allows 22 dBm and KZ863 13 dBm, which the
-default power stays under with an ordinary antenna.
+the same 500 kHz a megahertz lower, at 26 dBm. RU868 allows 22 dBm and KZ863 13 dBm, so a board
+there sends at less.
 
 Every frame has a 16-symbol preamble, coding rate 4/5 and the sync word `0x5E`. That is not
 Meshtastic's (`0x2B`), MeshCore's (`0x12`) or LoRaWAN's (`0x34`), so these boards do not decode
 those networks' frames, nor they these. They do hear each other as energy on the channel, as any
 radio would. Two boards built before this change and after it do not hear each other either.
 
-* **Power.** The default is +2 dBm (+4 on a V4), plenty for a bench: two boards in the same house
-  hear each other easily. The V3 gives up to +22 dBm, the V4 [up to +28](#the-heltec-v4). The board refuses
-  to start if the power set, with the antenna's gain, is more than the region allows, which a V3
-  cannot reach with an ordinary antenna and a V4 can.
+* **Power.** A board sends at the most it gives that its region allows into its antenna: +22 dBm
+  on the V3 and the other SX1262 boards in every region but RU868 (+19) and KZ863 (+10) with a
+  3 dBi antenna, +17 on the SX1276 boards, and on the V4 [up to +28](#the-heltec-v4), +26 in
+  EU868. That is a ceiling: power control sends each frame to a neighbour that hears well at
+  less, so boards close together do not shout at each other. A client's power, once it sets one,
+  is used instead. For a bench, turn off **Send at the most the board and the region allow** in
+  `menuconfig` and set a power: +2 dBm (+4 on a V4) is plenty for two boards in the same house.
+  The board refuses to start if the power set, with the antenna's gain, is more than the region
+  allows.
 * **TH920's least power.** Thailand allows 10% of an hour only from 50 mW radiated, so a TH920
-  board radiates at least 17 dBm, by its setting and by power control alike. Its release images
-  are built for +14 dBm into the 3 dBi antenna sold with the board, and a power that with the
-  antenna's gain comes to less than 17 dBm is refused. A board set to a region from an app moves its
+  board radiates at least 17 dBm, by its setting and by power control alike, which the most it
+  sends at meets with an ordinary antenna, and a power set that with the antenna's gain comes to less
+  than 17 dBm is refused. A board set to a region from an app moves its
   power into that region's limits if it was outside them, up to TH920's 17 dBm or down to KZ863's
   13 dBm, since only the board knows its antenna.
 * **EU868's 10%** (TH920's and RU868's alike). The board counts the time on air of every frame it sends and refuses to send

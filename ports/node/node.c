@@ -1987,6 +1987,28 @@ static const struct tern_region *region_named(const uint8_t *name, size_t len) {
 
 /* A setting from a client. Region, role and power take a restart, since the radio and the router
  * were set up with them; the passkey is for the next Bluetooth pairing. */
+/* The power the build sends at in region r, into the antenna: the most the board gives that the
+ * region allows (TERN_TX_POWER_MOST), as far as it can reach, or the power the build sets. Power
+ * control sends each frame lower where its neighbour needs less. */
+/* Whether the board's power follows its region, as the most it may send at there, rather than being
+ * a number: so with TERN_TX_POWER_MOST, until a client sets a power. */
+static bool power_follows_region(void) {
+#ifdef CONFIG_TERN_TX_POWER_MOST
+    return settings.power == POWER_UNSET;
+#else
+    return false;
+#endif
+}
+
+static int8_t build_power(const struct tern_region *r) {
+#ifdef CONFIG_TERN_TX_POWER_MOST
+    return tern_region_nearest_dbm(r, board_power_max(), TX_MIN_DBM, CONFIG_TERN_ANTENNA_DBI);
+#else
+    (void)r;
+    return CONFIG_TERN_TX_POWER_DBM;
+#endif
+}
+
 static uint8_t link_set(void *ctx, const struct tern_companion_msg *m) {
     struct settings next = settings;
     struct tern_radio_config check;
@@ -1998,11 +2020,15 @@ static uint8_t link_set(void *ctx, const struct tern_companion_msg *m) {
         if (r == NULL) {
             return TERN_C_ERR_REFUSED;
         }
-        /* The power moves into the region's limits, if it is outside them: up to TH920's floor,
-         * down to KZ863's ceiling. Only the node knows its antenna, and one region's limits need
-         * not overlap another's, so no client could set the power first. */
-        int8_t power =
-            tern_region_nearest_dbm(r, cfg.tx_power_dbm, TX_MIN_DBM, CONFIG_TERN_ANTENNA_DBI);
+        /* A power that follows the region is the most the new one allows, worked out again at
+         * start, and is not saved: a number saved here would stay behind when the region changed
+         * again. A power a client set moves into the region's limits, if it is outside them: up
+         * to TH920's floor, down to KZ863's ceiling. Only the node knows its antenna, and one
+         * region's limits need not overlap another's, so no client could set the power first. */
+        bool follows = power_follows_region();
+        int8_t power = follows ? build_power(r)
+                               : tern_region_nearest_dbm(r, cfg.tx_power_dbm, TX_MIN_DBM,
+                                                         CONFIG_TERN_ANTENNA_DBI);
         if (!board_power_ok(power) ||
             tern_region_radio(r, power, CONFIG_TERN_ANTENNA_DBI, &check) != TERN_OK) {
             return TERN_C_ERR_REFUSED;
@@ -2013,7 +2039,7 @@ static uint8_t link_set(void *ctx, const struct tern_companion_msg *m) {
         for (int id = TERN_REGION_US915; id < TERN_REGION_END; id++) {
             next.region = tern_region((enum tern_region_id)id) == r ? (uint8_t)id : next.region;
         }
-        if (power != cfg.tx_power_dbm) {
+        if (!follows && power != cfg.tx_power_dbm) {
             next.power = power;
         }
         break;
@@ -2032,8 +2058,13 @@ static uint8_t link_set(void *ctx, const struct tern_companion_msg *m) {
             tern_region_radio(region, m->power, CONFIG_TERN_ANTENNA_DBI, &check) != TERN_OK) {
             return TERN_C_ERR_REFUSED;
         }
+        /* The power a client sets is kept, even where it is what the board sends at already: a
+         * power that follows the region would not stay at it. */
         if (m->power == cfg.tx_power_dbm) {
-            return 0;
+            if (!power_follows_region()) {
+                return 0;
+            }
+            restart = false; /* the radio sends at it already */
         }
         next.power = m->power;
         break;
@@ -3647,7 +3678,7 @@ void node_main(void) {
 #else
     region = tern_region(TERN_REGION_US915);
 #endif
-    int8_t power = CONFIG_TERN_TX_POWER_DBM;
+    int8_t power = build_power(region);
     /* What a client set, over what the build chose. Each was checked against the region and the
      * antenna when it was set; if the pair no longer fits, the build's settings are used. */
     struct settings saved;
@@ -3666,9 +3697,22 @@ void node_main(void) {
     }
     const struct tern_region *chosen =
         settings.region != 0 ? tern_region((enum tern_region_id)settings.region) : NULL;
-    int8_t chosen_power = settings.power != POWER_UNSET ? settings.power : power;
     if (chosen == NULL) {
         chosen = region;
+    }
+    int8_t chosen_power = settings.power != POWER_UNSET ? settings.power : build_power(chosen);
+    /* A power a client saved that the region's limits, as this build has them, no longer allow:
+     * moved inside them, keeping the region, rather than dropped with it. What was saved is
+     * kept, so it holds again if the limits come back. */
+    if (settings.power != POWER_UNSET) {
+        int8_t fit =
+            tern_region_nearest_dbm(chosen, chosen_power, TX_MIN_DBM, CONFIG_TERN_ANTENNA_DBI);
+        if (fit != chosen_power) {
+            printf("the power a client saved, %d dBm, is not one %s allows into this antenna: "
+                   "sending at %d dBm\n",
+                   chosen_power, chosen->name, fit);
+            chosen_power = fit;
+        }
     }
     if (board_power_ok(chosen_power) &&
         tern_region_radio(chosen, chosen_power, CONFIG_TERN_ANTENNA_DBI, &cfg) == TERN_OK) {

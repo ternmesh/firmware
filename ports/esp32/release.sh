@@ -47,10 +47,6 @@ for board in "$@"; do
         {
             echo "CONFIG_TERN_VERSION=\"$version\""
             echo "CONFIG_TERN_REGION_$upper=y"
-            # TH920 requires 17 dBm radiated: 14 dBm into the 3 dBi antenna sold with the board.
-            if [ "$region" = th920 ]; then
-                echo "CONFIG_TERN_TX_POWER_DBM=14"
-            fi
         } >"$build/release.defaults"
         idf.py -B "$build" -D TERN_BOARD="$board" -D SDKCONFIG="$build/sdkconfig" \
             -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;boards/$board.defaults;$build/release.defaults" \

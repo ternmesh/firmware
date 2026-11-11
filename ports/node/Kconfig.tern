@@ -38,17 +38,30 @@
             bool "KZ863: 864.375 MHz, 125 kHz, SF7, 13 dBm EIRP (Kazakhstan)"
     endchoice
 
+    config TERN_TX_POWER_MOST
+        bool "Send at the most the board and the region allow"
+        default y
+        help
+            The board puts into the antenna as much as it gives (22 dBm with an SX1262 alone,
+            17 with an SX1276, 28 on the Heltec V4, whose amplifier adds to the radio's) that,
+            with the antenna's gain, the region allows: 22 dBm in US915 and EU868, 19 in RU868,
+            10 in KZ863 on an SX1262 board with a 3 dBi antenna. Worked out for the region the
+            board is in, a client's included. It is a ceiling: power control sends each frame
+            to a neighbour that hears well at less. A client's power, once it sets one, is
+            used instead. Turn this off for a bench, and set the power below.
+
     config TERN_TX_POWER_DBM
-        int "Transmit power into the antenna, in dBm"
+        int "Transmit power into the antenna, in dBm, when not the most"
         range -9 30
         default 14 if TERN_REGION_TH920
         default 2
         help
-            What the board puts into the antenna. The default is for a bench. A board refuses
-            to start with a power it does not give (-9 to 22 dBm with an SX1262 alone, +4 to 28
-            on the Heltec V4, whose amplifier adds to the radio's) or one that, with the
-            antenna's gain, is more than the region allows, or less: TH920 requires 17 dBm
-            radiated, which the default meets with an antenna of 3 dBi or more.
+            What the board puts into the antenna when it does not send at the most it may
+            (TERN_TX_POWER_MOST). The default is for a bench, where two boards in the same
+            room hear each other easily. A board refuses to start with a power it does not give
+            (-9 to 22 dBm with an SX1262 alone, +4 to 28 on the Heltec V4) or one that, with
+            the antenna's gain, is more than the region allows, or less: TH920 requires 17 dBm
+            radiated.
 
     config TERN_ANTENNA_DBI
         int "Antenna gain, in dBi"
