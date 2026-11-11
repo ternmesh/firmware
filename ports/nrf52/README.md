@@ -70,9 +70,9 @@ builds what a release carries, for each board an image for each region, into `re
 ## What is different from the ESP32 boards
 
 * **The screen.** The T114's is a 1.14" colour panel, 240 by 135. The node's pages are drawn for a
-  128 by 64 screen, and are shown at that size in its middle: small, but whole. A layout of its
-  own for the larger panel is to come. If it reads upside down, `menuconfig`, **Turn the screen
-  upside down**.
+  128 by 64 screen, and are shown twice the size along their lines of text, so every letter is
+  crisp, white on black, with each page's top line white on teal. A layout of its own for the
+  larger panel is to come. If it reads upside down, `menuconfig`, **Turn the screen upside down**.
 * **The screen** of the Wio Tracker L1 is a 128 by 64 OLED, the node's own size, as on the ESP32
   boards. The RAK4631 has none: its LED and the console say what it is doing.
 * **The button.** The T114's USER button and the Wio Tracker L1's menu button do what PRG does on

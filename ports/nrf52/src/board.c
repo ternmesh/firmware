@@ -262,19 +262,46 @@ void board_led(bool on) { set(&led, on ? 1 : 0); }
 /* The node draws a 128x64 picture a page of eight rows at a time (display.h), a byte a column with
  * its lowest bit at the top. A monochrome panel that keeps its memory in such pages (Zephyr's
  * SCREEN_INFO_MONO_VTILED: the SSD1306 and the SH1106) takes each page as it is. A colour panel is
- * drawn into: the T114's 135x240 is mounted on its side, so the picture is turned to lie along it,
- * at one panel pixel a picture pixel, in its middle. That is small on a 1.14" panel; a layout of
- * its own is for later (docs/boards.md). */
+ * drawn into: the T114's 135x240 is mounted on its side, so the picture is turned to lie along it.
+ *
+ * Where the panel has room, as the T114's does, the picture is drawn twice the size along the
+ * character grid it is drawn on: a picture row is two panel rows, so a line of text is sixteen, and
+ * of each character's six columns the glyph's five are two panel columns each and the space after
+ * it one. Every stroke of the text is then two pixels, and the 21 characters of a line are 231
+ * across, which leaves a margin to the panel's edge. Twice the size along the other way too would
+ * be 256, more than the 240 there are. What is drawn off the grid (the large line's letters, the
+ * bar and a QR code's modules) comes out a pixel narrower in places. A panel without the room has
+ * the picture at its own size, in its middle.
+ *
+ * Light on dark, as the node draws it, is white on black, except for a line drawn dark on light, as
+ * the node draws each page's first: that is white on the accent colour, across the panel's width,
+ * so the line's letters are not dark against a dark edge. Such a line is known by its last two
+ * columns: they are past the 21 characters' 126, so text drawn dark on light leaves them lit, and
+ * nothing else the node draws lights them whole. A layout of its own for the larger panel is for
+ * later (docs/boards.md). */
 #define PIC_W 128
 #define PIC_H 64
-#define LIT 0xFFFFu
-#define DARK 0x0000u
+#define CELL_W 6 /* a character's columns in the picture, its space included */
+#define GRID_W ((PIC_W / CELL_W) * 11 + 4) /* the picture drawn along the grid: 235 columns */
+#define PANEL_LONG_MAX 320                 /* the longest side of a panel drawn into */
+#define NO_COL 0xFFu                       /* a panel column outside the picture */
+
+/* Colours as the panel takes them: RGB565 sent its high byte first, where Zephyr keeps the low
+ * byte first in memory and the SPI bus sends memory as it is. */
+#define RGB565(r, g, b) ((uint16_t)((((r) >> 3) << 11) | (((g) >> 2) << 5) | ((b) >> 3)))
+#define PANEL(c) ((uint16_t)(((c) >> 8) | (((c) & 0xFFu) << 8)))
+#define LIT PANEL(RGB565(0xFF, 0xFF, 0xFF))
+#define DARK PANEL(RGB565(0x00, 0x00, 0x00))
+#define ACCENT PANEL(RGB565(0x00, 0x70, 0x90)) /* a deep teal: white on it is 5.6 to 1 */
 
 #if DT_HAS_CHOSEN(zephyr_display)
 
-static bool paged;                /* monochrome, in pages: each page goes as it is */
-static int panel_w, panel_h;      /* a colour panel's size, its long side down */
-static uint16_t strip[PIC_W * 8]; /* one page, turned: 8 panel columns by 128 panel rows */
+static bool paged;                     /* monochrome, in pages: each page goes as it is */
+static int panel_w, panel_h;           /* a colour panel's size, its long side down */
+static int tall = 1;                   /* panel rows to a picture row */
+static int at_y;                       /* where the picture's rows start across the short side */
+static uint8_t col_of[PANEL_LONG_MAX]; /* the picture column each panel row shows */
+static uint16_t strip[PIC_W * 8];      /* a page, turned, a few panel rows at a time */
 
 static int panel_write(int x, int y, int w, int h, const void *pixels, size_t len) {
     struct display_buffer_descriptor d = {.buf_size = (uint32_t)len,
@@ -312,9 +339,24 @@ bool board_screen_init(void) {
             }
         }
     } else if (caps.current_pixel_format == PIXEL_FORMAT_RGB_565 &&
-               caps.x_resolution >= PIC_H + 8 && caps.y_resolution >= PIC_W) {
+               caps.x_resolution >= PIC_H + 8 && caps.y_resolution >= PIC_W &&
+               caps.y_resolution <= PANEL_LONG_MAX) {
         panel_w = caps.x_resolution;
         panel_h = caps.y_resolution;
+        bool grid = panel_h >= GRID_W && panel_w >= 2 * PIC_H;
+        int w_all = grid ? GRID_W : PIC_W;
+        int at_x = (panel_h - w_all) / 2;
+        tall = grid ? 2 : 1;
+        at_y = (panel_w - tall * PIC_H) / 2;
+        memset(col_of, NO_COL, sizeof col_of);
+        for (int c = 0; c < PIC_W; c++) {
+            int k = c % CELL_W;
+            int x = grid ? c / CELL_W * 11 + 2 * k : c;
+            int w = grid && k < CELL_W - 1 ? 2 : 1;
+            for (int i = 0; i < w; i++) {
+                col_of[at_x + x + i] = (uint8_t)c;
+            }
+        }
         /* Dark all over. */
         for (size_t i = 0; i < sizeof strip / sizeof strip[0]; i++) {
             strip[i] = DARK;
@@ -336,31 +378,47 @@ bool board_screen_page(int page, const uint8_t data[128]) {
     if (paged) {
         return panel_write(0, page * 8, PIC_W, 8, data, PIC_W) == 0;
     }
-    /* Picture row y = 8 * page + bit lies at panel column x; picture column c at panel row. One
-     * way round or, with TERN_SCREEN_FLIP, the other. */
-    int at_x = (panel_h - PIC_W) / 2; /* where the picture's width starts along the long side */
-    int at_y = (panel_w - PIC_H) / 2;
-    int y0 = at_y + 8 * page;
+    /* The page's rows lie across the panel's columns, h of them, and its columns along the panel's
+     * rows, the whole long side with the margins: one way round or, with TERN_SCREEN_FLIP, the
+     * other. */
+    int h = 8 * tall;
 #if CONFIG_TERN_SCREEN_FLIP
-    int x = y0;                       /* panel column of the page's first row */
-    int top = panel_h - at_x - PIC_W; /* panel row of the picture's last column */
-    for (int r = 0; r < PIC_W; r++) {
-        uint8_t col = data[PIC_W - 1 - r];
-        for (int i = 0; i < 8; i++) {
-            strip[r * 8 + i] = (col >> i) & 1 ? LIT : DARK;
-        }
-    }
+    int x = at_y + h * page; /* panel column of the page's first row */
 #else
-    int x = panel_w - 1 - (y0 + 7);
-    int top = at_x;
-    for (int r = 0; r < PIC_W; r++) {
-        uint8_t col = data[r];
-        for (int i = 0; i < 8; i++) {
-            strip[r * 8 + i] = (col >> (7 - i)) & 1 ? LIT : DARK;
+    int x = panel_w - at_y - h * (page + 1); /* panel column of the page's last row */
+#endif
+    bool title = data[PIC_W - 2] == 0xFF && data[PIC_W - 1] == 0xFF;
+    uint16_t on = title ? ACCENT : LIT, off = title ? LIT : DARK;
+    uint16_t margin = title ? ACCENT : DARK; /* the line's ground, to the panel's edges */
+    int rows = (int)(sizeof strip / sizeof strip[0]) / h; /* panel rows a strip holds */
+    for (int l0 = 0; l0 < panel_h; l0 += rows) {
+        int l1 = l0 + rows < panel_h ? l0 + rows : panel_h;
+        for (int l = l0; l < l1; l++) {
+#if CONFIG_TERN_SCREEN_FLIP
+            uint16_t *out = &strip[(l1 - 1 - l) * h];
+#else
+            uint16_t *out = &strip[(l - l0) * h];
+#endif
+            unsigned c = col_of[l];
+            for (int j = 0; j < h; j++) {
+#if CONFIG_TERN_SCREEN_FLIP
+                int bit = j / tall;
+#else
+                int bit = (h - 1 - j) / tall;
+#endif
+                out[j] = c == NO_COL ? margin : (data[c] >> bit) & 1 ? on : off;
+            }
+        }
+#if CONFIG_TERN_SCREEN_FLIP
+        int top = panel_h - l1;
+#else
+        int top = l0;
+#endif
+        if (panel_write(x, top, h, l1 - l0, strip, (size_t)(h * (l1 - l0)) * 2) != 0) {
+            return false;
         }
     }
-#endif
-    return panel_write(x, top, 8, PIC_W, strip, sizeof strip) == 0;
+    return true;
 }
 
 bool board_screen_power(bool on) {
