@@ -1938,6 +1938,14 @@ static void look(struct link *l, struct link_conn *c, tern_time now) {
     look_at_fix(l, c, now);
 }
 
+tern_time link_answered_at(const struct link *l) {
+    tern_time at = 0;
+    for (size_t i = 0; i < LINK_CONNS; i++) {
+        at = l->conns[i].answered_at > at ? l->conns[i].answered_at : at;
+    }
+    return at;
+}
+
 void link_tick(struct link *l, tern_time now) {
     positions_tick(l, now);
     uint8_t forgot[TERN_ADDRESS_LEN];

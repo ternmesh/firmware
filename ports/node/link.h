@@ -396,6 +396,9 @@ void link_receive(struct link *l, unsigned conn, tern_time now, const uint8_t *f
  * and hears nothing more until it says HELLO again. */
 void link_tick(struct link *l, tern_time now);
 
+/* When the last request from any client was answered, or 0 if none has been. */
+tern_time link_answered_at(const struct link *l);
+
 /* The oldest message waiting that the forwarder has not been given, or NULL. */
 struct link_message *link_outgoing(struct link *l);
 

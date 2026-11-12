@@ -107,10 +107,15 @@
 /* Saved by a build that does not send at the most by itself, once a client asks for the most
  * (companion SET 3 of -128): a power no radio sends at. A build that does keeps POWER_UNSET. */
 #define POWER_MOST (INT8_MIN + 1)
-#define SCREEN_MS 500      /* how often the bench screen is drawn again */
-#define BOOT_MS 2500       /* how long the boot screen stays up once the board has started */
-#define BATTERY_S 30       /* how often the battery is read */
-#define HOLD_MS 1000       /* how long PRG is held to send a ping */
+#define SCREEN_MS 500 /* how often the bench screen is drawn again */
+#define BOOT_MS 2500  /* how long the boot screen stays up once the board has started */
+#define BATTERY_S 30  /* how often the battery is read */
+#define HOLD_MS 1000  /* how long PRG is held to send a ping */
+
+/* How long the clients must have been quiet before a setting that takes a restart is applied: one
+ * that sends several at once, as setting a new node up does, has them all applied by one restart,
+ * not one each. */
+#define RESTART_QUIET_MS 2000
 #define OFF_WARN_MS 2000   /* held this long, PRG warns that the board is turning off */
 #define OFF_MS 5000        /* and this long, it turns off */
 #define CONFIRM_S 10       /* held once on Phones or Reset, how long it asks to be sure */
@@ -275,8 +280,14 @@ static struct link companion;
 static struct tern_companion_parser parser;
 static uint32_t clock_base; /* seconds since 1970 as a client last set them, or 0 */
 static tern_time clock_at;
-static bool restart_due; /* a setting saved that takes a restart, once its answer has gone */
-static bool off_due;     /* a client sent OFF: the board turns off once its answer has gone */
+/* A restart is due: once the clients have been quiet for RESTART_QUIET_MS, for a setting saved
+ * that takes one, or at once, for an update. One byte, as a bool was: the classic ESP32's static
+ * RAM has none to spare. */
+#define RESTART_NONE 0
+#define RESTART_QUIET 1
+#define RESTART_NOW 2
+static uint8_t restart_due;
+static bool off_due; /* a client sent OFF: the board turns off once its answer has gone */
 static bool have_ble;
 static char ble_name[BLE_NAME_LEN + 1]; /* what Bluetooth advertises the node as (ble.h) */
 static uint16_t battery_mv;             /* 0 for none, or not read */
@@ -444,7 +455,7 @@ static uint8_t link_update_run(void *ctx) {
         return err;
     }
     printf("the update is whole: restarting into %s\n", version);
-    restart_due = true;
+    restart_due = RESTART_NOW;
     return 0;
 }
 
@@ -2145,7 +2156,9 @@ static uint8_t link_set(void *ctx, const struct tern_companion_msg *m) {
                    memcmp(next.card_name, settings.card_name, next.card_name_len) != 0;
     bool off = settings.cards && !next.cards;
     settings = next;
-    restart_due = restart_due || restart;
+    if (restart) {
+        restart_due = restart_due == RESTART_NOW ? RESTART_NOW : RESTART_QUIET;
+    }
     ble_passkey(settings.passkey);
     if (renamed || off) {
         card_changed();
@@ -2822,7 +2835,9 @@ static void restart_if_due(void) {
         plat_sleep_ms(200);
         turn_off(UI_OFF_ASKED);
     }
-    if (restart_due) {
+    if (restart_due == RESTART_NOW ||
+        (restart_due == RESTART_QUIET &&
+         board_now() - link_answered_at(&companion) >= (tern_time)RESTART_QUIET_MS * 1000000)) {
         link_group_heard(&companion); /* whatever the minute has not yet written */
         (void)link_keep_writers(&companion);
         printf("restarting to apply a setting\n");
@@ -3978,6 +3993,7 @@ void node_main(void) {
         poll_screen();
         poll_battery();
         poll_receiver();
+        restart_if_due();
         if (transmitting && board_now() > tx_deadline) {
             /* TX_DONE never came. Listen again rather than stay busy for ever. */
             printf("the radio never said the frame had gone; listening again\n");
