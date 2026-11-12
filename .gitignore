@@ -7,3 +7,4 @@ ports/*/dependencies.lock
 ports/*/managed_components/
 .cache/
 ports/*/release/
+__pycache__/
