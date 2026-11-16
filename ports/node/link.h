@@ -44,6 +44,14 @@
  * CARD_KEPT and tells clients of them as who is about. Its own card, and whether it sends one, are
  * main.c's: they are settings, and SELF says them (struct link_view).
  *
+ * The cards held are saved too, each in its place, so that a restart, or a new image copied on,
+ * does not empty who is about until each node's next card, hours away. A board has no clock that
+ * runs while it is off, so each is saved with the time it was heard by the node's clock as a
+ * client last set it (struct link_view), once there is one: after a restart, the first time a
+ * client sets the clock, each card is as old as that says, and one older than CARD_KEPT is
+ * forgotten. A card saved before any client set the clock cannot be dated, and is held for
+ * CARD_KEPT from the restart.
+ *
  * Several clients may drive the node at once, one on each connection: the USB port and a
  * Bluetooth central. Each has its own HELLO, sync and news count, and is answered alone; the
  * contacts and messages are the node's, and news of a change to them goes to every client.
@@ -73,6 +81,10 @@
 #define LINK_LAPSE TERN_S(60)  /* a serial client silent this long since its last answer is gone */
 #define LINK_GROUP_POSITIONS 8 /* members' positions held for each group */
 #define LINK_CARDS NODE_CARDS  /* cards held from others: who is about */
+/* A card held, as saved: its version, the name's length, its number, when it was heard in seconds
+ * since 1970 or 0 if the node did not know, its address and its name. */
+#define LINK_CARD_SAVED_HEAD (1 + 1 + 4 + 4 + TERN_ADDRESS_LEN)
+#define LINK_CARD_SAVED_MAX (LINK_CARD_SAVED_HEAD + TERN_CARD_NAME_MAX)
 
 /* The connections: where a frame came from, and where one goes. The third is the board's own:
  * what is typed at its console is asked of the link as a client would ask it, so that a group
@@ -163,6 +175,12 @@ struct link_host {
      * held. A host with no room to spare says so: the link then takes its oldest out of flash
      * and asks again. A message not saved, for that or because the write failed, is held until
      * a restart, and a write that failed takes no other message out of flash. */
+    /* The cards held, each saved alone by its place among LINK_CARDS, up to LINK_CARD_SAVED_MAX
+     * bytes, only if the host has room to spare for them: a card is never why something the node
+     * must keep cannot be saved. Loading gives the length, or 0 with nothing kept there; saving a
+     * length of 0 forgets what the place held. */
+    size_t (*load_card)(void *ctx, size_t place, uint8_t *buf, size_t cap);
+    bool (*save_card)(void *ctx, size_t place, const uint8_t *buf, size_t len);
     size_t (*load_message)(void *ctx, size_t place, uint8_t *buf, size_t cap);
     enum link_saved (*save_message)(void *ctx, size_t place, const uint8_t *buf, size_t len);
     bool (*load_state)(void *ctx, size_t place, uint64_t *state);
@@ -355,6 +373,12 @@ struct link {
 
     struct tern_card card_places[LINK_CARDS];
     struct tern_cards cards;
+    /* For each place: when its card was heard, in seconds since 1970, or 0 if not known; whether
+     * it came from flash at the start and waits for the clock to say how old it is; and whether
+     * flash holds it. */
+    uint32_t card_heard_at[LINK_CARDS];
+    bool card_undated[LINK_CARDS];
+    bool card_saved[LINK_CARDS];
 
     struct link_view view; /* scratch, filled by the host */
 };
