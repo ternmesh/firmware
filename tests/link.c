@@ -279,7 +279,9 @@ static bool board_save_card(void *ctx, size_t place, const uint8_t *buf, size_t 
     if (b->save_fails || len > LINK_CARD_SAVED_MAX || (len > 0 && b->no_room_for_cards)) {
         return false;
     }
-    memcpy(b->cards[place], buf, len);
+    if (len > 0) {
+        memcpy(b->cards[place], buf, len);
+    }
     b->card_len[place] = len;
     return true;
 }

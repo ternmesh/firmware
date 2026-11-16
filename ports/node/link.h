@@ -357,6 +357,10 @@ struct link {
     uint32_t next_count;   /* the count of the next group frame this node seals, for any group */
     uint32_t counts_saved; /* counts below this are set aside in flash, as ids are */
     bool writers_changed;  /* a group frame was accepted, or a group left, since the last save */
+    /* Whether the cards have been dated since the start (date_cards()): when each was heard is read
+     * back from flash then, not kept, as the smallest boards have no RAM to spare for it. Beside
+     * the flag above, in what was padding. */
+    bool cards_dated;
     struct link_ref refs[LINK_REFS];
     size_t next_ref;
     /* The addresses ASKED last told of, and when: one that keeps asking is told of every
@@ -373,12 +377,6 @@ struct link {
 
     struct tern_card card_places[LINK_CARDS];
     struct tern_cards cards;
-    /* For each place: when its card was heard, in seconds since 1970, or 0 if not known; whether
-     * it came from flash at the start and waits for the clock to say how old it is; and whether
-     * flash holds it. */
-    uint32_t card_heard_at[LINK_CARDS];
-    bool card_undated[LINK_CARDS];
-    bool card_saved[LINK_CARDS];
 
     struct link_view view; /* scratch, filled by the host */
 };
