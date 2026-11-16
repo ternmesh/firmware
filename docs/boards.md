@@ -18,9 +18,10 @@ between the core and a port is [architecture.md](architecture.md); this is about
 | LilyGo T-Beam V1.0, V1.1 (AXP192) and V1.2 (AXP2101), 868/915 MHz | ESP32 | SX1276 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board; its GPS gives the node its fix |
 | LilyGo LoRa32 T3 V1.6.1 (868/915 MHz) | ESP32 | SX1276 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board; no user button, so it turns off only when its battery runs down or a client turns it off |
 | LilyGo T3-S3 V1.2, V1.3 with an SX1276 (868/915 MHz) | ESP32-S3 | SX1276 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board |
-| Heltec Mesh Node T114 V2 | nRF52840 | SX1262 | [`ports/nrf52/`](../ports/nrf52/) | Built, not yet run on a board |
+| Heltec Mesh Node T114 V2 | nRF52840 | SX1262 | [`ports/nrf52/`](../ports/nrf52/) | Built; on a board, it starts and makes contact with another, and messages both ways are acknowledged (steps 1 and 4 of bringing it up) |
 | RAKwireless RAK4631 (on a RAK19007 or RAK19003) | nRF52840 | SX1262 | [`ports/nrf52/`](../ports/nrf52/) | Built, not yet run on a board; no user button |
 | Seeed Wio Tracker L1, L1 Lite | nRF52840 | SX1262 | [`ports/nrf52/`](../ports/nrf52/) | Built, not yet run on a board |
+| Seeed SenseCAP T1000-E | nRF52840 | LR1110 | [`ports/nrf52/`](../ports/nrf52/) | Built; on a board, it starts and makes contact with another, and messages both ways are acknowledged (steps 1 and 4 of bringing it up); no screen |
 
 A board is **Runs** once someone has flashed a release onto one and checked it as
 [below](#bringing-a-board-up), and **Built** until then: CI builds its images, and nothing has
@@ -115,7 +116,7 @@ goes a family or a radio at a time, and each one brings a crowd of boards with i
 | ESP32 (classic) + SX1276 | Heltec V2, V2.1, Wireless Stick; LilyGo T3 V1.6.1, LoRa32 V1.3, T-Beam to v1.2 | A row each | Port builds for it: V2, V2.1, T3 V1.6.1 and T-Beam built |
 | nRF52840 + SX1262 | Heltec T114, Mesh Pocket; RAK4631 and the WisMesh devices on it; Seeed Wio Tracker L1, XIAO nRF52840 kit; LilyGo T-Echo; Elecrow ThinkNode | An overlay each; e-paper for the T-Echo and others | Port exists: T114, RAK4631 and Wio Tracker L1 built |
 | SX1276/SX1278 driver | The boards above, and other boards of before 2022 | A driver in `src/`, beside the SX1262's | Done (`src/sx127x.c`); the SX1278's 433 MHz waits on a region for it |
-| LR1110/LR1121 driver | Seeed SenseCAP T1000-E, Wio Tracker 1110; newer boards | A driver in `src/` | Done (`src/lr11xx.c`), LoRa only; runs on the T1000-E |
+| LR1110/LR1121 driver | Seeed SenseCAP T1000-E, Wio Tracker 1110; newer boards | A driver in `src/` | Done (`src/lr11xx.c`), LoRa only; the T1000-E uses it |
 | ESP32-C3/C6 | Heltec HT-CT62, and boards built from modules like it | The ESP32 port for another target | Later |
 | RP2040 | RAK11310, Raspberry Pi Pico with a Waveshare SX1262 | A port, on Zephyr as for the nRF52840 | Later |
 | STM32WL | RAK3172, Seeed LoRa-E5 | A port; the radio is in the chip, an SX126x behind registers | Later |

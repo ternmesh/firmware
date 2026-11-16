@@ -8,10 +8,10 @@ except where this one says otherwise.
 
 | Board | Name | Status |
 |---|---|---|
-| Heltec Mesh Node T114 V2 | `heltec-t114` | Built, not yet run on a board |
+| Heltec Mesh Node T114 V2 | `heltec-t114` | Built; on a board, makes contact and its messages are acknowledged |
 | RAKwireless RAK4631, on a RAK19007 or RAK19003 | `rak4631` | Built, not yet run on a board |
 | Seeed Wio Tracker L1, and the L1 Lite | `wio-tracker-l1` | Built, not yet run on a board |
-| Seeed SenseCAP T1000-E | `t1000-e` | Runs |
+| Seeed SenseCAP T1000-E | `t1000-e` | Built; on a board, makes contact and its messages are acknowledged |
 
 Each is Zephyr's board for it, with this port's overlay on it in `boards/`: what the board has is
 read from its devicetree (`src/board.c`), so a board Zephyr has is an overlay and its names in
