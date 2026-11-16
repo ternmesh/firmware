@@ -2277,6 +2277,23 @@ static void poll_writers(void) {
     }
 }
 
+/* The cards held, each under its own key, only with room to spare (link.h, "load_card"). */
+static void card_key(char out[8], size_t place) { snprintf(out, 8, "h%03u", (unsigned)place); }
+
+static size_t link_load_card(void *ctx, size_t place, uint8_t *buf, size_t cap) {
+    (void)ctx;
+    char key[8];
+    card_key(key, place);
+    return plat_store_read(key, buf, cap);
+}
+
+static bool link_save_card(void *ctx, size_t place, const uint8_t *buf, size_t len) {
+    (void)ctx;
+    char key[8];
+    card_key(key, place);
+    return plat_store_save_if_room(key, buf, len);
+}
+
 static size_t link_load_message(void *ctx, size_t place, uint8_t *buf, size_t cap) {
     (void)ctx;
     return plat_message_load(place, buf, cap);
@@ -3923,6 +3940,8 @@ void node_main(void) {
         .save_count = link_save_count,
         .load_writers = link_load_writers,
         .save_writers = link_save_writers,
+        .load_card = link_load_card,
+        .save_card = link_save_card,
         .load_message = link_load_message,
         .save_message = link_save_message,
         .load_state = link_load_state,

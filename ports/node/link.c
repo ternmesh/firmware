@@ -616,11 +616,115 @@ static void load_message(struct link *l, size_t place) {
     }
 }
 
+/* --- Cards kept across a restart ---------------------------------------------------------------
+ *
+ * Each card held is saved in its place (link.h, "load_card"), with when it was heard by the node's
+ * clock if it knew the time, or 0; a place that holds none, or no longer does, is cleared. Nothing
+ * more is kept in RAM: when a card was heard is read back from flash when the clock is first set
+ * (date_cards()), and a card that came from flash is told apart, until then, by having been heard
+ * at 0, which no card heard since the start can have been. */
+
+#define CARD_SAVED_VERSION 1
+#define CARD_KEPT_S ((uint32_t)(TERN_CARD_KEPT / TERN_S(1)))
+
+/* Saves the card in place i, as heard at `heard_at`, or clears the place if it holds none. If the
+ * card cannot be saved, the place is cleared all the same, so that a restart does not bring back
+ * what it held before. */
+static void save_card(struct link *l, size_t i, uint32_t heard_at) {
+    const struct tern_card *k = &l->card_places[i];
+    uint8_t b[LINK_CARD_SAVED_MAX];
+    if (k->held) {
+        b[0] = CARD_SAVED_VERSION;
+        b[1] = k->name_len;
+        put32(b + 2, k->number);
+        put32(b + 6, heard_at);
+        memcpy(b + 10, k->address, TERN_ADDRESS_LEN);
+        memcpy(b + LINK_CARD_SAVED_HEAD, k->name, k->name_len);
+        if (l->host.save_card(l->host.ctx, i, b, LINK_CARD_SAVED_HEAD + (size_t)k->name_len)) {
+            return;
+        }
+    }
+    (void)l->host.save_card(l->host.ctx, i, b, 0);
+}
+
+/* What flash holds for place i, read into b: the card as saved, or false if it is not one. */
+static bool read_card(struct link *l, size_t i, uint8_t b[LINK_CARD_SAVED_MAX]) {
+    size_t len = l->host.load_card(l->host.ctx, i, b, LINK_CARD_SAVED_MAX);
+    return len >= LINK_CARD_SAVED_HEAD && len <= LINK_CARD_SAVED_MAX &&
+           b[0] == CARD_SAVED_VERSION && b[1] <= TERN_CARD_NAME_MAX &&
+           len == LINK_CARD_SAVED_HEAD + (size_t)b[1];
+}
+
+/* The card place i held when the node last ran, held again, as heard at 0 until the clock says
+ * otherwise. Malformed, or from an address another place holds, it is let go of. */
+static void load_card(struct link *l, size_t i) {
+    uint8_t b[LINK_CARD_SAVED_MAX];
+    if (l->host.load_card(l->host.ctx, i, b, sizeof b) == 0) {
+        return;
+    }
+    bool ok = read_card(l, i, b);
+    for (size_t j = 0; ok && j < i; j++) {
+        ok = !(l->card_places[j].held &&
+               memcmp(l->card_places[j].address, b + 10, TERN_ADDRESS_LEN) == 0);
+    }
+    if (!ok) {
+        save_card(l, i, 0);
+        return;
+    }
+    struct tern_card *k = &l->card_places[i];
+    *k = (struct tern_card){.held = true, .name_len = b[1], .number = get32(b + 2), .heard = 0};
+    memcpy(k->address, b + 10, TERN_ADDRESS_LEN);
+    memcpy(k->name, b + LINK_CARD_SAVED_HEAD, k->name_len);
+}
+
+/* The first time the node knows the time (l->view.time) since it started. A card from flash, heard
+ * at 0, is as old as when flash says it was heard, and forgotten if that is longer ago than
+ * CARD_KEPT; one saved with no time cannot be dated, and is held for CARD_KEPT from the start. A
+ * card heard since the start is as old as it was, and if it was saved with no time, heard before
+ * the clock was set, it is saved again with one. */
+static void date_cards(struct link *l, tern_time now) {
+    uint32_t time = l->view.time;
+    if (time == 0 || l->cards_dated) {
+        return;
+    }
+    l->cards_dated = true;
+    for (size_t i = 0; i < LINK_CARDS; i++) {
+        struct tern_card *k = &l->card_places[i];
+        uint8_t b[LINK_CARD_SAVED_MAX];
+        if (!k->held) {
+            continue;
+        }
+        uint32_t at = read_card(l, i, b) && memcmp(b + 10, k->address, TERN_ADDRESS_LEN) == 0 &&
+                              get32(b + 2) == k->number
+                          ? get32(b + 6)
+                          : 0;
+        if (k->heard != 0) {
+            if (at == 0) {
+                tern_time ago = (now - k->heard) / TERN_S(1);
+                save_card(l, i, ago <= 0 ? time : ago >= time ? 1 : time - (uint32_t)ago);
+            }
+        } else if (at != 0) {
+            uint32_t age = time > at ? time - at : 0;
+            if (age >= CARD_KEPT_S) {
+                k->held = false;
+                news_card_gone(l, k->address);
+                save_card(l, i, 0);
+                continue;
+            }
+            k->heard = now - (tern_time)age * TERN_S(1);
+            news_card(l, NULL, k, now);
+        }
+    }
+}
+
 void link_init(struct link *l, const struct link_host *host) {
     memset(l, 0, sizeof *l);
     l->host = *host;
     l->next_id = 1;
     tern_cards_init(&l->cards, l->card_places, LINK_CARDS);
+    for (size_t i = 0; i < LINK_CARDS; i++) {
+        load_card(l, i);
+    }
     uint32_t saved = 0;
     if (l->host.load_ids(l->host.ctx, &saved) && saved > 1) {
         l->next_id = saved;
@@ -1755,6 +1859,8 @@ static void receive(struct link *l, unsigned conn, tern_time now, const uint8_t 
     case TERN_C_SET_TIME:
         l->host.set_time(l->host.ctx, q->time);
         answer(l, TERN_C_OK, q->seq);
+        l->host.view(l->host.ctx, &l->view);
+        date_cards(l, now);
         break;
     case TERN_C_OFF: {
         /* Answered before the board goes, so that the client knows the drop is the one it asked
@@ -1951,6 +2057,13 @@ void link_tick(struct link *l, tern_time now) {
     uint8_t forgot[TERN_ADDRESS_LEN];
     while (tern_cards_forget(&l->cards, now, TERN_CARD_KEPT, forgot)) {
         news_card_gone(l, forgot);
+        /* Its place, which still has its address, is cleared in flash too. */
+        for (size_t i = 0; i < LINK_CARDS; i++) {
+            struct tern_card *k = &l->card_places[i];
+            if (!k->held && memcmp(k->address, forgot, TERN_ADDRESS_LEN) == 0) {
+                save_card(l, i, 0);
+            }
+        }
     }
     bool viewed = false;
     for (size_t i = 0; i < LINK_CONNS; i++) {
@@ -1984,6 +2097,7 @@ enum tern_card_verdict link_card_received(struct link *l, tern_time now, const u
     if (gone) {
         news_card_gone(l, gone_address);
     }
+    save_card(l, at, l->view.time);
     news_card(l, NULL, &l->card_places[at], now);
     return v;
 }

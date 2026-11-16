@@ -78,6 +78,10 @@ struct board {
     uint8_t writers[LINK_WRITERS_MAX];
     size_t writers_len;
     unsigned writer_saves;
+    /* The cards held, as flash has them, by place: 0 bytes where there is none. */
+    uint8_t cards[LINK_CARDS][LINK_CARD_SAVED_MAX];
+    size_t card_len[LINK_CARDS];
+    bool no_room_for_cards;
     unsigned message_saves, state_saves;
     /* The image an update writes, and what the board does with it. */
     uint8_t image[1024];
@@ -261,6 +265,27 @@ static bool board_save_writers(void *ctx, const uint8_t *buf, size_t len) {
     return true;
 }
 
+static size_t board_load_card(void *ctx, size_t place, uint8_t *buf, size_t cap) {
+    struct board *b = ctx;
+    if (b->card_len[place] > cap) {
+        return 0;
+    }
+    memcpy(buf, b->cards[place], b->card_len[place]);
+    return b->card_len[place];
+}
+
+static bool board_save_card(void *ctx, size_t place, const uint8_t *buf, size_t len) {
+    struct board *b = ctx;
+    if (b->save_fails || len > LINK_CARD_SAVED_MAX || (len > 0 && b->no_room_for_cards)) {
+        return false;
+    }
+    if (len > 0) {
+        memcpy(b->cards[place], buf, len);
+    }
+    b->card_len[place] = len;
+    return true;
+}
+
 static size_t board_load_message(void *ctx, size_t place, uint8_t *buf, size_t cap) {
     struct board *b = ctx;
     if (b->message_len[place] > cap) {
@@ -382,6 +407,8 @@ static void start(void) {
         .save_count = board_save_count,
         .load_writers = board_load_writers,
         .save_writers = board_save_writers,
+        .load_card = board_load_card,
+        .save_card = board_save_card,
         .load_message = board_load_message,
         .save_message = board_save_message,
         .load_state = board_load_state,
@@ -694,6 +721,139 @@ static void cards_are_the_newest_from_each(void) {
     memcpy(board.view.address, dave.address, TERN_ADDRESS_LEN);
     tern_identity_wipe(&dave);
     CHECK(dave_card(9, TERN_S(202)) == TERN_CARD_REFUSED);
+}
+
+/* A saved card's u32, as link.c writes what it saves: least significant byte first. */
+static uint32_t get_u32(const uint8_t *p) {
+    return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
+}
+
+/* The place Dave's card is held in, or LINK_CARDS if none holds it. */
+static size_t daves_place(void) {
+    struct tern_identity dave;
+    tern_identity_init(&dave, dave_seed);
+    size_t at = LINK_CARDS;
+    for (size_t k = 0; k < LINK_CARDS; k++) {
+        if (companion.card_places[k].held &&
+            memcmp(companion.card_places[k].address, dave.address, TERN_ADDRESS_LEN) == 0) {
+            at = k;
+        }
+    }
+    tern_identity_wipe(&dave);
+    return at;
+}
+
+static void set_time_at(tern_time now, uint32_t time) {
+    request_at(now, &(struct tern_companion_msg){.type = TERN_C_SET_TIME, .seq = 9, .time = time});
+}
+
+/* A card held is saved, and a restart holds it again, with its name and number: so the same card
+ * again is old news. Once a client sets the clock it is as old as its time says. */
+static void cards_are_kept_across_a_restart(void) {
+    start();
+    board.clock = 1790000000;
+    CHECK(dave_card(4, TERN_S(100)) == TERN_CARD_ACCEPTED);
+    size_t at = daves_place();
+    CHECK(at < LINK_CARDS);
+    CHECK_EQ_U64(board.card_len[at], LINK_CARD_SAVED_HEAD + sizeof dave_says - 1);
+
+    restart();
+    at = daves_place();
+    CHECK(at < LINK_CARDS);
+    CHECK_EQ_U64(companion.card_places[at].number, 4);
+    CHECK_EQ_U64(companion.card_places[at].name_len, sizeof dave_says - 1);
+    CHECK(memcmp(companion.card_places[at].name, dave_says, sizeof dave_says - 1) == 0);
+    CHECK(dave_card(4, TERN_S(5)) == TERN_CARD_OLD);
+
+    /* An hour later by the clock a client gives it: heard an hour before now, and news. */
+    hello();
+    request_at(TERN_S(5), &(struct tern_companion_msg){.type = TERN_C_SYNC, .seq = 2});
+    set_time_at(TERN_S(6), 1790000000 + 3600);
+    CHECK_EQ_I64(companion.card_places[at].heard, TERN_S(6) - TERN_S(3600));
+    CHECK_EQ_I64(sent(0).type, TERN_C_OK);
+    CHECK_EQ_I64(sent(1).type, TERN_C_CARD);
+    CHECK_EQ_U64(sent(1).heard, 3600);
+
+    /* Setting the clock again changes nothing. */
+    set_time_at(TERN_S(7), 1790000000 + 3601);
+    CHECK_EQ_U64(board.n_out, 1);
+}
+
+/* A card that turns out, once the clock is set, to be older than CARD_KEPT is forgotten, from
+ * flash too. */
+static void a_card_older_than_kept_is_forgotten_when_the_clock_is_set(void) {
+    start();
+    board.clock = 1790000000;
+    CHECK(dave_card(4, TERN_S(100)) == TERN_CARD_ACCEPTED);
+    restart();
+    size_t at = daves_place();
+    hello();
+    request_at(TERN_S(5), &(struct tern_companion_msg){.type = TERN_C_SYNC, .seq = 2});
+    set_time_at(TERN_S(6), 1790000000 + 25 * 3600);
+    CHECK(!companion.card_places[at].held);
+    CHECK_EQ_U64(board.card_len[at], 0);
+    CHECK_EQ_I64(sent(1).type, TERN_C_CARD_GONE);
+}
+
+/* A card heard before any client set the clock is dated once one does, and saved so; one saved
+ * with no date at all is held as heard at the restart, for CARD_KEPT. */
+static void a_card_heard_without_a_clock_is_dated_later_or_held_from_the_restart(void) {
+    start();
+    CHECK(dave_card(4, TERN_S(100)) == TERN_CARD_ACCEPTED);
+    size_t at = daves_place();
+    CHECK_EQ_U64(get_u32(board.cards[at] + 6), 0);
+    hello();
+    set_time_at(TERN_S(160), 1790000000);
+    CHECK_EQ_U64(get_u32(board.cards[at] + 6), 1790000000 - 60);
+
+    /* Undated: the same card, saved before the clock was set, and a restart. */
+    board.cards[at][6] = board.cards[at][7] = board.cards[at][8] = board.cards[at][9] = 0;
+    restart();
+    hello();
+    set_time_at(TERN_S(6), 1790000000 + 30 * 3600);
+    CHECK(companion.card_places[at].held);
+    CHECK_EQ_I64(companion.card_places[at].heard, 0);
+    link_tick(&companion, TERN_CARD_KEPT + TERN_S(1));
+    CHECK(!companion.card_places[at].held);
+    CHECK_EQ_U64(board.card_len[at], 0);
+}
+
+/* A card forgotten for not being heard again is taken out of flash; one there is no room for is
+ * not saved, and what its place held before is not kept either. */
+static void cards_leave_flash_with_the_node(void) {
+    start();
+    board.clock = 1790000000;
+    CHECK(dave_card(4, TERN_S(100)) == TERN_CARD_ACCEPTED);
+    size_t at = daves_place();
+    link_tick(&companion, TERN_S(100) + TERN_CARD_KEPT);
+    CHECK(!companion.card_places[at].held);
+    CHECK_EQ_U64(board.card_len[at], 0);
+
+    CHECK(dave_card(5, TERN_S(200)) == TERN_CARD_ACCEPTED);
+    at = daves_place();
+    CHECK(board.card_len[at] > 0);
+    board.no_room_for_cards = true;
+    CHECK(dave_card(6, TERN_S(300)) == TERN_CARD_ACCEPTED);
+    CHECK_EQ_U64(board.card_len[at], 0);
+    restart();
+    CHECK_EQ_U64(daves_place(), LINK_CARDS);
+}
+
+/* What flash holds that is not a card, or a second card from an address, is let go of. */
+static void a_malformed_saved_card_is_let_go_of(void) {
+    start();
+    board.clock = 1790000000;
+    CHECK(dave_card(4, TERN_S(100)) == TERN_CARD_ACCEPTED);
+    size_t at = daves_place();
+    size_t other = at == 0 ? 1 : 0;
+    memcpy(board.cards[other], board.cards[at], board.card_len[at]);
+    board.card_len[other] = board.card_len[at];
+    board.cards[at][0] = 9; /* a version not known */
+    restart();
+    CHECK(!companion.card_places[at].held);
+    CHECK_EQ_U64(board.card_len[at], 0);
+    CHECK(companion.card_places[other].held);
+    CHECK_EQ_U64(board.card_len[other], LINK_CARD_SAVED_HEAD + sizeof dave_says - 1);
 }
 
 /* --- Positions -------------------------------------------------------------------------------- */
@@ -2651,6 +2811,11 @@ int main(void) {
     RUN(the_more_recent_fix_is_the_nodes);
     RUN(the_receivers_fix_is_shared);
     RUN(cards_are_the_newest_from_each);
+    RUN(cards_are_kept_across_a_restart);
+    RUN(a_card_older_than_kept_is_forgotten_when_the_clock_is_set);
+    RUN(a_card_heard_without_a_clock_is_dated_later_or_held_from_the_restart);
+    RUN(cards_leave_flash_with_the_node);
+    RUN(a_malformed_saved_card_is_let_go_of);
     RUN(an_older_client_is_not_told_who_asked);
     RUN(an_older_client_is_told_no_positions);
     RUN(a_position_goes_when_due_and_one_at_a_time);
