@@ -1,0 +1,147 @@
+/*
+ * The Seeed SenseCAP T1000-E, a Zephyr board of this port's own, since Zephyr has none. Seeed
+ * publishes no schematic; everything here is from two Seeed sources, which agree on every pin:
+ *
+ *   SDK   Seeed-Tracker-T1000-E-for-LoRaWAN-dev-board: smtc_hal/inc/smtc_hal_config.h for the
+ *         pins, t1000_e/LR11XX/smtc_shield_lr11xx/common/src/smtc_shield_lr11x0_common.c for the
+ *         radio's antenna switch, TCXO and regulator, t1000_e/peripherals/src/sensor.c and
+ *         smtc_hal/src/smtc_hal_adc.c for the battery
+ *   core  Seeed's Adafruit_nRF52_Arduino, variants/Seeed_Tracker_T1000_E_LoRaWAN, and boards.txt
+ *         for its bootloader
+ *
+ * The radio is an LR1110 on SPI (SCK P0.11, MOSI P1.09, MISO P1.08, NSS P0.12), with BUSY on
+ * P0.07, NRESET on P1.10 and DIO9 on P1.01. It is driven by Tern's own driver (src/lr11xx.c), so
+ * the node is disabled for Zephyr, which has no LR1110 driver anyway.
+ *
+ *  - Antenna switch: DIO5 to DIO8, as the SDK sets SetDioAsRfSwitch: DIO5 and DIO8 to receive,
+ *    DIO5, DIO6 and DIO8 to send from the low-power amplifier, DIO6 and DIO8 from the high-power
+ *    one, none in standby. DIO7 is the GNSS path's, held low here since that is not driven.
+ *  - TCXO: 1.8 V from VTCXO. Seeed's three sources disagree: its wiki says 1.6 V, its Arduino core
+ *    1.8 V, its SDK 3.0 V. 1.8 V was tried first, as the lower of the two from code, and settled it
+ *    on a board (16 November 2026): first contact and messages both ways with a Heltec T114, each
+ *    acknowledged the first time, at 10 to 14 dB SNR. CONFIG_TERN_TCXO_MV tries another (Kconfig).
+ *  - The DC-DC regulator, and both amplifiers: the SDK's power table goes from -17 dBm on the
+ *    low-power one to +22 dBm on the high-power one.
+ *
+ * The button is on P0.06, high when pressed ("must be configured as input_pulldown", core); the
+ * LEDs, green P0.24 and red P0.03, light when high (core, LED_STATE_ON 1). The battery is on AIN0
+ * (P0.02) through an even divider (the SDK doubles what it reads) that P1.06 powers, high on, with
+ * the light and temperature sensors.
+ *
+ * Not driven yet: the AG3335 satellite receiver (UART P0.13/P0.14, power P1.11), the
+ * accelerometer, the buzzer, and the QSPI flash.
+ */
+
+/dts-v1/;
+#include <nordic/nrf52840_qiaa.dtsi>
+#include <nordic/nrf52840_partition_uf2_sdv7.dtsi>
+#include <zephyr/dt-bindings/input/input-event-codes.h>
+#include "t1000_e-pinctrl.dtsi"
+
+/ {
+	model = "Seeed SenseCAP T1000-E";
+	compatible = "seeed,t1000-e";
+
+	aliases {
+		led0 = &green_led;
+		led1 = &red_led;
+		sw0 = &button0;
+	};
+
+	leds {
+		compatible = "gpio-leds";
+
+		green_led: led_0 {
+			gpios = <&gpio0 24 GPIO_ACTIVE_HIGH>;
+			label = "Green LED";
+		};
+
+		red_led: led_1 {
+			gpios = <&gpio0 3 GPIO_ACTIVE_HIGH>;
+			label = "Red LED";
+		};
+	};
+
+	buttons {
+		compatible = "gpio-keys";
+
+		button0: button_0 {
+			gpios = <&gpio0 6 (GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN)>;
+			label = "Button";
+			zephyr,code = <INPUT_KEY_0>;
+		};
+	};
+
+	vbatt: vbatt {
+		compatible = "voltage-divider";
+		io-channels = <&adc 0>;
+		/* Even, as the SDK reads it; its resistors are not published, only that ratio. */
+		output-ohms = <1>;
+		full-ohms = <2>;
+		power-gpios = <&gpio1 6 GPIO_ACTIVE_HIGH>;
+	};
+};
+
+&gpiote {
+	status = "okay";
+};
+
+&gpio0 {
+	status = "okay";
+};
+
+&gpio1 {
+	status = "okay";
+};
+
+&adc {
+	status = "okay";
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	channel@0 {
+		reg = <0>;
+		/* As the SDK sets it: a gain of 1/5 on the 0.6 V reference, 3 V full scale, and 40 us to
+		 * sample through the divider. */
+		zephyr,gain = "ADC_GAIN_1_5";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,acquisition-time = <ADC_ACQ_TIME(ADC_ACQ_TIME_MICROSECONDS, 40)>;
+		zephyr,input-positive = <NRF_SAADC_AIN0>;
+		zephyr,resolution = <12>;
+	};
+};
+
+&spi3 {
+	compatible = "nordic,nrf-spim";
+	status = "okay";
+	cs-gpios = <&gpio0 12 GPIO_ACTIVE_LOW>;
+	pinctrl-0 = <&spi3_default>;
+	pinctrl-1 = <&spi3_sleep>;
+	pinctrl-names = "default", "sleep";
+
+	lora: lora@0 {
+		compatible = "semtech,lr1110";
+		status = "disabled";
+		reg = <0>;
+		spi-max-frequency = <DT_FREQ_M(8)>;
+		reset-gpios = <&gpio1 10 GPIO_ACTIVE_LOW>;
+		busy-gpios = <&gpio0 7 GPIO_ACTIVE_HIGH>;
+		irq-gpios = <&gpio1 1 GPIO_ACTIVE_HIGH>;
+		lf-clk = "XTAL";
+		tcxo-voltage = <1800>;
+		use-dcdc;
+		hp-pa;
+		/* Bits 0 to 3 are DIO5 to DIO8. */
+		rfsw-enable = <0x0f>;
+		rfsw-standby = <0x00>;
+		rfsw-rx = <0x09>;
+		rfsw-tx = <0x0b>;
+		rfsw-tx-hp = <0x0a>;
+	};
+};
+
+zephyr_udc0: &usbd {
+	status = "okay";
+};
+
+#include <../boards/common/usb/cdc_acm_serial.dtsi>

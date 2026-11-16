@@ -1,0 +1,6 @@
+board:
+  name: t1000_e
+  full_name: Seeed SenseCAP T1000-E
+  vendor: seeed
+  socs:
+    - name: nrf52840

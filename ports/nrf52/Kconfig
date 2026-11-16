@@ -9,6 +9,7 @@ menu "Tern demo"
         default "heltec-t114" if BOARD_HELTEC_T114_V2
         default "rak4631" if BOARD_RAK4631
         default "wio-tracker-l1" if BOARD_WIO_TRACKER_L1
+        default "t1000-e" if BOARD_T1000_E
         help
             The name a client finds an image by: tern-<name>-<region>-<version>.
 
@@ -17,16 +18,28 @@ menu "Tern demo"
         default "Heltec Mesh Node T114" if BOARD_HELTEC_T114_V2
         default "RAKwireless RAK4631" if BOARD_RAK4631
         default "Seeed Wio Tracker L1" if BOARD_WIO_TRACKER_L1
+        default "Seeed SenseCAP T1000-E" if BOARD_T1000_E
         help
             The board's name, as its maker sells it.
 
     config TERN_BUTTON_NAME
         string
         default "USER" if BOARD_HELTEC_T114_V2
+        default "KEY" if BOARD_T1000_E
         default "PRG"
         help
             What the board's button is marked, as its user looks for it, at most four
             characters. A board with no button (sw0) has none, whatever this says.
+
+    config TERN_TCXO_MV
+        int "The radio's TCXO voltage, in millivolts (0: the board's)"
+        default 0
+        help
+            For trying a board whose TCXO voltage its maker's documents disagree on, such as the
+            T1000-E's: the voltage the radio gives its TCXO, 1600, 1700, 1800, 2200, 2400, 2700,
+            3000 or 3300, in place of what the board's devicetree says. 0 keeps the
+            devicetree's. A voltage above what the TCXO is rated for can harm it, so try the
+            lowest first.
 
     rsource "../node/Kconfig.tern"
 

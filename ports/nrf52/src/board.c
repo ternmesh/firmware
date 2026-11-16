@@ -2,6 +2,7 @@
 
 #include <string.h>
 
+#include <hal/nrf_power.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/adc.h>
 #include <zephyr/drivers/display.h>
@@ -14,18 +15,22 @@
 
 #include "power.h"
 #include "tern/err.h"
+#include "tern/lr11xx.h"
 #include "tern/sx126x.h"
 
-/* An nRF52840 board wired to an SX1262, read from its devicetree: Zephyr's board for it, and this
- * port's overlay on it in boards/, which says what Zephyr's does not or overrides it where the
- * maker's documents disagree. So a board Zephyr has is an overlay and a line in Kconfig, not code
- * here. From the devicetree:
+/* An nRF52840 board wired to an SX1262 or an LR1110, read from its devicetree: Zephyr's board for
+ * it, or this port's own (boards/<vendor>/), and this port's overlay on it in boards/, which says
+ * what Zephyr's does not or overrides it where the maker's documents disagree. So a board Zephyr
+ * has is an overlay and a line in Kconfig, not code here. From the devicetree:
  *
  *   lora                 the SX1262 node (semtech,sx1262): its bus, reset-gpios, busy-gpios, its
  *                        TCXO's voltage (dio3-tcxo-voltage) and whether DIO2 drives the antenna
  *                        switch (dio2-tx-enable). Its antenna-enable-gpios, if it has them, are on
  *                        while the radio is, and its rx-enable-gpios and tx-enable-gpios while it
  *                        receives and while it sends, as Zephyr's own driver drives them.
+ *                        Or an LR1110 (semtech,lr1110, dts/bindings/): its bus, reset-gpios,
+ *                        busy-gpios, tcxo-voltage, use-dcdc, the rfsw-* masks of the DIOs that
+ *                        drive its antenna switch, and hp-pa.
  *   sw0, led0            the button and the LED, if the board has them
  *   zephyr,display       the screen, if it has one: a 128x64 monochrome panel whose memory is in
  *                        pages (the SSD1306 or SH1106), or a colour one the picture is drawn into
@@ -66,25 +71,43 @@ static const struct gpio_dt_spec battery_switch = GPIO_DT_SPEC_GET_OR(VBATT, pow
 #define DIVIDER_OUTPUT DT_PROP(VBATT, output_ohms)
 #endif
 
-/* The TCXO's supply from DIO3, in millivolts, from Zephyr's code for it (dt-bindings/lora/
- * sx126x.h), or 0 for a crystal. */
+#define LR11XX DT_NODE_HAS_COMPAT(LORA, semtech_lr1110)
+
+/* The TCXO's supply, in millivolts, or 0 for a crystal: the LR1110's as its devicetree gives it,
+ * the SX1262's from DIO3 by Zephyr's code for it (dt-bindings/lora/sx126x.h), unless
+ * CONFIG_TERN_TCXO_MV says another for the bench. */
+#if LR11XX
+#define DT_TCXO_MV DT_PROP(LORA, tcxo_voltage)
+#elif DT_NODE_HAS_PROP(LORA, dio3_tcxo_voltage)
 static const uint16_t tcxo_mv[] = {1600, 1700, 1800, 2200, 2400, 2700, 3000, 3300};
-#if DT_NODE_HAS_PROP(LORA, dio3_tcxo_voltage)
-#define TCXO_MV tcxo_mv[DT_PROP(LORA, dio3_tcxo_voltage)]
+#define DT_TCXO_MV tcxo_mv[DT_PROP(LORA, dio3_tcxo_voltage)]
 #else
-#define TCXO_MV 0
+#define DT_TCXO_MV 0
 #endif
+#define TCXO_MV (CONFIG_TERN_TCXO_MV != 0 ? CONFIG_TERN_TCXO_MV : DT_TCXO_MV)
 
 #define BATTERY_SETTLE_US 2000
 #define BATTERY_SAMPLES 16
 #define BUSY_TIMEOUT_US 100000
 
+#if LR11XX
+/* The LR1110's low-power amplifier from -17 dBm, and its high-power one to +22 if the antenna is
+ * reached from it, else the low-power one's +14 (tern/lr11xx.h). */
+#define POWER_MIN_DBM (-17)
+#define POWER_MAX_DBM (DT_PROP(LORA, hp_pa) ? 22 : 14)
+/* After NRESET, the chip starts its firmware: about 240 ms (tern/lr11xx.h). */
+#define RADIO_START_MS 250
+static struct tern_lr11xx lr;
+#else
 #define POWER_MIN_DBM (-9) /* the SX1262's high-power amplifier */
 #define POWER_MAX_DBM 22
+#define RADIO_START_MS 10
+static struct tern_sx126x sx;
+#endif
 
 static struct power_sense sense;
 static bool have_adc;
-static struct tern_sx126x sx;
+static bool radio_started; /* its driver has been given the bus */
 
 /* Sets a line the board may not have. */
 static void set(const struct gpio_dt_spec *g, int value) {
@@ -137,16 +160,31 @@ int board_init(void) {
         !output(&lora_ant, GPIO_OUTPUT_ACTIVE)) {
         return TERN_EIO;
     }
-    /* Hold NRESET low for over 100 us (section 8.1), then let the chip start. */
+    /* Hold NRESET low for over 100 us (SX1262 section 8.1, LR1121 page 22), then let the chip
+     * start. */
     gpio_pin_set_dt(&lora_reset, 1);
     k_busy_wait(1000);
     gpio_pin_set_dt(&lora_reset, 0);
-    k_busy_wait(10000);
+    k_busy_wait(RADIO_START_MS * 1000);
 
+    radio_started = true;
+#if LR11XX
+    struct tern_lr11xx_bus lb = {.ctx = NULL, .transfer = bus_transfer, .now = bus_now};
+    struct tern_lr11xx_board wiring = {.tcxo_mv = TCXO_MV,
+                                       .dcdc = DT_PROP(LORA, use_dcdc),
+                                       .rf_switch = {.enable = DT_PROP(LORA, rfsw_enable),
+                                                     .standby = DT_PROP(LORA, rfsw_standby),
+                                                     .rx = DT_PROP(LORA, rfsw_rx),
+                                                     .tx = DT_PROP(LORA, rfsw_tx),
+                                                     .tx_hp = DT_PROP(LORA, rfsw_tx_hp)},
+                                       .hp_pa = DT_PROP(LORA, hp_pa)};
+    return tern_lr11xx_init(&lr, &lb, &wiring);
+#else
     struct tern_sx126x_bus sb = {.ctx = NULL, .transfer = bus_transfer, .now = bus_now};
     struct tern_sx126x_board wiring = {
         .tcxo_mv = TCXO_MV, .dio2_rf_switch = DT_PROP(LORA, dio2_tx_enable), .dcdc = true};
     return tern_sx126x_init(&sx, &sb, &wiring);
+#endif
 }
 
 /* A board whose antenna switch has lines of its own (rx-enable-gpios, tx-enable-gpios) is driven
@@ -211,29 +249,43 @@ static const struct tern_radio_ops sw_ops = {
 };
 
 struct tern_radio board_radio(void) {
+#if LR11XX
+    chip = tern_lr11xx_radio(&lr);
+#else
     chip = tern_sx126x_radio(&sx);
+#endif
     if (lora_rx.port == NULL && lora_tx.port == NULL) {
         return chip;
     }
     return (struct tern_radio){.ops = &sw_ops, .ctx = NULL};
 }
 
+#if LR11XX
+#define COUNTS lr.counts
+#else
+#define COUNTS sx.counts
+#endif
+
 void board_radio_counts(struct board_radio_counts *c) {
-    *c = (struct board_radio_counts){.preambles = sx.counts.preambles,
-                                     .headers = sx.counts.headers,
-                                     .header_errors = sx.counts.header_errors,
-                                     .crc_errors = sx.counts.crc_errors,
-                                     .frames = sx.counts.frames};
+    *c = (struct board_radio_counts){.preambles = COUNTS.preambles,
+                                     .headers = COUNTS.headers,
+                                     .header_errors = COUNTS.header_errors,
+                                     .crc_errors = COUNTS.crc_errors,
+                                     .frames = COUNTS.frames};
 }
 
-void board_radio_counts_reset(void) { sx.counts = (struct tern_sx126x_counts){0}; }
+void board_radio_counts_reset(void) { memset(&COUNTS, 0, sizeof COUNTS); }
 
 void board_radio_sleep(void) {
-    if (sx.bus.transfer == NULL) {
+    if (!radio_started) {
         (void)board_init();
     }
-    if (sx.bus.transfer != NULL) {
+    if (radio_started) {
+#if LR11XX
+        (void)tern_lr11xx_sleep(&lr);
+#else
         (void)tern_sx126x_sleep(&sx);
+#endif
     }
     switch_to(false, false);
     set(&lora_ant, 0);
@@ -583,7 +635,29 @@ bool board_gnss_read(uint8_t *c) {
 /* USB CDC ACM, which the board makes its console: printf() goes there too. */
 bool board_console_init(void) { return device_is_ready(console); }
 
-bool board_console_read(uint8_t *c) { return uart_poll_in(console, c) == 0; }
+/* The bootloader these boards ship with, Adafruit's (Adafruit_nRF52_Bootloader, src/main.c), opens
+ * when it starts with this in GPREGRET, rather than starting the image: over USB, as a serial port
+ * for DFU and, where it has one, a drive for UF2. */
+#define DFU_MAGIC_UF2_RESET 0x57
+
+/* A computer asks for the bootloader as it does of the Arduino boards: it opens the console at
+ * 1200 baud and closes it, so the line is at 1200 with DTR dropped (the "1200 bps touch", Seeed's
+ * and Adafruit's boards.txt use_1200bps_touch). The board then restarts into the bootloader, its
+ * drive appears, and an image is put on it without a button: by copying a UF2 file on, or over
+ * serial DFU (flash.sh). A console that is not USB never says 1200. */
+static void bootloader_touch(void) {
+    uint32_t baud = 0, dtr = 1;
+    if (uart_line_ctrl_get(console, UART_LINE_CTRL_BAUD_RATE, &baud) == 0 && baud == 1200 &&
+        uart_line_ctrl_get(console, UART_LINE_CTRL_DTR, &dtr) == 0 && dtr == 0) {
+        nrf_power_gpregret_set(NRF_POWER, 0, DFU_MAGIC_UF2_RESET);
+        sys_reboot(SYS_REBOOT_COLD);
+    }
+}
+
+bool board_console_read(uint8_t *c) {
+    bootloader_touch();
+    return uart_poll_in(console, c) == 0;
+}
 
 void board_console_write(const uint8_t *buf, size_t len) {
     for (size_t i = 0; i < len; i++) {

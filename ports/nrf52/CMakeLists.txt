@@ -3,6 +3,8 @@
 #
 #   west build -b heltec_t114_v2/nrf52840/uf2 ports/nrf52
 cmake_minimum_required(VERSION 3.20.0)
+# Boards Zephyr has not got are this port's own, in boards/<vendor>/<board>/ (the T1000-E).
+list(APPEND BOARD_ROOT ${CMAKE_CURRENT_SOURCE_DIR})
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(tern-nrf52 C)
 

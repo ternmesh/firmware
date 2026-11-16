@@ -18,9 +18,10 @@ between the core and a port is [architecture.md](architecture.md); this is about
 | LilyGo T-Beam V1.0, V1.1 (AXP192) and V1.2 (AXP2101), 868/915 MHz | ESP32 | SX1276 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board; its GPS gives the node its fix |
 | LilyGo LoRa32 T3 V1.6.1 (868/915 MHz) | ESP32 | SX1276 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board; no user button, so it turns off only when its battery runs down or a client turns it off |
 | LilyGo T3-S3 V1.2, V1.3 with an SX1276 (868/915 MHz) | ESP32-S3 | SX1276 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board |
-| Heltec Mesh Node T114 V2 | nRF52840 | SX1262 | [`ports/nrf52/`](../ports/nrf52/) | Built, not yet run on a board |
+| Heltec Mesh Node T114 V2 | nRF52840 | SX1262 | [`ports/nrf52/`](../ports/nrf52/) | Built; on a board, it starts and makes contact with another, and messages both ways are acknowledged (steps 1 and 4 of bringing it up) |
 | RAKwireless RAK4631 (on a RAK19007 or RAK19003) | nRF52840 | SX1262 | [`ports/nrf52/`](../ports/nrf52/) | Built, not yet run on a board; no user button |
 | Seeed Wio Tracker L1, L1 Lite | nRF52840 | SX1262 | [`ports/nrf52/`](../ports/nrf52/) | Built, not yet run on a board |
+| Seeed SenseCAP T1000-E | nRF52840 | LR1110 | [`ports/nrf52/`](../ports/nrf52/) | Built; on a board, it starts and makes contact with another, and messages both ways are acknowledged (steps 1 and 4 of bringing it up); no screen |
 
 A board is **Runs** once someone has flashed a release onto one and checked it as
 [below](#bringing-a-board-up), and **Built** until then: CI builds its images, and nothing has
@@ -115,7 +116,7 @@ goes a family or a radio at a time, and each one brings a crowd of boards with i
 | ESP32 (classic) + SX1276 | Heltec V2, V2.1, Wireless Stick; LilyGo T3 V1.6.1, LoRa32 V1.3, T-Beam to v1.2 | A row each | Port builds for it: V2, V2.1, T3 V1.6.1 and T-Beam built |
 | nRF52840 + SX1262 | Heltec T114, Mesh Pocket; RAK4631 and the WisMesh devices on it; Seeed Wio Tracker L1, XIAO nRF52840 kit; LilyGo T-Echo; Elecrow ThinkNode | An overlay each; e-paper for the T-Echo and others | Port exists: T114, RAK4631 and Wio Tracker L1 built |
 | SX1276/SX1278 driver | The boards above, and other boards of before 2022 | A driver in `src/`, beside the SX1262's | Done (`src/sx127x.c`); the SX1278's 433 MHz waits on a region for it |
-| LR1110/LR1121 driver | Seeed SenseCAP T1000-E, Wio Tracker 1110; newer boards | A driver in `src/` | Done (`src/lr11xx.c`), LoRa only; no board uses it yet |
+| LR1110/LR1121 driver | Seeed SenseCAP T1000-E, Wio Tracker 1110; newer boards | A driver in `src/` | Done (`src/lr11xx.c`), LoRa only; the T1000-E uses it |
 | ESP32-C3/C6 | Heltec HT-CT62, and boards built from modules like it | The ESP32 port for another target | Later |
 | RP2040 | RAK11310, Raspberry Pi Pico with a Waveshare SX1262 | A port, on Zephyr as for the nRF52840 | Later |
 | STM32WL | RAK3172, Seeed LoRa-E5 | A port; the radio is in the chip, an SX126x behind registers | Later |
@@ -181,11 +182,12 @@ and the Wio Tracker L1, each an overlay. Next:
 * **The LR1110 and LR1121** are driven (`src/lr11xx.c`, from Semtech's LR1121 user manual and
   its SWDR001 driver), for LoRa; their GNSS and Wi-Fi scanners are not. The boards that carry
   them wait on their makers' documents agreeing:
-  * **Seeed SenseCAP T1000-E**: its pins are in Seeed's SDK for it and its Arduino core, which
-    agree. Its TCXO's voltage does not: Seeed's wiki says 1.6 V, its SDK 3.0 V, its Arduino core
-    1.8 V. Nor does its antenna switch: the SDK drives DIO8 with DIO5 and DIO6, the Arduino core
-    does not. Seeed publishes no schematic, and warns that flashing the wrong firmware can brick
-    it. It waits on Seeed, or on a board to settle both on.
+  * **Seeed SenseCAP T1000-E**: a board of the nRF52 port's own (`ports/nrf52/boards/seeed/
+    t1000_e/`), from Seeed's SDK for it and its Arduino core, which agree on its pins. Its TCXO's
+    voltage, where Seeed's wiki says 1.6 V, its Arduino core 1.8 V and its SDK 3.0 V, and its
+    antenna switch, the SDK's, DIO8 with DIO5 and DIO6, were settled on a board: at 1.8 V it made
+    first contact with a Heltec T114 and exchanged messages both ways, each acknowledged the
+    first time. Seeed publishes no schematic.
   * **Seeed Wio Tracker 1110**: two Seeed sources give its TCXO as 1.8 V and 3.0 V, and none says
     how its battery is read.
 
