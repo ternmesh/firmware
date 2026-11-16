@@ -91,6 +91,7 @@ the air it may use. CI builds an image of each that you can flash from a browser
 | Heltec WiFi LoRa 32 V2 and V2.1, LilyGo LoRa32 T3 V1.6.1 and T-Beam V1.0 to V1.2 (ESP32, SX1276); LilyGo T3-S3 (ESP32-S3, SX1276) | [`ports/esp32/`](ports/esp32/) | Built from their makers' schematics; not yet run on a board. |
 | Heltec Mesh Node T114 V2 (nRF52840, SX1262) | [`ports/nrf52/`](ports/nrf52/) | Built on Zephyr; not yet run on a board. |
 | RAKwireless RAK4631, Seeed Wio Tracker L1 (nRF52840, SX1262) | [`ports/nrf52/`](ports/nrf52/) | Built on Zephyr from their makers' documents; not yet run on a board. |
+| Seeed SenseCAP T1000-E (nRF52840, LR1110) | [`ports/nrf52/`](ports/nrf52/) | Runs: first contact and messages both ways with a Heltec T114. |
 
 A board on a family the firmware has is a row in a table or an overlay; [docs/boards.md](docs/boards.md)
 says how to add one, and the plan for every board Meshtastic and MeshCore run on.

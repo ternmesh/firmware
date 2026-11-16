@@ -1,0 +1,24 @@
+# The LR1110, as this port reads it (src/board.c): Zephyr's properties for the LR11xx family, which
+# it has only for the LR1121, and whether the antenna is reached from the high-power amplifier.
+# Zephyr has no driver for the LR1110; Tern's own (src/lr11xx.c) drives it.
+
+title: Semtech LR1110 LoRa transceiver, with GNSS and Wi-Fi scanners
+
+description: |
+  Semtech LR1110. Only its sub-GHz LoRa modem is driven, by Tern's driver.
+
+compatible: "semtech,lr1110"
+
+include: semtech,lr11xx-base.yaml
+
+properties:
+  reset-gpios:
+    required: true
+  busy-gpios:
+    required: true
+
+  hp-pa:
+    type: boolean
+    description: |
+      The antenna is reached from the high-power amplifier as well as the low-power one, so the
+      radio sends from -17 to +22 dBm. Without it, only the low-power one: -17 to +14 dBm.

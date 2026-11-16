@@ -1,0 +1,21 @@
+/* The LR1110's SPI bus: SCK P0.11, MOSI P1.09, MISO P1.08 (Seeed's SDK, smtc_hal_config.h, and
+ * its Arduino core's variant, which agree). */
+
+&pinctrl {
+	spi3_default: spi3_default {
+		group1 {
+			psels = <NRF_PSEL(SPIM_SCK, 0, 11)>,
+				<NRF_PSEL(SPIM_MOSI, 1, 9)>,
+				<NRF_PSEL(SPIM_MISO, 1, 8)>;
+		};
+	};
+
+	spi3_sleep: spi3_sleep {
+		group1 {
+			psels = <NRF_PSEL(SPIM_SCK, 0, 11)>,
+				<NRF_PSEL(SPIM_MOSI, 1, 9)>,
+				<NRF_PSEL(SPIM_MISO, 1, 8)>;
+			low-power-enable;
+		};
+	};
+};
