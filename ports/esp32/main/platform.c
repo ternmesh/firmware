@@ -312,6 +312,13 @@ uint32_t plat_update_room(void) {
     return spare != NULL ? spare->size : 0;
 }
 
+uint8_t plat_update_how(void) {
+    return plat_update_room() != 0 ? TERN_C_UPDATES_LINK : TERN_C_UPDATES_NONE;
+}
+
+/* The ESP32's bootloader takes no update itself: its firmware does, over the link. */
+void plat_update_by_bootloader(void) { plat_restart(); }
+
 void plat_update_abandon(void) {
     if (update_open) {
         esp_ota_abort(update_handle);

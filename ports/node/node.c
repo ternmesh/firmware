@@ -321,6 +321,9 @@ static tern_time clock_at;
 #define RESTART_NOW 2
 static uint8_t restart_due;
 static bool off_due; /* a client sent OFF: the board turns off once its answer has gone */
+/* A client sent UPDATE_BOOTLOADER: the board restarts into its bootloader once its answer has
+ * gone. */
+static bool bootloader_due;
 static bool have_ble;
 static uint16_t battery_mv;      /* 0 for none, or not read */
 static struct power_watch watch; /* whether the battery charges, or is empty (power.h) */
@@ -488,6 +491,13 @@ static uint8_t link_update_run(void *ctx) {
     }
     printf("the update is whole: restarting into %s\n", version);
     restart_due = RESTART_NOW;
+    return 0;
+}
+
+/* UPDATE_BOOTLOADER: the link has checked that the board updates this way. */
+static uint8_t link_bootloader(void *ctx) {
+    (void)ctx;
+    bootloader_due = true;
     return 0;
 }
 
@@ -2871,10 +2881,33 @@ static void console_text(void *ctx, uint8_t c) {
 }
 
 __attribute__((noreturn)) static void turn_off(enum ui_off why);
+static void present(struct scene *sc);
+static void screen_flush(void);
 
 /* A setting that takes a restart is applied once its answer has gone: out of the console, and given
  * a moment to leave as a notification. OFF is the same, but for what the board does after. */
 static void restart_if_due(void) {
+    if (bootloader_due) {
+        link_group_heard(&companion);
+        (void)link_keep_writers(&companion);
+        printf("a client asked for an update: restarting into the bootloader, which takes it over "
+               "Bluetooth\n");
+        fflush(stdout);
+        board_console_flush(500);
+        /* As for OFF: the answer is the one frame the client must have before the link drops. */
+        if (have_ble && !ble_flush(5000)) {
+            printf("bluetooth: the answer to UPDATE_BOOTLOADER may not have reached the client\n");
+        }
+        if (have_screen) {
+            SCENE(sc);
+            ui_bootloader(sc);
+            present(sc);
+            screen_flush();
+            board_screen_show(true);
+        }
+        plat_sleep_ms(200);
+        plat_update_by_bootloader();
+    }
     if (off_due) {
         link_group_heard(&companion);
         (void)link_keep_writers(&companion);
@@ -4145,11 +4178,18 @@ void node_main(void) {
         .update_write = link_update_write,
         .update_run = link_update_run,
         .off = link_off,
+        .bootloader = link_bootloader,
     };
-    uint32_t room = plat_update_room();
-    if (room != 0) {
+    host.updates = plat_update_how();
+    printf("%s\n", host.updates == TERN_C_UPDATES_LINK
+                       ? "a client can update this board over the link"
+                   : host.updates == TERN_C_UPDATES_BOOTLOADER
+                       ? "a client can update this board by its bootloader, over Bluetooth"
+                       : "this board is updated over USB: its bootloader takes no update a client "
+                         "can count on");
+    if (host.updates != TERN_C_UPDATES_NONE) {
         host.board = BOARD;
-        host.update_room = room;
+        host.update_room = plat_update_room();
     }
     host.release = CONFIG_TERN_VERSION;
     link_init(&companion, &host);

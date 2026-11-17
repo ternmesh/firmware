@@ -18,6 +18,7 @@
     python3 tools/companion.py --port /dev/ttyUSB0 position <lat> <lon>
     python3 tools/companion.py --port /dev/ttyUSB0 share <address or group> <precision>
     python3 tools/companion.py --port /dev/ttyUSB0 update tern-heltec-v3-eu868-0.2.0-app.bin
+    python3 tools/companion.py --port /dev/ttyACM0 update tern-heltec-t114-us915-0.6.0.zip
     python3 tools/companion.py --port /dev/ttyUSB0 off
     python3 tools/companion.py selftest tests/vectors/companion.json
 
@@ -35,7 +36,9 @@ speaks version 1 and is told of messages only: `--speak 8 watch` is told of all 
 `set receiver 0` turns off the node's satellite receiver, if it has one, and `set receiver 1` turns
 it on again; `state` prints the node's fix, whether its receiver's or the last a client gave.
 `update` gives the node a new image of its firmware, going on from where the node's bytes end if
-it was given part of the same image before, and the node restarts into it.
+it was given part of the same image before, and the node restarts into it. A node whose bootloader
+takes its updates, as an nRF52840 board's does, is asked to restart into it, and the release's
+`.zip` goes to the bootloader over Bluetooth (tools/ble_dfu.py, which needs bleak).
 `off` turns the node off; nothing on the port turns it on again, only its own button.
 While it waits for news it sends PING every IDLE seconds, as the specification asks, and if the
 node took it for gone anyway, it says HELLO again and syncs what it missed.
@@ -64,7 +67,7 @@ MAX_FRAME, MAGIC = 180, b"\xf5\x54"
 # version brought; `--speak` says another, so that `watch` is told of groups, positions or cards.
 VERSION = 1
 # The latest version the frames below are, which selftest reads the vectors by.
-LATEST = 11
+LATEST = 12
 # SET 4's value for the node's default passkey: a new one on its screen each time, or 123456 on a
 # node without one.
 PASSKEY_DEFAULT = 0xFFFFFFFF
@@ -107,9 +110,11 @@ FRAMES = {
                      ("minutes", "H")]),
     0x35: ("SHARE_GROUP", [("group", "gid"), ("precision", "B"), ("fields", "B"),
                            ("interval", "H"), ("minutes", "H")]),
+    0x36: ("UPDATE_BOOTLOADER", []),
     0x40: ("OK", []),
     0x41: ("ERROR", [("code", "B")]),
-    0x42: ("INFO", [("version", "B"), ("firmware", "str"), ("board", "str"), ("release", "str")]),
+    0x42: ("INFO", [("version", "B"), ("firmware", "str"), ("board", "str"), ("release", "str"),
+                    ("update", "B")]),
     0x43: ("SYNCED", [("news", "B")]),
     0x44: ("QUEUED", [("id", "I")]),
     0x45: ("MADE", [("group", "gid")]),
@@ -152,7 +157,7 @@ FRAMES = {
 }
 # Fields a later version added at the end of a frame: an earlier version's frame stops before them.
 LATER = {(0x43, "news"): 3, (0x42, "board"): 4, (0x42, "release"): 4, (0x80, "cards"): 6,
-         (0x80, "card_name"): 6, (0x80, "most"): 10, (0x80, "pairing"): 11}
+         (0x80, "card_name"): 6, (0x80, "most"): 10, (0x80, "pairing"): 11, (0x42, "update"): 12}
 BYTES = {"addr": 32, "gid": 8, "digest": 32}
 TYPE = {name: t for t, (name, _) in FRAMES.items()}
 SETTINGS = {1: ("region", "str"), 2: ("role", "B"), 3: ("power", "b"), 4: ("passkey", "I"),
@@ -580,6 +585,19 @@ def update(node, info, path):
     twice. UPDATE_END is not sent again: the node may be restarting into the image."""
     if info["version"] < 4:
         raise SystemExit("this node's firmware is too old to be updated over this link")
+    if info.get("update") == 2:
+        # Its bootloader takes the image, over Bluetooth (tools/ble_dfu.py): asked here, it
+        # restarts into it, and the link drops.
+        if not path.endswith(".zip"):
+            raise SystemExit(f"{info['board']} takes the release's .zip, over Bluetooth")
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import ble_dfu  # noqa: PLC0415
+
+        print(f"updating {info['board']} from {info['release'] or 'an unknown release'}, by its "
+              f"bootloader over Bluetooth")
+        node.request("UPDATE_BOOTLOADER")
+        ble_dfu.update(path)
+        return
     if not info["board"]:
         raise SystemExit("this node cannot be updated over this link: flash it over USB")
     image = open(path, "rb").read()
@@ -822,7 +840,9 @@ def main():
     w = sub.add_parser("watch")
     w.add_argument("--seconds", type=float, help="stop after this long (default: never)")
     u = sub.add_parser("update")
-    u.add_argument("image", help="the firmware's -app.bin image for this node's board and region")
+    u.add_argument("image", help="the release's image for this node's board and region: its "
+                   "-app.bin for an ESP32 board, its .zip for an nRF52840 one, which goes over "
+                   "Bluetooth")
     sub.add_parser("off", help="turn the node off; only its own button turns it on again")
     x = sub.add_parser("selftest")
     x.add_argument("vectors")

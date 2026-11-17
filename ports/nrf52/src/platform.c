@@ -5,6 +5,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <hal/nrf_power.h>
+#include <zephyr/devicetree.h>
 #include <zephyr/kernel.h>
 #include <zephyr/kvss/nvs.h>
 #include <zephyr/random/random.h>
@@ -379,6 +381,47 @@ void plat_bluetooth_starting(bool starting) { (void)starting; }
 size_t plat_heap_free(void) { return 0; } /* its table is static (prj.conf) */
 
 /* --- Updates: not over the link yet ----------------------------------------------------------- */
+
+/* The application's flash has room for one image and not two, so an update is not written beside
+ * the running one: the Adafruit bootloader these boards come with, which keeps Nordic's SoftDevice
+ * below the application for itself, takes it over Bluetooth instead (Nordic's legacy DFU), started
+ * by the value its OTA mode is asked for with in GPREGRET. */
+#define DFU_MAGIC_OTA_RESET 0xA8
+
+/* Whether the bootloader takes an update over Bluetooth that a client can count on finishing: the
+ * OTAFIX build of the Adafruit bootloader, which erases as the image arrives and, if a transfer
+ * breaks, waits for another over Bluetooth. Its version, as its drive's INFO_UF2.TXT gives it, is
+ * in its flash. The stock bootloader advertises the same service, but a T1000-E's left its START
+ * unanswered, erasing the application, and came back from that in USB only: a node on one says it
+ * cannot be updated, and a client offers USB. */
+static bool bootloader_takes_bluetooth(void) {
+#if DT_NODE_EXISTS(DT_NODELABEL(boot_partition))
+    static const char mark[] = "OTAFIX";
+    const uint8_t *at = (const uint8_t *)DT_REG_ADDR(DT_NODELABEL(boot_partition));
+    size_t n = DT_REG_SIZE(DT_NODELABEL(boot_partition));
+    for (size_t i = 0; i + sizeof mark - 1 <= n; i++) {
+        if (memcmp(&at[i], mark, sizeof mark - 1) == 0) {
+            return true;
+        }
+    }
+#endif
+    return false;
+}
+
+uint8_t plat_update_how(void) {
+    static int how = -1;
+    if (how < 0) {
+        how = bootloader_takes_bluetooth() ? TERN_C_UPDATES_BOOTLOADER : TERN_C_UPDATES_NONE;
+    }
+    return (uint8_t)how;
+}
+
+void plat_update_by_bootloader(void) {
+    nrf_power_gpregret_set(NRF_POWER, 0, DFU_MAGIC_OTA_RESET);
+    sys_reboot(SYS_REBOOT_COLD);
+    for (;;) {
+    }
+}
 
 uint32_t plat_update_room(void) { return 0; }
 bool plat_update_begin(uint32_t size) {

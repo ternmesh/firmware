@@ -655,6 +655,17 @@ void ui_updating(uint32_t held, uint32_t size, struct scene *s) {
     it->on = ON_COLOUR;
 }
 
+void ui_bootloader(struct scene *s) {
+    scene_clear(s);
+    snprintf(s->title, sizeof s->title, "Updating");
+    s->title_icon = ICON_DOWNLOAD;
+    scene_add(s, SCENE_GAP, TONE_TEXT, NULL);
+    snprintf(s->text, sizeof s->text,
+             "Restarting to take new firmware over Bluetooth. Keep your phone near; nothing is "
+             "lost.");
+    scene_add(s, SCENE_TEXT, TONE_TEXT, NULL);
+}
+
 void ui_rows(const char *const *rows, int n, struct scene *s) {
     scene_clear(s);
     snprintf(s->title, sizeof s->title, "%s", n > 0 ? rows[0] : "");

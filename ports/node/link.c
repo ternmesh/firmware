@@ -1841,8 +1841,11 @@ static void receive(struct link *l, unsigned conn, tern_time now, const uint8_t 
             .type = TERN_C_INFO, .seq = q->seq, .version = TERN_COMPANION_VERSION};
         put_text(&a, (const uint8_t *)l->host.firmware,
                  cstr_len(l->host.firmware, TERN_COMPANION_FIRMWARE_MAX));
-        a.board_len = (uint8_t)cstr_len(l->host.board, TERN_COMPANION_BOARD_MAX);
+        /* Before version 12 a board in INFO says the node takes UPDATE_BEGIN, and nothing else. */
+        bool board = q->version >= 12 || l->host.updates == TERN_C_UPDATES_LINK;
+        a.board_len = board ? (uint8_t)cstr_len(l->host.board, TERN_COMPANION_BOARD_MAX) : 0;
         memcpy(a.board, l->host.board == NULL ? "" : l->host.board, a.board_len);
+        a.update = l->host.updates;
         a.release_len = (uint8_t)cstr_len(l->host.release, TERN_COMPANION_RELEASE_MAX);
         memcpy(a.release, l->host.release == NULL ? "" : l->host.release, a.release_len);
         c->version = q->version; /* INFO too is as the client's version has it */
@@ -1950,6 +1953,19 @@ static void receive(struct link *l, unsigned conn, tern_time now, const uint8_t 
     case TERN_C_UPDATE_END:
         update_end(l, q);
         break;
+    case TERN_C_UPDATE_BOOTLOADER: {
+        /* As OFF: answered before the board goes, and it goes only once the answer is out. A
+         * node that does not update by its bootloader has no room for an image this way. */
+        uint8_t code = l->host.updates != TERN_C_UPDATES_BOOTLOADER || l->host.bootloader == NULL
+                           ? TERN_C_ERR_FULL
+                           : l->host.bootloader(l->host.ctx);
+        if (code != 0) {
+            error(l, q->seq, code);
+        } else {
+            answer(l, TERN_C_OK, q->seq);
+        }
+        break;
+    }
     case TERN_C_SET_POSITION:
         set_position(l, q, now);
         break;

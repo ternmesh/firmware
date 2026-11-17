@@ -32,6 +32,7 @@ enum field {
     SATS,      /* u8, into satellites */
     MOST,      /* u8 */
     PAIRING,   /* u8 */
+    UPDATE,    /* u8 */
     POWER,     /* i8 */
     SNR,       /* i8 */
     HEARD,     /* u16, into heard */
@@ -105,9 +106,10 @@ static const struct layout layouts[] = {
     {TERN_C_SET_POSITION, {LAT, LON, ALTITUDE, ACC16, AGE16}},
     {TERN_C_SHARE, {ADDRESS, PRECISION, SHARED, INTERVAL, MINUTES}},
     {TERN_C_SHARE_GROUP, {GROUP, PRECISION, SHARED, INTERVAL, MINUTES}},
+    {TERN_C_UPDATE_BOOTLOADER, {END}},
     {TERN_C_OK, {END}},
     {TERN_C_ERROR, {CODE}},
-    {TERN_C_INFO, {VERSION, FIRMWARE, BOARD, RELEASE}},
+    {TERN_C_INFO, {VERSION, FIRMWARE, BOARD, RELEASE, UPDATE}},
     {TERN_C_SYNCED, {NEWS}},
     {TERN_C_QUEUED, {ID}},
     {TERN_C_MADE, {GROUP}},
@@ -142,7 +144,7 @@ static const struct {
     uint8_t type, from, since;
 } later_fields[] = {
     {TERN_C_SYNCED, 0, 3}, {TERN_C_INFO, 2, 4},  {TERN_C_SELF, 5, 6},
-    {TERN_C_SELF, 7, 10},  {TERN_C_SELF, 8, 11},
+    {TERN_C_SELF, 7, 10},  {TERN_C_SELF, 8, 11}, {TERN_C_INFO, 4, 12},
 };
 
 static bool added_later(uint8_t type, size_t i, uint8_t version) {
@@ -197,6 +199,9 @@ static const struct layout *layout_of(uint8_t type) {
 }
 
 uint8_t tern_companion_since(uint8_t type) {
+    if (type == TERN_C_UPDATE_BOOTLOADER) {
+        return 12;
+    }
     if (type == TERN_C_OFF) {
         return 9;
     }
@@ -298,6 +303,8 @@ static void *member(struct tern_companion_msg *m, enum field f) {
         return &m->most;
     case PAIRING:
         return &m->pairing;
+    case UPDATE:
+        return &m->update;
     case RECEIVER:
         return &m->receiver;
     case SOURCE:

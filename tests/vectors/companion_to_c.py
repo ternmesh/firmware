@@ -27,7 +27,7 @@ TYPES = {
     "UPDATE_END": 0x32, "UPDATING": 0x46, "SET_POSITION": 0x33, "SHARE": 0x34,
     "SHARE_GROUP": 0x35, "POSITION": 0x8E, "GROUP_POSITION": 0x8F, "SHARING": 0x90,
     "GROUP_SHARING": 0x91, "CARD": 0x92, "CARD_GONE": 0x93, "GROUP_LINK": 0x26,
-    "JOIN_LINK": 0x27, "LINK": 0x47, "FIX": 0x94, "OFF": 0x06,
+    "JOIN_LINK": 0x27, "LINK": 0x47, "FIX": 0x94, "OFF": 0x06, "UPDATE_BOOTLOADER": 0x36,
 }
 STRINGS = ("text", "name", "firmware", "region", "link")
 ADDRESSES = ("to", "address", "contact")
@@ -137,13 +137,15 @@ def cases(L, v):
 def exchange(L, v):
     """The exchange, and each earlier version's connection as older_<version>, with the two
     groups' secrets; and the update's two connections as update_0 and update_1, its refusals,
-    and its image."""
+    and its image; and the connections to a node updated by its bootloader as bootloader_0 and
+    bootloader_1."""
     L.append(f"static const uint8_t made_secret[16] = {hexbytes(v['made'])};")
     L.append(f"static const uint8_t invited_secret[16] = {hexbytes(v['invited'])};")
     L.append(f"static const uint8_t update_image[] = {hexbytes(v['image'])};")
     L.append(f"static const uint8_t update_digest[32] = {hexbytes(v['image_digest'])};")
     runs = [("exchange", v["exchange"])] + [(f"older_{o['version']}", o["frames"]) for o in v["older"]]
     runs += [(f"update_{i}", c) for i, c in enumerate(v["update"])] + [("refusals", v["refusals"])]
+    runs += [(f"bootloader_{i}", c) for i, c in enumerate(v["bootloader"])]
     for name, frames in runs:
         L.append(f"static const struct step {name}[] = {{")
         L += [

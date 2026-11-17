@@ -316,6 +316,7 @@ int main(int argc, char **argv) {
                              .save_state = save_state,
                              .board = "host",
                              .release = "0.2.0",
+                             .updates = TERN_C_UPDATES_LINK,
                              .update_room = sizeof image,
                              .update_begin = update_begin,
                              .update_write = update_write,

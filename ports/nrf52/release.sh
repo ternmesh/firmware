@@ -44,13 +44,18 @@ for board in "$@"; do
         } >"$build/release.conf"
         west build -p -b "$target" -d "$build" . -- -DEXTRA_CONF_FILE="$PWD/$build/release.conf"
         cp "$build/zephyr/zephyr.uf2" "release/tern-$board-$region-$version.uf2"
+        # The same image as a DFU package, for a client to give the board's bootloader over
+        # Bluetooth (draft/companion.md, UPDATE_BOOTLOADER): an init packet, and the application.
+        # Any SoftDevice: the image runs beside whichever the bootloader keeps.
+        adafruit-nrfutil dfu genpkg --dev-type 0x0052 --sd-req 0xFFFE \
+            --application "$build/zephyr/zephyr.hex" "release/tern-$board-$region-$version.zip"
     done
 done
 
 cd release
 if command -v sha256sum >/dev/null; then
-    sha256sum -- *.uf2 >SHA256SUMS
+    sha256sum -- *.uf2 *.zip >SHA256SUMS
 else
-    shasum -a 256 -- *.uf2 >SHA256SUMS
+    shasum -a 256 -- *.uf2 *.zip >SHA256SUMS
 fi
 cat SHA256SUMS

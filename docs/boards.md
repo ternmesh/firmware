@@ -174,7 +174,8 @@ and the Wio Tracker L1, each an overlay. Next:
   order: it waits on knowing which one is sold.
 * **LilyGo T-Echo**, **Heltec Mesh Pocket**, **Elecrow ThinkNode**: e-paper, or boards Zephyr has
   not got.
-* A layout for the T114's larger screen, and updates over the link, which want the two firmware
+* Updates over the link itself, rather than by the bootloader over Bluetooth
+  ([ports/nrf52](../ports/nrf52/README.md#updating-over-bluetooth)), which want the two firmware
   slots MCUboot gives alongside the UF2 bootloader these boards ship with.
 
 ### Other radios
