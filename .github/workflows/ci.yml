@@ -125,13 +125,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: firmware
-      - uses: zephyrproject-rtos/action-zephyr-setup@v1
-        with:
-          app-path: firmware
-          manifest-file-name: ports/nrf52/west.yml
-          sdk-version: 1.0.1
-          toolchains: arm-zephyr-eabi
-      - run: pip3 install -r zephyr/scripts/requirements-base.txt adafruit-nrfutil
+      - uses: ./firmware/.github/actions/zephyr
       - run: firmware/ports/nrf52/release.sh 0.0.0-dev ${{ matrix.board }}
       - uses: actions/upload-artifact@v4
         with:
