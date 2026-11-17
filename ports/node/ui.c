@@ -1,50 +1,38 @@
 #include "ui.h"
 
-#include "qr.h"
-#include "tern/crypto.h"
 #include "tern/share.h"
 
-#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
-#define COLS 21 /* characters across the 128-pixel screen, six pixels each */
-#define NO_ROW (-1)
-
-/* A page as it is composed: its lines of text, and the rows a large line or a bar takes instead.
- * It is drawn whole once it is composed, so a page that comes out as it was is not sent again. */
-struct frame {
-    char rows[DISPLAY_PAGES][COLS + 1];
-    int big;           /* the first of the two rows the large line takes, or NO_ROW */
-    char big_text[24]; /* drawn as far as DISPLAY_BIG_COLS of it */
-    int bar;           /* the row the bar takes, or NO_ROW */
-    int64_t part, whole;
+/* More's choices, in the order the menu shows them. */
+static const struct {
+    int page;
+    uint8_t icon;
+    const char *name;
+} menu[UI_MENU] = {
+    {UI_AIR, ICON_AIR, "Air"},         {UI_GROUPS, ICON_GROUP, "Groups"},
+    {UI_NODE, ICON_INFO, "This node"}, {UI_PHONES, ICON_PHONE, "Phones"},
+    {UI_RESET, ICON_ERASE, "Erase"},   {UI_MORE, ICON_BACK, "Back"},
 };
 
-#if defined(__GNUC__)
-__attribute__((format(printf, 2, 3)))
-#endif
-static void
-line(char *out, const char *fmt, ...) {
-    va_list ap;
-    va_start(ap, fmt);
-    vsnprintf(out, COLS + 1, fmt, ap);
-    va_end(ap);
+int ui_menu_page(int choice) {
+    return choice >= 0 && choice < UI_MENU ? menu[choice].page : UI_MORE;
+}
+
+int ui_menu_choice(int page) {
+    for (int i = 0; i < UI_MENU_BACK; i++) {
+        if (menu[i].page == page) {
+            return i;
+        }
+    }
+    return -1;
 }
 
 /* What the board's button is marked, to name it in a line: a page that names it is reached only by
  * pressing it, so a board without one never shows it. */
 static const char *button_of(const struct ui_node *n) {
     return n->button != NULL ? n->button : "PRG";
-}
-
-/* A line with `left` at its start and `right` at its end; `left` gives way if both do not fit. */
-static void ends(char *out, const char *left, const char *right) {
-    int room = COLS - (int)strlen(right);
-    if (room < 0) {
-        room = 0;
-    }
-    line(out, "%-*.*s%s", room, room, left, right);
 }
 
 /* "45s", "12m", "3h", "9d": a span in two or three characters. */
@@ -60,68 +48,18 @@ static void span(char *buf, size_t size, uint32_t s) {
     }
 }
 
-/* UTF-8 as the font can draw it: one character for each character of the text, ASCII as it is,
- * anything else as '?', and line breaks and tabs as spaces. Returns the length written. */
-static size_t ascii(char *out, size_t size, const uint8_t *in, size_t len) {
-    size_t n = 0;
-    for (size_t i = 0; i < len && n + 1 < size; i++) {
-        uint8_t c = in[i];
-        if (c >= 0x80 && c < 0xC0) {
-            continue; /* the rest of a character already written */
-        }
-        if (c == '\n' || c == '\r' || c == '\t') {
-            out[n++] = ' ';
-        } else if (c >= 0x20 && c < 0x7F) {
-            out[n++] = (char)c;
-        } else {
-            out[n++] = '?';
+/* A name as the node keeps it, which ends at its NUL or at UI_NAME bytes, whichever comes first,
+ * cut back to whole characters if it was cut short. */
+static void name(char out[UI_NAME + 1], const char *in) {
+    const char *end = memchr(in, '\0', UI_NAME + 1);
+    size_t len = end != NULL ? (size_t)(end - in) : UI_NAME;
+    if (end == NULL) {
+        while (len > 0 && ((uint8_t)in[len] & 0xC0) == 0x80) {
+            len--;
         }
     }
-    out[n] = '\0';
-    return n;
-}
-
-/* The length of a name, which ends at its NUL or at UI_NAME bytes, whichever comes first. */
-static size_t name_len(const char *name) {
-    const char *end = memchr(name, '\0', UI_NAME + 1);
-    return end != NULL ? (size_t)(end - name) : UI_NAME + 1;
-}
-
-/* Fills rows `first` to `last` with `text`, broken between words where it can be and within a
- * word longer than a line. Text that does not fit ends its last row with "...". */
-static void wrap(struct frame *f, int first, int last, const char *text) {
-    const char *p = text;
-    for (int r = first; r <= last; r++) {
-        while (*p == ' ') {
-            p++;
-        }
-        size_t left = strlen(p);
-        if (left == 0) {
-            return;
-        }
-        size_t take = left;
-        if (left > COLS) {
-            take = COLS;
-            while (take > 0 && p[take] != ' ') {
-                take--;
-            }
-            if (take == 0) {
-                take = COLS; /* one word wider than the screen */
-            }
-        }
-        memcpy(f->rows[r], p, take);
-        f->rows[r][take] = '\0';
-        p += take;
-        if (r == last) {
-            while (*p == ' ') {
-                p++;
-            }
-            if (*p != '\0') {
-                size_t at = take > COLS - 3 ? COLS - 3 : take;
-                memcpy(&f->rows[r][at], "...", 4);
-            }
-        }
-    }
+    memcpy(out, in, len);
+    out[len] = '\0';
 }
 
 /* The share of the air left, as a whole percentage, rounded down so that it never says more is
@@ -137,263 +75,340 @@ static unsigned left_percent(const struct ui_node *n) {
     return (unsigned)(left / (n->air_limit_ms / 100));
 }
 
-static void home(const struct ui_node *n, struct frame *f) {
-    char wait[16], right[24];
-    if (n->battery != UI_BATTERY_UNKNOWN) {
-        const char *how = n->charging ? "Chg " : n->battery <= UI_BATTERY_LOW ? "Low " : "";
-        snprintf(right, sizeof right, "%s%u%% %s", how, (unsigned)n->battery, n->region);
-    } else {
-        snprintf(right, sizeof right, "%s", n->region);
-    }
-    ends(f->rows[0], n->phone ? "Tern " DISPLAY_BLUETOOTH_S : "Tern", right);
-    f->big = 2;
-    if (n->bench) {
-        snprintf(f->big_text, sizeof f->big_text, "Bench mode");
-    } else if (n->unread > 0) {
-        snprintf(f->big_text, sizeof f->big_text, "%u new", (unsigned)n->unread);
-    } else if (n->nearby == 0) {
-        snprintf(f->big_text, sizeof f->big_text, "Listening");
-    } else {
-        snprintf(f->big_text, sizeof f->big_text, "%u nearby", (unsigned)n->nearby);
-    }
-
-    /* Below it, what it does not say: never the same thing twice. */
-    bool says_nearby = !n->bench && n->unread == 0 && n->nearby > 0;
-    if (n->nearby == 0) {
-        line(f->rows[5], "No nodes heard yet");
-    } else if (says_nearby) {
-        line(f->rows[5], "Reaches %u nodes", (unsigned)n->reachable);
-    } else {
-        line(f->rows[5], "%u nearby, reaches %u", (unsigned)n->nearby, (unsigned)n->reachable);
-    }
-    if (n->unread > 0) {
-        char from[UI_NAME + 1];
-        ascii(from, sizeof from, (const uint8_t *)n->from, name_len(n->from));
-        line(f->rows[6], "Last %s %s", n->from_group ? "in" : "from", from);
-    } else if (n->waiting > 0) {
-        line(f->rows[6], "%u awaiting delivery", (unsigned)n->waiting);
-    } else {
-        line(f->rows[6], "No new messages");
-    }
-    if (!n->limited) {
-        line(f->rows[7], "Air: no limit");
-    } else if (n->wait_ms > 0) {
-        span(wait, sizeof wait, (n->wait_ms + 999) / 1000);
-        line(f->rows[7], "Air: full for %s", wait);
-    } else {
-        line(f->rows[7], "Air: %u%% left", left_percent(n));
-    }
+/* The heading of a main page: its name, the node's status, and which page it is. */
+static void main_page(const struct ui_node *n, struct scene *s, int page, uint8_t icon,
+                      const char *title) {
+    snprintf(s->title, sizeof s->title, "%s", title);
+    s->title_icon = icon;
+    s->status = true;
+    s->battery = n->battery;
+    s->charging = n->charging;
+    s->phone = n->phone;
+    s->unread = n->unread;
+    s->dot = (uint8_t)page;
+    s->dots = UI_MAIN;
 }
 
-/* What became of a message this node sent, in the words of draft/companion.md's states. */
-static void delivery(const struct ui_message *m, char *out) {
+/* The heading of a page More opens: its name, and More's dot, since that is where it is. */
+static void more_page(const struct ui_node *n, struct scene *s, uint8_t icon, const char *title) {
+    main_page(n, s, UI_MORE, icon, title);
+}
+
+/* A page with nothing on it yet: what it would show, and where that comes from. */
+static void empty(struct scene *s, uint8_t icon, const char *what, const char *how) {
+    struct scene_item *it = scene_add(s, SCENE_LINE, TONE_TEXT, "%s", what);
+    it->icon = icon;
+    it->centre = true;
+    scene_add(s, SCENE_GAP, TONE_TEXT, NULL)->on = ON_COLOUR;
+    snprintf(s->text, sizeof s->text, "%s", how);
+    scene_add(s, SCENE_TEXT, TONE_DIM, NULL)->centre = true;
+}
+
+static void home(const struct ui_node *n, struct scene *s) {
+    char v[16], wait[16];
+    main_page(n, s, UI_HOME, ICON_HOME, "Tern");
+    snprintf(s->title_right, sizeof s->title_right, "%s", "");
+
+    scene_add(s, SCENE_GAP, TONE_TEXT, NULL)->on = ON_MONO;
+    if (n->bench) {
+        scene_add(s, SCENE_HERO, TONE_WARN, "Bench mode");
+    } else if (n->unread > 0) {
+        scene_add(s, SCENE_HERO, TONE_ACCENT, "%u new", (unsigned)n->unread);
+    } else if (n->nearby == 0) {
+        scene_add(s, SCENE_HERO, TONE_DIM, "Listening");
+    } else {
+        scene_add(s, SCENE_HERO, TONE_GOOD, "%u nearby", (unsigned)n->nearby);
+    }
+
+    /* With room: three figures, each a tile. */
+    bool says_nearby = !n->bench && n->unread == 0 && n->nearby > 0;
+    if (says_nearby) {
+        snprintf(v, sizeof v, "%u", (unsigned)n->messages); /* the large line counts them */
+        scene_stat(s, n->messages > 0 ? TONE_TEXT : TONE_DIM, v,
+                   n->messages == 1 ? "message" : "messages")
+            ->on = ON_COLOUR;
+    } else {
+        snprintf(v, sizeof v, "%u", (unsigned)n->nearby);
+        scene_stat(s, n->nearby > 0 ? TONE_TEXT : TONE_DIM, v, "nearby")->on = ON_COLOUR;
+    }
+    snprintf(v, sizeof v, "%u", (unsigned)n->reachable);
+    scene_stat(s, n->reachable > 0 ? TONE_TEXT : TONE_DIM, v, "reachable");
+    if (!n->limited) {
+        scene_stat(s, TONE_GOOD, "Free", "air");
+    } else if (n->wait_ms > 0) {
+        span(wait, sizeof wait, (n->wait_ms + 999) / 1000);
+        scene_stat(s, TONE_WARN, wait, "air full");
+    } else {
+        unsigned left = left_percent(n);
+        snprintf(v, sizeof v, "%u%%", left);
+        scene_stat(s, left <= 20 ? TONE_WARN : TONE_GOOD, v, "air left");
+    }
+
+    /* On a line of 21 characters: what the large line does not say, never the same thing twice. */
+    scene_add(s, SCENE_GAP, TONE_TEXT, NULL)->on = ON_MONO;
+    struct scene_item *it;
+    if (n->nearby == 0) {
+        it = scene_add(s, SCENE_LINE, TONE_DIM, "No nodes heard yet");
+    } else if (says_nearby) {
+        it = scene_add(s, SCENE_LINE, TONE_TEXT, "Reaches %u nodes", (unsigned)n->reachable);
+    } else {
+        it = scene_add(s, SCENE_LINE, TONE_TEXT, "%u nearby, reaches %u", (unsigned)n->nearby,
+                       (unsigned)n->reachable);
+    }
+    it->on = ON_MONO;
+
+    char from[UI_NAME + 1];
+    if (n->unread > 0) {
+        name(from, n->from);
+        it = scene_add(s, SCENE_LINE, TONE_ACCENT, "Last %s %s", n->from_group ? "in" : "from",
+                       from);
+        it->icon = ICON_CHAT;
+    } else if (n->waiting > 0) {
+        it = scene_add(s, SCENE_LINE, TONE_WARN, "%u awaiting delivery", (unsigned)n->waiting);
+        it->icon = ICON_SCHEDULE;
+    } else {
+        it = scene_add(s, SCENE_LINE, TONE_DIM, "No new messages");
+        it->icon = ICON_CHECK;
+    }
+
+    if (!n->limited) {
+        it = scene_add(s, SCENE_LINE, TONE_TEXT, "Air: no limit");
+    } else if (n->wait_ms > 0) {
+        span(wait, sizeof wait, (n->wait_ms + 999) / 1000);
+        it = scene_add(s, SCENE_LINE, TONE_WARN, "Air: full for %s", wait);
+    } else {
+        it = scene_add(s, SCENE_LINE, TONE_TEXT, "Air: %u%% left", left_percent(n));
+    }
+    it->on = ON_MONO;
+}
+
+/* What became of a message this node sent, in the words of draft/companion.md's states, with the
+ * icon and tone a colour panel gives it. */
+static void delivery(const struct ui_message *m, struct scene *s) {
     char wait[16] = "";
     if (m->wait_s > 0) {
         span(wait, sizeof wait, m->wait_s);
     }
+    struct scene_item *it;
     switch (m->state) {
     case TERN_C_SENT:
-        line(out, "Sent");
+        it = scene_add(s, SCENE_LINE, TONE_DIM, "Sent");
+        it->icon = ICON_CHECK;
         return;
     case TERN_C_DELIVERED:
-        line(out, "Delivered");
+        it = scene_add(s, SCENE_LINE, TONE_GOOD, "Delivered");
+        it->icon = ICON_DONE_ALL;
         return;
     case TERN_C_NOT_DELIVERED:
-        line(out, "Not delivered");
+        it = scene_add(s, SCENE_LINE, TONE_BAD, "Not delivered");
+        it->icon = ICON_ERROR;
         return;
     default:
         break;
     }
     switch (m->reason) {
     case TERN_C_WAIT_ROUTE:
-        line(out, "Waiting: no route yet");
+        it = scene_add(s, SCENE_LINE, TONE_WARN, "Waiting: no route yet");
         break;
     case TERN_C_WAIT_SESSION:
-        line(out, "Making contact...");
+        it = scene_add(s, SCENE_LINE, TONE_WARN, "Making contact...");
         break;
     case TERN_C_WAIT_REGION:
         if (wait[0] != '\0') {
-            line(out, "Air limit, %s wait", wait);
+            it = scene_add(s, SCENE_LINE, TONE_WARN, "Air limit, %s wait", wait);
         } else {
-            line(out, "Waiting: air limit");
+            it = scene_add(s, SCENE_LINE, TONE_WARN, "Waiting: air limit");
         }
         break;
     case TERN_C_WAIT_BUDGET:
-        line(out, "Waiting: air budget");
+        it = scene_add(s, SCENE_LINE, TONE_WARN, "Waiting: air budget");
         break;
     case TERN_C_WAIT_RADIO:
-        line(out, "Waiting: radio busy");
+        it = scene_add(s, SCENE_LINE, TONE_WARN, "Waiting: radio busy");
         break;
     default:
-        line(out, "Waiting");
+        it = scene_add(s, SCENE_LINE, TONE_WARN, "Waiting");
         break;
     }
+    it->icon = ICON_SCHEDULE;
 }
 
-static void messages(const struct ui_node *n, struct frame *f) {
-    char where[16] = "";
+static void messages(const struct ui_node *n, struct scene *s) {
+    main_page(n, s, UI_MESSAGES, ICON_CHAT, "Messages");
     if (n->messages == 0) {
-        line(f->rows[0], "Messages");
-        line(f->rows[3], "No messages yet");
-        line(f->rows[5], "Send one from your");
-        line(f->rows[6], "phone or computer");
+        scene_add(s, SCENE_GAP, TONE_TEXT, NULL)->on = ON_MONO;
+        scene_add(s, SCENE_GAP, TONE_TEXT, NULL);
+        empty(s, ICON_CHAT, "No messages yet", "Send one from your phone or computer");
         return;
     }
-    snprintf(where, sizeof where, "%u/%u", (unsigned)n->shown + 1, (unsigned)n->messages);
-    ends(f->rows[0], "Messages", where);
+    snprintf(s->title_right, sizeof s->title_right, "%u/%u", (unsigned)n->shown + 1,
+             (unsigned)n->messages);
 
     const struct ui_message *m = &n->message;
-    char name[UI_NAME + 1], who[40], ago[16] = "";
-    ascii(name, sizeof name, (const uint8_t *)m->who, name_len(m->who));
+    char who[UI_NAME + 1], ago[16] = "";
+    name(who, m->who);
     const char *how = !m->received ? "To" : m->unread ? "New from" : "From";
     if (m->group && m->received) {
         how = m->unread ? "New in" : "In";
     }
-    snprintf(who, sizeof who, "%s %s", how, name);
     if (m->aged) {
         if (m->ago_s < 60) {
-            snprintf(ago, sizeof ago, " now");
+            snprintf(ago, sizeof ago, "now");
         } else {
-            char s[8];
-            span(s, sizeof s, m->ago_s);
-            snprintf(ago, sizeof ago, " %s ago", s);
+            char t[8];
+            span(t, sizeof t, m->ago_s);
+            snprintf(ago, sizeof ago, "%s ago", t);
         }
     }
-    ends(f->rows[1], who, ago);
-
-    char text[TERN_COMPANION_TEXT_MAX + 1];
-    size_t len = m->text_len < TERN_COMPANION_TEXT_MAX ? m->text_len : TERN_COMPANION_TEXT_MAX;
-    ascii(text, sizeof text, m->text, len);
+    struct scene_item *it =
+        scene_add(s, SCENE_LINE, m->unread ? TONE_ACCENT : TONE_TEXT, "%s %s", how, who);
+    it->icon = m->received ? (m->group ? ICON_GROUP : ICON_CHAT) : ICON_SEND;
+    snprintf(it->right, sizeof it->right, "%s", ago);
     if (m->received && m->group) {
         /* The group on the line above; who wrote to it on its own. */
         char writer[UI_NAME + 1];
-        ascii(writer, sizeof writer, (const uint8_t *)m->writer, name_len(m->writer));
-        line(f->rows[2], "From %s", writer);
-        wrap(f, 3, 7, text);
-    } else if (m->received) {
-        wrap(f, 2, 7, text);
-    } else {
-        wrap(f, 2, 6, text);
-        delivery(m, f->rows[7]);
+        name(writer, m->writer);
+        scene_add(s, SCENE_SMALL, TONE_DIM, "From %s", writer);
+    }
+    size_t len = m->text_len < TERN_COMPANION_TEXT_MAX ? m->text_len : TERN_COMPANION_TEXT_MAX;
+    if (len >= sizeof s->text) {
+        len = sizeof s->text - 1;
+    }
+    memcpy(s->text, m->text, len);
+    s->text[len] = '\0';
+    it = scene_add(s, SCENE_TEXT, m->received ? TONE_TEXT : TONE_ACCENT, NULL);
+    it->bubble = true;
+    if (!m->received) {
+        delivery(m, s);
+    }
+    if (n->messages > 1) {
+        snprintf(s->hint, sizeof s->hint, "Hold: older");
     }
 }
 
-static void nearby(const struct ui_node *n, struct frame *f) {
-    char where[24];
+static void nearby(const struct ui_node *n, struct scene *s) {
+    main_page(n, s, UI_NEARBY, ICON_PEOPLE, "Nearby");
     if (n->nearby == 0) {
-        line(f->rows[0], "Nearby");
-        line(f->rows[3], "No nodes heard yet");
-        line(f->rows[5], "A node shows here");
-        line(f->rows[6], "once it is heard.");
+        scene_add(s, SCENE_GAP, TONE_TEXT, NULL)->on = ON_MONO;
+        scene_add(s, SCENE_GAP, TONE_TEXT, NULL);
+        empty(s, ICON_ANTENNA, "No nodes heard yet", "A node shows here once it is heard.");
         return;
     }
-    if (n->nearby <= UI_NEARBY_ROWS) {
-        snprintf(where, sizeof where, "%u", (unsigned)n->nearby);
+    if (n->nearby_n >= n->nearby) {
+        snprintf(s->title_right, sizeof s->title_right, "%u", (unsigned)n->nearby);
     } else {
         /* More than fit: which of them these are, as Messages says which message it shows. */
-        snprintf(where, sizeof where, "%u-%u/%u", (unsigned)n->nearby_first + 1,
-                 (unsigned)n->nearby_first + n->nearby_n, (unsigned)n->nearby);
+        snprintf(s->title_right, sizeof s->title_right, "%u-%u/%u",
+                 (unsigned)(n->nearby_first + 1) % 1000u,
+                 (unsigned)(n->nearby_first + n->nearby_n) % 1000u, (unsigned)n->nearby % 1000u);
+        snprintf(s->hint, sizeof s->hint, "Hold: more");
     }
-    ends(f->rows[0], "Nearby", where);
     for (int i = 0; i < n->nearby_n && i < UI_NEARBY_ROWS; i++) {
         const struct ui_neighbour *g = &n->neighbour[i];
-        char name[UI_NAME + 1], ago[8], right[24];
-        ascii(name, sizeof name, (const uint8_t *)g->name, name_len(g->name));
-        span(ago, sizeof ago, g->ago_s);
-        /* Its signal and when it was heard at the end; the name gives way if both do not fit. */
-        snprintf(right, sizeof right, " %+ddB %s", (int)g->snr_db, ago);
-        ends(f->rows[1 + i], name, right);
+        char who[UI_NAME + 1];
+        name(who, g->name);
+        struct scene_item *it = scene_add(s, SCENE_LINE, TONE_TEXT, "%s", who);
+        it->signal = true;
+        it->snr_db = g->snr_db;
+        span(it->right, sizeof it->right, g->ago_s);
     }
 }
 
-static void air(const struct ui_node *n, struct frame *f) {
-    char used[24], wait[16];
-    ends(f->rows[0], "Air", n->region);
-    if (!n->limited) {
-        line(f->rows[2], "%s sets no limit on", n->region);
-        line(f->rows[3], "time on the air.");
-        int64_t ms = n->air_total_ms < 0 ? 0 : n->air_total_ms;
-        line(f->rows[5], "Sent for %lld.%lld s", (long long)(ms / 1000),
-             (long long)(ms / 100 % 10));
-        line(f->rows[6], "since it started");
-        return;
-    }
-    int64_t ms = n->air_used_ms < 0 ? 0 : n->air_used_ms;
-    snprintf(used, sizeof used, "%lld.%lld", (long long)(ms / 1000), (long long)(ms / 100 % 10));
-    line(f->rows[1], "Used %s of %lld s", used, (long long)(n->air_limit_ms / 1000));
-    if (n->window_s == 3600) {
-        line(f->rows[2], "in any hour");
-    } else if (n->window_s % 60 == 0) {
-        line(f->rows[2], "in any %lu minutes", (unsigned long)(n->window_s / 60));
-    } else {
-        line(f->rows[2], "in any %lu s", (unsigned long)n->window_s);
-    }
-    f->bar = 4;
-    f->part = n->air_used_ms;
-    f->whole = n->air_limit_ms;
-    if (n->wait_ms > 0) {
-        span(wait, sizeof wait, (n->wait_ms + 999) / 1000);
-        line(f->rows[6], "Next send in %s", wait);
-    } else {
-        line(f->rows[6], "Free to send now");
-    }
-    if (n->window_s > 0 && n->air_limit_ms > 0) {
-        line(f->rows[7], "%s allows %lld%%", n->region,
-             (long long)(n->air_limit_ms / 10 / (int64_t)n->window_s));
-    }
-}
-
-#define QR_SCALE 2   /* pixels to a module: 58 of the screen's 64 rows */
-#define QR_GROUND 70 /* the lit block the code sits in, from the left edge */
-#define QR_LEFT ((QR_GROUND - QR_SIZE * QR_SCALE) / 2)
-#define QR_TOP ((DISPLAY_PAGES * 8 - QR_SIZE * QR_SCALE) / 2)
-#define QR_WORDS (QR_GROUND + 4) /* where the words beside it start */
-
-/* A link as a QR code, dark on light, as every scanner reads it, which on this screen means a lit
- * block with the dark modules left unlit; the light margin round it is as wide as the screen
- * leaves. Beside it, `words`, a line each from the top, NULL for a line left empty. Drawn whole
- * into a scratch picture, so only what changed is sent; the picture and the code are wiped after,
- * since a join code's is a group's secret. */
-static void code_page(const char *link, const char *const words[DISPLAY_PAGES], struct display *d) {
-    static struct display canvas;
-    static struct qr code;
-    display_init(&canvas);
-    if (!qr_encode(&code, link, QR_MASK_BEST)) {
-        display_text(&canvas, 3, "No code to show", false);
-        display_copy(d, &canvas);
-        return;
-    }
-    for (int y = 0; y < DISPLAY_PAGES * 8; y++) {
-        for (int x = 0; x < QR_GROUND; x++) {
-            int mx = (x - QR_LEFT) / QR_SCALE, my = (y - QR_TOP) / QR_SCALE;
-            bool inside = x >= QR_LEFT && y >= QR_TOP && mx < QR_SIZE && my < QR_SIZE;
-            display_set(&canvas, x, y, !(inside && qr_dark(&code, mx, my)));
-        }
-    }
-    for (int r = 0; r < DISPLAY_PAGES; r++) {
-        if (words[r] != NULL) {
-            display_text_at(&canvas, r, QR_WORDS, words[r]);
-        }
-    }
-    display_copy(d, &canvas);
-    tern_wipe(&code, sizeof code);
-    tern_wipe(&canvas, sizeof canvas);
-}
-
-static void share(const struct ui_node *n, struct display *d) {
-    char link[TERN_ADDRESS_LINK_LEN + 1], sc[TERN_SHORT_CODE_LEN + 1];
+static void share(const struct ui_node *n, struct scene *s) {
+    static char sc[TERN_SHORT_CODE_LEN + 1];
+    main_page(n, s, UI_SHARE, ICON_QR, "My code");
     /* The link (draft/sharing.md): a web address a phone's camera opens, with the address in it in
      * base32, which the console's 'contact' also takes as it is. */
-    tern_address_link(n->address, link);
+    tern_address_link(n->address, s->qr);
     tern_short_code(n->address, sc);
     /* Beside it, the short code, for whoever scanned it to check against their phone's. */
-    sc[9] = '\0'; /* "5358 3737" on one line, "3382" on the next */
-    /* Where the code leads: a phone with no Tern app opens a page on the site (draft/sharing.md).
-     */
-    const char *const words[DISPLAY_PAGES] = {
-        NULL, "Scan to", "open its", "web page", NULL, "Its code:", sc, &sc[10],
-    };
-    code_page(link, words, d);
+    scene_add(s, SCENE_SMALL, TONE_DIM, "Scan to add me");
+    scene_add(s, SCENE_GAP, TONE_TEXT, NULL);
+    scene_add(s, SCENE_SMALL, TONE_DIM, "Its code");
+    scene_add(s, SCENE_HERO, TONE_ACCENT, "%.4s %.4s", sc, &sc[5]);
+    scene_add(s, SCENE_HERO, TONE_ACCENT, "%.4s", &sc[10]);
+    /* On a monochrome screen, where the code leads: a phone with no Tern app opens a page on the
+     * site (draft/sharing.md). */
+    static char first[10];
+    snprintf(first, sizeof first, "%.9s", sc); /* "5358 3737" on one line, "3382" on the next */
+    s->qr_words[1] = "Scan to";
+    s->qr_words[2] = "open its";
+    s->qr_words[3] = "web page";
+    s->qr_words[5] = "Its code:";
+    s->qr_words[6] = first;
+    s->qr_words[7] = &sc[10];
+}
+
+static void more(const struct ui_node *n, struct scene *s) {
+    main_page(n, s, UI_MORE, ICON_MORE, "More");
+    for (int i = 0; i < UI_MENU; i++) {
+        if (i == UI_MENU_BACK && n->menu < 0) {
+            continue; /* closed: a press goes on to Home */
+        }
+        struct scene_item *it = scene_add(
+            s, SCENE_TILE, i == UI_RESET - UI_AIR ? TONE_BAD : TONE_TEXT, "%s", menu[i].name);
+        it->icon = menu[i].icon;
+        it->selected = n->menu == i;
+    }
+    if (n->menu < 0) {
+        snprintf(s->hint, sizeof s->hint, "Hold: open menu");
+    } else {
+        snprintf(s->hint, sizeof s->hint, "Hold: open");
+    }
+}
+
+static void air(const struct ui_node *n, struct scene *s) {
+    char used[24], wait[16];
+    more_page(n, s, ICON_AIR, "Air");
+    snprintf(s->title_right, sizeof s->title_right, "%s", n->region);
+    snprintf(s->hint, sizeof s->hint, "Press: back");
+    if (!n->limited) {
+        int64_t ms = n->air_total_ms < 0 ? 0 : n->air_total_ms;
+        scene_add(s, SCENE_GAP, TONE_TEXT, NULL)->on = ON_MONO;
+        scene_add(s, SCENE_HERO, TONE_GOOD, "No limit");
+        scene_add(s, SCENE_GAP, TONE_TEXT, NULL);
+        snprintf(s->text, sizeof s->text,
+                 "%s sets no limit. Sent for %lld.%lld s since it started.", n->region,
+                 (long long)(ms / 1000), (long long)(ms / 100 % 10));
+        scene_add(s, SCENE_TEXT, TONE_DIM, NULL);
+        return;
+    }
+    unsigned left = left_percent(n);
+    int64_t ms = n->air_used_ms < 0 ? 0 : n->air_used_ms;
+    snprintf(used, sizeof used, "%lld.%lld", (long long)(ms / 1000), (long long)(ms / 100 % 10));
+    scene_add(s, SCENE_HERO, left <= 20 ? TONE_WARN : TONE_GOOD, "%u%% left", left)->on = ON_COLOUR;
+    scene_add(s, SCENE_LINE, TONE_TEXT, "Used %s of %lld s", used,
+              (long long)(n->air_limit_ms / 1000));
+    struct scene_item *it;
+    if (n->window_s == 3600) {
+        it = scene_add(s, SCENE_SMALL, TONE_DIM, "in any hour");
+    } else if (n->window_s % 60 == 0) {
+        it = scene_add(s, SCENE_SMALL, TONE_DIM, "in any %lu minutes",
+                       (unsigned long)(n->window_s / 60));
+    } else {
+        it = scene_add(s, SCENE_SMALL, TONE_DIM, "in any %lu s", (unsigned long)n->window_s);
+    }
+    it->on = ON_MONO;
+    scene_add(s, SCENE_GAP, TONE_TEXT, NULL)->on = ON_MONO;
+    it = scene_add(s, SCENE_METER, left <= 20 ? TONE_WARN : TONE_ACCENT, NULL);
+    it->part = (int32_t)(n->air_used_ms < 0           ? 0
+                         : n->air_used_ms > INT32_MAX ? INT32_MAX
+                                                      : n->air_used_ms);
+    it->whole = (int32_t)(n->air_limit_ms > INT32_MAX ? INT32_MAX : n->air_limit_ms);
+    scene_add(s, SCENE_GAP, TONE_TEXT, NULL)->on = ON_MONO;
+    if (n->wait_ms > 0) {
+        span(wait, sizeof wait, (n->wait_ms + 999) / 1000);
+        it = scene_add(s, SCENE_LINE, TONE_WARN, "Next send in %s", wait);
+        it->icon = ICON_SCHEDULE;
+    } else {
+        it = scene_add(s, SCENE_LINE, TONE_GOOD, "Free to send now");
+        it->icon = ICON_CHECK;
+    }
+    if (n->window_s > 0 && n->air_limit_ms > 0) {
+        scene_add(s, SCENE_SMALL, TONE_DIM, "%s allows %lld%%", n->region,
+                  (long long)(n->air_limit_ms / 10 / (int64_t)n->window_s))
+            ->on = ON_MONO;
+    }
 }
 
 size_t ui_join_name(const uint8_t *name, size_t len) {
@@ -408,221 +423,267 @@ size_t ui_join_name(const uint8_t *name, size_t len) {
 }
 
 /* A group's join code (draft/groups.md), once the user held PRG to see it, saying beside it what
- * anyone who sees it can do; and before that, which group a hold shows it for, and what it is.
- * True if it drew the code, the whole picture, rather than composing `f`. */
-static bool groups(const struct ui_node *n, struct frame *f, struct display *d) {
-    char name[UI_NAME + 1], where[16];
-    ascii(name, sizeof name, (const uint8_t *)n->group, name_len(n->group));
+ * anyone who sees it can do; and before that, which group a hold shows it for, and what it is. */
+static void groups(const struct ui_node *n, struct scene *s) {
+    static char shown[10];
+    char group[UI_NAME + 1];
+    name(group, n->group);
+    more_page(n, s, ICON_GROUP, "Groups");
     if (n->groups > 0 && n->join_link[0] != '\0') {
-        char shown[10];
-        snprintf(shown, sizeof shown, "%.9s", name);
-        const char *const words[DISPLAY_PAGES] = {
-            "Join code", shown, NULL, "Whoever", "scans it", "can read", "the group", NULL,
-        };
-        code_page(n->join_link, words, d);
-        return true;
+        snprintf(s->title, sizeof s->title, "Join code");
+        s->dots = 0; /* beside the code, the room is the hint's */
+        snprintf(s->qr, sizeof s->qr, "%s", n->join_link);
+        snprintf(shown, sizeof shown, "%.9s", group);
+        scene_add(s, SCENE_LINE, TONE_TEXT, "%s", group);
+        scene_add(s, SCENE_GAP, TONE_TEXT, NULL);
+        snprintf(s->text, sizeof s->text, "Whoever scans it can read the group.");
+        scene_add(s, SCENE_TEXT, TONE_WARN, NULL);
+        snprintf(s->hint, sizeof s->hint, "Hold: next");
+        s->qr_words[0] = "Join code";
+        s->qr_words[1] = shown;
+        s->qr_words[3] = "Whoever";
+        s->qr_words[4] = "scans it";
+        s->qr_words[5] = "can read";
+        s->qr_words[6] = "the group";
+        return;
     }
     if (n->groups == 0) {
-        line(f->rows[0], "Groups");
-        line(f->rows[3], "No groups yet");
-        line(f->rows[5], "Make or join one");
-        line(f->rows[6], "from your phone.");
-        return false;
+        scene_add(s, SCENE_GAP, TONE_TEXT, NULL)->on = ON_MONO;
+        scene_add(s, SCENE_GAP, TONE_TEXT, NULL);
+        empty(s, ICON_GROUP, "No groups yet", "Make or join one from your phone.");
+        snprintf(s->hint, sizeof s->hint, "Press: back");
+        return;
     }
-    snprintf(where, sizeof where, "%u/%u", (unsigned)n->group_shown + 1, (unsigned)n->groups);
-    ends(f->rows[0], "Groups", where);
-    line(f->rows[2], "%s", name[0] != '\0' ? name : "(no name)");
-    line(f->rows[4], "Hold %s to show its", button_of(n));
-    line(f->rows[5], "join code. Whoever");
-    line(f->rows[6], "scans it can read");
-    line(f->rows[7], "the group.");
-    return false;
+    snprintf(s->title_right, sizeof s->title_right, "%u/%u", (unsigned)n->group_shown + 1,
+             (unsigned)n->groups);
+    scene_add(s, SCENE_GAP, TONE_TEXT, NULL)->on = ON_MONO;
+    scene_add(s, SCENE_LINE, TONE_TEXT, "%s", group[0] != '\0' ? group : "(no name)")->icon =
+        ICON_GROUP;
+    scene_add(s, SCENE_GAP, TONE_TEXT, NULL);
+    snprintf(s->text, sizeof s->text,
+             "Hold %s to show its join code. Whoever scans it can read the group.", button_of(n));
+    scene_add(s, SCENE_TEXT, TONE_DIM, NULL);
+    snprintf(s->hint, sizeof s->hint, "Hold: join code");
 }
 
-static void node(const struct ui_node *n, struct frame *f) {
-    char text[TERN_ADDRESS_TEXT_LEN + 1], sc[TERN_SHORT_CODE_LEN + 1];
-    tern_address_text(n->address, text);
+static void node(const struct ui_node *n, struct scene *s) {
+    char sc[TERN_SHORT_CODE_LEN + 1];
     tern_short_code(n->address, sc);
-    line(f->rows[0], "This node");
-    line(f->rows[1], "Code %s", sc);
-    /* Its sixty-four digits, sixteen a line in two groups of eight, as a person reads them out. */
-    for (int r = 0; r < 4; r++) {
-        line(f->rows[2 + r], "  %.8s %.8s", &text[16 * r], &text[16 * r + 8]);
+    more_page(n, s, ICON_INFO, "This node");
+    snprintf(s->hint, sizeof s->hint, "Press: back");
+    /* The short code, for two people to compare, and not the address: sixty-four hex digits are
+     * no use read off a screen. My code has the address to scan, and the console's 'status' has
+     * it to copy. */
+    scene_add(s, SCENE_SMALL, TONE_DIM, "Code to compare:")->on = ON_MONO;
+    scene_add(s, SCENE_LINE, TONE_TEXT, "  %s", sc)->on = ON_MONO;
+    scene_add(s, SCENE_GAP, TONE_TEXT, NULL)->on = ON_MONO;
+    struct scene_item *it = scene_add(s, SCENE_SMALL, TONE_TEXT, "%s, %s, %+d dBm",
+                                      n->relay ? "Relay" : "Leaf", n->region, n->dbm);
+    it->on = ON_MONO;
+    if (n->ble_name != NULL) {
+        scene_add(s, SCENE_SMALL, TONE_TEXT, "Seen as %s", n->ble_name)->on = ON_MONO;
     }
-    line(f->rows[6], "%s, %s, %+d dBm", n->relay ? "Relay" : "Leaf", n->region, n->dbm);
-    line(f->rows[7], "Tern %s", n->version);
+    scene_add(s, SCENE_SMALL, TONE_TEXT, "Tern %s", n->version)->on = ON_MONO;
+
+    it = scene_add(s, SCENE_LINE, TONE_ACCENT, "%s", sc);
+    it->icon = ICON_QR;
+    it->on = ON_COLOUR;
+    it = scene_add(s, SCENE_LINE, TONE_TEXT, "%s", n->relay ? "Relay" : "Leaf");
+    snprintf(it->right, sizeof it->right, "%s", n->relay ? "helps the mesh" : "just me");
+    it->icon = ICON_ANTENNA;
+    it->on = ON_COLOUR;
+    it = scene_add(s, SCENE_LINE, TONE_TEXT, "%s", n->region);
+    snprintf(it->right, sizeof it->right, "%+d dBm", n->dbm);
+    it->icon = ICON_AIR;
+    it->on = ON_COLOUR;
+    it = scene_add(s, SCENE_LINE, TONE_TEXT, "Tern %s", n->version);
+    it->icon = ICON_INFO;
+    it->on = ON_COLOUR;
 }
 
 /* The heading of a page that is asking to be sure, with the seconds it will go on asking. */
-static void asking(char *out, const char *question, unsigned seconds) {
-    char left[8];
-    snprintf(left, sizeof left, "%us", seconds);
-    ends(out, question, left);
+static void asking(struct scene *s, const char *question, unsigned seconds) {
+    snprintf(s->title, sizeof s->title, "%s", question);
+    snprintf(s->title_right, sizeof s->title_right, "%us", seconds);
+    s->title_icon = ICON_WARNING;
+    s->status = false; /* room for the question */
+    s->dots = 0;
 }
 
-static void phones(const struct ui_node *n, struct frame *f) {
+static void phones(const struct ui_node *n, struct scene *s) {
+    more_page(n, s, ICON_PHONE, "Phones");
+    snprintf(s->hint, sizeof s->hint, "Press: back");
     if (!n->bluetooth) {
-        line(f->rows[0], "Phones");
-        line(f->rows[2], "Bluetooth is off: it");
-        line(f->rows[3], "did not start.");
-        line(f->rows[5], "Restart the board to");
-        line(f->rows[6], "try again.");
+        scene_add(s, SCENE_GAP, TONE_TEXT, NULL);
+        scene_add(s, SCENE_LINE, TONE_BAD, "Bluetooth is off")->icon = ICON_BLUETOOTH;
+        snprintf(s->text, sizeof s->text, "It did not start. Restart the board to try again.");
+        scene_add(s, SCENE_TEXT, TONE_DIM, NULL);
         return;
     }
     if (n->confirm_s > 0 && n->paired > 0) {
-        asking(f->rows[0], "Forget phones?", n->confirm_s);
-        line(f->rows[2], "Hold %s again to", button_of(n));
-        line(f->rows[3], "forget %u phone%s.", (unsigned)n->paired, n->paired == 1 ? "" : "s");
-        line(f->rows[4], "Each must pair again.");
-        line(f->rows[7], "A press keeps them");
+        asking(s, "Forget phones?", n->confirm_s);
+        scene_add(s, SCENE_GAP, TONE_TEXT, NULL);
+        snprintf(s->text, sizeof s->text,
+                 "Hold %s again to forget %u phone%s. Each must pair again.", button_of(n),
+                 (unsigned)n->paired, n->paired == 1 ? "" : "s");
+        scene_add(s, SCENE_TEXT, TONE_WARN, NULL);
+        snprintf(s->hint, sizeof s->hint, "A press keeps them");
         return;
     }
-    ends(f->rows[0], "Phones", n->phone ? DISPLAY_BLUETOOTH_S : "");
     if (n->ble_name != NULL) {
-        line(f->rows[1], "Seen as %s", n->ble_name);
+        struct scene_item *it = scene_add(s, SCENE_LINE, TONE_TEXT, "Seen as %s", n->ble_name);
+        it->icon = ICON_BLUETOOTH;
     }
     if (n->paired == 0) {
-        line(f->rows[2], "None paired");
-        line(f->rows[4], "A phone pairs with");
-        line(f->rows[5], "the passkey shown");
-        line(f->rows[6], "here when it asks.");
+        scene_add(s, SCENE_LINE, TONE_DIM, "None paired")->on = ON_MONO;
+        scene_add(s, SCENE_GAP, TONE_TEXT, NULL);
+        snprintf(s->text, sizeof s->text,
+                 "A phone pairs with the passkey shown here when it asks.");
+        scene_add(s, SCENE_TEXT, TONE_DIM, NULL);
         return;
     }
-    f->big = 2;
-    snprintf(f->big_text, sizeof f->big_text, "%u paired", (unsigned)n->paired);
-    line(f->rows[4], n->phone ? "One is connected" : "None connected");
-    line(f->rows[6], "Hold %s to forget", button_of(n));
-    line(f->rows[7], "them all.");
+    scene_add(s, SCENE_HERO, TONE_ACCENT, "%u paired", (unsigned)n->paired);
+    struct scene_item *it = scene_add(s, SCENE_LINE, n->phone ? TONE_GOOD : TONE_DIM, "%s",
+                                      n->phone ? "One is connected" : "None connected");
+    it->icon = n->phone ? ICON_CHECK : ICON_NONE;
+    scene_add(s, SCENE_GAP, TONE_TEXT, NULL)->on = ON_MONO;
+    snprintf(s->text, sizeof s->text, "Hold %s to forget them all.", button_of(n));
+    scene_add(s, SCENE_TEXT, TONE_DIM, NULL)->on = ON_MONO;
+    snprintf(s->hint, sizeof s->hint, "Hold: forget all");
 }
 
 /* Everything the node keeps goes, not only what a client set: a new owner gets a node that
  * nothing can be read back from, with an address of its own. */
-static void reset(const struct ui_node *n, struct frame *f) {
+static void reset(const struct ui_node *n, struct scene *s) {
+    more_page(n, s, ICON_ERASE, "Erase this node");
     if (n->confirm_s > 0) {
-        asking(f->rows[0], "Erase everything?", n->confirm_s);
-        line(f->rows[2], "Hold %s again to", button_of(n));
-        line(f->rows[3], "erase it all. It");
-        line(f->rows[4], "starts again with a");
-        line(f->rows[5], "new address.");
-        line(f->rows[7], "A press keeps it all");
+        asking(s, "Erase everything?", n->confirm_s);
+        scene_add(s, SCENE_GAP, TONE_TEXT, NULL);
+        snprintf(s->text, sizeof s->text,
+                 "Hold %s again to erase it all. It starts again with a new address.",
+                 button_of(n));
+        scene_add(s, SCENE_TEXT, TONE_BAD, NULL);
+        snprintf(s->hint, sizeof s->hint, "A press keeps it all");
         return;
     }
-    line(f->rows[0], "Erase this node");
-    line(f->rows[2], "Erases its address,");
-    line(f->rows[3], "contacts, groups,");
-    line(f->rows[4], "messages, phones and");
-    line(f->rows[5], "settings: a new node.");
-    line(f->rows[7], "Hold %s to erase", button_of(n));
+    scene_add(s, SCENE_GAP, TONE_TEXT, NULL);
+    snprintf(s->text, sizeof s->text,
+             "Erases its address, contacts, groups, messages, phones and settings: a new node.");
+    scene_add(s, SCENE_TEXT, TONE_TEXT, NULL);
+    snprintf(s->hint, sizeof s->hint, "Hold %s to erase", button_of(n));
 }
 
-static void draw(const struct frame *f, struct display *d) {
-    for (int i = 0; i < DISPLAY_PAGES; i++) {
-        if (i == f->big) {
-            display_big(d, i, f->big_text);
-            i++;
-        } else if (i == f->bar) {
-            display_bar(d, i, f->part, f->whole);
-        } else {
-            display_text(d, i, f->rows[i], i == 0);
-        }
+void ui_scene(const struct ui_node *n, int page, struct scene *s) {
+    scene_clear(s);
+    switch (page) {
+    case UI_MESSAGES:
+        messages(n, s);
+        break;
+    case UI_NEARBY:
+        nearby(n, s);
+        break;
+    case UI_SHARE:
+        share(n, s);
+        break;
+    case UI_MORE:
+        more(n, s);
+        break;
+    case UI_AIR:
+        air(n, s);
+        break;
+    case UI_GROUPS:
+        groups(n, s);
+        break;
+    case UI_NODE:
+        node(n, s);
+        break;
+    case UI_PHONES:
+        phones(n, s);
+        break;
+    case UI_RESET:
+        reset(n, s);
+        break;
+    default:
+        home(n, s);
+        break;
     }
-}
-
-static void blank(struct frame *f) {
-    memset(f, 0, sizeof *f);
-    f->big = NO_ROW;
-    f->bar = NO_ROW;
 }
 
 void ui_draw(const struct ui_node *n, int page, struct display *d) {
-    struct frame f;
-    blank(&f);
-    switch (page) {
-    case UI_MESSAGES:
-        messages(n, &f);
-        break;
-    case UI_NEARBY:
-        nearby(n, &f);
-        break;
-    case UI_AIR:
-        air(n, &f);
-        break;
-    case UI_SHARE:
-        share(n, d);
-        return;
-    case UI_NODE:
-        node(n, &f);
-        break;
-    case UI_GROUPS:
-        if (groups(n, &f, d)) {
-            return;
-        }
-        break;
-    case UI_PHONES:
-        phones(n, &f);
-        break;
-    case UI_RESET:
-        reset(n, &f);
-        break;
-    default:
-        home(n, &f);
-        break;
+    static struct scene s;
+    ui_scene(n, page, &s);
+    mono_draw(&s, d);
+    memset(s.qr, 0, sizeof s.qr); /* a join code's is the group's secret */
+}
+
+void ui_erasing(struct scene *s) {
+    scene_clear(s);
+    snprintf(s->title, sizeof s->title, "Erasing");
+    s->title_icon = ICON_ERASE;
+    scene_add(s, SCENE_GAP, TONE_TEXT, NULL);
+    scene_add(s, SCENE_GAP, TONE_TEXT, NULL);
+    snprintf(s->text, sizeof s->text, "Starting again as a new node...");
+    scene_add(s, SCENE_TEXT, TONE_TEXT, NULL);
+}
+
+void ui_pairing(uint32_t passkey, struct scene *s) {
+    scene_clear(s);
+    snprintf(s->title, sizeof s->title, "Bluetooth pairing");
+    s->title_icon = ICON_BLUETOOTH;
+    scene_add(s, SCENE_GAP, TONE_TEXT, NULL);
+    scene_add(s, SCENE_LINE, TONE_TEXT, "Type this passkey")->on = ON_MONO;
+    scene_add(s, SCENE_LINE, TONE_TEXT, "into your phone:")->on = ON_MONO;
+    scene_add(s, SCENE_SMALL, TONE_DIM, "Type this passkey into your phone")->on = ON_COLOUR;
+    scene_add(s, SCENE_GAP, TONE_TEXT, NULL);
+    scene_add(s, SCENE_HERO, TONE_ACCENT, "%06lu", (unsigned long)(passkey % 1000000));
+}
+
+void ui_updating(uint32_t held, uint32_t size, struct scene *s) {
+    scene_clear(s);
+    snprintf(s->title, sizeof s->title, "Updating");
+    s->title_icon = ICON_DOWNLOAD;
+    scene_add(s, SCENE_GAP, TONE_TEXT, NULL);
+    scene_add(s, SCENE_LINE, TONE_TEXT, "New firmware is")->on = ON_MONO;
+    scene_add(s, SCENE_LINE, TONE_TEXT, "arriving:")->on = ON_MONO;
+    scene_add(s, SCENE_SMALL, TONE_DIM, "New firmware is arriving")->on = ON_COLOUR;
+    scene_add(s, SCENE_GAP, TONE_TEXT, NULL);
+    unsigned pc = (unsigned)(size == 0 ? 0 : (uint64_t)held * 100 / size);
+    scene_add(s, SCENE_HERO, TONE_ACCENT, "%u%%", pc);
+    struct scene_item *it = scene_add(s, SCENE_METER, TONE_ACCENT, NULL);
+    it->part = (int32_t)(held > INT32_MAX ? INT32_MAX : held);
+    it->whole = (int32_t)(size > INT32_MAX ? INT32_MAX : size);
+    it->on = ON_COLOUR;
+}
+
+void ui_rows(const char *const *rows, int n, struct scene *s) {
+    scene_clear(s);
+    snprintf(s->title, sizeof s->title, "%s", n > 0 ? rows[0] : "");
+    s->title_icon = ICON_ANTENNA;
+    for (int i = 1; i < n; i++) {
+        scene_add(s, SCENE_SMALL, TONE_TEXT, "%s", rows[i]);
     }
-    draw(&f, d);
 }
 
-void ui_erasing(struct display *d) {
-    struct frame f;
-    blank(&f);
-    line(f.rows[0], "Erasing");
-    line(f.rows[3], "Starting again as a");
-    line(f.rows[4], "new node...");
-    draw(&f, d);
-}
-
-void ui_pairing(uint32_t passkey, struct display *d) {
-    struct frame f;
-    blank(&f);
-    line(f.rows[0], "Bluetooth pairing");
-    line(f.rows[2], "Type this passkey");
-    line(f.rows[3], "into your phone:");
-    f.big = 5;
-    snprintf(f.big_text, sizeof f.big_text, "%06lu", (unsigned long)(passkey % 1000000));
-    draw(&f, d);
-}
-
-void ui_updating(uint32_t held, uint32_t size, struct display *d) {
-    struct frame f;
-    blank(&f);
-    line(f.rows[0], "Updating");
-    line(f.rows[2], "New firmware is");
-    line(f.rows[3], "arriving:");
-    f.big = 5;
-    snprintf(f.big_text, sizeof f.big_text, "%lu%%",
-             (unsigned long)(size == 0 ? 0 : (uint64_t)held * 100 / size));
-    draw(&f, d);
-}
-
-void ui_boot(const struct ui_start *s, struct display *d) {
-    struct frame f;
-    blank(&f);
-    f.big = 0; /* in place of a heading */
-    snprintf(f.big_text, sizeof f.big_text, "Tern");
-    line(f.rows[3], "Version %s", s->version);
-    if (s->region != NULL) {
-        line(f.rows[5], "%s, starting...", s->region);
+void ui_boot(const struct ui_start *st, struct scene *s) {
+    scene_clear(s);
+    scene_add(s, SCENE_GAP, TONE_TEXT, NULL)->on = ON_COLOUR;
+    scene_add(s, SCENE_HERO, TONE_ACCENT, "Tern"); /* in place of a heading */
+    scene_add(s, SCENE_GAP, TONE_TEXT, NULL)->on = ON_MONO;
+    scene_add(s, SCENE_SMALL, TONE_DIM, "Version %s", st->version);
+    scene_add(s, SCENE_GAP, TONE_TEXT, NULL);
+    if (st->region != NULL) {
+        scene_add(s, SCENE_SMALL, TONE_TEXT, "%s, starting...", st->region);
     } else {
-        line(f.rows[5], "Starting...");
+        scene_add(s, SCENE_SMALL, TONE_TEXT, "Starting...");
     }
-    if (s->address != NULL) {
+    if (st->address != NULL) {
         char sc[TERN_SHORT_CODE_LEN + 1];
-        tern_short_code(s->address, sc);
-        line(f.rows[6], "Code %s", sc);
-        if (s->new_address) {
-            line(f.rows[7], "New address made");
+        tern_short_code(st->address, sc);
+        scene_add(s, SCENE_SMALL, TONE_TEXT, "Code %s", sc);
+        if (st->new_address) {
+            scene_add(s, SCENE_SMALL, TONE_ACCENT, "New address made");
         }
     }
-    draw(&f, d);
 }
 
 /* What went wrong, up to three lines, and what to do about it, up to two. */
@@ -643,64 +704,80 @@ static const struct fault_words fault_words[] = {
                         {"Restart it. If this", "repeats, ask for help"}},
 };
 
-void ui_fault(enum ui_fault why, const struct ui_start *s, int code, struct display *d) {
-    struct frame f;
-    blank(&f);
-    line(f.rows[0], "Did not start");
-    if ((unsigned)why < sizeof fault_words / sizeof fault_words[0]) {
-        const struct fault_words *w = &fault_words[why];
-        for (int i = 0; i < 3 && w->what[i] != NULL; i++) {
-            line(f.rows[1 + i], "%s", w->what[i]);
+void ui_fault(enum ui_fault why, const struct ui_start *st, int code, struct scene *s) {
+    scene_clear(s);
+    snprintf(s->title, sizeof s->title, "Did not start");
+    s->title_icon = ICON_ERROR;
+    const struct fault_words *w =
+        (unsigned)why < sizeof fault_words / sizeof fault_words[0] ? &fault_words[why] : NULL;
+    int lines = 0;
+    for (int i = 0; w != NULL && i < 3; i++) {
+        if (w->what[i] != NULL) {
+            scene_add(s, SCENE_SMALL, TONE_TEXT, "%s", w->what[i]);
+            lines++;
         }
-        for (int i = 0; i < 2 && w->todo[i] != NULL; i++) {
-            line(f.rows[5 + i], "%s", w->todo[i]);
-        }
+    }
+    while (lines++ < 3) {
+        scene_add(s, SCENE_GAP, TONE_TEXT, NULL)->on = ON_MONO;
     }
     /* For whoever is asked for help: the driver's own number for what failed, and which build. */
     if (code != 0) {
-        line(f.rows[4], "Error %d", code);
+        scene_add(s, SCENE_SMALL, TONE_BAD, "Error %d", code);
+    } else {
+        scene_add(s, SCENE_GAP, TONE_TEXT, NULL);
     }
-    line(f.rows[7], "Tern %s", s->version);
-    draw(&f, d);
+    for (int i = 0; i < 2; i++) {
+        if (w != NULL && w->todo[i] != NULL) {
+            scene_add(s, SCENE_SMALL, TONE_WARN, "%s", w->todo[i]);
+        } else {
+            scene_add(s, SCENE_GAP, TONE_TEXT, NULL)->on = ON_MONO;
+        }
+    }
+    scene_add(s, SCENE_SMALL, TONE_DIM, "Tern %s", st->version);
 }
 
-void ui_turning_off(unsigned seconds, struct display *d) {
-    struct frame f;
-    blank(&f);
-    line(f.rows[0], "Turning off");
-    f.big = 2;
-    snprintf(f.big_text, sizeof f.big_text, "%u", seconds);
-    line(f.rows[5], "Keep holding to turn");
-    line(f.rows[6], "off. Let go: stays on");
+void ui_turning_off(unsigned seconds, struct scene *s) {
+    scene_clear(s);
+    snprintf(s->title, sizeof s->title, "Turning off");
+    s->title_icon = ICON_POWER;
+    scene_add(s, SCENE_GAP, TONE_TEXT, NULL);
+    scene_add(s, SCENE_HERO, TONE_WARN, "%u", seconds);
+    scene_add(s, SCENE_GAP, TONE_TEXT, NULL);
+    scene_add(s, SCENE_SMALL, TONE_TEXT, "Keep holding to turn");
+    scene_add(s, SCENE_SMALL, TONE_TEXT, "off. Let go: stays on");
     /* The link keeps messages in memory only (link.h), so they do not outlast the board's being
      * off: said while it can still be stopped. */
-    line(f.rows[7], "Its messages are lost");
-    draw(&f, d);
+    scene_add(s, SCENE_SMALL, TONE_DIM, "Its messages are lost");
 }
 
-void ui_off(enum ui_off why, const char *button, struct display *d) {
-    struct frame f;
-    blank(&f);
+void ui_off(enum ui_off why, const char *button, struct scene *s) {
+    scene_clear(s);
+    s->title_icon = ICON_POWER;
     if (why == UI_OFF_EMPTY) {
-        line(f.rows[0], "Battery empty");
-        line(f.rows[2], "Turned off to save");
-        line(f.rows[3], "the battery.");
-        line(f.rows[5], "Charge it: it turns");
-        line(f.rows[6], "on again by itself.");
+        snprintf(s->title, sizeof s->title, "Battery empty");
+        scene_add(s, SCENE_GAP, TONE_TEXT, NULL);
+        scene_add(s, SCENE_SMALL, TONE_TEXT, "Turned off to save");
+        scene_add(s, SCENE_SMALL, TONE_TEXT, "the battery.");
+        scene_add(s, SCENE_GAP, TONE_TEXT, NULL);
+        scene_add(s, SCENE_SMALL, TONE_DIM, "Charge it: it turns");
+        scene_add(s, SCENE_SMALL, TONE_DIM, "on again by itself.");
     } else if (why == UI_OFF_ASKED) {
-        line(f.rows[0], "Turned off");
-        line(f.rows[2], "by a phone or");
-        line(f.rows[3], "computer.");
+        snprintf(s->title, sizeof s->title, "Turned off");
+        scene_add(s, SCENE_GAP, TONE_TEXT, NULL);
+        scene_add(s, SCENE_SMALL, TONE_TEXT, "by a phone or");
+        scene_add(s, SCENE_SMALL, TONE_TEXT, "computer.");
+        scene_add(s, SCENE_GAP, TONE_TEXT, NULL);
         if (button != NULL) {
-            line(f.rows[5], "Press %s or RESET", button);
+            scene_add(s, SCENE_SMALL, TONE_DIM, "Press %s or RESET", button);
         } else {
-            line(f.rows[5], "Press RESET");
+            scene_add(s, SCENE_SMALL, TONE_DIM, "Press RESET");
         }
-        line(f.rows[6], "to turn it on again.");
+        scene_add(s, SCENE_SMALL, TONE_DIM, "to turn it on again.");
     } else {
-        line(f.rows[0], "Turned off");
-        line(f.rows[3], "Press %s to turn", button != NULL ? button : "RESET");
-        line(f.rows[4], "it on again.");
+        snprintf(s->title, sizeof s->title, "Turned off");
+        scene_add(s, SCENE_GAP, TONE_TEXT, NULL);
+        scene_add(s, SCENE_GAP, TONE_TEXT, NULL);
+        scene_add(s, SCENE_SMALL, TONE_TEXT, "Press %s to turn", button != NULL ? button : "RESET");
+        scene_add(s, SCENE_SMALL, TONE_TEXT, "it on again.");
     }
-    draw(&f, d);
 }

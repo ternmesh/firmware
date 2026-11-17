@@ -185,7 +185,7 @@ static void only_changed_pages_are_sent(void) {
 
     display_text(&d, 0, "!", true);
     CHECK_EQ_I64(display_take(&d), 0);
-    CHECK_EQ_I64(d.px[0][2], 0xa0);
+    CHECK_EQ_I64(d.px[0][2], 0x41); /* dark on light, a pixel lower: a lit row above it */
     CHECK_EQ_I64(d.px[0][127], 0xff);
 
     /* Off the screen, and off the end of a line, are ignored. */

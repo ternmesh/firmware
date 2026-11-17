@@ -162,7 +162,8 @@ Type commands into the serial terminal:
 | `screen bench on`, `screen bench off` | Add the [bench pages](#the-bench-pages) to the screen, after the others, or take them away. The board keeps the choice. |
 
 A short press of **PRG** shows the [screen](#the-screen)'s next page, and holding it for a second
-acts on the page shown. On a [bench page](#the-bench-pages), holding it sends a ping: a board
+acts on the page shown, as [The screen](#the-screen) says. On a [bench page](#the-bench-pages),
+holding it sends a ping: a board
 that hears a ping answers with a pong saying how strongly it heard it, so one ping checks both
 directions. (On a board whose screen does not answer, a short press sends the ping.) The white
 LED blinks for each frame sent or received, and while a message is unread it blinks briefly
@@ -190,20 +191,29 @@ nothing sent.
 ## The screen
 
 The board's display shows what someone carrying it needs at a glance, in their words rather than
-the protocol's: nine pages, moved through by pressing PRG. It is the first version of the screen
-[docs/ui.md](../../docs/ui.md) describes.
+the protocol's. It is the screen [docs/ui.md](../../docs/ui.md) describes.
+
+A press of PRG shows the next of the five main pages, **Home**, **Messages**, **Nearby**, **My
+code** and **More**, and after More, Home again; dots at the right of each page's heading say
+which of the five it is. Holding PRG for a second acts on the page shown, and the last line of a
+page that has room says what a hold does there ("Hold: older"). On **More**, a hold opens a menu
+of the pages wanted less often: **Air**, **Groups**, **This node**, **Phones** and **Erase**, and
+**Back**. In the menu a press moves to the next choice, shown dark on light, and a hold opens it;
+on the page it opens, a press comes back to the menu, at the same choice. Erasing the board and
+forgetting its phones are there, never among the pages a press goes round.
 
 | Page | |
 |---|---|
 | **Home** | Bluetooth's rune beside **Tern** while a client is connected over Bluetooth; the battery's charge, once the board has read it, and the region; in large letters the one thing most worth knowing: how many new messages, or else how many nodes it hears, or that it is still listening for one. Below, what that does not say: how many nodes it hears and can reach by routes, who the last new message is from or how many of its own await delivery, and how much of the region's limit on the air is left. |
 | **Messages** | One message at a time, newest first: who it is from or to (a group's by the group's name, and below it who wrote it: the contact whose address gives the routing id it claims, or else that id), how long ago (once a client has set the board's clock), and its text, wrapped. A message this board sent says what became of it: waiting, and why (no route yet, making contact, the region's limit, the radio busy), then delivered or not delivered. Hold PRG for the one before. |
 | **Nearby** | The nodes it hears directly, most recently heard first, seven at a time: each by a contact's name if one has its address, or else its routing id, with how well its last announce was heard, in dB of SNR, and how long ago. Hold PRG for the next seven. |
+| **My code** | Its address as a QR code holding its link, `HTTPS://TERNMESH.ORG/A/` and the address in base32, which a phone's camera opens as a web page showing the address and its short code; and beside it, its short code. |
+| **More** | The menu of the pages below. |
 | **Air** | The region's limit on time on the air, as a bar: what is counted against it, of how much, over what span, and when the next frame may go. In a region with no limit, how long it has sent for. |
-| **Share** | Its address as a QR code holding its link, `HTTPS://TERNMESH.ORG/A/` and the address in base32, which a phone's camera opens as a web page showing the address and its short code; and beside it, its short code. |
-| **This node** | Its short code, twelve digits two people compare to check a phone has the right node; its address, sixty-four hex digits in groups of eight, to read out or copy; relay or leaf, the region and the power; and the firmware's version. |
+| **This node** | Its short code, twelve digits two people compare to check a phone has the right node; relay or leaf, the region and the power; the name phones list it by; and the firmware's version. Not its address: sixty-four hex digits are no use read off a screen, so My code has it to scan, and `status` on the console has it to copy. |
 | **Groups** | The groups it holds, one at a time, by the name it holds each under. Hold PRG to show the group's join code as a QR code (draft/groups.md), with beside it that whoever scans it can read the group; hold again for the next group, its code not shown until asked for. The code goes when the page does, or the screen goes dark. A code whose name is more than 12 bytes needs a larger code than the screen draws, so the one shown carries the first 12 bytes of the name, as whole characters: it joins the same group, under the shorter name, which its new member can change. |
 | **Phones** | How many phones have paired over Bluetooth and are remembered, and whether one is connected. Hold PRG, and hold it again within ten seconds, to forget them all, as `forget` does: each must pair again. |
-| **Reset** | Erases the board for a new owner or a fresh start. Hold PRG, and hold it again within ten seconds: the board restarts, erases its flash's storage whole (its identity, sessions, contacts, groups, messages, settings and the phones' bonds), and starts as a new node, with a new address and the build's settings. The time it has spent on the air is kept, so the region's limit still counts it. |
+| **Erase** | Erases the board for a new owner or a fresh start. Hold PRG, and hold it again within ten seconds: the board restarts, erases its flash's storage whole (its identity, sessions, contacts, groups, messages, settings and the phones' bonds), and starts as a new node, with a new address and the build's settings. The time it has spent on the air is kept, so the region's limit still counts it. |
 
 When it starts, the board shows its name and firmware version at once, then its region and
 short code as it reads them (and **New address made** on the start that gave it its address), for two and a half seconds after it is on the air, or until PRG is

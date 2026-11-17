@@ -39,7 +39,11 @@ static const char *row(int page) {
         }
     }
     out[COLS] = '\0';
-    for (int k = COLS - 1; k >= 0 && out[k] == ' '; k--) {
+    /* A heading ends in the page dots, which are no character: read up to them. */
+    if (page == 0 && strncmp(&out[COLS - 3], "###", 3) == 0) {
+        out[COLS - 3] = '\0';
+    }
+    for (int k = (int)strlen(out) - 1; k >= 0 && out[k] == ' '; k--) {
         out[k] = '\0';
     }
     return out;
@@ -90,6 +94,14 @@ static void draw(const struct ui_node *n, int page, const char *name) {
     picture(name);
 }
 
+/* Draws a screen made outside the pages: boot, a fault, pairing, turning off. */
+static struct scene sc;
+static void shown(const char *name) {
+    display_init(&d);
+    mono_draw(&sc, &d);
+    picture(name);
+}
+
 /* A board just started on a bench in the US: nothing heard, nothing sent. */
 static struct ui_node alone(void) {
     struct ui_node n = {
@@ -98,6 +110,7 @@ static struct ui_node alone(void) {
         .relay = true,
         .dbm = 2,
         .battery = UI_BATTERY_UNKNOWN,
+        .menu = -1,
     };
     for (int i = 0; i < TERN_ADDRESS_LEN; i++) {
         n.address[i] = (uint8_t)(0x48 + i * 7);
@@ -137,7 +150,7 @@ static struct ui_node busy(void) {
 static void home_says_it_is_listening(void) {
     struct ui_node n = alone();
     draw(&n, UI_HOME, "home-listening");
-    CHECK_ROW(0, "Tern            US915");
+    CHECK_ROW(0, "Tern");
     CHECK(big(2, "Listening"));
     CHECK_ROW(4, "");
     CHECK_ROW(5, "No nodes heard yet");
@@ -162,7 +175,7 @@ static void home_says_it_is_listening(void) {
 static void home_puts_new_messages_first(void) {
     struct ui_node n = busy();
     draw(&n, UI_HOME, "home-news");
-    CHECK_ROW(0, "Tern            EU868");
+    CHECK_ROW(0, "Tern");
     CHECK(big(2, "2 new"));
     CHECK_ROW(5, "2 nearby, reaches 3");
     CHECK_ROW(6, "Last from Bob");
@@ -181,7 +194,7 @@ static void the_air_says_when_it_is_full(void) {
 
     n = busy();
     draw(&n, UI_AIR, "air-limited");
-    CHECK_ROW(0, "Air             EU868");
+    CHECK_ROW(0, "Air         EU868");
     CHECK_ROW(1, "Used 12.3 of 360 s");
     CHECK_ROW(2, "in any hour");
     CHECK_ROW(6, "Free to send now");
@@ -190,8 +203,10 @@ static void the_air_says_when_it_is_full(void) {
     n = alone();
     n.air_total_ms = 1234;
     draw(&n, UI_AIR, "air-unlimited");
-    CHECK_ROW(2, "US915 sets no limit o");
-    CHECK_ROW(5, "Sent for 1.2 s");
+    CHECK(big(2, "No limit"));
+    CHECK_ROW(5, "US915 sets no limit.");
+    CHECK_ROW(6, "Sent for 1.2 s since");
+    CHECK_ROW(7, "it started.");
 }
 
 static void the_bar_shows_what_is_used(void) {
@@ -218,11 +233,11 @@ static void home_shows_a_phone_connected(void) {
     struct ui_node n = alone();
     n.phone = true;
     draw(&n, UI_HOME, "home-phone");
-    CHECK_ROW(0, "Tern " DISPLAY_BLUETOOTH_S "          US915");
+    CHECK_ROW(0, "Tern " DISPLAY_BLUETOOTH_S);
     n.battery = 100;
     n.charging = true;
     draw(&n, UI_HOME, "x"); /* the longest the right of it gets: the rune still fits */
-    CHECK_ROW(0, "Tern " DISPLAY_BLUETOOTH_S " Chg 100% US915");
+    CHECK_ROW(0, "Tern " DISPLAY_BLUETOOTH_S "   Chg 100%");
 }
 
 static void a_group_message_names_the_group_and_its_writer(void) {
@@ -262,7 +277,7 @@ static void nearby_lists_who_was_heard(void) {
     n.neighbour[1] = (struct ui_neighbour){.snr_db = -12, .ago_s = 750};
     snprintf(n.neighbour[1].name, sizeof n.neighbour[1].name, "1A2B3C4D");
     draw(&n, UI_NEARBY, "nearby");
-    CHECK_ROW(0, "Nearby              2");
+    CHECK_ROW(0, "Nearby          2");
     CHECK_ROW(1, "Bob          +7dB 40s");
     CHECK_ROW(2, "1A2B3C4D    -12dB 12m");
     CHECK_ROW(3, "");
@@ -277,7 +292,7 @@ static void nearby_lists_who_was_heard(void) {
     }
     snprintf(n.neighbour[0].name, sizeof n.neighbour[0].name, "Bob on the ridge top");
     draw(&n, UI_NEARBY, "nearby-more");
-    CHECK_ROW(0, "Nearby        8-12/12");
+    CHECK_ROW(0, "Nearby    8-12/12");
     CHECK_ROW(1, "Bob on the r +7dB 40s");
 }
 
@@ -286,13 +301,13 @@ static void nearby_with_no_one_says_so(void) {
     draw(&n, UI_NEARBY, "nearby-none");
     CHECK_ROW(0, "Nearby");
     CHECK_ROW(3, "No nodes heard yet");
-    CHECK_ROW(5, "A node shows here");
+    CHECK_ROW(5, "once it is heard.");
 }
 
 static void a_message_is_shown_whole(void) {
     struct ui_node n = busy();
     draw(&n, UI_MESSAGES, "message-received");
-    CHECK_ROW(0, "Messages          1/3");
+    CHECK_ROW(0, "Messages      1/3");
     CHECK_ROW(1, "New from Bob   2m ago");
     CHECK_ROW(2, "On the ridge by six.");
     CHECK_ROW(3, "Bring the long");
@@ -367,24 +382,29 @@ static void no_messages_says_where_they_come_from(void) {
     draw(&n, UI_MESSAGES, "messages-none");
     CHECK_ROW(0, "Messages");
     CHECK_ROW(3, "No messages yet");
-    CHECK_ROW(5, "Send one from your");
-    CHECK_ROW(6, "phone or computer");
+    CHECK_ROW(5, "phone or computer");
+    CHECK_ROW(6, "");
 }
 
-static void the_node_page_gives_its_address(void) {
+/* This node says what a person can use off a screen: the short code to compare, how it runs and
+ * its version; not the address's sixty-four hex digits, which My code has to scan. */
+static void the_node_page_gives_what_can_be_read_off_it(void) {
     struct ui_node n = alone();
     for (int i = 0; i < TERN_ADDRESS_LEN; i++) {
         n.address[i] = (uint8_t)(i % 16 * 0x11);
     }
-    n.address[31] = 0xAB;
+    n.ble_name = "Tern 7KQ3";
     draw(&n, UI_NODE, "node");
     CHECK_ROW(0, "This node");
-    CHECK_ROW(2, "  00112233 44556677");
-    CHECK_ROW(3, "  8899AABB CCDDEEFF");
-    CHECK_ROW(4, "  00112233 44556677");
-    CHECK_ROW(5, "  8899AABB CCDDEEAB");
-    CHECK_ROW(6, "Relay, US915, +2 dBm");
-    CHECK_ROW(7, "Tern 0.1.0-alpha.3");
+    CHECK_ROW(1, "Code to compare:");
+    CHECK_ROW(3, "");
+    CHECK_ROW(4, "Relay, US915, +2 dBm");
+    CHECK_ROW(5, "Seen as Tern 7KQ3");
+    CHECK_ROW(6, "Tern 0.1.0-alpha.3");
+    CHECK_ROW(7, "Press: back");
+    for (int r = 0; r < DISPLAY_PAGES; r++) {
+        CHECK(strstr(row(r), "00112233") == NULL);
+    }
 }
 
 /* The first address in the specification's sharing vectors, and the short code they give it. */
@@ -396,9 +416,7 @@ static void the_node_page_gives_its_short_code(void) {
     struct ui_node n = alone();
     memcpy(n.address, address, sizeof address);
     draw(&n, UI_NODE, "node-code");
-    CHECK_ROW(1, "Code 5358 3737 3382");
-    CHECK_ROW(2, "  D6D15FAB BC42CE56");
-    CHECK_ROW(5, "  24676F3F 4F17C996");
+    CHECK_ROW(2, "  5358 3737 3382");
     draw(&n, UI_SHARE, "share-code");
 }
 
@@ -442,12 +460,12 @@ static void the_groups_page_says_what_a_hold_shows(void) {
     n.group_shown = 1;
     strcpy(n.group, "Ridge walkers");
     draw(&n, UI_GROUPS, "groups");
-    CHECK_ROW(0, "Groups            2/2");
+    CHECK_ROW(0, "Groups        2/2");
     CHECK_ROW(2, "Ridge walkers");
     CHECK_ROW(4, "Hold PRG to show its");
     CHECK_ROW(5, "join code. Whoever");
-    CHECK_ROW(6, "scans it can read");
-    CHECK_ROW(7, "the group.");
+    CHECK_ROW(6, "scans it can read the");
+    CHECK_ROW(7, "group.");
 }
 
 /* Asked for, the group's join code is drawn as the address's is, with what it gives away beside it;
@@ -506,14 +524,14 @@ static void the_phones_page_says_who_is_paired(void) {
     n.paired = 2;
     n.phone = true;
     draw(&n, UI_PHONES, "phones");
-    CHECK_ROW(0, "Phones              " DISPLAY_BLUETOOTH_S);
+    CHECK_ROW(0, "Phones " DISPLAY_BLUETOOTH_S);
     CHECK_ROW(1, "Seen as Tern 7KQ3");
     CHECK(big(2, "2 paired"));
     CHECK_ROW(4, "One is connected");
     CHECK_ROW(6, "Hold PRG to forget");
     n.bluetooth = false;
     draw(&n, UI_PHONES, "phones-off");
-    CHECK_ROW(2, "Bluetooth is off: it");
+    CHECK_ROW(2, "Bluetooth is off");
 }
 
 static void forgetting_phones_asks_first(void) {
@@ -524,11 +542,11 @@ static void forgetting_phones_asks_first(void) {
     draw(&n, UI_PHONES, "phones-confirm");
     CHECK_ROW(0, "Forget phones?     9s");
     CHECK_ROW(2, "Hold PRG again to");
-    CHECK_ROW(3, "forget 1 phone.");
+    CHECK_ROW(3, "forget 1 phone. Each");
     CHECK_ROW(7, "A press keeps them");
     n.paired = 0; /* forgotten some other way while it asked */
     draw(&n, UI_PHONES, "phones-confirm-none");
-    CHECK_ROW(2, "None paired");
+    CHECK_ROW(2, "");
 }
 
 static void erasing_asks_first(void) {
@@ -544,7 +562,8 @@ static void erasing_asks_first(void) {
     CHECK_ROW(2, "Hold PRG again to");
     CHECK_ROW(7, "A press keeps it all");
     display_init(&d);
-    ui_erasing(&d);
+    ui_erasing(&sc);
+    shown("x");
     picture("erasing");
     CHECK_ROW(0, "Erasing");
     CHECK_ROW(4, "new node...");
@@ -554,24 +573,25 @@ static void the_battery_shows_once_it_is_known(void) {
     struct ui_node n = alone();
     n.battery = 87;
     draw(&n, UI_HOME, "home-battery");
-    CHECK_ROW(0, "Tern        87% US915");
+    CHECK_ROW(0, "Tern          87%");
     n.battery = 100;
     draw(&n, UI_HOME, "x");
-    CHECK_ROW(0, "Tern       100% US915");
+    CHECK_ROW(0, "Tern         100%");
     n.battery = 8;
     draw(&n, UI_HOME, "home-battery-low");
-    CHECK_ROW(0, "Tern     Low 8% US915");
+    CHECK_ROW(0, "Tern       Low 8%");
     n.charging = true; /* charging says so, not that it is low */
     draw(&n, UI_HOME, "home-charging");
-    CHECK_ROW(0, "Tern     Chg 8% US915");
+    CHECK_ROW(0, "Tern       Chg 8%");
     n.battery = 100;
     draw(&n, UI_HOME, "x");
-    CHECK_ROW(0, "Tern   Chg 100% US915");
+    CHECK_ROW(0, "Tern     Chg 100%");
 }
 
 static void holding_prg_counts_down_to_off(void) {
     display_init(&d);
-    ui_turning_off(3, &d);
+    ui_turning_off(3, &sc);
+    shown("x");
     picture("turning-off");
     CHECK_ROW(0, "Turning off");
     CHECK(big(2, "3"));
@@ -582,19 +602,22 @@ static void holding_prg_counts_down_to_off(void) {
 
 static void off_says_how_to_turn_it_on(void) {
     display_init(&d);
-    ui_off(UI_OFF_PRESSED, "PRG", &d);
+    ui_off(UI_OFF_PRESSED, "PRG", &sc);
+    shown("x");
     picture("off");
     CHECK_ROW(0, "Turned off");
     CHECK_ROW(3, "Press PRG to turn");
     display_init(&d);
-    ui_off(UI_OFF_EMPTY, "PRG", &d);
+    ui_off(UI_OFF_EMPTY, "PRG", &sc);
+    shown("x");
     picture("off-empty");
     CHECK_ROW(0, "Battery empty");
     CHECK_ROW(5, "Charge it: it turns");
     CHECK_ROW(6, "on again by itself.");
     CHECK_ROW(7, "");
     display_init(&d);
-    ui_off(UI_OFF_ASKED, "PRG", &d);
+    ui_off(UI_OFF_ASKED, "PRG", &sc);
+    shown("x");
     picture("off-asked");
     CHECK_ROW(0, "Turned off");
     CHECK_ROW(2, "by a phone or");
@@ -618,20 +641,24 @@ static void the_button_is_named_as_the_board_marks_it(void) {
     draw(&n, UI_PHONES, "x");
     CHECK_ROW(6, "Hold USER to forget");
     display_init(&d);
-    ui_off(UI_OFF_PRESSED, "USER", &d);
+    ui_off(UI_OFF_PRESSED, "USER", &sc);
+    shown("x");
     CHECK_ROW(3, "Press USER to turn");
     display_init(&d);
-    ui_off(UI_OFF_ASKED, "IO38", &d);
+    ui_off(UI_OFF_ASKED, "IO38", &sc);
+    shown("x");
     CHECK_ROW(5, "Press IO38 or RESET");
     display_init(&d);
-    ui_off(UI_OFF_ASKED, NULL, &d);
+    ui_off(UI_OFF_ASKED, NULL, &sc);
+    shown("x");
     CHECK_ROW(5, "Press RESET");
     CHECK_ROW(6, "to turn it on again.");
 }
 
 static void pairing_shows_the_passkey(void) {
     display_init(&d);
-    ui_pairing(4213, &d);
+    ui_pairing(4213, &sc);
+    shown("x");
     picture("pairing");
     CHECK_ROW(0, "Bluetooth pairing");
     CHECK_ROW(2, "Type this passkey");
@@ -642,7 +669,8 @@ static void the_boot_screen_fills_in_as_the_board_starts(void) {
     struct ui_node n = alone();
     struct ui_start s = {.version = "0.1.0-alpha.3"};
     display_init(&d);
-    ui_boot(&s, &d);
+    ui_boot(&s, &sc);
+    shown("x");
     picture("boot-first");
     CHECK(big(0, "Tern"));
     CHECK_ROW(3, "Version 0.1.0-alpha.3");
@@ -650,37 +678,42 @@ static void the_boot_screen_fills_in_as_the_board_starts(void) {
     CHECK_ROW(6, "");
     s.region = "US915";
     s.address = n.address;
-    ui_boot(&s, &d);
+    ui_boot(&s, &sc);
+    shown("x");
     picture("boot");
-    char sc[TERN_SHORT_CODE_LEN + 1], want[COLS + 1];
-    tern_short_code(n.address, sc);
-    snprintf(want, sizeof want, "Code %s", sc);
+    char code[TERN_SHORT_CODE_LEN + 1], want[COLS + 1];
+    tern_short_code(n.address, code);
+    snprintf(want, sizeof want, "Code %s", code);
     CHECK_ROW(5, "US915, starting...");
     CHECK_ROW(6, want);
     CHECK_ROW(7, "");
     s.new_address = true;
-    ui_boot(&s, &d);
+    ui_boot(&s, &sc);
+    shown("x");
     CHECK_ROW(7, "New address made");
 }
 
 static void a_fault_says_why_and_what_to_do(void) {
     struct ui_start s = {.version = "0.1.0-alpha.3"};
     display_init(&d);
-    ui_fault(UI_FAULT_RADIO, &s, -5, &d);
+    ui_fault(UI_FAULT_RADIO, &s, -5, &sc);
+    shown("x");
     picture("fault-radio");
     CHECK_ROW(0, "Did not start");
     CHECK_ROW(1, "The radio did not");
     CHECK_ROW(4, "Error -5");
     CHECK_ROW(5, "Restart it. If this");
     CHECK_ROW(7, "Tern 0.1.0-alpha.3");
-    ui_fault(UI_FAULT_STORAGE, &s, 0, &d);
+    ui_fault(UI_FAULT_STORAGE, &s, 0, &sc);
+    shown("x");
     picture("fault-storage");
     CHECK_ROW(4, "");
     CHECK_ROW(6, "it gets a new address");
     /* Every fault's words fit their lines, a version as long as a release's included. */
     s.version = "1.20.30-alpha.40";
     for (int why = UI_FAULT_STORAGE; why <= UI_FAULT_RADIO; why++) {
-        ui_fault((enum ui_fault)why, &s, -32768, &d);
+        ui_fault((enum ui_fault)why, &s, -32768, &sc);
+        shown("x");
         for (int r = 0; r < DISPLAY_PAGES; r++) {
             CHECK(strchr(row(r), '#') == NULL);
         }
@@ -730,14 +763,73 @@ static void huge_numbers_stay_on_the_screen(void) {
         for (int r = 0; r < DISPLAY_PAGES; r++) {
             bool text = !(page == UI_HOME && (r == 2 || r == 3)) && !(page == UI_AIR && r == 4) &&
                         page != UI_SHARE;
-            CHECK(!text || strchr(row(r), '#') == NULL);
+            if (text && strchr(row(r), '#') != NULL) {
+                fprintf(stderr, "page %d row %d: \"%s\"\n", page, r, row(r));
+                check_failures++;
+            }
         }
     }
     n.air_total_ms = -1;
     n.air_used_ms = -1;
     n.limited = false;
     draw(&n, UI_AIR, "x");
-    CHECK_ROW(5, "Sent for 0.0 s");
+    CHECK_ROW(5, "A REGION WITH A VERY"); /* and nothing past the screen's edge */
+}
+
+static void more_lists_what_it_opens(void) {
+    struct ui_node n = busy();
+    draw(&n, UI_MORE, "more");
+    CHECK_ROW(1, "Air");
+    CHECK_ROW(2, "Groups");
+    CHECK_ROW(3, "This node");
+    CHECK_ROW(4, "Phones");
+    CHECK_ROW(5, "Erase");
+    CHECK_ROW(6, ""); /* closed, nothing to go back from */
+    CHECK_ROW(7, "Hold: open menu");
+
+    /* Open: the choice is shown dark on light, and the menu can be closed again. */
+    n.menu = 1;
+    draw(&n, UI_MORE, "more-open");
+    CHECK_ROW(1, "Air");
+    CHECK_EQ_I64(d.px[2][DISPLAY_WIDTH - 1], 0xFF);
+    CHECK_EQ_I64(d.px[1][DISPLAY_WIDTH - 1], 0x00);
+    CHECK_ROW(6, "Back");
+    CHECK_ROW(7, "Hold: open");
+}
+
+static void each_choice_opens_its_page_and_comes_back_to_it(void) {
+    for (int i = 0; i < UI_MENU_BACK; i++) {
+        int page = ui_menu_page(i);
+        CHECK(page >= UI_MAIN && page < UI_PAGES);
+        CHECK_EQ_I64(ui_menu_choice(page), i);
+    }
+    CHECK_EQ_I64(ui_menu_page(UI_MENU_BACK), UI_MORE);
+    CHECK_EQ_I64(ui_menu_choice(UI_HOME), -1);
+    /* Erasing and forgetting phones are among More's, never the pages a press goes round. */
+    CHECK(UI_RESET >= UI_MAIN && UI_PHONES >= UI_MAIN);
+}
+
+/* Whether the heading shows page `k` of the dots as the one shown: a block, dark on the heading. */
+static bool dot_shown(int k, int dots) {
+    int x = DISPLAY_WIDTH - (dots - k) * 4;
+    return (d.px[0][x + 2] & 0x3C) == 0 && (d.px[0][x] & 0x3C) == 0;
+}
+
+static void the_dots_say_which_page_it_is(void) {
+    struct ui_node n = busy();
+    for (int page = 0; page < UI_MAIN; page++) {
+        if (page == UI_SHARE) {
+            continue; /* the code takes the whole of a monochrome screen, with no heading */
+        }
+        draw(&n, page, "x");
+        for (int k = 0; k < UI_MAIN; k++) {
+            CHECK(dot_shown(k, UI_MAIN) == (k == page));
+        }
+    }
+    /* A page More opened is More's: its dot. */
+    draw(&n, UI_AIR, "x");
+    CHECK(dot_shown(UI_MORE, UI_MAIN));
+    CHECK(!dot_shown(UI_HOME, UI_MAIN));
 }
 
 static void an_unchanged_page_is_not_sent_again(void) {
@@ -775,7 +867,7 @@ int main(int argc, char **argv) {
     RUN(text_too_long_is_cut_where_it_says_so);
     RUN(a_message_sent_says_what_became_of_it);
     RUN(no_messages_says_where_they_come_from);
-    RUN(the_node_page_gives_its_address);
+    RUN(the_node_page_gives_what_can_be_read_off_it);
     RUN(the_share_page_is_the_address_as_a_code);
     RUN(the_node_page_gives_its_short_code);
     RUN(the_battery_shows_once_it_is_known);
@@ -793,5 +885,8 @@ int main(int argc, char **argv) {
     RUN(large_text_is_centred_and_cut);
     RUN(huge_numbers_stay_on_the_screen);
     RUN(an_unchanged_page_is_not_sent_again);
+    RUN(more_lists_what_it_opens);
+    RUN(each_choice_opens_its_page_and_comes_back_to_it);
+    RUN(the_dots_say_which_page_it_is);
     return CHECK_DONE();
 }

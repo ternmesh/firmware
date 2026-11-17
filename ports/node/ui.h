@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "display.h"
+#include "scene.h"
 #include "tern/address.h"
 #include "tern/companion.h"
 #include "tern/group.h"
@@ -16,21 +17,41 @@
  * are shown only when a developer asks for them. A message is never shown as more certain than
  * the node knows: waiting, sent, delivered or not delivered, as the companion link says.
  *
- * main.c fills a ui_node from the radio, the router and the companion link, and the pages are
- * drawn from it alone. Nothing here touches the hardware, so tests/ui.c runs it on a host. */
+ * node.c fills a ui_node from the radio, the router and the companion link, and each page is made
+ * from it alone, as a scene (scene.h) that a monochrome screen and a colour panel each draw their
+ * own way. Nothing here touches the hardware, so tests/ui.c runs it on a host.
+ *
+ * The pages: a press of the button shows the next of the five main ones, Home, Messages, Nearby,
+ * My code and More, and round again; dots at the foot of a page say which it is. Holding the
+ * button acts on the page shown. On More, a hold opens its menu, the pages a user wants seldom:
+ * there a press moves to the next choice and a hold opens it, and on the page it opens a press
+ * comes back to the menu. Erasing the node, and forgetting its phones, are in that menu, never
+ * among the pages a press passes through. */
 
 enum ui_page {
-    UI_HOME,     /* whether it is on the air, who is nearby, what is new, the air left */
-    UI_MESSAGES, /* one message at a time, newest first */
-    UI_NEARBY,   /* the nodes heard directly, most recently heard first */
-    UI_AIR,      /* the region's limit on transmitting, and what is used of it */
-    UI_SHARE,    /* this node's address as a QR code, for a phone to scan */
-    UI_NODE,     /* this node's address in digits, to read out or copy */
-    UI_GROUPS,   /* the groups it holds, one at a time, and a group's join code when asked for */
-    UI_PHONES,   /* the phones paired over Bluetooth, and forgetting them */
-    UI_RESET,    /* erasing everything the node keeps, for a new owner or a fresh start */
+    UI_HOME,          /* whether it is on the air, who is nearby, what is new, the air left */
+    UI_MESSAGES,      /* one message at a time, newest first */
+    UI_NEARBY,        /* the nodes heard directly, most recently heard first */
+    UI_SHARE,         /* this node's address as a QR code, for a phone to scan */
+    UI_MORE,          /* the menu of the rest */
+    UI_MAIN,          /* the pages a press goes round; those after are More's */
+    UI_AIR = UI_MAIN, /* the region's limit on transmitting, and what is used of it */
+    UI_GROUPS, /* the groups it holds, one at a time, and a group's join code when asked for */
+    UI_NODE,   /* this node: its short code, address, radio and firmware */
+    UI_PHONES, /* the phones paired over Bluetooth, and forgetting them */
+    UI_RESET,  /* erasing everything the node keeps, for a new owner or a fresh start */
     UI_PAGES
 };
+
+/* More's choices, in order: the page each opens, and its last, which closes the menu. */
+#define UI_MENU 6
+#define UI_MENU_BACK (UI_MENU - 1)
+
+/* The page More's choice `choice` opens, or UI_MORE for the one that closes the menu. */
+int ui_menu_page(int choice);
+
+/* The choice of More's that opens `page`, or -1 if none does. */
+int ui_menu_choice(int page);
 
 #define UI_BATTERY_UNKNOWN 255
 #define UI_BATTERY_LOW 10 /* percent, at or below which Home says the battery is low */
@@ -61,7 +82,8 @@ struct ui_message {
     uint8_t text[TERN_COMPANION_TEXT_MAX]; /* UTF-8, as the link keeps it */
 };
 
-#define UI_NEARBY_ROWS 7 /* nodes the Nearby page has room for at once */
+#define UI_NEARBY_ROWS 7 /* nodes the Nearby page has room for at once, on a monochrome screen */
+#define UI_NEARBY_ROWS_COLOUR 4 /* and on a colour panel, whose lines are taller */
 
 /* A node heard directly: a neighbour, in the router's word. */
 struct ui_neighbour {
@@ -88,6 +110,8 @@ struct ui_node {
      * asking. */
     uint8_t confirm_s;
     bool bench; /* the console's bench mode: the board sends only the test frames asked for */
+    /* More's menu: the choice shown as chosen, or -1 while it is closed. */
+    int8_t menu;
 
     uint16_t nearby;    /* nodes heard directly */
     uint16_t reachable; /* nodes it has a route to, nearby ones included */
@@ -123,19 +147,21 @@ struct ui_node {
     char join_link[TERN_GROUP_LINK_MAX + 1];
 };
 
-/* Draws page `page` (an enum ui_page) of the node into the picture. */
+/* Makes page `page` (an enum ui_page) of the node into a scene, to be drawn. */
+void ui_scene(const struct ui_node *n, int page, struct scene *s);
+
+/* Makes page `page` of the node, and draws it on a monochrome screen. */
 void ui_draw(const struct ui_node *n, int page, struct display *d);
 
-/* Draws what the board says while it erases itself, from the Reset page: it starts again at
- * once, as a new node. */
-void ui_erasing(struct display *d);
+/* What the board says while it erases itself, from the Reset page: it starts again at once, as a
+ * new node. */
+void ui_erasing(struct scene *s);
 
-/* Draws what a Bluetooth client that is pairing needs: the passkey to type into it. */
-void ui_pairing(uint32_t passkey, struct display *d);
+/* What a Bluetooth client that is pairing needs: the passkey to type into it. */
+void ui_pairing(uint32_t passkey, struct scene *s);
 
-/* Draws an update being taken over the companion link: how much of the image has arrived. */
-void ui_updating(uint32_t held, uint32_t size, struct display *d);
-
+/* An update being taken over the companion link: how much of the image has arrived. */
+void ui_updating(uint32_t held, uint32_t size, struct scene *s);
 /* What the board knows of itself while it starts: shown at once, before anything else, and filled
  * in as it is learned. */
 struct ui_start {
@@ -162,19 +188,22 @@ enum ui_off {
     UI_OFF_ASKED,   /* a client sent OFF */
 };
 
-/* Draws the warning while PRG is held to turn the board off: `seconds` more and it goes. */
-void ui_turning_off(unsigned seconds, struct display *d);
+/* The warning while PRG is held to turn the board off: `seconds` more and it goes. */
+void ui_turning_off(unsigned seconds, struct scene *s);
 
-/* Draws what the board says as it turns off, and how to turn it on again: by `button`, what the
- * board's button is marked, or RESET if it is NULL. */
-void ui_off(enum ui_off why, const char *button, struct display *d);
+/* What the board says as it turns off, and how to turn it on again: by `button`, what the board's
+ * button is marked, or RESET if it is NULL. */
+void ui_off(enum ui_off why, const char *button, struct scene *s);
 
-/* Draws the screen shown while the board starts: its name, its firmware's version, and, once they
- * are known, its region and short code. */
-void ui_boot(const struct ui_start *s, struct display *d);
+/* The screen shown while the board starts: its name, its firmware's version, and, once they are
+ * known, its region and short code. */
+void ui_boot(const struct ui_start *st, struct scene *s);
 
-/* Draws why the board stopped starting, and what to do about it; `code` is the error a driver
- * gave, or 0 if there is none to show. */
-void ui_fault(enum ui_fault why, const struct ui_start *s, int code, struct display *d);
+/* Why the board stopped starting, and what to do about it; `code` is the error a driver gave, or
+ * 0 if there is none to show. */
+void ui_fault(enum ui_fault why, const struct ui_start *st, int code, struct scene *s);
+
+/* The bench screen's page as a scene: its rows, the first the heading. */
+void ui_rows(const char *const *rows, int n, struct scene *s);
 
 #endif

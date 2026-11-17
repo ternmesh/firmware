@@ -305,11 +305,17 @@ if(BUILD_TESTING)
     target_include_directories(test_qr PRIVATE ports/node)
     target_compile_options(test_qr PRIVATE ${TERN_WARNINGS} -Wno-missing-prototypes)
     add_test(NAME qr COMMAND test_qr)
-    add_executable(test_ui tests/ui.c ports/node/ui.c ports/node/display.c
+    add_executable(test_ui tests/ui.c ports/node/ui.c ports/node/scene.c ports/node/display.c
         ports/node/qr.c)
     target_include_directories(test_ui PRIVATE ports/node)
     target_link_libraries(test_ui PRIVATE tern)
     target_compile_options(test_ui PRIVATE ${TERN_WARNINGS} -Wno-missing-prototypes)
     add_test(NAME ui COMMAND test_ui)
+    add_executable(test_screens tests/screens.c ports/node/ui.c ports/node/scene.c
+        ports/node/colour.c ports/node/fonts.c ports/node/display.c ports/node/qr.c)
+    target_include_directories(test_screens PRIVATE ports/node)
+    target_link_libraries(test_screens PRIVATE tern m)
+    target_compile_options(test_screens PRIVATE ${TERN_WARNINGS} -Wno-missing-prototypes)
+    add_test(NAME screens COMMAND test_screens)
     target_include_directories(test_unicast PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/vectors)
 endif()

@@ -618,6 +618,21 @@ bool board_screen_page(int page, const uint8_t data[128]) {
     return oled_send(where, sizeof where) && oled_send(buf, sizeof buf);
 }
 
+/* Every screen these boards draw on takes the 128x64 picture: none is a colour panel the node
+ * draws on itself. */
+bool board_screen_colour(int *w, int *h) {
+    (void)w;
+    (void)h;
+    return false;
+}
+
+bool board_screen_rows(int y, int h, const uint16_t *px) {
+    (void)y;
+    (void)h;
+    (void)px;
+    return false;
+}
+
 bool board_screen_power(bool on) {
     if (board_epaper(B)) {
         return epd_power(on);

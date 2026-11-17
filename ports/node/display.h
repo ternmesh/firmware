@@ -29,8 +29,9 @@ struct display {
 void display_init(struct display *d);
 
 /* Draws a line of text across page `page`, light on dark or, if inverse, dark on light, and
- * marks the page if that changed it. Printable ASCII is drawn, and DISPLAY_BLUETOOTH; anything
- * else is a blank. */
+ * marks the page if that changed it. Dark on light, the text is a pixel lower, with a lit row
+ * above it, so that a heading at the top of the screen does not run into the panel's dark edge.
+ * Printable ASCII is drawn, and DISPLAY_BLUETOOTH; anything else is a blank. */
 void display_text(struct display *d, int page, const char *text, bool inverse);
 
 /* Draws a line of text twice the size, ten pixels a character and twelve apart, across pages
@@ -41,6 +42,18 @@ void display_big(struct display *d, int page, const char *text);
 /* Draws a bar across page `page`: an outline the width of the screen, filled `part` of `whole` from
  * the left. A part that is not nothing always shows, and one past the whole fills it. */
 void display_bar(struct display *d, int page, int64_t part, int64_t whole);
+
+/* A line of text as display_text() draws it, into `row` rather than the picture: so a line can be
+ * given more, such as a heading's page dots, before it is put in the picture with display_page().
+ */
+void display_compose(uint8_t row[DISPLAY_WIDTH], const char *text, bool inverse);
+
+/* Draws text into `row` from column `x`, light on dark, leaving the rest of it as it was. */
+void display_glyphs(uint8_t row[DISPLAY_WIDTH], int x, const char *text);
+
+/* Makes page `page` of the picture `row`, and marks it if that changed it: so a page composed whole
+ * elsewhere, and the same as before, is not sent again. */
+void display_page(struct display *d, int page, const uint8_t row[DISPLAY_WIDTH]);
 
 /* Lights pixel (x, y), or darkens it; off the screen is ignored. */
 void display_set(struct display *d, int x, int y, bool on);

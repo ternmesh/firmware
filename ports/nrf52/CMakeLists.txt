@@ -24,9 +24,14 @@ target_sources(app PRIVATE
     ${node}/display.c
     ${node}/status.c
     ${node}/ui.c
+    ${node}/scene.c
+    ${node}/colour.c
+    ${node}/fonts.c
     ${node}/qr.c
     ${node}/power.c
     ${core})
 target_include_directories(app PRIVATE src ${node} ${root}/include)
+# The T114's colour panel is drawn by the node itself (../node/colour.h).
+target_compile_definitions(app PRIVATE TERN_COLOUR=1)
 # Warnings as the rest of the repository has them, on what is ours (not Zephyr's headers' doing).
 target_compile_options(app PRIVATE -Wextra -Wshadow -Wno-unused-parameter -Werror)

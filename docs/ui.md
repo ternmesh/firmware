@@ -5,10 +5,10 @@ node looks to the person holding it is this repository's business, not the speci
 is still open waits on a draft not yet written, and [Open questions](#open-questions) names which.
 
 This document is about the interface someone uses when they carry a Tern node about, as they
-would a Meshtastic or MeshCore one. The ESP32 port draws [a first version](../ports/esp32/README.md#the-screen)
-of [the node's own screen](#the-nodes-own-screen): Home, Messages, Air, Share and This node. The bench
-screen it had before, the serial console drawn on the display for developers, is now a developer
-setting.
+would a Meshtastic or MeshCore one. Every port draws [the node's own screen](#the-nodes-own-screen)
+([ports/esp32/README.md](../ports/esp32/README.md#the-screen)): five main pages, Home, Messages,
+Nearby, My code and More, and behind More the ones wanted less often. The bench screen it had
+before, the serial console drawn on the display for developers, is now a developer setting.
 
 ## What a user does
 
@@ -92,13 +92,14 @@ way round. The bench pages keep their own snapshot (`node_status` in `status.h`)
 
 ## The node's own screen
 
-On the boards Tern starts with, a 128×64 monochrome display and one button. Its job is a glance:
+On most of the boards Tern starts with, a 128×64 monochrome display and one button; on the Heltec
+T114, a 240×135 colour panel. Its job is a glance:
 
 | Page | Shows | On the Heltec V3 |
 |---|---|---|
 | Home | whether the node is on the air, how many nodes it hears, unread messages, battery, airtime left | all of it; the battery as a charge estimated from its voltage, said to be low at 10% or less, and charging as far as the voltage shows; a Bluetooth rune while a phone is connected |
 | Messages | the latest few, newest first, with who they are from and their delivery state | one at a time; a long press shows the one before. A group's names the group, and who wrote it as far as the claimed routing id matches a contact |
-| Contact card | this node's address as a QR code and a short code to read aloud, for someone adding it | **Share**, the QR code and the short code, and **This node**, the short code and the address in hex |
+| Contact card | this node's address as a QR code and a short code to read aloud, for someone adding it | **My code**, the QR code and the short code, and **This node**, the short code; the address in hex only on the console, since sixty-four digits are no use read off a screen |
 | Nearby | the nodes heard directly, with how well and how long ago | most recently heard first, seven to a screen; a long press shows the next. A node by a contact's name, else its routing id |
 | Air | the airtime account: used, allowed, and when more is free | the region's limit; a message waiting for the budget says so, and how long, but what is left of it is not shown yet |
 | Mesh | routes and frame counts, for whoever is curious; the bench screen's pages, more or less | the bench pages, behind `screen bench on` |
@@ -109,7 +110,19 @@ On the boards Tern starts with, a 128×64 monochrome display and one button. Its
 Controls on one button: a short press moves to the next page, a long press acts on the page shown
 (show the message before, the next nodes nearby, a group's join code and then the next group, or on
 a bench page send a ping), and any press wakes the screen.
-On Phones and Reset a long press only asks to be sure, for ten seconds, and a second long press in
+
+The pages are in two tiers, so that what is wanted every day is a press or two away and what is
+wanted seldom, or destroys something, is not passed through on the way. A press goes round the
+five main pages, **Home**, **Messages**, **Nearby**, **My code** and **More**, and dots on every
+page say which of the five it is: someone who has pressed twice knows where they are and how far
+round they have come. A long press on More opens a menu of the rest, **Air**, **Groups**, **This
+node**, **Phones** and **Erase**, and **Back**; in the menu a press moves to the next choice and a
+long press opens it, and on the page it opens a press comes back to the menu. Each page says what
+a long press does on it, where that is more than nothing: "Hold: older", "Hold: join code". Their
+names are the phone apps' as far as they go: Messages is the apps' Chats, Nearby the near half of
+their People, and More the apps' Node.
+
+On Phones and Erase a long press only asks to be sure, for ten seconds, and a second long press in
 that time forgets the phones or erases the node; a short press leaves the page and keeps it all. A
 message shown is read once a press says someone saw it. The screen goes dark after a while on a
 battery, and lights when a message arrives, showing it; while one is unread the LED blinks a
@@ -119,6 +132,17 @@ does; a press turns it on again. A phone or computer can turn it off too, over t
 protocol (`OFF`), and the screen says so. A node turns itself off when its battery is empty, and
 says so.
 Boards with more buttons or a touch screen get more, but nothing should need them.
+
+Each page is written once, as a *scene* (`ports/node/scene.h`): a heading, the node's status,
+where the page is among the others, what a hold does, and a column of items, each a kind of thing
+(a figure, a line, a meter, a message's text, a menu's choice) and what it means (new, working,
+waiting, failed). A 128×64 screen draws a scene a line of text a row, as it always has. A colour
+panel draws it in a layout of its own (`ports/node/colour.c`): smooth type and icons, the
+battery, a phone connected and new messages at the head of every page, the dots and the hint at
+its foot, figures as tiles, a message as a bubble, each node nearby with signal bars, More's menu
+as a grid, and colour for meaning: Tern's teal for what is new or chosen, green for what works,
+amber for what waits, and red for what failed or will erase. A board with a larger screen gets
+a better picture of the same pages, never different ones.
 
 Two screens come before the pages. At start, the node's name and firmware version, then its
 region and short code, for a few seconds or until a press: what Meshtastic and MeshCore show, and
