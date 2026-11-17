@@ -1,0 +1,65 @@
+name: Zephyr
+description: >-
+  West, the Zephyr workspace ports/nrf52/west.yml names, the Python packages a build needs, and the
+  Zephyr SDK with its Arm toolchain: what an nRF52840 build needs, for a checkout at ./firmware.
+
+# In place of zephyrproject-rtos/action-zephyr-setup, which installs every package Zephyr's own CI
+# needs as well, among them the reuse tool from codeberg.org: when codeberg.org did not answer, every
+# nRF52840 build failed before it began. This installs only zephyr/scripts/requirements-base.txt,
+# from PyPI, and the SDK from GitHub.
+
+inputs:
+  sdk-version:
+    description: The Zephyr SDK's version
+    default: 1.0.1
+
+runs:
+  using: composite
+  steps:
+    - name: West and the build's tools
+      shell: bash
+      run: |
+        sudo apt-get update -y
+        sudo apt-get install -y --no-install-recommends gperf ninja-build
+        pip3 install -U pip wheel west
+
+    - name: The workspace
+      shell: bash
+      run: |
+        west init -l firmware --mf ports/nrf52/west.yml
+        west update
+
+    - name: Its Python packages
+      shell: bash
+      run: pip3 install -r zephyr/scripts/requirements-base.txt adafruit-nrfutil
+
+    - name: Cache the SDK
+      id: sdk-cache
+      uses: actions/cache@v4
+      with:
+        path: zephyr-sdk
+        key: zephyr-sdk-${{ inputs.sdk-version }}-${{ runner.os }}-${{ runner.arch }}-arm-zephyr-eabi
+
+    - name: Download the SDK
+      if: steps.sdk-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        case "${{ runner.arch }}" in
+          X64) variant=linux-x86_64 ;;
+          ARM64) variant=linux-aarch64 ;;
+          *) echo "no Zephyr SDK for ${{ runner.arch }}"; exit 1 ;;
+        esac
+        file="zephyr-sdk-${{ inputs.sdk-version }}_${variant}_minimal.tar.xz"
+        wget --progress=dot:giga \
+          "https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v${{ inputs.sdk-version }}/$file"
+        mkdir zephyr-sdk
+        tar xf "$file" -C zephyr-sdk --strip-components=1
+        rm "$file"
+
+    - name: Set up the SDK
+      shell: bash
+      working-directory: zephyr-sdk
+      run: |
+        ./setup.sh -t arm-zephyr-eabi
+        [ -d sysroots ] || ./setup.sh -h
+        ./setup.sh -c
