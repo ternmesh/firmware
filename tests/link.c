@@ -122,6 +122,11 @@ static uint8_t board_set(void *ctx, const struct tern_companion_msg *m) {
         b->view.most = m->power == TERN_C_POWER_MOST;
         b->view.power = b->view.most ? 22 : m->power;
     }
+    /* A passkey a client sets is the one pairing uses from then, which SELF says. */
+    if (b->set_answer == 0 && m->setting == TERN_C_SET_PASSKEY) {
+        b->view.pairing =
+            m->passkey == TERN_C_PASSKEY_DEFAULT ? TERN_C_PAIRING_DEFAULT : TERN_C_PAIRING_SET;
+    }
     /* Cards are on or off at once, and a value but those two is refused, as the board's are. */
     if (b->set_answer == 0 && m->setting == TERN_C_SET_CARDS) {
         if (m->cards > 1) {
@@ -365,14 +370,15 @@ static uint8_t board_off(void *ctx) {
 static struct board board;
 static struct link companion;
 
-/* The node the exchange shows: Alice, a relay in EU868 at 14 dBm, who knows Bob, has a message
- * from him, and hears one neighbour. */
+/* The node the exchange shows: Alice, a relay in EU868 at 14 dBm with no screen, who knows Bob,
+ * has a message from him, and hears one neighbour. */
 static void start(void) {
     memset(&board, 0, sizeof board);
     memcpy(board.view.address, alice, TERN_ADDRESS_LEN);
     board.view.role = 1;
     board.view.region = "EU868";
     board.view.power = 14;
+    board.view.pairing = TERN_C_PAIRING_DEFAULT;
     board.view.n_neighbours = 1;
     board.view.neighbours[0] = (struct link_neighbour){0x1D2E3F40, 1, -38, 42};
     board.view.period_s = 3600;

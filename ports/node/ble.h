@@ -19,11 +19,13 @@
 
 #define BLE_PASSKEY_RANDOM 0xFFFFFFFFu /* a new passkey for each pairing, shown on the screen */
 
-/* The name the node advertises: "Tern", a space and a tag of BLE_TAG_LEN characters drawn at
- * random, so that a user with several nodes can tell them apart (draft/companion.md, "Bluetooth
- * LE"). Nothing of it comes from the address. */
+/* The name the node advertises, so that a user with several nodes can tell them apart
+ * (draft/companion.md, "Bluetooth LE"): the name its cards carry while it sends them, which is on
+ * the air already, or else "Tern", a space and a tag of BLE_TAG_LEN characters drawn at random.
+ * Nothing of it comes from the address. At most BLE_NAME_MAX bytes: what the scan response holds
+ * after its two bytes of length and type. */
 #define BLE_TAG_LEN 4
-#define BLE_NAME_LEN (sizeof "Tern " - 1 + BLE_TAG_LEN)
+#define BLE_NAME_MAX 29
 
 enum ble_event_kind {
     BLE_OPEN,    /* a paired client: `mtu` is its ATT MTU */
@@ -43,7 +45,7 @@ struct ble_event {
     uint8_t frame[TERN_COMPANION_MAX_FRAME];
 };
 
-/* Starts the controller and the host, and advertises as `name`, at most BLE_NAME_LEN characters.
+/* Starts the controller and the host, and advertises as `name`, at most BLE_NAME_MAX bytes.
  * `passkey` is as for ble_passkey(); a passkey that is random needs `screen`, or the node does not
  * pair. False if Bluetooth did not start, and then the controller, and the radio with it, is
  * off. */
@@ -51,6 +53,13 @@ bool ble_start(const char *name, uint32_t passkey, bool screen);
 
 /* The passkey for pairings from now: 0 to 999999, or BLE_PASSKEY_RANDOM. */
 void ble_passkey(uint32_t passkey);
+
+/* Advertises as `name`, at most BLE_NAME_MAX bytes, from now: at once if the node is advertising,
+ * or when it next does. The stack keeps the name, so the caller need not. */
+void ble_rename(const char *name);
+
+/* The name the node advertises, as the stack keeps it: for the screen to show. */
+const char *ble_advertised(void);
 
 /* The next thing the stack reported about the present connection, if there is one. It also sends
  * what ble_send() queued, as far as the stack has room, so call it often. */

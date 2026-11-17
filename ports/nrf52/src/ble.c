@@ -103,14 +103,18 @@ static const struct bt_data ad[] = {
     BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
     BT_DATA(BT_DATA_UUID128_ALL, service_uuid.val, sizeof service_uuid.val),
 };
-/* What the scan response names the node: nothing of its address or its user's name for it. Set
- * by ble_start(). */
-static char name[BLE_NAME_LEN + 1];
-static struct bt_data sd[] = {
-    {.type = BT_DATA_NAME_COMPLETE, .data = (const uint8_t *)name},
-};
+/* What the scan response names the node: the name Zephyr keeps, which ble_start() and
+ * ble_rename() set (ble.h). */
+static void name_data(struct bt_data *sd) {
+    const char *name = bt_get_name();
+    *sd = (struct bt_data){.type = BT_DATA_NAME_COMPLETE,
+                           .data_len = (uint8_t)strlen(name),
+                           .data = (const uint8_t *)name};
+}
 
 static void advertise(void) {
+    struct bt_data sd[1];
+    name_data(&sd[0]);
     int err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_2, ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
     if (err != 0 && err != -EALREADY) {
         printf("bluetooth: could not advertise (%d)\n", err);
@@ -233,9 +237,7 @@ static const struct bt_conn_auth_cb auth_callbacks = {
     .cancel = auth_cancel,
 };
 
-bool ble_start(const char *node_name, uint32_t passkey, bool screen) {
-    snprintf(name, sizeof name, "%s", node_name);
-    sd[0].data_len = (uint8_t)strlen(name);
+bool ble_start(const char *name, uint32_t passkey, bool screen) {
     passkey_setting = passkey;
     have_screen = screen;
     if (bt_enable(NULL) != 0) {
@@ -257,6 +259,19 @@ bool ble_start(const char *node_name, uint32_t passkey, bool screen) {
 }
 
 void ble_passkey(uint32_t passkey) { passkey_setting = passkey; }
+
+void ble_rename(const char *name) {
+    if (bt_set_name(name) != 0) {
+        printf("bluetooth: could not set the name\n");
+        return;
+    }
+    /* Not advertising, with a client connected, is not a failure: the next advertisement has it. */
+    struct bt_data sd[1];
+    name_data(&sd[0]);
+    (void)bt_le_adv_update_data(ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
+}
+
+const char *ble_advertised(void) { return bt_get_name(); }
 
 /* The client's connection with a reference the caller holds and lets go of (bt_conn_unref()), so
  * that a disconnection in Zephyr's thread cannot free it while the loop uses it; or NULL. */

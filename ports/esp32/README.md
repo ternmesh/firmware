@@ -651,14 +651,16 @@ Messages sent with `send` and pings go the same way as a client's, so a client s
 
 The board also offers the link over Bluetooth LE, as the draft's
 [Bluetooth profile](https://github.com/ternmesh/spec/blob/main/draft/companion.md#bluetooth-le)
-has it. It advertises the service as `Tern`, with nothing of its address, and takes one client
-at a time, beside one on USB. Both are clients at once: each says `HELLO` and syncs for itself,
+has it. A phone lists it by its card name while it sends [cards](#presence-cards), which carry that name
+on the air already, and otherwise as `Tern` and a random tag, such as `Tern 7KQ3`, with nothing of
+its address; the screen's **Phones** page shows which. It takes one client at a time, beside one on USB. Both are clients at once: each says `HELLO` and syncs for itself,
 and both hear what changes.
 
 A client must pair before it can write or hear anything: LE Secure Connections only, with a
 passkey. By default the passkey is a new one for each pairing, shown on the screen; type it into
-the client. `SET` 4 sets a fixed one instead, from 0 to 999999. A board with no screen and no
-fixed passkey does not pair. A client that has paired keeps its bond, kept in flash, and may
+the client. A board with no screen pairs with **123456** until a client sets its own, and the
+apps offer to as soon as they connect. `SET` 4 sets a fixed one, from 0 to 999999, or the
+default again with `0xFFFFFFFF` (`set passkey default`). A client that has paired keeps its bond, kept in flash, and may
 connect again without a passkey. `forget` on the console, or the screen's **Phones** page,
 forgets every bonded client.
 

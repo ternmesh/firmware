@@ -103,7 +103,7 @@ On the boards Tern starts with, a 128×64 monochrome display and one button. Its
 | Air | the airtime account: used, allowed, and when more is free | the region's limit; a message waiting for the budget says so, and how long, but what is left of it is not shown yet |
 | Mesh | routes and frame counts, for whoever is curious; the bench screen's pages, more or less | the bench pages, behind `screen bench on` |
 | Groups | the groups held, and handing one on by its join code | one at a time; a long press shows its join code as a QR code, saying beside it that whoever scans it can read the group, and another the next group. The code is the group's secret: shown only when asked for, gone with the page or a dark screen, and wiped once drawn. A name past 12 bytes is cut in the code to fit version 3, which joins the same group |
-| Phones | the phones paired, and forgetting them | the name it is seen as, "Tern" and a random tag, so a phone's list tells nodes apart; how many are bonded and whether one is connected; forgetting asks first |
+| Phones | the phones paired, and forgetting them | the name it is seen as, its card name while it sends cards or else "Tern" and a random tag, so a phone's list tells nodes apart; how many are bonded and whether one is connected; forgetting asks first |
 | Reset | erasing the node for a new owner | the whole of its storage, and a new address; asks first, and keeps the time on the air |
 
 Controls on one button: a short press moves to the next page, a long press acts on the page shown

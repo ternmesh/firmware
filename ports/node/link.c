@@ -71,9 +71,11 @@ static void news_self(struct link *l, struct link_conn *c) {
     memcpy(m.card_name, v->card_name, v->card_name_len);
     m.card_name_len = v->card_name_len;
     m.most = v->most;
+    m.pairing = v->pairing;
     c->self_role = v->role;
     c->self_power = v->power;
     c->self_most = v->most;
+    c->self_pairing = v->pairing;
     c->self_region = v->region;
     c->self_cards = v->cards;
     memcpy(c->self_card_name, v->card_name, v->card_name_len);
@@ -84,8 +86,8 @@ static void news_self(struct link *l, struct link_conn *c) {
 /* Whether SELF says something other than what the client was last told: its time aside. */
 static bool self_changed(const struct link_view *v, const struct link_conn *c) {
     return v->role != c->self_role || v->power != c->self_power || v->most != c->self_most ||
-           v->region != c->self_region || v->cards != c->self_cards ||
-           v->card_name_len != c->self_card_name_len ||
+           v->pairing != c->self_pairing || v->region != c->self_region ||
+           v->cards != c->self_cards || v->card_name_len != c->self_card_name_len ||
            memcmp(v->card_name, c->self_card_name, v->card_name_len) != 0;
 }
 

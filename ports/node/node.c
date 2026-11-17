@@ -139,7 +139,7 @@ _Static_assert(sizeof CONFIG_TERN_BOARD_NAME - 1 <= FIRMWARE_BOARD_MAX, "the boa
 _Static_assert(sizeof CONFIG_TERN_VERSION - 1 <= FIRMWARE_VERSION_MAX, "the version fits in INFO");
 #define SETTINGS_MAGIC 0x54530001u
 #define IDS_EARLIER 0x10000u /* past the message ids of a build that did not keep them */
-#define PASSKEY_RANDOM 0xFFFFFFFFu
+#define PASSKEY_RANDOM TERN_C_PASSKEY_DEFAULT /* the default: random on a screen, or 123456 */
 
 static struct tern_radio radio;
 static struct tern_radio_config cfg;
@@ -289,9 +289,8 @@ static tern_time clock_at;
 static uint8_t restart_due;
 static bool off_due; /* a client sent OFF: the board turns off once its answer has gone */
 static bool have_ble;
-static char ble_name[BLE_NAME_LEN + 1]; /* what Bluetooth advertises the node as (ble.h) */
-static uint16_t battery_mv;             /* 0 for none, or not read */
-static struct power_watch watch;        /* whether the battery charges, or is empty (power.h) */
+static uint16_t battery_mv;      /* 0 for none, or not read */
+static struct power_watch watch; /* whether the battery charges, or is empty (power.h) */
 static unsigned off_shown;       /* while PRG is held to turn off, the seconds left shown, or 0 */
 static bool phone;               /* a client is connected over Bluetooth, for Home to say */
 static uint32_t pairing_passkey; /* shown on the screen while pairing, or PAIRING_NONE */
@@ -1953,6 +1952,8 @@ static int8_t snr_of(uint32_t id) {
 }
 
 static bool power_follows_region(void);
+static char *make_ble_name(char *name);
+static uint32_t ble_key(void);
 
 static void link_view(void *ctx, struct link_view *v) {
     tern_time now = board_now();
@@ -1963,6 +1964,9 @@ static void link_view(void *ctx, struct link_view *v) {
     v->region = region->name;
     v->power = cfg.tx_power_dbm;
     v->most = power_follows_region() ? 1 : 0;
+    v->pairing = settings.passkey != PASSKEY_RANDOM ? TERN_C_PAIRING_SET
+                 : have_screen                      ? TERN_C_PAIRING_SHOWN
+                                                    : TERN_C_PAIRING_DEFAULT;
     v->time = clock_now();
     v->cards = settings.cards;
     v->card_name_len = settings.card_name_len;
@@ -2155,11 +2159,16 @@ static uint8_t link_set(void *ctx, const struct tern_companion_msg *m) {
     bool renamed = next.card_name_len != settings.card_name_len ||
                    memcmp(next.card_name, settings.card_name, next.card_name_len) != 0;
     bool off = settings.cards && !next.cards;
+    bool advertised = renamed || settings.cards != next.cards;
     settings = next;
     if (restart) {
         restart_due = restart_due == RESTART_NOW ? RESTART_NOW : RESTART_QUIET;
     }
-    ble_passkey(settings.passkey);
+    ble_passkey(ble_key());
+    if (advertised && have_ble) {
+        char name[BLE_NAME_MAX + 1];
+        ble_rename(make_ble_name(name));
+    }
     if (renamed || off) {
         card_changed();
     }
@@ -2869,38 +2878,58 @@ static void restart_if_due(void) {
  * (plat_bluetooth_starting()). */
 _Static_assert(PASSKEY_RANDOM == BLE_PASSKEY_RANDOM, "one spelling of a random passkey");
 _Static_assert(UI_BATTERY_UNKNOWN == POWER_UNKNOWN, "one spelling of a battery not known");
-/* The name Bluetooth advertises: "Tern" and a tag from bytes drawn at random the first time and
- * kept until the board is erased, so that it reads the same from one start to the next. Each byte
+/* The name Bluetooth advertises, into `name` (BLE_NAME_MAX bytes and a NUL), which it returns.
+ * While the node sends cards, the name they carry, which is on the air already, cut to fit on a
+ * whole character. Otherwise "Tern" and a tag from bytes drawn at random the first time and kept
+ * until the board is erased, so that it reads the same from one start to the next. Each byte
  * gives one of 32 characters, with no I, L, O or U to be taken for another. */
-static void make_ble_name(void) {
+static char *make_ble_name(char *name) {
+    if (settings.cards && settings.card_name_len > 0) {
+        size_t n =
+            tern_companion_utf8_prefix(settings.card_name, settings.card_name_len, BLE_NAME_MAX);
+        memcpy(name, settings.card_name, n);
+        name[n] = '\0';
+        return name;
+    }
     static const char digits[] = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
     uint8_t tag[BLE_TAG_LEN];
     if (!plat_store_load("btag", tag, sizeof tag)) {
         if (!plat_random(tag, sizeof tag)) {
-            snprintf(ble_name, sizeof ble_name, "Tern");
-            return;
+            snprintf(name, BLE_NAME_MAX + 1, "Tern");
+            return name;
         }
         if (!plat_store_save("btag", tag, sizeof tag)) {
             printf("bluetooth: the name's tag was not saved; the next start draws another\n");
         }
     }
-    char *p = ble_name + snprintf(ble_name, sizeof ble_name, "Tern ");
+    char *p = name + snprintf(name, BLE_NAME_MAX + 1, "Tern ");
     for (size_t i = 0; i < BLE_TAG_LEN; i++) {
         *p++ = digits[tag[i] % (sizeof digits - 1)];
     }
     *p = '\0';
+    return name;
+}
+
+/* The passkey Bluetooth pairs with: the one a client set, or the default, which on a board with no
+ * screen to show a new one is TERN_C_PASSKEY_SCREENLESS (draft/companion.md, "Bluetooth LE"). */
+static uint32_t ble_key(void) {
+    return settings.passkey == PASSKEY_RANDOM && !have_screen ? TERN_C_PASSKEY_SCREENLESS
+                                                              : settings.passkey;
 }
 
 static void start_bluetooth(void) {
-    make_ble_name();
+    char name[BLE_NAME_MAX + 1];
+    make_ble_name(name);
     plat_bluetooth_starting(true);
-    have_ble = ble_start(ble_name, settings.passkey, have_screen);
+    have_ble = ble_start(name, ble_key(), have_screen);
     if (!have_ble) {
         plat_bluetooth_starting(false);
         printf("Bluetooth did not start; the USB port is the only companion link\n");
         return;
     }
-    printf("bluetooth: seen by phones as \"%s\"\n", ble_name);
+    printf("bluetooth: seen by phones as \"%s\"%s\n", name,
+           settings.passkey == PASSKEY_RANDOM && !have_screen ? ", passkey 123456 until one is set"
+                                                              : "");
 }
 
 /* A companion frame on the USB port. */
@@ -3139,7 +3168,7 @@ static void fill_ui(struct ui_node *u) {
     u->charging = watch.charging;
     u->phone = phone;
     u->bluetooth = have_ble;
-    u->ble_name = ble_name;
+    u->ble_name = have_ble ? ble_advertised() : NULL;
     unsigned paired = have_ble ? ble_paired() : 0;
     u->paired = (uint8_t)(paired > UINT8_MAX ? UINT8_MAX : paired);
     u->confirm_s = (uint8_t)confirm_left();
