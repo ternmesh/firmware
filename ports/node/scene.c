@@ -12,6 +12,9 @@
 #define DOTS_COLS 4 /* a heading's end the page dots take: from column 108, and a gap before */
 #define NO_ROW (-1)
 
+/* Where an item past SCENE_ITEMS goes, to be given more and never drawn. */
+static struct scene_item scratch;
+
 void scene_clear(struct scene *s) {
     memset(s, 0, sizeof *s);
     s->battery = UI_BATTERY_UNKNOWN;
@@ -19,7 +22,6 @@ void scene_clear(struct scene *s) {
 
 struct scene_item *scene_add(struct scene *s, enum scene_kind kind, enum scene_tone tone,
                              const char *fmt, ...) {
-    static struct scene_item scratch;
     struct scene_item *it = s->n < SCENE_ITEMS ? &s->item[s->n++] : &scratch;
     memset(it, 0, sizeof *it);
     it->kind = (uint8_t)kind;
@@ -35,7 +37,6 @@ struct scene_item *scene_add(struct scene *s, enum scene_kind kind, enum scene_t
 
 struct scene_item *scene_stat(struct scene *s, enum scene_tone tone, const char *value,
                               const char *label) {
-    static struct scene_item scratch;
     struct scene_item *at = &scratch;
     for (int i = 0; i < s->n; i++) {
         if (s->item[i].kind == SCENE_STATS) {
@@ -124,19 +125,23 @@ struct frame {
 };
 
 /* A line of `cols` with `left` at its start and `right` at its end; `left` gives way if both do
- * not fit. Both are UTF-8. */
+ * not fit, with a space kept between them. Both are UTF-8. */
 static void ends(char *out, int cols, const char *left, const char *right) {
-    char l[64], r[32];
+    char l[COLS + 1], r[COLS + 1];
     ascii(l, sizeof l, left);
     ascii(r, sizeof r, right);
-    int room = cols - (int)strlen(r);
-    if (room < 0) {
-        room = 0;
-        r[cols] = '\0';
+    int rn = (int)strlen(r) < cols ? (int)strlen(r) : cols;
+    int room = cols - rn;
+    int ln = (int)strlen(l);
+    if (ln >= room && rn > 0 && r[0] != ' ' && room > 0) {
+        ln = room - 1; /* where the left is cut, a space keeps it from running into the right */
+    } else if (ln > room) {
+        ln = room;
     }
-    /* Where the left is cut, a space keeps it from running into the right. */
-    int keep = (int)strlen(l) >= room && r[0] != '\0' && r[0] != ' ' && room > 0 ? room - 1 : room;
-    snprintf(out, COLS + 1, "%-*.*s%s", room, keep, l, r);
+    memset(out, ' ', (size_t)room);
+    memcpy(out, l, (size_t)ln);
+    memcpy(&out[room], r, (size_t)rn);
+    out[room + rn] = '\0';
 }
 
 /* Fills rows `first` to `last` with `text`, broken between words where it can be and within a
@@ -195,21 +200,18 @@ static void status_text(const struct scene *s, char *out, size_t size) {
     }
 }
 
-/* The page dots, dark on the lit heading at its end: the page shown a block, the others a dot. */
-static void dots(const struct scene *s, struct display *d) {
+/* The page dots, dark on the lit heading at its end, in the heading's row as composed: the page
+ * shown a block, the others a dot. */
+static void dots(const struct scene *s, uint8_t row[DISPLAY_WIDTH]) {
     for (int k = 0; k < s->dots; k++) {
         int x = DISPLAY_WIDTH - (s->dots - k) * 4;
         bool shown = k == s->dot;
-        for (int dx = 0; dx < (shown ? 3 : 2); dx++) {
-            for (int y = shown ? 2 : 3; y <= (shown ? 5 : 4); y++) {
-                display_set(d, x + dx, y, false);
-            }
+        uint8_t mask = shown ? 0x3C : 0x18; /* rows 2 to 5, or 3 and 4 */
+        for (int dx = 0; dx < (shown ? 3 : 2) && x + dx < DISPLAY_WIDTH; dx++) {
+            row[x + dx] &= (uint8_t)~mask;
         }
     }
 }
-
-/* Every picture is drawn whole here first, and then only what changed is sent. */
-static struct display canvas;
 
 #define QR_SCALE 2   /* pixels to a module: 58 of the screen's 64 rows */
 #define QR_GROUND 70 /* the lit block the code sits in, from the left edge */
@@ -224,38 +226,44 @@ static struct display canvas;
  * secret. */
 static void code_page(const struct scene *s, struct display *d) {
     static struct qr code;
-    display_init(&canvas);
+    uint8_t row[DISPLAY_WIDTH];
     if (!qr_encode(&code, s->qr, QR_MASK_BEST)) {
-        display_text(&canvas, 3, "No code to show", false);
-        display_copy(d, &canvas);
+        for (int p = 0; p < DISPLAY_PAGES; p++) {
+            display_compose(row, p == 3 ? "No code to show" : "", false);
+            display_page(d, p, row);
+        }
         return;
     }
-    for (int y = 0; y < DISPLAY_PAGES * 8; y++) {
+    /* A page at a time, composed whole before it goes in the picture. */
+    for (int p = 0; p < DISPLAY_PAGES; p++) {
+        memset(row, 0, sizeof row);
         for (int x = 0; x < QR_GROUND; x++) {
-            int mx = (x - QR_LEFT) / QR_SCALE, my = (y - QR_TOP) / QR_SCALE;
-            bool inside = x >= QR_LEFT && y >= QR_TOP && mx < QR_SIZE && my < QR_SIZE;
-            display_set(&canvas, x, y, !(inside && qr_dark(&code, mx, my)));
+            for (int bit = 0; bit < 8; bit++) {
+                int y = p * 8 + bit;
+                int mx = (x - QR_LEFT) / QR_SCALE, my = (y - QR_TOP) / QR_SCALE;
+                bool inside = x >= QR_LEFT && y >= QR_TOP && mx < QR_SIZE && my < QR_SIZE;
+                if (!(inside && qr_dark(&code, mx, my))) {
+                    row[x] |= (uint8_t)(1u << bit);
+                }
+            }
         }
-    }
-    for (int r = 0; r < DISPLAY_PAGES; r++) {
-        if (s->qr_words[r] != NULL) {
+        if (s->qr_words[p] != NULL) {
             char w[COLS + 1];
-            ascii(w, sizeof w, s->qr_words[r]);
-            display_text_at(&canvas, r, QR_WORDS, w);
+            ascii(w, sizeof w, s->qr_words[p]);
+            display_glyphs(row, QR_WORDS, w);
         }
+        display_page(d, p, row);
     }
-    display_copy(d, &canvas);
     tern_wipe(&code, sizeof code);
-    tern_wipe(&canvas, sizeof canvas);
+    tern_wipe(row, sizeof row);
 }
 
 void mono_draw(const struct scene *s, struct display *d) {
-    static struct frame f;
+    struct frame f;
     if (s->qr[0] != '\0') {
         code_page(s, d);
         return;
     }
-    display_init(&canvas);
     memset(&f, 0, sizeof f);
     f.big = NO_ROW;
     f.bar = NO_ROW;
@@ -357,18 +365,20 @@ void mono_draw(const struct scene *s, struct display *d) {
         ends(f.rows[DISPLAY_PAGES - 1], COLS, s->hint, "");
     }
 
+    /* Each page is put in the picture whole, so one that comes out as it was is not sent again. */
     for (int i = 0; i < DISPLAY_PAGES; i++) {
         if (i == f.big) {
-            display_big(&canvas, i, f.big_text);
+            display_big(d, i, f.big_text);
             i++;
         } else if (i == f.bar) {
-            display_bar(&canvas, i, f.part, f.whole);
+            display_bar(d, i, f.part, f.whole);
         } else {
-            display_text(&canvas, i, f.rows[i], f.inverse[i]);
+            uint8_t line[DISPLAY_WIDTH];
+            display_compose(line, f.rows[i], f.inverse[i]);
+            if (i == 0 && s->title[0] != '\0' && s->dots > 0) {
+                dots(s, line);
+            }
+            display_page(d, i, line);
         }
     }
-    if (s->title[0] != '\0' && s->dots > 0) {
-        dots(s, &canvas);
-    }
-    display_copy(d, &canvas);
 }

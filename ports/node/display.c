@@ -135,21 +135,31 @@ static const uint8_t *glyph(char ch) {
     return font[c < 0x20 || c > 0x7E ? 0 : c - 0x20];
 }
 
-void display_text(struct display *d, int page, const char *text, bool inverse) {
-    uint8_t row[DISPLAY_WIDTH];
+void display_compose(uint8_t row[DISPLAY_WIDTH], const char *text, bool inverse) {
     uint8_t mask = inverse ? 0xFF : 0x00;
     size_t x = 0;
-    if (page < 0 || page >= DISPLAY_PAGES) {
-        return;
-    }
-    memset(row, mask, sizeof row);
+    memset(row, mask, DISPLAY_WIDTH);
     for (; *text != '\0' && x + GLYPH_W <= DISPLAY_WIDTH; text++, x += CELL_W) {
         const uint8_t *g = glyph(*text);
         for (size_t i = 0; i < GLYPH_W; i++) {
             row[x + i] = (uint8_t)((inverse ? lowered(g[i]) : g[i]) ^ mask);
         }
     }
+}
+
+void display_text(struct display *d, int page, const char *text, bool inverse) {
+    uint8_t row[DISPLAY_WIDTH];
+    if (page < 0 || page >= DISPLAY_PAGES) {
+        return;
+    }
+    display_compose(row, text, inverse);
     put(d, page, row);
+}
+
+void display_page(struct display *d, int page, const uint8_t row[DISPLAY_WIDTH]) {
+    if (page >= 0 && page < DISPLAY_PAGES) {
+        put(d, page, row);
+    }
 }
 
 void display_set(struct display *d, int x, int y, bool on) {
@@ -168,18 +178,25 @@ void display_set(struct display *d, int x, int y, bool on) {
     }
 }
 
-void display_text_at(struct display *d, int page, int x, const char *text) {
-    uint8_t row[DISPLAY_WIDTH];
-    if (page < 0 || page >= DISPLAY_PAGES || x < 0) {
+void display_glyphs(uint8_t row[DISPLAY_WIDTH], int x, const char *text) {
+    if (x < 0) {
         return;
     }
-    memcpy(row, d->px[page], sizeof row);
     for (size_t at = (size_t)x; *text != '\0' && at < DISPLAY_WIDTH; text++, at += CELL_W) {
         const uint8_t *g = glyph(*text);
         for (size_t i = 0; i < CELL_W && at + i < DISPLAY_WIDTH; i++) {
             row[at + i] = i < GLYPH_W ? g[i] : 0;
         }
     }
+}
+
+void display_text_at(struct display *d, int page, int x, const char *text) {
+    uint8_t row[DISPLAY_WIDTH];
+    if (page < 0 || page >= DISPLAY_PAGES || x < 0) {
+        return;
+    }
+    memcpy(row, d->px[page], sizeof row);
+    display_glyphs(row, x, text);
     put(d, page, row);
 }
 

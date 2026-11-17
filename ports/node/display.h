@@ -43,6 +43,18 @@ void display_big(struct display *d, int page, const char *text);
  * the left. A part that is not nothing always shows, and one past the whole fills it. */
 void display_bar(struct display *d, int page, int64_t part, int64_t whole);
 
+/* A line of text as display_text() draws it, into `row` rather than the picture: so a line can be
+ * given more, such as a heading's page dots, before it is put in the picture with display_page().
+ */
+void display_compose(uint8_t row[DISPLAY_WIDTH], const char *text, bool inverse);
+
+/* Draws text into `row` from column `x`, light on dark, leaving the rest of it as it was. */
+void display_glyphs(uint8_t row[DISPLAY_WIDTH], int x, const char *text);
+
+/* Makes page `page` of the picture `row`, and marks it if that changed it: so a page composed whole
+ * elsewhere, and the same as before, is not sent again. */
+void display_page(struct display *d, int page, const uint8_t row[DISPLAY_WIDTH]);
+
 /* Lights pixel (x, y), or darkens it; off the screen is ignored. */
 void display_set(struct display *d, int x, int y, bool on);
 

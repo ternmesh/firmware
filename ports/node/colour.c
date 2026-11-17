@@ -526,7 +526,7 @@ static void stats(struct canvas *c, const struct scene *s, int x, int w, int y) 
 static void meter(struct canvas *c, const struct scene_item *it, int x, int w, int y) {
     round_rect(c, x, y + 2, w, 8, 4, RAISED);
     if (it->part > 0 && it->whole > 0) {
-        int64_t fillw = it->part >= it->whole ? w : it->part * w / it->whole;
+        int64_t fillw = it->part >= it->whole ? w : (int64_t)it->part * w / it->whole;
         if (fillw < 8) {
             fillw = 8;
         }

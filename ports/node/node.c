@@ -257,9 +257,18 @@ static char last_text[STATUS_TEXT];
 static tern_time last_at; /* when last_text was heard, or 0 for nothing yet */
 static struct display screen;
 static bool have_screen;
-/* What the screen shows, as a scene (scene.h): made by poll_screen() every SCREEN_MS, or by a
- * screen drawn outside the loop, and drawn by present(). */
+/* What the screen shows is a scene (scene.h), made by poll_screen() every SCREEN_MS or by a screen
+ * drawn outside the loop, and drawn by present(). A colour panel is sent it a band a turn, so it is
+ * kept here meanwhile. A monochrome screen draws it at once, so it is made on the stack: a classic
+ * ESP32 has room on its stack and none to spare in its static RAM. */
+#if TERN_COLOUR
 static struct scene on_screen;
+#define SCENE(name) struct scene *name = &on_screen
+#else
+#define SCENE(name)                                                                                \
+    struct scene name##_made;                                                                      \
+    struct scene *name = &name##_made
+#endif
 #if TERN_COLOUR
 /* A colour panel the board has (board_screen_colour()), drawn a band of rows at a time: each band
  * is drawn into band_px, and sent only if it is not the picture the panel already shows, as far
@@ -271,7 +280,7 @@ static bool colour;
 static int colour_w, colour_h;
 static uint16_t band_px[PANEL_W_MAX * BAND_ROWS];
 static uint32_t band_hash[PANEL_H_MAX / BAND_ROWS];
-static int band_next; /* the next band of `on_screen` to draw, or past the last once all are */
+static int band_next; /* the next band of the scene to draw, or past the last once all are */
 #else
 #define colour false
 #endif
@@ -3364,18 +3373,18 @@ static void screen_failed(void) {
 /* Something to see: the screen is on, or turned on by poll_screen(), for screen_sleep more. */
 static void screen_wake(void) { screen_woken = board_now(); }
 
-/* Makes `on_screen` the picture: on a monochrome screen at once, and on a colour panel a band at a
- * time, as screen_send() sends them. A join code is its group's secret, so it is wiped as soon as
- * it is drawn. */
-static void present(void) {
+/* Makes `sc`, made with SCENE(), the picture: on a monochrome screen at once, and on a colour panel
+ * a band at a time, as screen_send() sends them. A join code is its group's secret, so it is wiped
+ * as soon as it is drawn. */
+static void present(struct scene *sc) {
 #if TERN_COLOUR
     if (colour) {
         band_next = 0;
         return;
     }
 #endif
-    mono_draw(&on_screen, &screen);
-    tern_wipe(on_screen.qr, sizeof on_screen.qr);
+    mono_draw(sc, &screen);
+    tern_wipe(sc->qr, sizeof sc->qr);
 }
 
 #if TERN_COLOUR
@@ -3468,8 +3477,9 @@ static void poll_screen(void) {
     }
     if (off_shown != 0) {
         if (board_now() >= screen_due) {
-            ui_turning_off(off_shown, &on_screen); /* over everything: it is what PRG is doing */
-            present();
+            SCENE(sc);
+            ui_turning_off(off_shown, sc); /* over everything: it is what PRG is doing */
+            present(sc);
             screen_due = board_now() + (tern_time)SCREEN_MS * 1000000;
         }
     } else if (pairing_passkey == PAIRING_NONE && board_now() < boot_until) {
@@ -3478,32 +3488,33 @@ static void poll_screen(void) {
         if (screen_page >= screen_pages()) {
             screen_page = UI_HOME; /* the bench pages were turned off while one was shown */
         }
+        SCENE(sc);
         if (pairing_passkey != PAIRING_NONE) {
             /* A client is pairing: the passkey to type into it, over whatever page was shown. */
-            ui_pairing(pairing_passkey, &on_screen);
+            ui_pairing(pairing_passkey, sc);
         } else if (companion.update.on &&
                    board_now() - update_at < (tern_time)UPDATE_SHOWN_S * 1000000000LL) {
-            ui_updating(companion.update.held, companion.update.size, &on_screen);
+            ui_updating(companion.update.held, companion.update.size, sc);
         } else if (screen_page < UI_PAGES) {
             static struct ui_node u;
             if (screen_looked) {
                 screen_seen();
             }
             fill_ui(&u);
-            ui_scene(&u, screen_page, &on_screen);
+            ui_scene(&u, screen_page, sc);
             tern_wipe(u.join_link, sizeof u.join_link);
         } else {
             static struct node_status st;
-            static char rows[STATUS_ROWS][STATUS_COLS + 1];
+            char rows[STATUS_ROWS][STATUS_COLS + 1];
             const char *row[STATUS_ROWS];
             fill_status(&st);
             status_page(&st, screen_page - UI_PAGES, rows);
             for (int i = 0; i < STATUS_ROWS; i++) {
                 row[i] = rows[i];
             }
-            ui_rows(row, STATUS_ROWS, &on_screen);
+            ui_rows(row, STATUS_ROWS, sc);
         }
-        present();
+        present(sc);
         screen_due = board_now() + (tern_time)SCREEN_MS * 1000000;
     }
     int sent = screen_send();
@@ -3545,8 +3556,9 @@ __attribute__((noreturn)) static void turn_off(enum ui_off why) {
         if (screen_asleep) {
             board_screen_power(true);
         }
-        ui_off(why, board_button_name(), &on_screen);
-        present();
+        SCENE(sc);
+        ui_off(why, board_button_name(), sc);
+        present(sc);
         screen_flush();
         plat_sleep_ms(2000);
     }
@@ -3624,8 +3636,9 @@ __attribute__((noreturn)) static void erase_and_restart(void) {
     printf("%s held on Reset: erasing this board and starting again, with a new address\n",
            board_button_name());
     if (have_screen) {
-        ui_erasing(&on_screen);
-        present();
+        SCENE(sc);
+        ui_erasing(sc);
+        present(sc);
         screen_flush();
         board_screen_show(true); /* before the restart cuts its supply */
     }
@@ -3781,8 +3794,9 @@ static void poll_button(void) {
 /* The boot screen, as far as the board knows itself yet. */
 static void show_start(void) {
     if (have_screen) {
-        ui_boot(&start_info, &on_screen);
-        present();
+        SCENE(sc);
+        ui_boot(&start_info, sc);
+        present(sc);
         screen_flush();
     }
 }
@@ -3799,8 +3813,9 @@ __attribute__((noreturn)) static void halt(enum ui_fault why, int code) {
         plat_update_reject();
     }
     if (have_screen) {
-        ui_fault(why, &start_info, code, &on_screen);
-        present();
+        SCENE(sc);
+        ui_fault(why, &start_info, code, sc);
+        present(sc);
         screen_flush();
     }
     tern_time woken = board_now(), down = 0, battery_due = 0;
@@ -3813,15 +3828,17 @@ __attribute__((noreturn)) static void halt(enum ui_fault why, int code) {
             down = was ? down : now;
             unsigned s = off_seconds(now - down);
             if (s != off_shown && have_screen) {
-                ui_turning_off(s, &on_screen);
-                present();
+                SCENE(sc);
+                ui_turning_off(s, sc);
+                present(sc);
             }
             off_shown = s;
         } else if (off_shown != 0) {
             off_shown = 0; /* let go in time */
             if (have_screen) {
-                ui_fault(why, &start_info, code, &on_screen);
-                present();
+                SCENE(sc);
+                ui_fault(why, &start_info, code, sc);
+                present(sc);
             }
         }
         was = pressed;

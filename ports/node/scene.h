@@ -17,8 +17,8 @@
  * mono_draw() on a 128x64 monochrome screen, as a line of text a row, and colour_draw() (colour.h)
  * on a colour panel, with type, icons and colour. A page is written once, for both. */
 
-#define SCENE_ITEMS 14
-#define SCENE_LINE_MAX 40 /* bytes of a line's text, UTF-8 */
+#define SCENE_ITEMS 12
+#define SCENE_LINE_MAX 36 /* bytes of a line's text, UTF-8 */
 #define SCENE_TEXT_MAX                                                                             \
     160 /* bytes of a scene's paragraph: a message's text, and a few more words */
 #define SCENE_STATS_MAX 3
@@ -61,8 +61,8 @@ struct scene_item {
     bool centre;   /* a line or text: set in the middle, as a page with nothing on it says so */
     int8_t snr_db;
     char left[SCENE_LINE_MAX];
-    char right[SCENE_LINE_MAX / 2];
-    int64_t part, whole; /* a meter's */
+    char right[16];
+    int32_t part, whole; /* a meter's */
 };
 
 /* A figure with what it counts: "4" "nearby". */

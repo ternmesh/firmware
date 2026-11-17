@@ -391,8 +391,10 @@ static void air(const struct ui_node *n, struct scene *s) {
     it->on = ON_MONO;
     scene_add(s, SCENE_GAP, TONE_TEXT, NULL)->on = ON_MONO;
     it = scene_add(s, SCENE_METER, left <= 20 ? TONE_WARN : TONE_ACCENT, NULL);
-    it->part = n->air_used_ms;
-    it->whole = n->air_limit_ms;
+    it->part = (int32_t)(n->air_used_ms < 0           ? 0
+                         : n->air_used_ms > INT32_MAX ? INT32_MAX
+                                                      : n->air_used_ms);
+    it->whole = (int32_t)(n->air_limit_ms > INT32_MAX ? INT32_MAX : n->air_limit_ms);
     scene_add(s, SCENE_GAP, TONE_TEXT, NULL)->on = ON_MONO;
     if (n->wait_ms > 0) {
         span(wait, sizeof wait, (n->wait_ms + 999) / 1000);
@@ -648,8 +650,8 @@ void ui_updating(uint32_t held, uint32_t size, struct scene *s) {
     unsigned pc = (unsigned)(size == 0 ? 0 : (uint64_t)held * 100 / size);
     scene_add(s, SCENE_HERO, TONE_ACCENT, "%u%%", pc);
     struct scene_item *it = scene_add(s, SCENE_METER, TONE_ACCENT, NULL);
-    it->part = held;
-    it->whole = size;
+    it->part = (int32_t)(held > INT32_MAX ? INT32_MAX : held);
+    it->whole = (int32_t)(size > INT32_MAX ? INT32_MAX : size);
     it->on = ON_COLOUR;
 }
 
