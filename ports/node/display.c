@@ -122,6 +122,11 @@ static void put(struct display *d, int page, const uint8_t row[DISPLAY_WIDTH]) {
 /* Bluetooth's rune: a spine, and the two arrowheads crossing it. */
 static const uint8_t bluetooth[GLYPH_W] = {0x14, 0x08, 0x7f, 0x2a, 0x14};
 
+/* A glyph's column a pixel lower, for text dark on light: so a lit row runs above its capitals,
+ * and a heading's do not run into the dark edge of the panel, or a chosen line's into the line
+ * above. A tail of g, j, p, q or y keeps its last pixel, a pixel shorter. */
+static uint8_t lowered(uint8_t column) { return (uint8_t)(column << 1 | (column & 0x80)); }
+
 static const uint8_t *glyph(char ch) {
     unsigned char c = (unsigned char)ch;
     if (ch == DISPLAY_BLUETOOTH) {
@@ -141,7 +146,7 @@ void display_text(struct display *d, int page, const char *text, bool inverse) {
     for (; *text != '\0' && x + GLYPH_W <= DISPLAY_WIDTH; text++, x += CELL_W) {
         const uint8_t *g = glyph(*text);
         for (size_t i = 0; i < GLYPH_W; i++) {
-            row[x + i] = (uint8_t)(g[i] ^ mask);
+            row[x + i] = (uint8_t)((inverse ? lowered(g[i]) : g[i]) ^ mask);
         }
     }
     put(d, page, row);

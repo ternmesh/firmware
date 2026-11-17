@@ -85,10 +85,13 @@ builds what a release carries, for each board an image for each region, into `re
 
 ## What is different from the ESP32 boards
 
-* **The screen.** The T114's is a 1.14" colour panel, 240 by 135. The node's pages are drawn for a
-  128 by 64 screen, and are shown twice the size along their lines of text, so every letter is
-  crisp, white on black, with each page's top line white on teal. A layout of its own for the
-  larger panel is to come. If it reads upside down, `menuconfig`, **Turn the screen upside down**.
+* **The screen.** The T114's is a 1.14" colour panel, 240 by 135, and the node draws it in a
+  layout of its own (`../node/colour.c`): the same pages, in smooth type and Tern's colours on a
+  dark ground, with icons, the battery and a phone connected at the head of each page, and at its
+  foot the page dots and what a hold of USER does. Home's figures are tiles, a message is a
+  bubble with its state in colour, Nearby gives each node signal bars, and More's menu is a grid
+  of six. The picture is drawn and sent a band of fifteen rows at a time, and only the bands that
+  changed. If it reads upside down, `menuconfig`, **Turn the screen upside down**.
 * **The screen** of the Wio Tracker L1 is a 128 by 64 OLED, the node's own size, as on the ESP32
   boards. The RAK4631 has none: its LED and the console say what it is doing.
 * **The button.** The T114's USER button and the Wio Tracker L1's menu button do what PRG does on
@@ -101,7 +104,7 @@ builds what a release carries, for each board an image for each region, into `re
   battery again every half hour. A client turns it off the same way with `OFF`.
 * **Updates over the link** are not here yet: `INFO` names no board, and the phone apps do not
   offer one. Copy the new `.uf2` on instead, which keeps everything the board has saved.
-* **Erasing.** The Reset page wipes the flash's storage and restarts. The time on the air is
+* **Erasing.** The Erase page wipes the flash's storage and restarts. The time on the air is
   carried across that restart in RAM; if the bootloader clears it on the way, the region's count
   starts again.
 * **Storage.** What the node saves goes in Zephyr's settings, on NVS in the 32 KB the bootloader

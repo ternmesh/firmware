@@ -36,11 +36,13 @@
  * answered by link.c. A message a client sends, and one sent with 'send', waits in the link's
  * list until this loop seals it and hands it to the forwarder.
  *
- * Pressing PRG shows the screen's next page (ui.h), and holding it for a second acts on the page
- * shown: on Messages it shows the one before, on Nearby the next nodes, on Groups a group's join
- * code and then the next group, and on Phones and Reset it
- * asks to be sure, then forgets every paired phone or erases the board. 'screen bench on' adds the
- * bench screen's pages (status.h) after them, where holding PRG sends a ping, and a board that
+ * Pressing PRG shows the screen's next main page (ui.h): Home, Messages, Nearby, My code and More.
+ * Holding it for a second acts on the page shown: on Messages it shows the one before, on Nearby
+ * the next nodes, and on More it opens a menu of the rest, where a press moves to the next choice
+ * and a hold opens it: Air, Groups, This node, Phones and Erase. On Groups a hold shows a group's
+ * join code and then the next group, and on Phones and Erase it asks to be sure, then forgets every
+ * paired phone or erases the board; a press there goes back to the menu. 'screen bench on' adds
+ * the bench screen's pages (status.h) after More, where holding PRG sends a ping, and a board that
  * receives a ping answers with a pong saying how well it heard it. (With no screen, a press sends a
  * ping.) The LED lights while a frame is on the air or has just arrived, and blinks while a message
  * is unread.
@@ -78,6 +80,9 @@
 #include "tern/route.h"
 #include "tern/share.h"
 #include "ui.h"
+#if TERN_COLOUR
+#include "colour.h"
+#endif
 
 #define CONSOLE_LINE 300
 #define LED_MS 150
@@ -252,9 +257,28 @@ static char last_text[STATUS_TEXT];
 static tern_time last_at; /* when last_text was heard, or 0 for nothing yet */
 static struct display screen;
 static bool have_screen;
+/* What the screen shows, as a scene (scene.h): made by poll_screen() every SCREEN_MS, or by a
+ * screen drawn outside the loop, and drawn by present(). */
+static struct scene on_screen;
+#if TERN_COLOUR
+/* A colour panel the board has (board_screen_colour()), drawn a band of rows at a time: each band
+ * is drawn into band_px, and sent only if it is not the picture the panel already shows, as far
+ * as a hash of it can tell. */
+#define BAND_ROWS 15
+#define PANEL_W_MAX 240
+#define PANEL_H_MAX 135
+static bool colour;
+static int colour_w, colour_h;
+static uint16_t band_px[PANEL_W_MAX * BAND_ROWS];
+static uint32_t band_hash[PANEL_H_MAX / BAND_ROWS];
+static int band_next; /* the next band of `on_screen` to draw, or past the last once all are */
+#else
+#define colour false
+#endif
 /* The page shown: one of the user's (enum ui_page), or past them, the bench screen's. */
 static int screen_page;
-static uint8_t message_shown; /* which message the Messages page shows, counted from the newest */
+static int8_t menu_choice = -1; /* More's menu: the choice shown as chosen, or -1 while closed */
+static uint8_t message_shown;   /* which message the Messages page shows, counted from the newest */
 static uint16_t nearby_first; /* the first node the Nearby page shows, most recently heard first */
 static uint8_t group_shown;   /* which group the Groups page shows, counted from the first held */
 /* The user held PRG on the Groups page to see the join code of the group it shows. Only while that
@@ -3071,6 +3095,24 @@ static int screen_pages(void) {
     return UI_PAGES + (settings.screen_flags & SCREEN_BENCH ? STATUS_PAGES : 0);
 }
 
+/* The page a press shows after `page`: the next of the main pages, and after More the bench
+ * screen's if they are on, and round to Home again; from a page More opened, More. */
+static int next_page(int page) {
+    if (page >= UI_MAIN && page < UI_PAGES) {
+        return UI_MORE;
+    }
+    if (page == UI_MORE) {
+        return screen_pages() > UI_PAGES ? UI_PAGES : UI_HOME;
+    }
+    if (page > UI_MORE) {
+        return page + 1 < screen_pages() ? page + 1 : UI_HOME;
+    }
+    return page + 1;
+}
+
+/* The nodes the Nearby page has room for: fewer on a colour panel, whose lines are taller. */
+static int nearby_rows(void) { return colour ? UI_NEARBY_ROWS_COLOUR : UI_NEARBY_ROWS; }
+
 /* The link's messages, newest first: where each is in its list. */
 static size_t newest_first(uint8_t order[LINK_MESSAGES]) {
     size_t n = 0;
@@ -3172,6 +3214,7 @@ static void fill_ui(struct ui_node *u) {
     unsigned paired = have_ble ? ble_paired() : 0;
     u->paired = (uint8_t)(paired > UINT8_MAX ? UINT8_MAX : paired);
     u->confirm_s = (uint8_t)confirm_left();
+    u->menu = screen_page == UI_MORE ? menu_choice : -1;
     /* The neighbours, most recently heard first, and of them the ones the Nearby page shows. */
     uint8_t heard[NEIGHBOURS];
     for (int i = 0; i < NEIGHBOURS; i++) {
@@ -3189,7 +3232,7 @@ static void fill_ui(struct ui_node *u) {
         nearby_first = 0; /* past the last: round to the first again */
     }
     u->nearby_first = nearby_first;
-    for (size_t k = nearby_first; k < u->nearby && u->nearby_n < UI_NEARBY_ROWS; k++) {
+    for (size_t k = nearby_first; k < u->nearby && u->nearby_n < nearby_rows(); k++) {
         const struct tern_route_neighbour *g = &neighbours[heard[k]];
         struct ui_neighbour *v = &u->neighbour[u->nearby_n++];
         tern_time ago = (now - g->heard) / 1000000000LL;
@@ -3321,6 +3364,75 @@ static void screen_failed(void) {
 /* Something to see: the screen is on, or turned on by poll_screen(), for screen_sleep more. */
 static void screen_wake(void) { screen_woken = board_now(); }
 
+/* Makes `on_screen` the picture: on a monochrome screen at once, and on a colour panel a band at a
+ * time, as screen_send() sends them. A join code is its group's secret, so it is wiped as soon as
+ * it is drawn. */
+static void present(void) {
+#if TERN_COLOUR
+    if (colour) {
+        band_next = 0;
+        return;
+    }
+#endif
+    mono_draw(&on_screen, &screen);
+    tern_wipe(on_screen.qr, sizeof on_screen.qr);
+}
+
+#if TERN_COLOUR
+/* FNV-1a over a band's pixels: enough to tell a band that changed from one that did not. */
+static uint32_t band_of(const uint16_t *px, size_t n) {
+    uint32_t h = 2166136261u;
+    for (size_t i = 0; i < n; i++) {
+        h = (h ^ px[i]) * 16777619u;
+    }
+    return h != 0 ? h : 1; /* 0 is a band never sent */
+}
+#endif
+
+/* Sends some of the picture that changed, if any did: a page of a monochrome screen, or a band of
+ * a colour panel, drawn now. 1 if it sent one, 0 if there is nothing to send, -1 if the screen did
+ * not take it, which is then kept to send again. */
+static int screen_send(void) {
+#if TERN_COLOUR
+    if (colour) {
+        while (band_next * BAND_ROWS < colour_h) {
+            int b = band_next++;
+            int y = b * BAND_ROWS;
+            struct canvas c = {.px = band_px,
+                               .w = colour_w,
+                               .h = colour_h,
+                               .y0 = y,
+                               .rows = colour_h - y < BAND_ROWS ? colour_h - y : BAND_ROWS};
+            colour_draw(&on_screen, &c);
+            if (band_next * BAND_ROWS >= colour_h) {
+                tern_wipe(on_screen.qr, sizeof on_screen.qr); /* the last band of it drawn */
+                colour_forget();
+            }
+            uint32_t h = band_of(band_px, (size_t)(c.w * c.rows));
+            if (h == band_hash[b]) {
+                continue; /* as the panel shows it already */
+            }
+            if (!board_screen_rows(y, c.rows, band_px)) {
+                band_hash[b] = 0;
+                return -1;
+            }
+            band_hash[b] = h;
+            return 1;
+        }
+        return 0;
+    }
+#endif
+    int page = display_take(&screen);
+    if (page < 0) {
+        return 0;
+    }
+    if (board_screen_page(page, screen.px[page])) {
+        return 1;
+    }
+    screen.dirty |= (uint8_t)(1u << page);
+    return -1;
+}
+
 /* Draws the page shown every SCREEN_MS, and sends at most one changed page of the picture each
  * turn of the loop, about 3 ms, so the radio is never kept waiting long. A write that fails can
  * take 50 ms (board.c), so after one the screen waits a second, and after SCREEN_TRIES in a row
@@ -3345,6 +3457,9 @@ static void poll_screen(void) {
         }
         screen_asleep = !on;
         group_code = false; /* dark, and so no longer shown to whoever asked */
+#if TERN_COLOUR
+        memset(band_hash, 0, sizeof band_hash); /* what the panel shows is not to be relied on */
+#endif
         screen_failures = 0;
         screen_due = 0;
     }
@@ -3353,7 +3468,8 @@ static void poll_screen(void) {
     }
     if (off_shown != 0) {
         if (board_now() >= screen_due) {
-            ui_turning_off(off_shown, &screen); /* over everything: it is what PRG is doing */
+            ui_turning_off(off_shown, &on_screen); /* over everything: it is what PRG is doing */
+            present();
             screen_due = board_now() + (tern_time)SCREEN_MS * 1000000;
         }
     } else if (pairing_passkey == PAIRING_NONE && board_now() < boot_until) {
@@ -3364,54 +3480,53 @@ static void poll_screen(void) {
         }
         if (pairing_passkey != PAIRING_NONE) {
             /* A client is pairing: the passkey to type into it, over whatever page was shown. */
-            ui_pairing(pairing_passkey, &screen);
+            ui_pairing(pairing_passkey, &on_screen);
         } else if (companion.update.on &&
                    board_now() - update_at < (tern_time)UPDATE_SHOWN_S * 1000000000LL) {
-            ui_updating(companion.update.held, companion.update.size, &screen);
+            ui_updating(companion.update.held, companion.update.size, &on_screen);
         } else if (screen_page < UI_PAGES) {
             static struct ui_node u;
             if (screen_looked) {
                 screen_seen();
             }
             fill_ui(&u);
-            ui_draw(&u, screen_page, &screen);
+            ui_scene(&u, screen_page, &on_screen);
             tern_wipe(u.join_link, sizeof u.join_link);
         } else {
             static struct node_status st;
-            char rows[STATUS_ROWS][STATUS_COLS + 1];
+            static char rows[STATUS_ROWS][STATUS_COLS + 1];
+            const char *row[STATUS_ROWS];
             fill_status(&st);
             status_page(&st, screen_page - UI_PAGES, rows);
             for (int i = 0; i < STATUS_ROWS; i++) {
-                display_text(&screen, i, rows[i], i == 0);
+                row[i] = rows[i];
             }
+            ui_rows(row, STATUS_ROWS, &on_screen);
         }
+        present();
         screen_due = board_now() + (tern_time)SCREEN_MS * 1000000;
     }
-    int page = display_take(&screen);
-    if (page < 0) {
-        return;
-    }
-    if (board_screen_page(page, screen.px[page])) {
+    int sent = screen_send();
+    if (sent > 0) {
         screen_failures = 0;
-        return;
+    } else if (sent < 0) {
+        screen_failed();
     }
-    screen.dirty |= (uint8_t)(1u << page);
-    screen_failed();
 }
 
-/* Sends the whole picture now, not a page a turn: for the screens drawn outside the loop. A
- * page the screen did not take is left for poll_screen() to send again. */
+/* Sends the whole picture now, not a page or a band a turn: for the screens drawn outside the
+ * loop. A page the screen did not take is left for poll_screen() to send again. */
 static void screen_flush(void) {
-    int page;
-    while (have_screen && (page = display_take(&screen)) >= 0) {
-        if (!board_screen_page(page, screen.px[page])) {
-            screen.dirty |= (uint8_t)(1u << page);
+    if (!have_screen) {
+        return;
+    }
+    int sent;
+    while ((sent = screen_send()) != 0) {
+        if (sent < 0) {
             return;
         }
     }
-    if (have_screen) {
-        board_screen_show(false);
-    }
+    board_screen_show(false);
 }
 
 /* Turns the board off, saying why on the screen for long enough to read. Nothing need be saved
@@ -3430,7 +3545,8 @@ __attribute__((noreturn)) static void turn_off(enum ui_off why) {
         if (screen_asleep) {
             board_screen_power(true);
         }
-        ui_off(why, board_button_name(), &screen);
+        ui_off(why, board_button_name(), &on_screen);
+        present();
         screen_flush();
         plat_sleep_ms(2000);
     }
@@ -3508,7 +3624,8 @@ __attribute__((noreturn)) static void erase_and_restart(void) {
     printf("%s held on Reset: erasing this board and starting again, with a new address\n",
            board_button_name());
     if (have_screen) {
-        ui_erasing(&screen);
+        ui_erasing(&on_screen);
+        present();
         screen_flush();
         board_screen_show(true); /* before the restart cuts its supply */
     }
@@ -3531,6 +3648,22 @@ static void ping(void) {
  * only a second hold while it asks forgets the phones or erases the board. Elsewhere it does
  * nothing. */
 static void screen_hold(void) {
+    if (screen_page == UI_MORE) {
+        /* Closed, it opens; open, it opens the page chosen, or closes again. */
+        if (menu_choice < 0) {
+            menu_choice = 0;
+        } else if (menu_choice == UI_MENU_BACK) {
+            menu_choice = -1;
+        } else {
+            screen_page = ui_menu_page(menu_choice);
+            group_shown = 0;
+            group_code = false;
+            confirm_page = -1;
+            screen_looked = true;
+        }
+        screen_due = 0;
+        return;
+    }
     if (screen_page == UI_PHONES || screen_page == UI_RESET) {
         bool sure = confirm_left() > 0;
         screen_due = 0;
@@ -3571,7 +3704,8 @@ static void screen_hold(void) {
         screen_looked = true;
         screen_due = 0;
     } else if (screen_page == UI_NEARBY) {
-        nearby_first += UI_NEARBY_ROWS; /* fill_ui() goes round to the first after the last */
+        nearby_first +=
+            (uint16_t)nearby_rows(); /* fill_ui() goes round to the first after the last */
         screen_due = 0;
     } else if (screen_page >= UI_PAGES) {
         ping();
@@ -3594,6 +3728,7 @@ static void poll_button(void) {
         boot_until = 0;
         if (waking) {
             screen_page = UI_HOME;
+            menu_choice = -1;
             screen_due = 0;
         } else {
             screen_seen(); /* someone is looking at what is shown */
@@ -3614,8 +3749,14 @@ static void poll_button(void) {
         screen_hold();
     } else if (!pressed && was && !held && now - last > 300 * 1000000LL) {
         last = now;
-        if (have_screen) {
-            screen_page = (screen_page + 1) % screen_pages();
+        if (have_screen && screen_page == UI_MORE && menu_choice >= 0) {
+            menu_choice = (int8_t)((menu_choice + 1) % UI_MENU); /* the next of More's choices */
+            screen_due = 0;
+        } else if (have_screen) {
+            int from = screen_page;
+            screen_page = next_page(screen_page);
+            /* Back from a page More opened, to its choice in the menu; else the menu closed. */
+            menu_choice = (int8_t)(from >= UI_MAIN && from < UI_PAGES ? ui_menu_choice(from) : -1);
             message_shown = 0;
             nearby_first = 0;
             group_shown = 0;
@@ -3640,7 +3781,8 @@ static void poll_button(void) {
 /* The boot screen, as far as the board knows itself yet. */
 static void show_start(void) {
     if (have_screen) {
-        ui_boot(&start_info, &screen);
+        ui_boot(&start_info, &on_screen);
+        present();
         screen_flush();
     }
 }
@@ -3657,7 +3799,8 @@ __attribute__((noreturn)) static void halt(enum ui_fault why, int code) {
         plat_update_reject();
     }
     if (have_screen) {
-        ui_fault(why, &start_info, code, &screen);
+        ui_fault(why, &start_info, code, &on_screen);
+        present();
         screen_flush();
     }
     tern_time woken = board_now(), down = 0, battery_due = 0;
@@ -3670,13 +3813,15 @@ __attribute__((noreturn)) static void halt(enum ui_fault why, int code) {
             down = was ? down : now;
             unsigned s = off_seconds(now - down);
             if (s != off_shown && have_screen) {
-                ui_turning_off(s, &screen);
+                ui_turning_off(s, &on_screen);
+                present();
             }
             off_shown = s;
         } else if (off_shown != 0) {
             off_shown = 0; /* let go in time */
             if (have_screen) {
-                ui_fault(why, &start_info, code, &screen);
+                ui_fault(why, &start_info, code, &on_screen);
+                present();
             }
         }
         was = pressed;
@@ -3716,6 +3861,10 @@ void node_main(void) {
     have_screen = board_screen_init();
     if (have_screen) {
         display_init(&screen);
+#if TERN_COLOUR
+        colour = board_screen_colour(&colour_w, &colour_h) && colour_w <= PANEL_W_MAX &&
+                 colour_h <= PANEL_H_MAX;
+#endif
     }
     show_start();
 

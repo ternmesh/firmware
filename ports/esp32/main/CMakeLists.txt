@@ -16,6 +16,7 @@ idf_component_register(
         ${node}/epd.c
         ${node}/status.c
         ${node}/ui.c
+        ${node}/scene.c
         ${node}/qr.c
         ${node}/power.c
         ${node}/axp.c

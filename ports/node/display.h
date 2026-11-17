@@ -29,8 +29,9 @@ struct display {
 void display_init(struct display *d);
 
 /* Draws a line of text across page `page`, light on dark or, if inverse, dark on light, and
- * marks the page if that changed it. Printable ASCII is drawn, and DISPLAY_BLUETOOTH; anything
- * else is a blank. */
+ * marks the page if that changed it. Dark on light, the text is a pixel lower, with a lit row
+ * above it, so that a heading at the top of the screen does not run into the panel's dark edge.
+ * Printable ASCII is drawn, and DISPLAY_BLUETOOTH; anything else is a blank. */
 void display_text(struct display *d, int page, const char *text, bool inverse);
 
 /* Draws a line of text twice the size, ten pixels a character and twelve apart, across pages

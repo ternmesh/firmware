@@ -55,10 +55,18 @@ const char *board_button_name(void);
 
 void board_led(bool on);
 
-/* The screen: a 128x64 OLED, or a larger panel the board draws the 128x64 picture on. Powers it,
- * resets it and sets it up blank; false if it does not answer, and the board then runs without
- * it. */
+/* The screen: a 128x64 OLED, or a colour panel. Powers it, resets it and sets it up blank; false if
+ * it does not answer, and the board then runs without it. */
 bool board_screen_init(void);
+
+/* Whether the screen is a colour panel the node draws on itself (colour.h), and if so its size,
+ * the long way across, as the user holds the board: a board whose screen takes the 128x64
+ * picture a page at a time says false. Asked once board_screen_init() has answered. */
+bool board_screen_colour(int *w, int *h);
+
+/* Sends rows `y` to `y + h - 1` of a colour panel's picture, each `w` pixels of RGB565 (colour.h),
+ * turned and in the byte order the panel takes. */
+bool board_screen_rows(int y, int h, const uint16_t *px);
 
 /* Sends one page of the picture: eight rows of 128 columns, a byte a column, the lowest bit at
  * the top (display.h). About 3 ms at the bus's 400 kHz. */

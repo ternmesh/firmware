@@ -42,8 +42,7 @@
 
 #define LORA DT_NODELABEL(lora)
 #define VBATT DT_NODELABEL(vbatt)
-#define NONE                                                                                       \
-    { 0 }
+#define NONE {0}
 
 static const struct spi_dt_spec lora_spi =
     SPI_DT_SPEC_GET(LORA, SPI_WORD_SET(8) | SPI_TRANSFER_MSB | SPI_OP_MODE_CONTROLLER);
@@ -313,26 +312,23 @@ void board_led(bool on) { set(&led, on ? 1 : 0); }
 
 /* --- The screen ------------------------------------------------------------------------------ */
 
-/* The node draws a 128x64 picture a page of eight rows at a time (display.h), a byte a column with
- * its lowest bit at the top. A monochrome panel that keeps its memory in such pages (Zephyr's
- * SCREEN_INFO_MONO_VTILED: the SSD1306 and the SH1106) takes each page as it is. A colour panel is
- * drawn into: the T114's 135x240 is mounted on its side, so the picture is turned to lie along it.
+/* A colour panel with room, as the T114's 135x240 has, the node draws on itself (colour.h): it
+ * sends the picture a band of rows at a time, the long way across, and the board turns each band to
+ * lie along the panel, which is mounted on its side, one way round or, with TERN_SCREEN_FLIP, the
+ * other.
  *
- * Where the panel has room, as the T114's does, the picture is drawn twice the size along the
- * character grid it is drawn on: a picture row is two panel rows, so a line of text is sixteen, and
- * of each character's six columns the glyph's five are two panel columns each and the space after
- * it one. Every stroke of the text is then two pixels, and the 21 characters of a line are 231
- * across, which leaves a margin to the panel's edge. Twice the size along the other way too would
- * be 256, more than the 240 there are. What is drawn off the grid (the large line's letters, the
- * bar and a QR code's modules) comes out a pixel narrower in places. A panel without the room has
- * the picture at its own size, in its middle.
- *
- * Light on dark, as the node draws it, is white on black, except for a line drawn dark on light, as
- * the node draws each page's first: that is white on the accent colour, across the panel's width,
- * so the line's letters are not dark against a dark edge. Such a line is known by its last two
- * columns: they are past the 21 characters' 126, so text drawn dark on light leaves them lit, and
- * nothing else the node draws lights them whole. A layout of its own for the larger panel is for
- * later (docs/boards.md). */
+ * Otherwise the node draws a 128x64 picture a page of eight rows at a time (display.h), a byte a
+ * column with its lowest bit at the top. A monochrome panel that keeps its memory in such pages
+ * (Zephyr's SCREEN_INFO_MONO_VTILED: the SSD1306 and the SH1106) takes each page as it is. A
+ * colour panel too small for the node's own layout is drawn into: the picture is turned to lie
+ * along it, at its own size in its middle, or where there is room, twice the size along the
+ * character grid it is drawn on: a picture row is two panel rows, and of each character's six
+ * columns the glyph's five are two panel columns each and the space after it one. A line drawn
+ * dark on light, as the node draws each page's first, is white on the accent colour, across the
+ * panel's width, known by its last two columns: they are past the 21 characters' 126, so text
+ * drawn dark on light leaves them lit, and nothing else the node draws lights them whole. */
+#define COLOUR_W 240 /* the least a panel the node draws on itself has, the long way */
+#define COLOUR_H 135
 #define PIC_W 128
 #define PIC_H 64
 #define CELL_W 6 /* a character's columns in the picture, its space included */
@@ -351,6 +347,7 @@ void board_led(bool on) { set(&led, on ? 1 : 0); }
 #if DT_HAS_CHOSEN(zephyr_display)
 
 static bool paged;                     /* monochrome, in pages: each page goes as it is */
+static bool coloured;                  /* a colour panel the node draws on itself */
 static int panel_w, panel_h;           /* a colour panel's size, its long side down */
 static int tall = 1;                   /* panel rows to a picture row */
 static int at_y;                       /* where the picture's rows start across the short side */
@@ -397,6 +394,7 @@ bool board_screen_init(void) {
                caps.y_resolution <= PANEL_LONG_MAX) {
         panel_w = caps.x_resolution;
         panel_h = caps.y_resolution;
+        coloured = panel_h >= COLOUR_W && panel_w >= COLOUR_H;
         bool grid = panel_h >= GRID_W && panel_w >= 2 * PIC_H;
         int w_all = grid ? GRID_W : PIC_W;
         int at_x = (panel_h - w_all) / 2;
@@ -475,6 +473,52 @@ bool board_screen_page(int page, const uint8_t data[128]) {
     return true;
 }
 
+bool board_screen_colour(int *w, int *h) {
+    if (!coloured) {
+        return false;
+    }
+    *w = panel_h; /* the long way across, as it is held */
+    *h = panel_w;
+    return true;
+}
+
+bool board_screen_rows(int y, int h, const uint16_t *px) {
+    /* The picture's (X, Y) is the panel's column w - 1 - Y and row X, or turned the other way, its
+     * column Y and row h - 1 - X: so a band of rows is a band of the panel's columns, written a few
+     * of its rows at a time. */
+    int w = panel_h;
+    if (!coloured || h <= 0 || y < 0 || y + h > panel_w) {
+        return false;
+    }
+#if CONFIG_TERN_SCREEN_FLIP
+    int x = y;
+#else
+    int x = panel_w - y - h;
+#endif
+    int rows = (int)(sizeof strip / sizeof strip[0]) / h;
+    for (int l0 = 0; l0 < w; l0 += rows) {
+        int l1 = l0 + rows < w ? l0 + rows : w;
+        for (int l = l0; l < l1; l++) {
+            uint16_t *out = &strip[(l - l0) * h];
+#if CONFIG_TERN_SCREEN_FLIP
+            const uint16_t *in = &px[w - 1 - l];
+            for (int j = 0; j < h; j++) {
+                out[j] = PANEL(in[j * w]);
+            }
+#else
+            const uint16_t *in = &px[l];
+            for (int j = 0; j < h; j++) {
+                out[j] = PANEL(in[(h - 1 - j) * w]);
+            }
+#endif
+        }
+        if (panel_write(x, l0, h, l1 - l0, strip, (size_t)(h * (l1 - l0)) * 2) != 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool board_screen_power(bool on) {
     if (on) {
         /* On a panel without a backlight of its own, this is all that wakes it. */
@@ -489,6 +533,8 @@ bool board_screen_power(bool on) {
 #else
 
 bool board_screen_init(void) { return false; }
+bool board_screen_colour(int *w, int *h) { return false; }
+bool board_screen_rows(int y, int h, const uint16_t *px) { return false; }
 bool board_screen_page(int page, const uint8_t data[128]) { return false; }
 bool board_screen_power(bool on) { return false; }
 
