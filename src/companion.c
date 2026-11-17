@@ -409,7 +409,7 @@ static uint32_t get_member(const struct tern_companion_msg *m, enum field f) {
     }
     switch (width(f)) {
     case 1:
-        return f == POWER || f == SNR ? (uint8_t)*(const int8_t *)p : *(const uint8_t *)p;
+        return f == POWER || f == SNR ? (uint8_t) * (const int8_t *)p : *(const uint8_t *)p;
     case 2:
         return *(const uint16_t *)p;
     default:

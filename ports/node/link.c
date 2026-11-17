@@ -97,7 +97,7 @@ static void news_card(struct link *l, struct link_conn *to, const struct tern_ca
     struct tern_companion_msg m = {.type = TERN_C_CARD};
     tern_time ago = (now - k->heard) / TERN_S(1);
     memcpy(m.address, k->address, TERN_ADDRESS_LEN);
-    m.heard = ago<0 ? 0 : ago>(tern_time) UINT32_MAX ? UINT32_MAX : (uint32_t)ago;
+    m.heard = ago < 0 ? 0 : ago > (tern_time)UINT32_MAX ? UINT32_MAX : (uint32_t)ago;
     put_text(&m, k->name, k->name_len);
     news(l, to, &m);
 }
