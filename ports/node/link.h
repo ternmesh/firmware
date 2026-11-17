@@ -127,9 +127,12 @@ struct link_host {
     void *ctx;
     const char *firmware;
     /* INFO's board and release: the hardware a client finds an image for, and the version of the
-     * firmware, empty if it has none. The board is NULL or empty if the node cannot be updated
-     * over the link. */
+     * firmware, empty if it has none. The board is NULL or empty if the node cannot be updated at
+     * all. */
     const char *board, *release;
+    /* How a client updates the node, INFO's update: a TERN_C_UPDATES_. A client before version 12
+     * knows only the link's way, and is told no board unless the node updates that way. */
+    uint8_t updates;
     /* The longest image the node has room for: 0 if it cannot be updated over the link. */
     uint32_t update_room;
     /* One frame to the client on a connection. */
@@ -197,6 +200,9 @@ struct link_host {
     /* OFF: 0 if the board will turn off once the answer is out, or the ERROR code to answer with.
      * Every connection drops then, and nothing on the link turns the board on again. */
     uint8_t (*off)(void *ctx);
+    /* UPDATE_BOOTLOADER: 0 if the board will restart into its bootloader's update once the answer
+     * is out, or the ERROR code to answer with. Every connection drops then. */
+    uint8_t (*bootloader)(void *ctx);
 };
 
 /* An update under way: the image's size and digest, how much of it the node holds, and the digest

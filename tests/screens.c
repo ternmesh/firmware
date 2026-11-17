@@ -242,6 +242,8 @@ static void the_other_screens(void) {
     show("pairing");
     ui_updating(300000, 755200, &sc);
     show("updating");
+    ui_bootloader(&sc);
+    show("bootloader");
     ui_turning_off(3, &sc);
     show("turning-off");
     ui_off(UI_OFF_PRESSED, "USER", &sc);

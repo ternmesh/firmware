@@ -91,6 +91,7 @@ struct board {
     uint8_t run_answer;
     unsigned offs;      /* how many times OFF asked the board to turn off */
     uint8_t off_answer; /* what the board answers OFF with: 0 to turn off */
+    unsigned boots;     /* how many times UPDATE_BOOTLOADER asked the board to restart into it */
     uint8_t out[96][TERN_COMPANION_MAX_FRAME];
     size_t out_len[96];
     unsigned out_conn[96];
@@ -367,6 +368,12 @@ static uint8_t board_off(void *ctx) {
     return b->off_answer;
 }
 
+static uint8_t board_bootloader(void *ctx) {
+    struct board *b = ctx;
+    b->boots++;
+    return 0;
+}
+
 static struct board board;
 static struct link companion;
 
@@ -394,6 +401,7 @@ static void start(void) {
         .firmware = "tern 0.2.0 heltec-v3",
         .board = "heltec-v3",
         .release = "0.2.0",
+        .updates = TERN_C_UPDATES_LINK,
         .update_room = sizeof board.image,
         .out = board_out,
         .view = board_view,
@@ -423,6 +431,7 @@ static void start(void) {
         .update_write = board_update_write,
         .update_run = board_update_run,
         .off = board_off,
+        .bootloader = board_bootloader,
     };
     board.random = made_secret;
     link_init(&companion, &host);
@@ -641,6 +650,35 @@ static void an_older_client_cannot_turn_the_node_off(void) {
     begin();
     follow("older 8", older_8, COUNT(older_8), COUNT(older_8), NULL);
     CHECK_EQ_U64(board.offs, 0);
+}
+
+/* A client of version 11 is sent an INFO without update, and may not ask for the bootloader. */
+static void an_older_client_cannot_ask_for_the_bootloader(void) {
+    begin();
+    follow("older 11", older_11, COUNT(older_11), COUNT(older_11), NULL);
+    CHECK_EQ_U64(board.boots, 0);
+}
+
+/* A node whose bootloader takes its updates, with no room for an image itself: it names its board
+ * to a client of this version, refuses UPDATE_BEGIN, and answers UPDATE_BOOTLOADER before the
+ * board restarts; to a client of version 11 it names none, since to that client a board is one
+ * that takes UPDATE_BEGIN. A node updated over the link refuses UPDATE_BOOTLOADER (refusals). */
+static void a_node_updated_by_its_bootloader_says_so(void) {
+    start();
+    companion.host.firmware = "tern 0.2.0 heltec-t114";
+    companion.host.board = "heltec-t114";
+    companion.host.updates = TERN_C_UPDATES_BOOTLOADER;
+    companion.host.update_room = 0;
+    follow("bootloader 0", bootloader_0, COUNT(bootloader_0), COUNT(bootloader_0), NULL);
+    CHECK_EQ_U64(board.boots, 1);
+    CHECK_EQ_U64(board.begun, 0);
+    start();
+    companion.host.firmware = "tern 0.2.0 heltec-t114";
+    companion.host.board = "heltec-t114";
+    companion.host.updates = TERN_C_UPDATES_BOOTLOADER;
+    companion.host.update_room = 0;
+    follow("bootloader 1", bootloader_1, COUNT(bootloader_1), COUNT(bootloader_1), NULL);
+    CHECK_EQ_U64(board.boots, 0);
 }
 
 /* OFF is answered before the board turns off, and with what the board says: a board that will
@@ -2836,6 +2874,8 @@ int main(void) {
     RUN(a_due_position_waits_up_to_an_eighth_of_its_interval);
     RUN(an_update_goes_on_from_where_the_link_was_lost);
     RUN(an_update_refuses_what_it_should);
+    RUN(an_older_client_cannot_ask_for_the_bootloader);
+    RUN(a_node_updated_by_its_bootloader_says_so);
     RUN(an_update_needs_a_board_and_room);
     RUN(an_update_the_board_cannot_take_starts_again);
     RUN(a_client_of_version_3_cannot_update);

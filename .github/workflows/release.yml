@@ -81,12 +81,14 @@ jobs:
           manifest-file-name: ports/nrf52/west.yml
           sdk-version: 1.0.1
           toolchains: arm-zephyr-eabi
-      - run: pip3 install -r zephyr/scripts/requirements-base.txt
+      - run: pip3 install -r zephyr/scripts/requirements-base.txt adafruit-nrfutil
       - run: firmware/ports/nrf52/release.sh ${{ needs.version.outputs.version }} ${{ matrix.board }}
       - uses: actions/upload-artifact@v4
         with:
           name: nrf52-${{ matrix.board }}
-          path: firmware/ports/nrf52/release/*.uf2
+          path: |
+            firmware/ports/nrf52/release/*.uf2
+            firmware/ports/nrf52/release/*.zip
           if-no-files-found: error
 
   publish:
@@ -103,10 +105,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cd images
-          sha256sum -- *.bin *.uf2 >SHA256SUMS
+          sha256sum -- *.bin *.uf2 *.zip >SHA256SUMS
           cat SHA256SUMS
           cd ..
           case "$GITHUB_REF_NAME" in *-*) pre=--prerelease ;; *) pre= ;; esac
           gh release create "$GITHUB_REF_NAME" $pre --verify-tag --title "$GITHUB_REF_NAME" \
             --notes-file "docs/releases/$GITHUB_REF_NAME.md" \
-            images/*.bin images/*.uf2 images/SHA256SUMS
+            images/*.bin images/*.uf2 images/*.zip images/SHA256SUMS

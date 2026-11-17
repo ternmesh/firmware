@@ -40,17 +40,19 @@ into a header for `tests/forward.c`, and its listens alone into one for `tests/l
 
 `companion.json` is a copy of
 [`vectors/companion.json`](https://github.com/ternmesh/spec/blob/main/vectors/companion.json), as
-of the companion protocol's version 11, which adds SELF's pairing, for a node without a screen
+of the companion protocol's version 12, which adds UPDATE_BOOTLOADER and INFO's update, for a
+node whose bootloader takes its updates ([ternmesh/spec#55](https://github.com/ternmesh/spec/pull/55)),
+after version 11's SELF's pairing, for a node without a screen
 that pairs with a default passkey ([ternmesh/spec#54](https://github.com/ternmesh/spec/pull/54)),
-after version 10's the most a node may send at
+and version 10's the most a node may send at
 ([ternmesh/spec#51](https://github.com/ternmesh/spec/pull/51), with its SELF corrected in
 [ternmesh/spec#52](https://github.com/ternmesh/spec/pull/52)), and version 9's turning the node off
 ([ternmesh/spec#50](https://github.com/ternmesh/spec/pull/50)), after version 8's fix and
 satellite receiver ([ternmesh/spec#46](https://github.com/ternmesh/spec/pull/46)) and version 7's
 join codes
 ([ternmesh/spec#32](https://github.com/ternmesh/spec/pull/32)). `companion_to_c.py` turns it into a
-header for `tests/companion.c`, and its connections and its `unknown_to_older` alone into one for
-`tests/link.c`.
+header for `tests/companion.c`, and its connections, `bootloader`'s among them, and its
+`unknown_to_older` alone into one for `tests/link.c`.
 `tools/companion.py selftest` reads it directly.
 
 `flooding.json` and `groups.json` are copies of

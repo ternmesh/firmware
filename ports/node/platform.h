@@ -107,6 +107,16 @@ void plat_update_abandon(void);
  * next start, its version in `version`, or TERN_C_ERR_NOT_AN_IMAGE or TERN_C_ERR_NOT_NOW. */
 uint8_t plat_update_finish(char *version, size_t version_len);
 
+/* How a client gives this board new firmware (INFO's update): TERN_C_UPDATES_LINK where it has
+ * room for a second image, as above; TERN_C_UPDATES_BOOTLOADER where its bootloader takes one over
+ * Bluetooth itself, as an nRF52840's does; TERN_C_UPDATES_NONE if neither. */
+uint8_t plat_update_how(void);
+
+/* Restarts into the bootloader's own update over Bluetooth, for a board whose plat_update_how() is
+ * TERN_C_UPDATES_BOOTLOADER. Everything the board saved is kept: the bootloader writes only the
+ * firmware. */
+__attribute__((noreturn)) void plat_update_by_bootloader(void);
+
 /* Whether this is the first start of an image an update gave, not yet known to work. */
 bool plat_update_on_trial(void);
 void plat_update_confirm(void); /* it works: keep it */
