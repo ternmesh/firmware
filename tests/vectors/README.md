@@ -40,9 +40,11 @@ into a header for `tests/forward.c`, and its listens alone into one for `tests/l
 
 `companion.json` is a copy of
 [`vectors/companion.json`](https://github.com/ternmesh/spec/blob/main/vectors/companion.json), as
-of the companion protocol's version 10, which adds the most a node may send at
+of the companion protocol's version 11, which adds SELF's pairing, for a node without a screen
+that pairs with a default passkey ([ternmesh/spec#54](https://github.com/ternmesh/spec/pull/54)),
+after version 10's the most a node may send at
 ([ternmesh/spec#51](https://github.com/ternmesh/spec/pull/51), with its SELF corrected in
-[ternmesh/spec#52](https://github.com/ternmesh/spec/pull/52)), after version 9's turning the node off
+[ternmesh/spec#52](https://github.com/ternmesh/spec/pull/52)), and version 9's turning the node off
 ([ternmesh/spec#50](https://github.com/ternmesh/spec/pull/50)), after version 8's fix and
 satellite receiver ([ternmesh/spec#46](https://github.com/ternmesh/spec/pull/46)) and version 7's
 join codes

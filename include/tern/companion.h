@@ -16,10 +16,18 @@
  * text console. What a node answers and when is the node's business, not the core's (in the node
  * every port shares, ports/node/link.c). */
 
-#define TERN_COMPANION_VERSION 10
+#define TERN_COMPANION_VERSION 11
 #define TERN_COMPANION_MAX_FRAME 180
 /* SET 3's power that is the most the node may send at, which it works out (version 10). */
 #define TERN_C_POWER_MOST INT8_MIN
+/* SET 4's passkey that is the node's default: a new one on the screen for each pairing, or, on a
+ * node without a screen, TERN_C_PASSKEY_SCREENLESS. */
+#define TERN_C_PASSKEY_DEFAULT 0xFFFFFFFFu
+#define TERN_C_PASSKEY_SCREENLESS 123456u
+/* SELF's pairing (version 11): how a client pairs with the node over Bluetooth. */
+#define TERN_C_PAIRING_SHOWN 0   /* a new passkey on the node's screen for each pairing */
+#define TERN_C_PAIRING_DEFAULT 1 /* no screen, and TERN_C_PASSKEY_SCREENLESS: none set */
+#define TERN_C_PAIRING_SET 2     /* the passkey a client set with SET 4 */
 #define TERN_COMPANION_STREAM_MAX (TERN_COMPANION_MAX_FRAME + 6) /* magic, length, CRC */
 #define TERN_COMPANION_NAME_MAX 31
 #define TERN_COMPANION_TEXT_MAX 128
@@ -187,7 +195,8 @@ struct tern_companion_msg {
     uint8_t type, seq;
     uint8_t version, setting, code, role, session, flags, state, reason, percent, why, news, cards;
     uint8_t receiver, source, satellites; /* FIX's, and receiver SET 7's value */
-    uint8_t most; /* SELF's: 1 if `power` is the most the node may send at, which it works out */
+    uint8_t most;    /* SELF's: 1 if `power` is the most the node may send at, which it works out */
+    uint8_t pairing; /* SELF's: a TERN_C_PAIRING_ */
     int8_t power, snr;
     uint16_t millivolts;
     uint32_t heard;

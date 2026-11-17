@@ -31,6 +31,7 @@ enum field {
     SOURCE,    /* u8 */
     SATS,      /* u8, into satellites */
     MOST,      /* u8 */
+    PAIRING,   /* u8 */
     POWER,     /* i8 */
     SNR,       /* i8 */
     HEARD,     /* u16, into heard */
@@ -112,7 +113,7 @@ static const struct layout layouts[] = {
     {TERN_C_MADE, {GROUP}},
     {TERN_C_UPDATING, {OFFSET}},
     {TERN_C_LINK, {LINK}},
-    {TERN_C_SELF, {ADDRESS, ROLE, REGION, POWER, TIME, CARDS, CARD_NAME, MOST}},
+    {TERN_C_SELF, {ADDRESS, ROLE, REGION, POWER, TIME, CARDS, CARD_NAME, MOST, PAIRING}},
     {TERN_C_CONTACT, {ADDRESS, SESSION, NAME}},
     {TERN_C_CONTACT_GONE, {ADDRESS}},
     {TERN_C_MESSAGE, {ID, ADDRESS, TIME, FLAGS, STATE, REASON, WAIT16, TEXT}},
@@ -140,10 +141,8 @@ static const struct layout layouts[] = {
 static const struct {
     uint8_t type, from, since;
 } later_fields[] = {
-    {TERN_C_SYNCED, 0, 3},
-    {TERN_C_INFO, 2, 4},
-    {TERN_C_SELF, 5, 6},
-    {TERN_C_SELF, 7, 10},
+    {TERN_C_SYNCED, 0, 3}, {TERN_C_INFO, 2, 4},  {TERN_C_SELF, 5, 6},
+    {TERN_C_SELF, 7, 10},  {TERN_C_SELF, 8, 11},
 };
 
 static bool added_later(uint8_t type, size_t i, uint8_t version) {
@@ -297,6 +296,8 @@ static void *member(struct tern_companion_msg *m, enum field f) {
         return &m->cards;
     case MOST:
         return &m->most;
+    case PAIRING:
+        return &m->pairing;
     case RECEIVER:
         return &m->receiver;
     case SOURCE:
@@ -408,7 +409,7 @@ static uint32_t get_member(const struct tern_companion_msg *m, enum field f) {
     }
     switch (width(f)) {
     case 1:
-        return f == POWER || f == SNR ? (uint8_t) * (const int8_t *)p : *(const uint8_t *)p;
+        return f == POWER || f == SNR ? (uint8_t)*(const int8_t *)p : *(const uint8_t *)p;
     case 2:
         return *(const uint16_t *)p;
     default:

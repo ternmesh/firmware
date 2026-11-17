@@ -38,8 +38,6 @@ static volatile bool paired;     /* the client on `conn` paired with a passkey *
 static volatile bool subscribed; /* and asked for notifications */
 static volatile uint32_t passkey_setting;
 static bool have_screen;
-/* What the scan response names the node: nothing of its address or its user's name for it. */
-static char name[BLE_NAME_LEN + 1];
 static uint8_t own_addr_type;
 
 static void post(const struct ble_event *e) {
@@ -232,6 +230,8 @@ static void advertise(void) {
     fields.uuids128_is_complete = 1;
     /* The name goes in the scan response: with the flags and the UUID, the advertisement has no
      * room left for it within its 31 bytes. */
+    /* The name NimBLE's GAP service keeps, which ble_start() and ble_rename() set (ble.h). */
+    const char *name = ble_svc_gap_device_name();
     struct ble_hs_adv_fields rsp = {0};
     rsp.name = (const uint8_t *)name;
     rsp.name_len = (uint8_t)strlen(name);
@@ -264,8 +264,7 @@ static void host_task(void *param) {
     nimble_port_freertos_deinit();
 }
 
-bool ble_start(const char *node_name, uint32_t passkey, bool screen) {
-    snprintf(name, sizeof name, "%s", node_name);
+bool ble_start(const char *name, uint32_t passkey, bool screen) {
     passkey_setting = passkey;
     have_screen = screen;
     events = xQueueCreate(EVENTS, sizeof(struct ble_event));
@@ -298,6 +297,21 @@ bool ble_start(const char *node_name, uint32_t passkey, bool screen) {
 }
 
 void ble_passkey(uint32_t passkey) { passkey_setting = passkey; }
+
+void ble_rename(const char *name) {
+    if (ble_svc_gap_device_name_set(name) != 0) {
+        printf("bluetooth: could not set the name\n");
+        return;
+    }
+    /* Advertising again, with the new name; with a client connected, the next advertisement has
+     * it. */
+    if (ble_gap_adv_active()) {
+        ble_gap_adv_stop();
+        advertise();
+    }
+}
+
+const char *ble_advertised(void) { return ble_svc_gap_device_name(); }
 
 /* Sends what is waiting, oldest first, until NimBLE is out of buffers; the rest goes on a later
  * call. What was queued for a connection that has since gone is dropped. */

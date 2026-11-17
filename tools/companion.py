@@ -8,6 +8,7 @@
     python3 tools/companion.py --port /dev/ttyUSB0 forget <address>
     python3 tools/companion.py --port /dev/ttyUSB0 set power 10
     python3 tools/companion.py --port /dev/ttyUSB0 set power most
+    python3 tools/companion.py --port /dev/ttyUSB0 set passkey default
     python3 tools/companion.py --port /dev/ttyUSB0 watch
     python3 tools/companion.py --port /dev/ttyUSB0 group new <name>
     python3 tools/companion.py --port /dev/ttyUSB0 group invite <group> <address>
@@ -63,7 +64,12 @@ MAX_FRAME, MAGIC = 180, b"\xf5\x54"
 # version brought; `--speak` says another, so that `watch` is told of groups, positions or cards.
 VERSION = 1
 # The latest version the frames below are, which selftest reads the vectors by.
-LATEST = 10
+LATEST = 11
+# SET 4's value for the node's default passkey: a new one on its screen each time, or 123456 on a
+# node without one.
+PASSKEY_DEFAULT = 0xFFFFFFFF
+PAIRING = ["a new passkey on its screen each time", "passkey 123456, the default: set your own",
+           "the passkey set"]
 # SET 3's value for the most a node may transmit at, rather than a power (version 10).
 POWER_MOST = -128
 UPDATE_CHUNK = 172
@@ -110,7 +116,8 @@ FRAMES = {
     0x46: ("UPDATING", [("offset", "I")]),
     0x47: ("LINK", [("link", "str")]),
     0x80: ("SELF", [("address", "addr"), ("role", "B"), ("region", "str"), ("power", "b"),
-                    ("time", "I"), ("cards", "B"), ("card_name", "str"), ("most", "B")]),
+                    ("time", "I"), ("cards", "B"), ("card_name", "str"), ("most", "B"),
+                    ("pairing", "B")]),
     0x81: ("CONTACT", [("address", "addr"), ("session", "B"), ("name", "str")]),
     0x82: ("CONTACT_GONE", [("address", "addr")]),
     0x83: ("MESSAGE", [("id", "I"), ("contact", "addr"), ("time", "I"), ("flags", "B"),
@@ -145,7 +152,7 @@ FRAMES = {
 }
 # Fields a later version added at the end of a frame: an earlier version's frame stops before them.
 LATER = {(0x43, "news"): 3, (0x42, "board"): 4, (0x42, "release"): 4, (0x80, "cards"): 6,
-         (0x80, "card_name"): 6, (0x80, "most"): 10}
+         (0x80, "card_name"): 6, (0x80, "most"): 10, (0x80, "pairing"): 11}
 BYTES = {"addr": 32, "gid": 8, "digest": 32}
 TYPE = {name: t for t, (name, _) in FRAMES.items()}
 SETTINGS = {1: ("region", "str"), 2: ("role", "B"), 3: ("power", "b"), 4: ("passkey", "I"),
@@ -417,6 +424,8 @@ def describe(m, names):
         cards = ""
         if "cards" in m:
             cards = f"\n  cards {'on' if m['cards'] else 'off'}, as {m['card_name']!r}"
+        if "pairing" in m and m["pairing"] < len(PAIRING):
+            cards += f"\n  Bluetooth: {PAIRING[m['pairing']]}"
         return (f"this node: {m['address'].hex()}\n  a {'relay' if m['role'] else 'leaf'} in "
                 f"{m['region'] or 'no region'}, at {m['power']} dBm"
                 f"{', the most it may' if m.get('most') else ''}{cards}")
@@ -705,6 +714,8 @@ def run(args):
         n, kind = SETTING[args.setting]
         if args.setting == "power" and args.value == "most":
             value = POWER_MOST
+        elif args.setting == "passkey" and args.value == "default":
+            value = PASSKEY_DEFAULT
         else:
             value = args.value if kind == "str" else int(args.value, 0)
         node.request("SET", setting=n, value=value)
