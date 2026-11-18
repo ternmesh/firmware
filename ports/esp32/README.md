@@ -61,7 +61,9 @@ about it:
   on the V4.2 and GPIO5 on the V4.3, both at once, since on each the other goes only to the header.
   One image runs on either. Do not wire anything to GPIO5 or GPIO46.
 * **Power.** Every power here, the build's, `power` and a client's, is what goes into the antenna,
-  from +4 to +28 dBm; a V4 starts at +4, the least it gives. The radio is asked for 13 dB less than
+  from +4 to +28 dBm. It sends at most +28 dBm, or what its region allows if less, as every board
+  sends at its most (`CONFIG_TERN_TX_POWER_MOST`); built without that, it starts at +4, the least it
+  gives. The radio is asked for 13 dB less than
   the power set: the most the V4.2's amplifier adds after its attenuator, by the GC1109's
   datasheet (the V4.3's KCT8103L has none published). The power at the antenna is that or less,
   never more, until someone measures it with a meter. The region's limit is checked
