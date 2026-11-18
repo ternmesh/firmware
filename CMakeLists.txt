@@ -50,6 +50,7 @@ add_library(tern
     src/region.c
     src/release.c
     src/route.c
+    src/route_id.c
     src/sha256.c
     src/sha512.c
     src/share.c

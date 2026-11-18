@@ -346,6 +346,7 @@ void tern_identity_init(struct tern_identity *id, const uint8_t seed[TERN_SEED_L
     (void)ge_frombytes(&a, base_bytes);
     ge_scalarmult(&a, h, &a);
     ge_tobytes(id->address, &a);
+    (void)tern_address_blind(id->key, id->address, TERN_EPOCH); /* an address of its own is valid */
 
     tern_wipe(h, sizeof h);
     tern_wipe(&a, sizeof a);
@@ -472,20 +473,18 @@ static void challenge(uint8_t k[32], const uint8_t r[32], const uint8_t a[TERN_A
     sc_from_digest(k, h);
 }
 
-void tern_identity_sign(const struct tern_identity *id, const uint8_t *m, size_t len,
-                        uint8_t sig[TERN_SIGNATURE_LEN]) {
-    uint8_t h[TERN_SHA512_LEN], r[TERN_SHA512_LEN], rs[32], k[32];
+/* RFC 8032, section 5.1.6, steps 2 to 6, with the secret scalar s (little-endian, as clamped or
+ * below L), the prefix and the public key given: r = SHA-512(prefix || M) mod L, R = [r]B,
+ * S = r + SHA-512(R || A || M) s mod L. The ladder and the arithmetic mod L do the same work
+ * whatever s and r are. */
+static void sign_with(const uint8_t s[32], const uint8_t prefix[32], const uint8_t public[32],
+                      const uint8_t *m, size_t len, uint8_t sig[TERN_SIGNATURE_LEN]) {
+    uint8_t r[TERN_SHA512_LEN], rs[32], k[32];
     struct tern_sha512 c;
     ge p;
 
-    secret_scalar(id->seed, h);
-    h[0] &= 248;
-    h[31] &= 127;
-    h[31] |= 64;
-
-    /* r = SHA-512(prefix || M) mod L, the prefix being the digest's second half. */
     tern_sha512_init(&c);
-    tern_sha512_update(&c, h + 32, 32);
+    tern_sha512_update(&c, prefix, 32);
     tern_sha512_update(&c, m, len);
     tern_sha512_final(&c, r);
     sc_from_digest(rs, r);
@@ -494,13 +493,101 @@ void tern_identity_sign(const struct tern_identity *id, const uint8_t *m, size_t
     ge_scalarmult(&p, rs, &p);
     ge_tobytes(sig, &p);
 
-    challenge(k, sig, id->address, m, len);
-    sc_muladd(sig + 32, rs, k, h); /* S = r + k s */
+    challenge(k, sig, public, m, len);
+    sc_muladd(sig + 32, rs, k, s); /* S = r + k s */
 
-    tern_wipe(h, sizeof h);
     tern_wipe(r, sizeof r);
     tern_wipe(rs, sizeof rs);
     tern_wipe(&p, sizeof p);
+}
+
+void tern_identity_sign(const struct tern_identity *id, const uint8_t *m, size_t len,
+                        uint8_t sig[TERN_SIGNATURE_LEN]) {
+    uint8_t h[TERN_SHA512_LEN];
+    secret_scalar(id->seed, h);
+    h[0] &= 248;
+    h[31] &= 127;
+    h[31] |= 64;
+    sign_with(h, h + 32, id->address, m, len, sig); /* the prefix is the digest's second half */
+    tern_wipe(h, sizeof h);
+}
+
+/* --- Routing keys (draft/routing.md, "Routing ids") --- */
+
+static void put_epoch(uint8_t out[4], uint32_t epoch) {
+    out[0] = (uint8_t)(epoch >> 24);
+    out[1] = (uint8_t)(epoch >> 16);
+    out[2] = (uint8_t)(epoch >> 8);
+    out[3] = (uint8_t)epoch;
+}
+
+/* h = SHA-512("tern v0 blind" || A || u32be(epoch)) mod L. Public: it is made from the address. */
+static void blinding(uint8_t h[32], const uint8_t address[TERN_ADDRESS_LEN], uint32_t epoch) {
+    static const uint8_t label[] = "tern v0 blind";
+    uint8_t d[TERN_SHA512_LEN], e[4];
+    struct tern_sha512 c;
+    put_epoch(e, epoch);
+    tern_sha512_init(&c);
+    tern_sha512_update(&c, label, sizeof label - 1);
+    tern_sha512_update(&c, address, TERN_ADDRESS_LEN);
+    tern_sha512_update(&c, e, sizeof e);
+    tern_sha512_final(&c, d);
+    sc_from_digest(h, d);
+}
+
+bool tern_address_blind(uint8_t key[TERN_ADDRESS_LEN], const uint8_t address[TERN_ADDRESS_LEN],
+                        uint32_t epoch) {
+    uint8_t h[32];
+    ge a;
+    if (!tern_address_valid(address)) {
+        return false;
+    }
+    (void)ge_frombytes(&a, address);
+    blinding(h, address, epoch);
+    ge_scalarmult(&a, h, &a);
+    if (ge_is_neutral(&a)) {
+        return false; /* h is 0: one chance in 2^252 */
+    }
+    ge_tobytes(key, &a);
+    return true;
+}
+
+void tern_identity_sign_blinded(const struct tern_identity *id, uint32_t epoch, const uint8_t *m,
+                                size_t len, uint8_t sig[TERN_SIGNATURE_LEN]) {
+    static const uint8_t label[] = "tern v0 blind prefix";
+    static const uint8_t zero[32] = {0};
+    uint8_t s[TERN_SHA512_LEN], h[32], b[32], d[TERN_SHA512_LEN], e[4], other[TERN_ADDRESS_LEN];
+    struct tern_sha512 c;
+    const uint8_t *key = id->key;
+
+    secret_scalar(id->seed, s);
+    s[0] &= 248;
+    s[31] &= 127;
+    s[31] |= 64;
+    blinding(h, id->address, epoch);
+    sc_muladd(b, zero, h, s); /* b = h s mod L */
+
+    /* p = SHA-512("tern v0 blind prefix" || prefix || u32be(epoch))[0..32]. */
+    put_epoch(e, epoch);
+    tern_sha512_init(&c);
+    tern_sha512_update(&c, label, sizeof label - 1);
+    tern_sha512_update(&c, s + 32, 32);
+    tern_sha512_update(&c, e, sizeof e);
+    tern_sha512_final(&c, d);
+
+    if (epoch != TERN_EPOCH) {
+        ge p;
+        (void)ge_frombytes(&p, base_bytes);
+        ge_scalarmult(&p, b, &p); /* [b]B = [h s]B = [h]A */
+        ge_tobytes(other, &p);
+        tern_wipe(&p, sizeof p);
+        key = other;
+    }
+    sign_with(b, d, key, m, len, sig);
+
+    tern_wipe(s, sizeof s);
+    tern_wipe(b, sizeof b);
+    tern_wipe(d, sizeof d);
 }
 
 /* [S]B - [k]A, which is R for a signature made with A's key: one multiplication of both, from the

@@ -704,7 +704,7 @@ static bool hand_over(const struct link_message *x, struct pending *p, bool *gon
     if (pending_tagged(&sealed[TERN_FORWARD_HEAD]) != NULL) {
         return false;
     }
-    if (!tern_forward_send(&forward, board_now(), tern_route_id(x->address), sealed, sealed_len,
+    if (!tern_forward_send(&forward, board_now(), demo_peer_id(&demo, slot), sealed, sealed_len,
                            true, INT8_MIN)) {
         return false; /* no room: every slot holds a frame */
     }
@@ -1054,7 +1054,7 @@ static void heard_into(const struct tern_radio_event *ev, uint8_t *msg) {
     /* The acknowledgement goes back by a route, no quieter than the node the message came from
      * needs to hear it. With no route to the peer it is not sent: the peer sends again. */
     for (size_t i = 0; i < got.acks; i++) {
-        if (!tern_forward_send(&forward, board_now(), tern_route_id(demo.s[got.ack_slot[i]].peer),
+        if (!tern_forward_send(&forward, board_now(), demo_peer_id(&demo, got.ack_slot[i]),
                                got.ack[i], sizeof got.ack[i], false, routed.back)) {
             printf("(not acknowledged: no route back to the peer yet, or no room)\n");
         }
@@ -1283,7 +1283,7 @@ static void send_position(void) {
     }
     size_t len = out.len + TERN_UNICAST_OVERHEAD;
     if (pending_tagged(&frame[TERN_FORWARD_HEAD]) != NULL ||
-        !tern_forward_send(&forward, board_now(), tern_route_id(out.address), frame, len, true,
+        !tern_forward_send(&forward, board_now(), demo_peer_id(&demo, slot), frame, len, true,
                            INT8_MIN)) {
         outgoing_retry = board_now() + 1000000000LL; /* sealed again when next due */
         return;
@@ -1391,15 +1391,14 @@ static uint16_t flood_wait_s(const uint8_t id[TERN_FLOOD_ID]) {
     return 0;
 }
 
-/* Why a message of this board's for that address is not yet delivered, as far as the board can
- * name it, and how many seconds it will wait, 0 if the board cannot say: `budget_s` is how long
- * the airtime budget holds it. With a route, of the region's limit and the budget, the one that
- * lets it go later (draft/airtime.md, "What a client is told"). */
-static uint8_t pending_reason(const uint8_t address[TERN_ADDRESS_LEN], uint16_t budget_s,
-                              uint16_t *wait) {
+/* Why a message of this board's for the peer in that session's slot is not yet delivered, as far
+ * as the board can name it, and how many seconds it will wait, 0 if the board cannot say:
+ * `budget_s` is how long the airtime budget holds it. With a route, of the region's limit and the
+ * budget, the one that lets it go later (draft/airtime.md, "What a client is told"). */
+static uint8_t pending_reason(int slot, uint16_t budget_s, uint16_t *wait) {
     uint32_t next;
     uint16_t metric;
-    bool routed = tern_route_next(&route, tern_route_id(address), &next, &metric);
+    bool routed = tern_route_next(&route, demo_peer_id(&demo, slot), &next, &metric);
     *wait = 0;
     if (routed && own_waits.region_s == 0 && budget_s == 0) {
         return TERN_C_WAIT_UNNAMED;
@@ -1442,8 +1441,7 @@ static void poll_forward(void) {
         }
         if (pending[i].id != 0) {
             uint16_t wait;
-            uint8_t reason =
-                pending_reason(demo.s[pending[i].slot].peer, forward_wait_s(pending[i].tag), &wait);
+            uint8_t reason = pending_reason(pending[i].slot, forward_wait_s(pending[i].tag), &wait);
             link_state(&companion, pending[i].id, TERN_C_WAITING, reason, wait);
         }
     }
@@ -1760,20 +1758,21 @@ static void poll_beacon(void) {
     }
 }
 
-/* What the router signs its announces with, and checks its neighbours' with: the node's identity
- * key, Ed25519, as the specification's "Signed" requires. */
+/* What the router signs its announces with, and checks its neighbours' with: the node's routing
+ * key, blinded from its identity key, Ed25519 all the same, as the specification's "Signed" and
+ * "Routing ids" require. */
 static void route_sign(void *ctx, const uint8_t *m, size_t len, uint8_t sig[TERN_ANNOUNCE_SIG]) {
-    tern_identity_sign(ctx, m, len, sig);
+    tern_identity_sign_blinded(ctx, TERN_EPOCH, m, len, sig);
 }
 
-/* The neighbours' addresses are checked as each is first heard, and not again while the cache
+/* The neighbours' routing keys are checked as each is first heard, and not again while the cache
  * holds it: the check is half of what an announce costs to verify. */
 static struct tern_address_cache neighbour_addresses;
 
-static bool route_verify(void *ctx, const uint8_t address[TERN_ADDRESS_LEN], const uint8_t *m,
+static bool route_verify(void *ctx, const uint8_t key[TERN_ADDRESS_LEN], const uint8_t *m,
                          size_t len, const uint8_t sig[TERN_ANNOUNCE_SIG]) {
     (void)ctx;
-    return tern_address_verify_cached(&neighbour_addresses, address, m, len, sig);
+    return tern_address_verify_cached(&neighbour_addresses, key, m, len, sig);
 }
 
 /* The band a region's radios keep to, for a frequency set by hand, at the profile's power: New
@@ -2322,7 +2321,8 @@ static bool link_trusted(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]) {
 
 static uint8_t link_why(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]) {
     uint16_t wait;
-    return link_session(ctx, address) ? pending_reason(address, 0, &wait) : TERN_C_WAIT_SESSION;
+    int slot = demo_peer(&demo, address);
+    return slot >= 0 ? pending_reason(slot, 0, &wait) : TERN_C_WAIT_SESSION;
 }
 
 static size_t link_load(void *ctx, void *buf, size_t cap) {
@@ -3310,7 +3310,7 @@ static void name_of(const uint8_t address[TERN_ADDRESS_LEN], char out[UI_NAME + 
 static void node_named(uint32_t id, const char *bare, char out[UI_NAME + 1]) {
     for (size_t i = 0; i < LINK_CONTACTS; i++) {
         const struct link_contact *k = &companion.contacts[i];
-        if (k->used && tern_route_id(k->address) == id) {
+        if (k->used && link_contact_id(&companion, i) == id) {
             name_of(k->address, out);
             return;
         }
@@ -4193,7 +4193,7 @@ void node_main(void) {
     start_info.new_address = !had_identity;
     show_start();
 
-    /* Routing: its id from the address, the last sequence number used if one was kept, and
+    /* Routing: its id from its routing key, the last sequence number used if one was kept, and
      * announces no louder than the build's power. */
 #ifdef CONFIG_TERN_RELAY
     bool relay = true;
@@ -4226,7 +4226,7 @@ void node_main(void) {
         free(d);
     }
 #endif
-    tern_route_init(&route, &rc, tern_route_id(demo.id.address), neighbours, NEIGHBOURS,
+    tern_route_init(&route, &rc, tern_route_key_id(demo.id.key), neighbours, NEIGHBOURS,
                     destinations, destinations_n, route_seq_saved, seed, board_now());
     {
         /* The first number is the one stored ahead last time, or any with none stored. Nothing is
@@ -4236,7 +4236,7 @@ void node_main(void) {
         (void)store_load(NULL, "number", &first, sizeof first);
         tern_route_numbering_from(&route, first, first);
     }
-    tern_route_auth(&route, &(struct tern_route_auth){.address = demo.id.address,
+    tern_route_auth(&route, &(struct tern_route_auth){.key = demo.id.key,
                                                       .ctx = &demo.id,
                                                       .sign = route_sign,
                                                       .verify = route_verify});

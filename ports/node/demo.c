@@ -107,6 +107,7 @@ static bool load_state(struct demo *d, int slot) {
     struct demo_state *s = &d->s[slot];
     state_key(slot, key);
     tern_wipe(s, sizeof *s);
+    d->ids[slot] = 0;
     if (d->store.load(d->store.ctx, key, rec, sizeof rec)) {
         bool ok = get_u32(rec) == RECORD_MAGIC && rec[AT_ROLE] != 0 &&
                   tern_session_unpack(&s->session, &rec[AT_SESSION]);
@@ -142,6 +143,13 @@ int demo_peer(const struct demo *d, const uint8_t address[TERN_ADDRESS_LEN]) {
         }
     }
     return -1;
+}
+
+uint32_t demo_peer_id(struct demo *d, int slot) {
+    if (d->ids[slot] == 0) {
+        d->ids[slot] = tern_route_id(d->s[slot].peer);
+    }
+    return d->ids[slot];
 }
 
 size_t demo_peers(const struct demo *d) {
@@ -272,7 +280,7 @@ enum demo_result demo_contact(struct demo *d, const uint8_t peer[TERN_ADDRESS_LE
         return DEMO_NO_RANDOM;
     }
     forget_handshake(d);
-    int err = tern_contact_start(&h->c, tern_route_id(d->id.address), peer, ephemeral, c_i, h->out,
+    int err = tern_contact_start(&h->c, tern_route_key_id(d->id.key), peer, ephemeral, c_i, h->out,
                                  sizeof h->out, &h->out_len);
     tern_wipe(ephemeral, sizeof ephemeral);
     if (err != TERN_OK) {
@@ -473,6 +481,7 @@ static enum demo_heard start_session(struct demo *d, tern_time now, const uint8_
     s->role = h->c.role;
     (void)tern_contact_finish(&h->c, &s->session, s->peer); /* erases the handshake */
     d->aged[slot] = now;                                    /* a new session's age starts now */
+    d->ids[slot] = 0;
     copy(out->peer, s->peer, TERN_ADDRESS_LEN);
 
     if (!save_state(d, slot)) {

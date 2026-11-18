@@ -4,6 +4,7 @@
 
 #include "tern/crypto.h"
 #include "tern/release.h"
+#include "tern/route.h"
 
 /* --- Frames out ----------------------------------------------------------------------------- */
 
@@ -297,6 +298,16 @@ bool link_contact(const struct link *l, const uint8_t address[TERN_ADDRESS_LEN])
         }
     }
     return false;
+}
+
+uint32_t link_contact_id(struct link *l, size_t place) {
+    if (!l->contacts[place].used) {
+        return 0;
+    }
+    if (l->contact_ids[place] == 0) {
+        l->contact_ids[place] = tern_route_id(l->contacts[place].address);
+    }
+    return l->contact_ids[place];
 }
 
 static struct link_message *find_message(struct link *l, uint32_t id) {
@@ -742,6 +753,7 @@ void link_init(struct link *l, const struct link_host *host) {
         got = 0;
     }
     memset((uint8_t *)l->contacts + got, 0, sizeof l->contacts - got);
+    memset(l->contact_ids, 0, sizeof l->contact_ids);
     struct link_group_saved kept[LINK_GROUPS] = {0};
     got = l->host.load_groups(l->host.ctx, kept, sizeof kept);
     for (size_t i = 0; got % sizeof kept[0] == 0 && i < got / sizeof kept[0]; i++) {
@@ -1119,6 +1131,7 @@ static void save_contact(struct link *l, const struct tern_companion_msg *q) {
     struct link_contact was = *c;
     *c = (struct link_contact){.used = true, .name_len = q->text_len};
     memcpy(c->address, q->address, TERN_ADDRESS_LEN);
+    l->contact_ids[c - l->contacts] = 0;
     memcpy(c->name, q->text, q->text_len);
     if (!save_contacts(l)) {
         *c = was;

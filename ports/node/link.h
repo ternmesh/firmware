@@ -368,6 +368,9 @@ struct link {
     struct link_conn *asker; /* the connection whose request is being answered */
 
     struct link_contact contacts[LINK_CONTACTS];
+    /* Each contact's routing id, by its place: 0 until link_contact_id() works it out, and again
+     * whenever the place is given another address. */
+    uint32_t contact_ids[LINK_CONTACTS];
     struct link_group groups[LINK_GROUPS];
     struct link_message messages[LINK_MESSAGES];
     uint32_t next_id;
@@ -519,6 +522,11 @@ void link_session_changed(struct link *l, const uint8_t address[TERN_ADDRESS_LEN
 /* Whether the user has saved an address as a contact: one the board takes first contact from
  * (draft/companion.md, "Who may make first contact"). */
 bool link_contact(const struct link *l, const uint8_t address[TERN_ADDRESS_LEN]);
+
+/* The routing id of the contact in that place (draft/routing.md, "Routing ids"), 0 for a place
+ * that holds none. Worked out from its address the first time, which takes two scalar
+ * multiplications, and kept. */
+uint32_t link_contact_id(struct link *l, size_t place);
 
 /* The board refused first contact from an address that proved itself, for a TERN_C_ASKED_
  * reason: news, for a client to offer to let it in. */

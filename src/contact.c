@@ -284,7 +284,7 @@ int tern_contact_respond(struct tern_contact *c, const struct tern_identity *me,
     }
     /* message_2 goes where message_1 says it came from, which must be somewhere. */
     uint32_t source = get32(frame + PREFIX);
-    if (!an_id(source) || source == tern_route_id(me->address)) {
+    if (!an_id(source) || source == tern_route_key_id(me->key)) {
         return TERN_CONTACT_NOT_OURS;
     }
     const uint8_t *m1 = frame + PREFIX_1;

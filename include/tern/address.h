@@ -9,19 +9,29 @@
  *
  * A node's identity is a 32-byte seed, from which Ed25519 (RFC 8032) makes a key pair. Its public
  * key is the node's address. The same seed gives the node an X25519 key (RFC 7748) for key
- * agreement, and anyone can compute the X25519 public key from the address. */
+ * agreement, and anyone can compute the X25519 public key from the address.
+ *
+ * Its routing key (draft/routing.md, "Routing ids") is a key blinded from the address, as Tor's v3
+ * onion services blind theirs (rend-spec-v3, appendix A.2): B = [h]A, h a hash of the address and
+ * the epoch. Announces carry B and are signed by it, so the address never goes on the air in them;
+ * anyone who knows the address can compute B. */
 
 #define TERN_ADDRESS_LEN 32
 #define TERN_SEED_LEN 32
 #define TERN_SIGNATURE_LEN 64
 
+/* The epoch routing keys are blinded for: 0, as routing ids do not change (draft/routing.md, "Not
+ * yet specified"). */
+#define TERN_EPOCH 0
+
 struct tern_identity {
     uint8_t seed[TERN_SEED_LEN];
     uint8_t address[TERN_ADDRESS_LEN];
+    uint8_t key[TERN_ADDRESS_LEN]; /* the routing key, at TERN_EPOCH */
 };
 
-/* Makes an identity from a seed, which must be 32 secret random bytes, and computes its address.
- * The seed is copied; the caller should erase its own copy. */
+/* Makes an identity from a seed, which must be 32 secret random bytes, and computes its address
+ * and routing key. The seed is copied; the caller should erase its own copy. */
 void tern_identity_init(struct tern_identity *id, const uint8_t seed[TERN_SEED_LEN]);
 
 /* Erases an identity. */
@@ -45,6 +55,22 @@ bool tern_address_x25519(uint8_t u[32], const uint8_t address[TERN_ADDRESS_LEN])
  * specification asks it to: today, a presence card (tern/card.h). */
 void tern_identity_sign(const struct tern_identity *id, const uint8_t *m, size_t len,
                         uint8_t sig[TERN_SIGNATURE_LEN]);
+
+/* The routing key of an address for an epoch: B = [h]A, with h = SHA-512("tern v0 blind" || A ||
+ * u32be(epoch)) mod L. False, writing nothing, if the address is not valid (it has no routing
+ * key), or in the 2^-252 chance that h is 0. Not constant time: an address and its key are
+ * public. Two scalar multiplications, one to check the address and one to blind it, so a caller
+ * that needs the key of the same address again keeps it. */
+bool tern_address_blind(uint8_t key[TERN_ADDRESS_LEN], const uint8_t address[TERN_ADDRESS_LEN],
+                        uint32_t epoch);
+
+/* Signs len bytes of m with the identity's routing key for the epoch: RFC 8032's signing with the
+ * blinded secret scalar b = h s mod L and the prefix SHA-512("tern v0 blind prefix" || prefix ||
+ * u32be(epoch))[0..32], so that the signature checks against the routing key as any Ed25519
+ * signature does (draft/routing.md, "Routing ids"). In constant time, as tern_identity_sign() is.
+ * For an announce (tern/route.h), and nothing else. */
+void tern_identity_sign_blinded(const struct tern_identity *id, uint32_t epoch, const uint8_t *m,
+                                size_t len, uint8_t sig[TERN_SIGNATURE_LEN]);
 
 /* Whether sig is the signature of the address's key over len bytes of m: RFC 8032, section
  * 5.1.7, with [S]B = R + [k]A checked as it stands, not multiplied by 8, and S required below L.
