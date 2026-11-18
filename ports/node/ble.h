@@ -98,6 +98,12 @@ void ble_send(const uint8_t *frame, size_t len);
  * has to leave before the board stops, as OFF's answer does. True if nothing is left waiting. */
 bool ble_flush(uint32_t ms);
 
+/* Stops Bluetooth for good, until the board restarts: drops the client connected, stops
+ * advertising, and turns the controller off. For a board turning itself off: one that waits
+ * switched on for its battery, as an nRF52840 board does, would otherwise go on advertising and
+ * accept connections that nothing answers. */
+void ble_stop(void);
+
 /* Forgets every bonded client, and drops the one connected. */
 void ble_forget(void);
 
