@@ -28,7 +28,7 @@ run on another. Everything below holds for each, unless it says otherwise.
 | Board | Name | Status | |
 |---|---|---|---|
 | Heltec WiFi LoRa 32 V3, V3.1, V3.2 | `heltec-v3` | Runs | The first board. USB through a CP2102: the port is `/dev/ttyUSB0` or similar. |
-| Heltec WiFi LoRa 32 V4 (V4.2, V4.3) | `heltec-v4` | Built, not yet run on a board | Pin for pin a V3, with an amplifier after the radio for up to 28 dBm, and USB from the ESP32-S3 itself: the port is `/dev/ttyACM0` or similar. See [the V4](#the-heltec-v4). |
+| Heltec WiFi LoRa 32 V4 (V4.2, V4.3) | `heltec-v4` | Built; started on a board, its radio heard and heard by two others | Pin for pin a V3, with an amplifier after the radio for up to 28 dBm, and USB from the ESP32-S3 itself: the port is `/dev/ttyACM0` or similar. See [the V4](#the-heltec-v4). |
 | Heltec Wireless Stick Lite V3 | `heltec-wsl-v3` | Built, not yet run on a board | A V3 without its screen. USB through a CP2102. |
 | Heltec Wireless Tracker (V1.0, V1.1) | `heltec-tracker` | Built, not yet run on a board | Runs without its colour screen for now. Its GNSS, a UC6580, gives the node its fix on the V1.1; on the V1.0, whose supply turns on the other way, it stays off. USB from the ESP32-S3 itself. |
 | Heltec Vision Master E290 | `heltec-vme290` | Built, not yet run on a board | The usual screen, twice the size, on its e-paper: redrawn soon after a press or something new, and otherwise at most once a minute (`CONFIG_TERN_EPAPER_REFRESH_S`). The button is the one marked USER, not BOOT. USB from the ESP32-S3 itself. |
@@ -61,7 +61,9 @@ about it:
   on the V4.2 and GPIO5 on the V4.3, both at once, since on each the other goes only to the header.
   One image runs on either. Do not wire anything to GPIO5 or GPIO46.
 * **Power.** Every power here, the build's, `power` and a client's, is what goes into the antenna,
-  from +4 to +28 dBm; a V4 starts at +4, the least it gives. The radio is asked for 13 dB less than
+  from +4 to +28 dBm. It sends at most +28 dBm, or what its region allows if less, as every board
+  sends at its most (`CONFIG_TERN_TX_POWER_MOST`); built without that, it starts at +4, the least it
+  gives. The radio is asked for 13 dB less than
   the power set: the most the V4.2's amplifier adds after its attenuator, by the GC1109's
   datasheet (the V4.3's KCT8103L has none published). The power at the antenna is that or less,
   never more, until someone measures it with a meter. The region's limit is checked

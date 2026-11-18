@@ -8,7 +8,7 @@ between the core and a port is [architecture.md](architecture.md); this is about
 | Board | Chip | Radio | Port | Status |
 |---|---|---|---|---|
 | Heltec WiFi LoRa 32 V3 | ESP32-S3 | SX1262 | [`ports/esp32/`](../ports/esp32/) | Runs |
-| Heltec WiFi LoRa 32 V4 (V4.2, V4.3) | ESP32-S3 | SX1262, 28 dBm amplifier | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board |
+| Heltec WiFi LoRa 32 V4 (V4.2, V4.3) | ESP32-S3 | SX1262, 28 dBm amplifier | [`ports/esp32/`](../ports/esp32/) | Built; on a board, it starts, and its radio hears two other nodes and is heard by them, links up both ways (step 1 of bringing it up) |
 | Heltec Wireless Stick Lite V3 | ESP32-S3 | SX1262 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board |
 | Heltec Wireless Tracker (V1.0, V1.1) | ESP32-S3 | SX1262 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board; no screen yet (an 80x160 TFT); the V1.1's GNSS gives the node its fix |
 | Heltec Vision Master E290 | ESP32-S3 | SX1262 | [`ports/esp32/`](../ports/esp32/) | Built, not yet run on a board; its e-paper is driven (SSD1680) |
@@ -112,7 +112,7 @@ goes a family or a radio at a time, and each one brings a crowd of boards with i
 
 | What | Brings | Needs | Status |
 |---|---|---|---|
-| ESP32-S3 + SX1262 or SX1276 | Heltec V3, V4, Wireless Stick Lite V3, Wireless Tracker, Vision Master, Wireless Paper; LilyGo T3-S3, T-Beam Supreme, T-Deck; Seeed XIAO ESP32S3 kit; B&Q Station G2; RAK3312 | A row each; colour and e-paper screens for the rest | Port exists: V3 runs; V4, Stick Lite V3, Tracker, Vision Master, Paper and the T3-S3 with an SX1276 built; the SH1106 and the E290's SSD1680 e-paper are driven |
+| ESP32-S3 + SX1262 or SX1276 | Heltec V3, V4, Wireless Stick Lite V3, Wireless Tracker, Vision Master, Wireless Paper; LilyGo T3-S3, T-Beam Supreme, T-Deck; Seeed XIAO ESP32S3 kit; B&Q Station G2; RAK3312 | A row each; colour and e-paper screens for the rest | Port exists: V3 runs; V4 started on a board; Stick Lite V3, Tracker, Vision Master, Paper and the T3-S3 with an SX1276 built; the SH1106 and the E290's SSD1680 e-paper are driven |
 | ESP32 (classic) + SX1276 | Heltec V2, V2.1, Wireless Stick; LilyGo T3 V1.6.1, LoRa32 V1.3, T-Beam to v1.2 | A row each | Port builds for it: V2, V2.1, T3 V1.6.1 and T-Beam built |
 | nRF52840 + SX1262 | Heltec T114, Mesh Pocket; RAK4631 and the WisMesh devices on it; Seeed Wio Tracker L1, XIAO nRF52840 kit; LilyGo T-Echo; Elecrow ThinkNode | An overlay each; e-paper for the T-Echo and others | Port exists: T114, RAK4631 and Wio Tracker L1 built |
 | SX1276/SX1278 driver | The boards above, and other boards of before 2022 | A driver in `src/`, beside the SX1262's | Done (`src/sx127x.c`); the SX1278's 433 MHz waits on a region for it |
