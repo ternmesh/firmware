@@ -115,7 +115,10 @@ static inline tern_time tern_airtime_bucket_wait(const struct tern_airtime_bucke
 #define TERN_AIRTIME_HDR_REQUEST 0x5A
 #define TERN_AIRTIME_HDR_SOLICIT 0x5B
 #define TERN_AIRTIME_HDR_ANSWER 0x5C
-#define TERN_AIRTIME_HDR_GROUP 0x60 /* TERN_HDR_GROUP, _GROUP_NODE and _CARD, tern/flood.h */
+#define TERN_AIRTIME_HDR_POLL 0x5D        /* TERN_HDR_POLL, tern/route.h: routing's */
+#define TERN_AIRTIME_HDR_POLL_ANSWER 0x5E /* TERN_HDR_POLL_ANSWER: as an acknowledgement */
+#define TERN_AIRTIME_HDR_HELD 0x55        /* TERN_HDR_HELD, tern/forward.h: as one too */
+#define TERN_AIRTIME_HDR_GROUP 0x60       /* TERN_HDR_GROUP, _GROUP_NODE and _CARD, tern/flood.h */
 #define TERN_AIRTIME_HDR_GROUP_NODE 0x61
 #define TERN_AIRTIME_HDR_CARD 0x68
 
@@ -126,11 +129,15 @@ enum tern_airtime_part {
 };
 
 /* The part that pays for a frame with this hdr, the node's own or passed on. Every frame but the
- * router's (an announce, request, solicit or answer) is paid for here: a message, an
- * acknowledgement, a first-contact frame or a flood, and anything else a node might send. */
+ * router's (an announce, request, solicit, answer or a sleeping leaf's poll) is paid for here: a
+ * message, an acknowledgement, a first-contact frame, a flood, a keeper's answer to a poll and its
+ * held notice, and anything else a node might send. Those last two are a keeper's own. */
 static inline enum tern_airtime_part tern_airtime_part(uint8_t hdr, bool own) {
-    if (hdr >= TERN_AIRTIME_HDR_ANNOUNCE && hdr <= TERN_AIRTIME_HDR_ANSWER) {
+    if (hdr >= TERN_AIRTIME_HDR_ANNOUNCE && hdr <= TERN_AIRTIME_HDR_POLL) {
         return TERN_AIRTIME_ROUTING;
+    }
+    if (hdr == TERN_AIRTIME_HDR_POLL_ANSWER || hdr == TERN_AIRTIME_HDR_HELD) {
+        return TERN_AIRTIME_OWN;
     }
     return own ? TERN_AIRTIME_OWN : TERN_AIRTIME_RELAYED;
 }
@@ -155,7 +162,8 @@ static inline enum tern_airtime_unpaid tern_airtime_unpaid(uint8_t hdr, bool own
     if (tern_airtime_part(hdr, own) == TERN_AIRTIME_ROUTING) {
         return TERN_AIRTIME_ROUTES;
     }
-    if (hdr == TERN_AIRTIME_HDR_ACK) {
+    if (hdr == TERN_AIRTIME_HDR_ACK || hdr == TERN_AIRTIME_HDR_POLL_ANSWER ||
+        hdr == TERN_AIRTIME_HDR_HELD) {
         return TERN_AIRTIME_SENT;
     }
     return own ? TERN_AIRTIME_WAITS : TERN_AIRTIME_DROPPED;

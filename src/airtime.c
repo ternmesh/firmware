@@ -8,6 +8,10 @@
 #define WAIT_MAX 0xFFFF
 
 _Static_assert(TERN_AIRTIME_HDR_ACK == TERN_HDR_ACK, "an acknowledgement's hdr");
+_Static_assert(TERN_AIRTIME_HDR_POLL == TERN_HDR_POLL &&
+                   TERN_AIRTIME_HDR_POLL_ANSWER == TERN_HDR_POLL_ANSWER &&
+                   TERN_AIRTIME_HDR_HELD == TERN_HDR_HELD,
+               "the hdrs of leaves that sleep");
 _Static_assert(TERN_AIRTIME_HDR_ANNOUNCE == TERN_HDR_ANNOUNCE &&
                    TERN_AIRTIME_HDR_REQUEST == TERN_HDR_REQUEST &&
                    TERN_AIRTIME_HDR_SOLICIT == TERN_HDR_SOLICIT &&

@@ -43,18 +43,23 @@
 #define TERN_HDR_ACK 0x50       /* its destination's acknowledgement */
 #define TERN_HDR_CONTACT_1 0x51 /* first contact's four frames, from message_1's */
 #define TERN_HDR_CONTACT_4 0x54
+#define TERN_HDR_HELD 0x55 /* a keeper's held notice (tern/sleep.h) */
 
 #define TERN_FORWARD_HEAD 11 /* hdr, hops, power, next hop and destination */
 #define TERN_FORWARD_TAG 4   /* what tells one frame from another, after the head */
 #define TERN_FORWARD_MIN (TERN_FORWARD_HEAD + TERN_FORWARD_TAG)
 #define TERN_FORWARD_FRAME_MAX 255
 #define TERN_ACK_LEN (TERN_FORWARD_MIN + 4)
+#define TERN_HELD_LEN TERN_FORWARD_MIN /* a held notice: the head and the tag, nothing after */
 #define TERN_MESSAGE_MIN (TERN_FORWARD_MIN + 8) /* an empty message: its tag and its check */
 /* A first-contact frame: the handshake's message, and for the first the routing id it came from. */
 #define TERN_CONTACT_LEN(hdr)                                                                      \
     ((hdr) == 0x51 ? 56u : (hdr) == 0x52 ? 60u : (hdr) == 0x53 ? 80u : 24u)
 #define TERN_FORWARD_SLOTS_MAX 255
 #define TERN_FORWARD_SALVAGE_MAX 4
+#define TERN_FORWARD_NOTICE 0xFF /* the handle of a frame no slot holds: a held notice */
+#define TERN_FORWARD_NOTICES 2   /* held notices waiting to go */
+#define TERN_FORWARD_WAKES 4     /* destinations a source knows sleep */
 
 /* Whether a frame is one of this layer's, by its first byte. */
 static inline bool tern_forward_contact(uint8_t hdr) {
@@ -68,7 +73,7 @@ static inline bool tern_forward_message(uint8_t hdr) {
 
 static inline bool tern_forward_frame(const uint8_t *frame, size_t len) {
     return len > 0 && (tern_forward_message(frame[0]) || frame[0] == TERN_HDR_ACK ||
-                       tern_forward_contact(frame[0]));
+                       tern_forward_contact(frame[0]) || frame[0] == TERN_HDR_HELD);
 }
 
 struct tern_forward_head {
@@ -84,6 +89,11 @@ void tern_forward_head_write(const struct tern_forward_head *h, uint8_t *frame);
 
 /* Reads one. False for a frame the specification says to discard. */
 bool tern_forward_head_read(struct tern_forward_head *h, const uint8_t *frame, size_t len);
+
+/* A held notice (the specification's "Leaves that sleep"): `next`, `destination` and `tag` as its
+ * frame has them. Writes TERN_HELD_LEN bytes. tern_forward_head_read() reads its head. */
+size_t tern_forward_held_write(int8_t power, uint32_t next, uint32_t destination,
+                               const uint8_t tag[TERN_FORWARD_TAG], uint8_t frame[TERN_HELD_LEN]);
 
 /* --- Rules, each as the specification states it, checked against its vectors. --- */
 
@@ -152,6 +162,21 @@ struct tern_forward_slot {
     uint32_t gone[TERN_FORWARD_SALVAGE_MAX];
     tern_time at;
     tern_time deadline; /* when its acknowledgement is given up on, or -1 */
+    /* A frame a keeper held for a sleeping leaf and is handing over: the leaf, and the second it
+     * was first held (tern_time / 1 s, kept to 32 bits). 0 for any other frame. */
+    uint32_t kept_for;
+    uint32_t held_s;
+    uint8_t frame[TERN_FORWARD_FRAME_MAX];
+};
+
+/* A frame a keeper holds for a sleeping leaf. The caller allocates these
+ * (tern_forward_keeper()); their fields are the forwarder's. */
+struct tern_forward_kept {
+    uint32_t leaf;  /* 0 for a free one */
+    uint32_t order; /* when it came, against the others */
+    tern_time at;   /* when it was first held */
+    uint8_t hops;   /* as it goes to the leaf */
+    uint8_t len;
     uint8_t frame[TERN_FORWARD_FRAME_MAX];
 };
 
@@ -164,6 +189,10 @@ struct tern_forward_counts {
     uint32_t given_up;   /* hops given up on */
     uint32_t salvaged;   /* of them, tried another way */
     uint32_t unpaid;     /* frames passed on that the budget could not pay for, and dropped */
+    uint32_t held;       /* frames held for a sleeping leaf */
+    uint32_t held_full;  /* and those there was no room to hold */
+    uint32_t held_late;  /* held frames dropped, held longer than HOLD_FOR */
+    uint32_t handed;     /* held frames handed over */
 };
 
 struct tern_forward {
@@ -174,6 +203,22 @@ struct tern_forward {
     uint64_t rng;
     struct tern_airtime *budget; /* or NULL, for none */
     struct tern_forward_counts counts;
+    /* A keeper's: what it holds for its sleeping leaves (tern_forward_keeper()), and the held
+     * notices waiting to go. */
+    struct tern_forward_kept *kept;
+    size_t kept_cap;
+    uint32_t kept_order;
+    struct tern_forward_notice {
+        int8_t power;
+        uint8_t frame[TERN_HELD_LEN];
+    } notices[TERN_FORWARD_NOTICES];
+    size_t notice_count;
+    /* A source's: the destinations it has been told sleep, and their wakes (tern_forward_wake()).
+     */
+    struct tern_forward_wake {
+        uint32_t destination;
+        uint16_t wake;
+    } wakes[TERN_FORWARD_WAKES];
 };
 
 /* Starts a forwarder over a router. `seed` is for jitter and need not be secret. The slots need
@@ -188,6 +233,24 @@ void tern_forward_init(struct tern_forward *f, const struct tern_forward_config 
  * on that the budget will not pay for is dropped, as a frame not passed on is. Each is charged to
  * the budget as tern_forward_poll() hands it over, and given back by tern_forward_withdrawn(). */
 void tern_forward_budget(struct tern_forward *f, struct tern_airtime *budget);
+
+/* Has a relay keep sleeping leaves (the specification's "Leaves that sleep"): frames for a leaf
+ * that names it its keeper are held in these while it sleeps, at most `cap` of them for every
+ * leaf together, and handed over once it polls; the node before is answered with a held notice.
+ * The specification asks for room for at least TERN_SLEEP_HOLD_LEAF frames for each leaf kept.
+ * Without it, as it starts, a relay holds nothing: frames for a sleeping leaf go to it as to any,
+ * and are lost while it sleeps. */
+void tern_forward_keeper(struct tern_forward *f, struct tern_forward_kept *store, size_t cap);
+
+/* A source is told, by the destination's sleep content (tern/sleep.h), how long it sleeps: its
+ * messages to it are waited for that much longer. 0 for a destination that no longer sleeps. */
+void tern_forward_wake(struct tern_forward *f, uint32_t destination, uint16_t wake);
+
+/* For a leaf that sleeps (tern_route_sleeping()): whether its radio may be off now, nothing being
+ * listened for, and if so the time it must next be on, written to wake_at. False for a node that
+ * does not sleep, and while it listens: after a poll, for a hop of its own, or while it has a
+ * frame handed over to the radio not yet sent. */
+bool tern_forward_may_sleep(const struct tern_forward *f, tern_time now, tern_time *wake_at);
 
 /* Sends a frame of this node's to `destination`. `frame` is whole but for its head, of which only
  * hdr is read: the rest is filled in here. `tracked` is for a message, or a first-contact frame

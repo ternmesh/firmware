@@ -1,0 +1,439 @@
+#include <string.h>
+
+#include "check.h"
+#include "tern/address.h"
+#include "tern/crypto.h"
+#include "tern/forward.h"
+#include "tern/region.h"
+#include "tern/route.h"
+#include "tern/sleep.h"
+
+/* Leaves that sleep (draft/sleeping.md): the specification's vectors, and a few nodes on a channel
+ * that takes no time, where a leaf whose forwarder says it may sleep hears nothing. */
+
+struct poll_case {
+    struct tern_poll fields;
+    uint8_t frame[TERN_POLL_LEN];
+};
+struct answer_case {
+    struct tern_poll_answer fields;
+    uint8_t frame[TERN_POLL_ANSWER_LEN];
+};
+struct held_case {
+    int8_t power;
+    uint32_t next, destination, tag;
+    uint8_t frame[TERN_HELD_LEN];
+};
+struct rejected_case {
+    const char *why;
+    uint8_t frame[32];
+    size_t len;
+};
+struct announce_case {
+    struct tern_announce fields;
+    uint8_t seed[32];
+    bool taken;
+    size_t len;
+    uint8_t frame[TERN_ROUTE_FRAME_MAX];
+};
+struct sleep_case {
+    bool has_wake;
+    uint16_t wake;
+    uint8_t content[8];
+    size_t len;
+    bool valid;
+};
+struct holds_case {
+    int64_t at_ms;
+    uint8_t listen;
+    bool holds;
+};
+struct hold_for_case {
+    uint16_t wake;
+    int64_t hold_for;
+};
+struct wait_case {
+    uint16_t metric, wake;
+    int64_t wait_ms;
+};
+
+#include "sleeping.h"
+
+#define COUNT(a) (sizeof(a) / sizeof(a)[0])
+
+static void parameters_are_the_specifications(void) {
+    CHECK_EQ_I64(TERN_SLEEP_WAKE_MIN_S, V_WAKE_MIN);
+    CHECK_EQ_I64(TERN_SLEEP_WAKE_MAX_S, V_WAKE_MAX);
+    CHECK_EQ_I64(TERN_SLEEP_LISTEN_MIN_S, V_LISTEN_MIN);
+    CHECK_EQ_I64(TERN_SLEEP_HOLD_EXTRA_S, V_HOLD_EXTRA);
+}
+
+static void polls_and_answers_are_written_and_read(void) {
+    for (size_t i = 0; i < COUNT(polls); i++) {
+        const struct poll_case *c = &polls[i];
+        uint8_t frame[TERN_POLL_LEN];
+        struct tern_poll q;
+        CHECK_EQ_I64(tern_poll_write(&c->fields, frame), TERN_POLL_LEN);
+        CHECK(memcmp(frame, c->frame, TERN_POLL_LEN) == 0);
+        CHECK(tern_route_frame(c->frame, TERN_POLL_LEN));
+        CHECK(tern_poll_read(&q, c->frame, TERN_POLL_LEN));
+        CHECK(q.sender == c->fields.sender && q.keeper == c->fields.keeper &&
+              q.id == c->fields.id && q.wake == c->fields.wake && q.listen == c->fields.listen &&
+              q.power == c->fields.power);
+    }
+    for (size_t i = 0; i < COUNT(answers); i++) {
+        const struct answer_case *c = &answers[i];
+        uint8_t frame[TERN_POLL_ANSWER_LEN];
+        struct tern_poll_answer a;
+        CHECK_EQ_I64(tern_poll_answer_write(&c->fields, frame), TERN_POLL_ANSWER_LEN);
+        CHECK(memcmp(frame, c->frame, TERN_POLL_ANSWER_LEN) == 0);
+        CHECK(tern_route_frame(c->frame, TERN_POLL_ANSWER_LEN));
+        CHECK(tern_poll_answer_read(&a, c->frame, TERN_POLL_ANSWER_LEN));
+        CHECK(a.sender == c->fields.sender && a.leaf == c->fields.leaf && a.id == c->fields.id &&
+              a.margin == c->fields.margin && a.held == c->fields.held &&
+              a.power == c->fields.power);
+    }
+}
+
+static void held_notices_are_written_and_read(void) {
+    for (size_t i = 0; i < COUNT(helds); i++) {
+        const struct held_case *c = &helds[i];
+        uint8_t frame[TERN_HELD_LEN], tag[4] = {(uint8_t)(c->tag >> 24), (uint8_t)(c->tag >> 16),
+                                                (uint8_t)(c->tag >> 8), (uint8_t)c->tag};
+        struct tern_forward_head h;
+        CHECK_EQ_I64(tern_forward_held_write(c->power, c->next, c->destination, tag, frame),
+                     TERN_HELD_LEN);
+        CHECK(memcmp(frame, c->frame, TERN_HELD_LEN) == 0);
+        CHECK(tern_forward_frame(c->frame, TERN_HELD_LEN) && !tern_route_frame(c->frame, 1));
+        CHECK(tern_forward_head_read(&h, c->frame, TERN_HELD_LEN));
+        CHECK(h.hdr == TERN_HDR_HELD && h.hops == 0 && h.power == c->power && h.next == c->next &&
+              h.destination == c->destination);
+        CHECK(!tern_forward_listens(c->frame, TERN_HELD_LEN)); /* sent once */
+    }
+}
+
+static void frames_the_specification_rejects_are_discarded(void) {
+    for (size_t i = 0; i < COUNT(rejected); i++) {
+        const struct rejected_case *c = &rejected[i];
+        struct tern_poll q;
+        struct tern_poll_answer a;
+        struct tern_forward_head h;
+        bool read = tern_poll_read(&q, c->frame, c->len) ||
+                    tern_poll_answer_read(&a, c->frame, c->len) ||
+                    (c->frame[0] == TERN_HDR_HELD && tern_forward_head_read(&h, c->frame, c->len));
+        if (read) {
+            fprintf(stderr, "read %s\n", c->why);
+            check_failures++;
+        }
+    }
+}
+
+static void announces_say_their_keeper(void) {
+    for (size_t i = 0; i < COUNT(announces); i++) {
+        const struct announce_case *c = &announces[i];
+        uint8_t frame[255], m[TERN_ANNOUNCE_LABEL_LEN + TERN_ROUTE_FRAME_MAX];
+        struct tern_announce in = c->fields, a;
+        struct tern_identity id;
+        tern_identity_init(&id, c->seed);
+        memcpy(in.key, id.key, 32);
+        CHECK_EQ_I64(tern_announce_write(&in, frame), c->len);
+        tern_identity_sign_blinded(&id, TERN_EPOCH, m, tern_announce_signed(frame, c->len, m),
+                                   frame + c->len - TERN_ANNOUNCE_SIG);
+        CHECK(memcmp(frame, c->frame, c->len) == 0);
+        bool read = tern_announce_read(&a, c->frame, c->len);
+        bool checks =
+            read && tern_route_key_id(a.key) == a.sender && tern_address_valid(a.key) &&
+            tern_address_verify(a.key, m, tern_announce_signed(c->frame, c->len, m), a.sig) &&
+            a.sender != V_OTHER;
+        CHECK(checks == c->taken);
+        if (read) {
+            CHECK(a.sleeps == c->fields.sleeps && a.keeper == c->fields.keeper);
+            CHECK(a.named_count == c->fields.named_count && a.seq == c->fields.seq);
+        }
+        tern_identity_wipe(&id);
+    }
+}
+
+static void sleep_content_is_written_and_read(void) {
+    for (size_t i = 0; i < COUNT(sleeps); i++) {
+        const struct sleep_case *c = &sleeps[i];
+        uint16_t wake = 0xBEEF;
+        if (c->has_wake) {
+            uint8_t out[TERN_SLEEP_CONTENT_LEN];
+            CHECK_EQ_I64(tern_sleep_content_write(c->wake, out), TERN_SLEEP_CONTENT_LEN);
+            CHECK(memcmp(out, c->content, TERN_SLEEP_CONTENT_LEN) == 0);
+        }
+        CHECK(tern_sleep_content_read(c->content, c->len, &wake) == c->valid);
+        CHECK(!c->valid || wake == c->wake);
+    }
+}
+
+static void keepers_and_sources_reckon_time_as_the_specification_does(void) {
+    for (size_t i = 0; i < COUNT(holds); i++) {
+        CHECK(tern_sleep_holds(TERN_MS(holds[i].at_ms), holds[i].listen) == holds[i].holds);
+    }
+    for (size_t i = 0; i < COUNT(hold_fors); i++) {
+        CHECK_EQ_I64(tern_sleep_hold_for(hold_fors[i].wake), TERN_S(hold_fors[i].hold_for));
+    }
+    for (size_t i = 0; i < COUNT(waits); i++) {
+        CHECK_EQ_I64(tern_sleep_source_wait(TERN_MS(V_ACK_WAIT_MS), V_ACK_FACTOR, waits[i].metric,
+                                            waits[i].wake),
+                     TERN_MS(waits[i].wait_ms));
+    }
+}
+
+/* --- A few nodes --- */
+
+#define NODES 4
+#define NB 8
+#define DESTS 8
+#define SLOTS 4
+#define KEPT 16
+#define NONE INT16_MIN
+#define FULL 22
+#define SNR_FLOOR_Q (-50)
+#define BODY 24
+#define WAKE 300
+
+/* 0, a relay, sends; 1 and 3 are relays; 2 is a leaf that sleeps, nearer 1 than 3. */
+enum { SRC = 0, KEEPER = 1, LEAF = 2, OTHER = 3 };
+
+struct node {
+    struct tern_route r;
+    struct tern_forward f;
+    struct tern_route_neighbour nb[NB];
+    struct tern_route_dest dest[DESTS];
+    struct tern_forward_slot slot[SLOTS];
+    struct tern_forward_kept kept[KEPT];
+    int got, acked, failed;
+};
+
+static struct {
+    struct node node[NODES];
+    int16_t snr[NODES][NODES];
+    struct tern_lora lora;
+    tern_time now;
+    tern_time awake; /* the leaf's time with its radio on */
+} net;
+
+static uint32_t id_of(int i) { return 0x2000u + (uint32_t)i; }
+
+static bool off(int k) {
+    tern_time wake;
+    return tern_forward_may_sleep(&net.node[k].f, net.now, &wake);
+}
+
+static void on_air(int from, const uint8_t *frame, size_t len, int8_t dbm) {
+    for (int k = 0; k < NODES; k++) {
+        struct node *y = &net.node[k];
+        int snr = net.snr[from][k] == NONE ? NONE : net.snr[from][k] + 4 * (dbm - FULL);
+        if (k == from || snr == NONE || snr < SNR_FLOOR_Q || off(k)) {
+            continue;
+        }
+        if (tern_route_frame(frame, len)) {
+            tern_route_heard(&y->r, net.now, frame, len, (int16_t)snr);
+        } else {
+            struct tern_forward_heard got;
+            tern_forward_heard(&y->f, net.now, frame, len, (int16_t)snr, &got);
+            if (got.got == TERN_FORWARD_MESSAGE) {
+                uint8_t ack[TERN_ACK_LEN] = {TERN_HDR_ACK};
+                int who = frame[TERN_FORWARD_HEAD + TERN_FORWARD_TAG];
+                y->got++;
+                memcpy(ack + TERN_FORWARD_HEAD, frame + TERN_FORWARD_HEAD, TERN_FORWARD_TAG);
+                tern_forward_send(&y->f, net.now, id_of(who), ack, sizeof ack, false, got.back);
+            } else if (got.got == TERN_FORWARD_ACK) {
+                y->acked += tern_forward_acked(&y->f, frame + TERN_FORWARD_HEAD);
+            }
+        }
+    }
+}
+
+static void run(tern_time until) {
+    for (;;) {
+        tern_time t = until + 1;
+        for (int i = 0; i < NODES; i++) {
+            const struct node *x = &net.node[i];
+            tern_time due = tern_route_due(&x->r);
+            due = tern_forward_due(&x->f) < due ? tern_forward_due(&x->f) : due;
+            t = due < t ? due : t;
+        }
+        /* The leaf's radio, at least once a second, to see how long it is on. */
+        t = net.now + TERN_S(1) < t ? net.now + TERN_S(1) : t;
+        if (t > until) {
+            break;
+        }
+        if (!off(LEAF)) {
+            net.awake += (t > net.now ? t : net.now) - net.now;
+        }
+        net.now = t > net.now ? t : net.now;
+        for (int i = 0; i < NODES; i++) {
+            struct node *x = &net.node[i];
+            uint8_t frame[TERN_ROUTE_FRAME_MAX], tag[TERN_FORWARD_TAG], handle;
+            enum tern_forward_kind kind;
+            int8_t dbm = 0;
+            size_t len;
+            while (tern_route_due(&x->r) <= net.now &&
+                   (len = tern_route_poll(&x->r, net.now, frame, &dbm)) != 0) {
+                tern_route_sent(&x->r, net.now);
+                on_air(i, frame, len, dbm);
+            }
+            while ((len = tern_forward_poll(&x->f, net.now, frame, &dbm, &kind, &handle)) != 0) {
+                tern_forward_sent(&x->f, net.now, handle);
+                on_air(i, frame, len, dbm);
+            }
+            while (tern_forward_failed(&x->f, tag)) {
+                x->failed++;
+            }
+        }
+    }
+    net.now = until;
+}
+
+static void link(int a, int b, int16_t snr) { net.snr[a][b] = net.snr[b][a] = snr; }
+
+static void net_init(void) {
+    memset(&net, 0, sizeof net);
+    net.lora = tern_region_lora(tern_region(TERN_REGION_US915));
+    for (int a = 0; a < NODES; a++) {
+        struct node *x = &net.node[a];
+        struct tern_forward_config fc = tern_forward_defaults();
+        struct tern_route_config c = tern_route_defaults(&net.lora, FULL, -9, a != LEAF);
+        if (a == LEAF) {
+            c.sleep_wake = WAKE;
+            c.sleep_listen_s = 2;
+        }
+        tern_route_init(&x->r, &c, id_of(a), x->nb, NB, x->dest, DESTS, 0,
+                        0x9E3779B97F4A7C15ULL * (uint64_t)(a + 1), 0);
+        tern_forward_init(&x->f, &fc, &x->r, x->slot, SLOTS, (uint64_t)(a + 7));
+        if (a != LEAF) {
+            tern_forward_keeper(&x->f, x->kept, KEPT);
+        }
+        for (int b = 0; b < NODES; b++) {
+            net.snr[a][b] = NONE;
+        }
+    }
+    link(SRC, KEEPER, 40);
+    link(SRC, OTHER, 40);
+    link(KEEPER, OTHER, 40);
+    link(KEEPER, LEAF, 60);
+    link(OTHER, LEAF, 20);
+    run(TERN_S(1800));
+}
+
+static void message(int from, int to, uint8_t tag) {
+    uint8_t frame[TERN_FORWARD_HEAD + BODY] = {TERN_HDR_MESSAGE};
+    memset(frame + TERN_FORWARD_HEAD, tag, TERN_FORWARD_TAG);
+    frame[TERN_FORWARD_HEAD + TERN_FORWARD_TAG] = (uint8_t)from;
+    CHECK(tern_forward_send(&net.node[from].f, net.now, id_of(to), frame, sizeof frame, true,
+                            INT8_MIN));
+}
+
+/* Once started, the leaf sleeps with the relay it hears best as its keeper; and the other relay,
+ * which hears it too, reaches it through the keeper, never directly. */
+static void a_leaf_sleeps_and_only_its_keeper_uses_it(void) {
+    uint32_t keeper = 0, next = 0;
+    uint16_t metric;
+    net_init();
+    CHECK(tern_route_sleeping(&net.node[LEAF].r, &keeper));
+    CHECK(keeper == id_of(KEEPER));
+    CHECK(tern_route_next(&net.node[OTHER].r, id_of(LEAF), &next, &metric));
+    CHECK(next == id_of(KEEPER));
+    CHECK(tern_route_next(&net.node[KEEPER].r, id_of(LEAF), &next, &metric));
+    CHECK(next == id_of(LEAF));
+}
+
+/* A message for the leaf is held by its keeper while it sleeps, the node before told so, and
+ * handed over when it polls; its acknowledgement reaches the source, which knew to wait. */
+static void a_message_waits_for_its_leaf(void) {
+    net_init();
+    tern_forward_wake(&net.node[SRC].f, id_of(LEAF), WAKE);
+    net.awake = 0;
+    tern_time from = net.now;
+    message(SRC, LEAF, 0xA1);
+    run(net.now + TERN_S(20));
+    CHECK_EQ_I64(net.node[KEEPER].f.counts.held, 1);
+    CHECK_EQ_I64(net.node[LEAF].got, 0);
+    CHECK_EQ_I64(net.node[SRC].f.counts.given_up, 0); /* the held notice ended its hop */
+    run(net.now + TERN_S(WAKE + 30));
+    CHECK_EQ_I64(net.node[LEAF].got, 1);
+    CHECK_EQ_I64(net.node[KEEPER].f.counts.handed, 1);
+    CHECK_EQ_I64(net.node[SRC].acked, 1);
+    CHECK_EQ_I64(net.node[SRC].failed, 0);
+    /* Asleep nearly all the time. */
+    CHECK(net.awake * 100 < (net.now - from) * 5);
+}
+
+/* An hour asleep, with nothing for it, the leaf's radio is on a few percent of the time. */
+static void a_leaf_with_nothing_for_it_is_nearly_always_off(void) {
+    net_init();
+    net.awake = 0;
+    tern_time from = net.now;
+    run(net.now + TERN_S(3600));
+    CHECK(tern_route_sleeping(&net.node[LEAF].r, NULL));
+    CHECK(net.awake * 100 < (net.now - from) * 3);
+}
+
+/* A keeper that goes is given up after POLL_TRIES polls unanswered, and the leaf sleeps again with
+ * the other relay, to which a message then goes. */
+static void a_leaf_whose_keeper_goes_takes_another(void) {
+    uint32_t keeper = 0;
+    net_init();
+    link(KEEPER, LEAF, NONE);
+    link(KEEPER, SRC, NONE);
+    link(KEEPER, OTHER, NONE);
+    run(net.now + TERN_S(1800));
+    CHECK(tern_route_sleeping(&net.node[LEAF].r, &keeper));
+    CHECK(keeper == id_of(OTHER));
+    tern_forward_wake(&net.node[SRC].f, id_of(LEAF), WAKE);
+    message(SRC, LEAF, 0xB2);
+    run(net.now + TERN_S(2 * WAKE));
+    CHECK_EQ_I64(net.node[LEAF].got, 1);
+    CHECK_EQ_I64(net.node[SRC].acked, 1);
+}
+
+/* A frame held longer than HOLD_FOR is dropped. */
+static void a_frame_held_too_long_is_dropped(void) {
+    net_init();
+    message(SRC, LEAF, 0xC3);
+    run(net.now + TERN_S(5));
+    link(KEEPER, LEAF, NONE); /* the leaf goes, and never polls again */
+    link(OTHER, LEAF, NONE);
+    run(net.now + TERN_S(2 * WAKE + 120));
+    CHECK_EQ_I64(net.node[KEEPER].f.counts.held, 1);
+    CHECK_EQ_I64(net.node[KEEPER].f.counts.held_late, 1);
+    CHECK_EQ_I64(net.node[LEAF].got, 0);
+}
+
+/* A leaf that does not sleep is a leaf as before: never off. */
+static void a_leaf_that_does_not_sleep_never_may(void) {
+    struct tern_route r;
+    struct tern_forward f;
+    struct tern_route_neighbour nb[2];
+    struct tern_route_dest dest[2];
+    struct tern_forward_slot slot[2];
+    struct tern_lora lora = tern_region_lora(tern_region(TERN_REGION_US915));
+    struct tern_route_config c = tern_route_defaults(&lora, FULL, -9, false);
+    struct tern_forward_config fc = tern_forward_defaults();
+    tern_time wake;
+    tern_route_init(&r, &c, 7, nb, 2, dest, 2, 0, 1, 0);
+    tern_forward_init(&f, &fc, &r, slot, 2, 1);
+    CHECK(!tern_forward_may_sleep(&f, TERN_S(5000), &wake));
+    CHECK(tern_route_listen_until(&r) == INT64_MAX);
+}
+
+int main(void) {
+    RUN(parameters_are_the_specifications);
+    RUN(polls_and_answers_are_written_and_read);
+    RUN(held_notices_are_written_and_read);
+    RUN(frames_the_specification_rejects_are_discarded);
+    RUN(announces_say_their_keeper);
+    RUN(sleep_content_is_written_and_read);
+    RUN(keepers_and_sources_reckon_time_as_the_specification_does);
+    RUN(a_leaf_that_does_not_sleep_never_may);
+    RUN(a_leaf_sleeps_and_only_its_keeper_uses_it);
+    RUN(a_message_waits_for_its_leaf);
+    RUN(a_leaf_with_nothing_for_it_is_nearly_always_off);
+    RUN(a_leaf_whose_keeper_goes_takes_another);
+    RUN(a_frame_held_too_long_is_dropped);
+    return CHECK_DONE();
+}
