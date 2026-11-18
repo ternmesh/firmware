@@ -28,7 +28,7 @@ run on another. Everything below holds for each, unless it says otherwise.
 | Board | Name | Status | |
 |---|---|---|---|
 | Heltec WiFi LoRa 32 V3, V3.1, V3.2 | `heltec-v3` | Runs | The first board. USB through a CP2102: the port is `/dev/ttyUSB0` or similar. |
-| Heltec WiFi LoRa 32 V4 (V4.2, V4.3) | `heltec-v4` | Built, not yet run on a board | Pin for pin a V3, with an amplifier after the radio for up to 28 dBm, and USB from the ESP32-S3 itself: the port is `/dev/ttyACM0` or similar. See [the V4](#the-heltec-v4). |
+| Heltec WiFi LoRa 32 V4 (V4.2, V4.3) | `heltec-v4` | Built; started on a board, its radio heard and heard by two others | Pin for pin a V3, with an amplifier after the radio for up to 28 dBm, and USB from the ESP32-S3 itself: the port is `/dev/ttyACM0` or similar. See [the V4](#the-heltec-v4). |
 | Heltec Wireless Stick Lite V3 | `heltec-wsl-v3` | Built, not yet run on a board | A V3 without its screen. USB through a CP2102. |
 | Heltec Wireless Tracker (V1.0, V1.1) | `heltec-tracker` | Built, not yet run on a board | Runs without its colour screen for now. Its GNSS, a UC6580, gives the node its fix on the V1.1; on the V1.0, whose supply turns on the other way, it stays off. USB from the ESP32-S3 itself. |
 | Heltec Vision Master E290 | `heltec-vme290` | Built, not yet run on a board | The usual screen, twice the size, on its e-paper: redrawn soon after a press or something new, and otherwise at most once a minute (`CONFIG_TERN_EPAPER_REFRESH_S`). The button is the one marked USER, not BOOT. USB from the ESP32-S3 itself. |
