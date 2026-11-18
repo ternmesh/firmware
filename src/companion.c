@@ -73,7 +73,7 @@ enum field {
     DATA,      /* up to TERN_COMPANION_UPDATE_CHUNK bytes of anything, into data */
     CARD_NAME, /* a string of up to TERN_COMPANION_NAME_MAX, into card_name */
     LINK,      /* a string of up to TERN_COMPANION_LINK_MAX, into text */
-    SIGNATURE, /* up to TERN_COMPANION_SIGNATURE bytes of anything, into signature */
+    SIGNATURE, /* up to TERN_COMPANION_SIGNATURE bytes of anything, into data */
 };
 
 struct layout {
@@ -396,14 +396,12 @@ static uint8_t *variable_of(struct tern_companion_msg *m, enum field f, uint8_t 
         *len = &m->release_len;
         return m->release;
     case DATA:
+    case SIGNATURE: /* UPDATE_BEGIN's, which has no data */
         *len = &m->data_len;
         return m->data;
     case CARD_NAME:
         *len = &m->card_name_len;
         return m->card_name;
-    case SIGNATURE:
-        *len = &m->signature_len;
-        return m->signature;
     default:
         *len = &m->text_len;
         return m->text;

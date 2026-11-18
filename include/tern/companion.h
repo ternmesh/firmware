@@ -196,7 +196,8 @@ enum tern_companion_source {
  * (text, name, firmware, region, link, or SET's region or card name) is `text`; the one address
  * (to, address, contact) is `address`; and `wait` is MESSAGE's and STATE's u16 or AIRTIME's u32, as
  * `heard` is NEIGHBOUR's u16 or CARD's u32. INFO's board and release, SELF's card_name, and
- * UPDATE_DATA's data and UPDATE_BEGIN's signature (version 13), have members of their own. A
+ * UPDATE_DATA's data, have members of their own; UPDATE_BEGIN's signature (version 13) is `data`
+ * too, which that request has no other use for, so that no message is the bigger for it. A
  * position's `accuracy` and `age` are one member each, though SET_POSITION's are wider than the
  * news'. SET's value is `text`, `role`, `power`, `passkey`, `cards` or `receiver` as `setting`
  * says. Members a type does not use are ignored when writing and left as they were when reading. */
@@ -228,10 +229,9 @@ struct tern_companion_msg {
     uint8_t release[TERN_COMPANION_RELEASE_MAX];
     uint8_t card_name_len; /* SELF's */
     uint8_t card_name[TERN_COMPANION_NAME_MAX];
-    uint8_t data_len; /* UPDATE_DATA's */
+    /* UPDATE_DATA's data, or UPDATE_BEGIN's signature: none, or TERN_COMPANION_SIGNATURE bytes */
+    uint8_t data_len;
     uint8_t data[TERN_COMPANION_UPDATE_CHUNK];
-    uint8_t signature_len; /* UPDATE_BEGIN's: 0 for none, or TERN_COMPANION_SIGNATURE */
-    uint8_t signature[TERN_COMPANION_SIGNATURE];
 };
 
 enum tern_companion_read {

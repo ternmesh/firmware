@@ -1363,8 +1363,8 @@ static void an_update_refuses_what_it_should(void) {
 static struct tern_companion_msg begin_update(uint8_t seq, uint32_t size) {
     struct tern_companion_msg q = {.type = TERN_C_UPDATE_BEGIN, .seq = seq, .size = size};
     memcpy(q.digest, update_digest, sizeof q.digest);
-    memcpy(q.signature, image_signature, sizeof image_signature);
-    q.signature_len = sizeof image_signature;
+    memcpy(q.data, image_signature, sizeof image_signature); /* the signature is `data` */
+    q.data_len = sizeof image_signature;
     return q;
 }
 
@@ -1401,13 +1401,13 @@ static void signatures_are_checked_before_room_is_made(void) {
     CHECK_EQ_U64(sent(0).code, TERN_C_ERR_NOT_AN_IMAGE);
     CHECK_EQ_U64(board.begun, 0);
     companion.host.n_release_keys = 1;
-    q.signature[0] ^= 1;
+    q.data[0] ^= 1;
     q.seq = 3;
     request(&q);
     CHECK_EQ_U64(sent(0).code, TERN_C_ERR_NOT_AN_IMAGE);
     CHECK_EQ_U64(board.begun, 0);
     companion.host.take_unsigned = true;
-    q.signature_len = 0;
+    q.data_len = 0;
     q.seq = 4;
     request(&q);
     CHECK_EQ_I64(sent(0).type, TERN_C_UPDATING);

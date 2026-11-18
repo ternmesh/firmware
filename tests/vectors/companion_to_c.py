@@ -59,10 +59,10 @@ def msg(kind, seq, fields):
             parts.append(f".{name}_len = {len(raw) // 2}")
             if raw:
                 parts.append(f".{name} = {hexbytes(raw)}")
-        elif name in ("data", "signature"):
-            parts.append(f".{name}_len = {len(value) // 2}")
+        elif name in ("data", "signature"):  # UPDATE_BEGIN's signature is `data` too
+            parts.append(f".data_len = {len(value) // 2}")
             if value:
-                parts.append(f".{name} = {hexbytes(value)}")
+                parts.append(f".data = {hexbytes(value)}")
         elif name == "digest":
             parts.append(f".digest = {hexbytes(value)}")
         elif name in ADDRESSES:

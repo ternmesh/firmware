@@ -1734,7 +1734,7 @@ static void update_begin(struct link *l, const struct tern_companion_msg *q) {
      * way as it was. A client before version 13 sends no signature, so it is refused (version 13,
      * "Signed images"). */
     if (!l->host.take_unsigned && !tern_release_verify(l->host.release_keys, l->host.n_release_keys,
-                                                       q->digest, q->signature, q->signature_len)) {
+                                                       q->digest, q->data, q->data_len)) {
         error(l, q->seq, TERN_C_ERR_NOT_AN_IMAGE);
         return;
     }
