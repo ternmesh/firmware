@@ -7,6 +7,7 @@
 
 #include <hal/nrf_power.h>
 #include <zephyr/devicetree.h>
+#include <zephyr/drivers/watchdog.h>
 #include <zephyr/kernel.h>
 #include <zephyr/kvss/nvs.h>
 #include <zephyr/random/random.h>
@@ -14,6 +15,7 @@
 #include <zephyr/storage/flash_map.h>
 #include <zephyr/sys/reboot.h>
 
+#include "crumb.h"
 #include "tern/companion.h"
 
 /* The node's platform on an nRF52840 under Zephyr (../../node/platform.h): Zephyr's settings on
@@ -445,23 +447,64 @@ bool plat_update_on_trial(void) { return false; }
 void plat_update_confirm(void) {}
 void plat_update_reject(void) { plat_restart(); }
 
-/* RESETREAS, read once and cleared, since the chip adds to it at each reset until it is: the reset
- * pin, and waking from System OFF by the button, are by hand, and so is power coming on, which
- * leaves it empty. A reset the chip asked for itself (every restart here, the bootloader's
- * included), its watchdog and a lockup are not. If a bootloader cleared it on its way, which has
- * not been checked on every board, every start would read as power coming on: the window would
- * open more often, not less. */
-bool plat_started_by_hand(void) {
-    static int by_hand = -1;
-    if (by_hand < 0) {
-        uint32_t why = nrf_power_resetreas_get(NRF_POWER);
+/* RESETREAS, read once and cleared, since the chip adds to it at each reset until it is (the
+ * bootloader leaves it: Adafruit's src/main.c says the application is to clear it). */
+static uint32_t reset_reason(void) {
+    static uint32_t why;
+    static bool read;
+    if (!read) {
+        why = nrf_power_resetreas_get(NRF_POWER);
         nrf_power_resetreas_clear(NRF_POWER, why);
-        uint32_t itself = NRF_POWER_RESETREAS_SREQ_MASK | NRF_POWER_RESETREAS_DOG_MASK |
-                          NRF_POWER_RESETREAS_LOCKUP_MASK;
-        by_hand = (why & itself) == 0;
+        read = true;
     }
-    return by_hand != 0;
+    return why;
 }
+
+/* The reset pin, and waking from System OFF by the button, are by hand, and so is power coming on,
+ * which leaves RESETREAS empty. A reset the chip asked for itself (every restart here, the
+ * bootloader's included), its watchdog and a lockup are not. If a bootloader cleared it on its
+ * way, every start would read as power coming on: the window would open more often, not less. */
+bool plat_started_by_hand(void) {
+    uint32_t itself = NRF_POWER_RESETREAS_SREQ_MASK | NRF_POWER_RESETREAS_DOG_MASK |
+                      NRF_POWER_RESETREAS_LOCKUP_MASK;
+    return (reset_reason() & itself) == 0;
+}
+
+bool plat_started_by_watchdog(void) { return (reset_reason() & NRF_POWER_RESETREAS_DOG_MASK) != 0; }
+
+/* --- The watchdog ---------------------------------------------------------------------------- */
+
+/* The chip's WDT, counting while the CPU sleeps too (a loop blocked on a semaphore sleeps), but not
+ * while a debugger has it halted. Once started it runs until a reset other than a soft one: on
+ * through sys_reboot() and the bootloader, which feeds it while it waits for an update and between
+ * the pages it erases (Adafruit's bootloader.c, wait_for_events()). Starting it again after a
+ * restart only takes the channel the last start took: the timeout cannot change while it runs. */
+static const struct device *const dog = DEVICE_DT_GET(DT_NODELABEL(wdt0));
+static int dog_channel = -1;
+
+void plat_watchdog_start(void) {
+    if (dog_channel >= 0 || !device_is_ready(dog)) {
+        return;
+    }
+    const struct wdt_timeout_cfg cfg = {.window = {.min = 0, .max = PLAT_WATCHDOG_S * 1000u},
+                                        .flags = WDT_FLAG_RESET_SOC};
+    int channel = wdt_install_timeout(dog, &cfg);
+    if (channel < 0 || wdt_setup(dog, WDT_OPT_PAUSE_HALTED_BY_DBG) != 0) {
+        printf("the watchdog did not start (%d)\n", channel);
+        return;
+    }
+    dog_channel = channel;
+}
+
+void plat_watchdog_feed(void) {
+    if (dog_channel >= 0) {
+        (void)wdt_feed(dog, dog_channel);
+    }
+}
+
+/* Kept in RAM Zephyr does not clear at a start, as `wiped` is. */
+static __noinit struct crumb crumb;
+struct crumb *plat_crumb(void) { return &crumb; }
 
 /* --- The system ------------------------------------------------------------------------------ */
 

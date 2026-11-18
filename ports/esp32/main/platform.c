@@ -5,6 +5,7 @@
 
 #include "board.h"
 #include "bootloader_random.h"
+#include "crumb.h"
 #include "esp_app_desc.h"
 #include "esp_attr.h"
 #include "esp_err.h"
@@ -13,6 +14,7 @@
 #include "esp_random.h"
 #include "esp_sleep.h"
 #include "esp_system.h"
+#include "esp_task_wdt.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "nvs.h"
@@ -414,6 +416,58 @@ bool plat_started_by_hand(void) {
         return false; /* the board itself: esp_restart(), a panic, a watchdog, a brownout */
     }
 }
+
+bool plat_started_by_watchdog(void) {
+    switch (esp_reset_reason()) {
+    case ESP_RST_TASK_WDT:
+    case ESP_RST_INT_WDT:
+    case ESP_RST_WDT:
+        return true;
+    default:
+        return false;
+    }
+}
+
+/* --- The watchdog ---------------------------------------------------------------------------- */
+
+/* ESP-IDF's task watchdog, which it starts watching the idle tasks only, and then only to print a
+ * warning: watching the node's task too, at PLAT_WATCHDOG_S, and restarting the chip (a panic,
+ * which restarts with the reason ESP_RST_TASK_WDT) when a task it watches is not fed in time. The
+ * idle tasks stay watched as the build has them. An update's image is written a sector at a time
+ * (OTA_WITH_SEQUENTIAL_WRITES), so no erase takes long. */
+static bool dog_on;
+
+void plat_watchdog_start(void) {
+    esp_task_wdt_config_t cfg = {.timeout_ms = PLAT_WATCHDOG_S * 1000u, .trigger_panic = true};
+#if CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0
+    cfg.idle_core_mask |= 1u << 0;
+#endif
+#if CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1
+    cfg.idle_core_mask |= 1u << 1;
+#endif
+    esp_err_t err = esp_task_wdt_reconfigure(&cfg);
+    if (err == ESP_ERR_INVALID_STATE) {
+        err = esp_task_wdt_init(&cfg); /* a build that does not start it */
+    }
+    if (err == ESP_OK) {
+        err = esp_task_wdt_add(NULL);
+    }
+    if (err != ESP_OK) {
+        printf("the watchdog did not start (%s)\n", esp_err_to_name(err));
+        return;
+    }
+    dog_on = true;
+}
+
+void plat_watchdog_feed(void) {
+    if (dog_on) {
+        (void)esp_task_wdt_reset();
+    }
+}
+
+/* In the RTC's memory, which a restart, a panic and a watchdog leave as it was. */
+static RTC_NOINIT_ATTR struct crumb crumb;
+struct crumb *plat_crumb(void) { return &crumb; }
 
 void plat_sleep_ms(uint32_t ms) { vTaskDelay(pdMS_TO_TICKS(ms)); }
 
