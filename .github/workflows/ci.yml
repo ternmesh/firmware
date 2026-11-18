@@ -49,16 +49,29 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      # Only the compiler and newlib's headers (the core includes string.h). Without
-      # --no-install-recommends apt also fetches the 463 MB C++ library, and Ubuntu's mirror has
-      # stalled on it. A stalled download times out after 30 s and is retried.
-      - run: >-
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends
-          -o Acquire::http::Timeout=30 -o Acquire::Retries=5
-          ninja-build gcc-arm-none-eabi libnewlib-dev libnewlib-arm-none-eabi
+      # Arm's own toolchain, kept in the cache, not Ubuntu's gcc-arm-none-eabi: Ubuntu's mirror
+      # trickled that package so slowly three times in a day that the job ran out of time. The
+      # checksum is the one Arm publishes beside the file.
+      - name: Cache the Arm toolchain
+        id: arm-cache
+        uses: actions/cache@v4
+        with:
+          path: arm-gnu-toolchain
+          key: arm-gnu-toolchain-14.3.rel1-x86_64
+      - name: Download the Arm toolchain
+        if: steps.arm-cache.outputs.cache-hit != 'true'
+        run: |
+          file=arm-gnu-toolchain-14.3.rel1-x86_64-arm-none-eabi.tar.xz
+          curl -fsSL --retry 5 --retry-all-errors --connect-timeout 30 -o "$file" \
+            "https://developer.arm.com/-/media/Files/downloads/gnu/14.3.rel1/binrel/$file"
+          echo "8f6903f8ceb084d9227b9ef991490413014d991874a1e34074443c2a72b14dbd  $file" | sha256sum -c -
+          mkdir arm-gnu-toolchain
+          tar xf "$file" -C arm-gnu-toolchain --strip-components=1
+          rm "$file"
+      - run: echo "$PWD/arm-gnu-toolchain/bin" >> "$GITHUB_PATH"
       - name: Configure
         run: >-
-          cmake -S . -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/arm-none-eabi.cmake
+          cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=cmake/arm-none-eabi.cmake
           -DCMAKE_BUILD_TYPE=MinSizeRel -DBUILD_TESTING=OFF -DTERN_WERROR=ON
       - run: cmake --build build
       - run: arm-none-eabi-size build/libtern.a
