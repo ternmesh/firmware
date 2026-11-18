@@ -6,8 +6,8 @@ name: Release
 # pre-release.
 #
 # Every file a release carries is signed (draft/companion.md, "Signed images"; docs/signing.md):
-# <file>.sig beside it, 64 bytes of Ed25519 by the release key, whose private half is the secret
-# TERN_RELEASE_SIGNING_KEY. A release is never published unsigned: without the secret, or with a key
+# one file, SIGNATURES, has a line for each, Ed25519 by the release key, whose private half is the
+# secret TERN_RELEASE_SIGNING_KEY. A release is never published unsigned: without the secret, or with a key
 # that ports/node/release_keys.h does not list, so that the nodes built here would refuse what it
 # signs, the release fails, first before anything is built and again before anything is published.
 #
@@ -146,8 +146,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # A release carries over a thousand files with their signatures. Uploaded at once they
-          # trip GitHub's secondary rate limit (0.7.0-alpha.1's first run), so the release is made
+          # A release carries over five hundred files. Uploaded at once they can trip GitHub's
+          # secondary rate limit (0.7.0-alpha.1's first run), so the release is made
           # as a draft, filled fifty files at a time with a pause and retries, and published only
           # once every file is on it. A rerun reuses a draft left by a failed one.
           case "$GITHUB_REF_NAME" in *-*) pre=--prerelease ;; *) pre= ;; esac
@@ -155,7 +155,7 @@ jobs:
             gh release create "$GITHUB_REF_NAME" $pre --draft --verify-tag --title "$GITHUB_REF_NAME" \
               --notes-file "docs/releases/$GITHUB_REF_NAME.md"
           fi
-          ls images/*.bin images/*.uf2 images/*.zip images/SHA256SUMS images/*.sig >files
+          ls images/*.bin images/*.uf2 images/*.zip images/SHA256SUMS images/SIGNATURES >files
           split -l 50 files batch.
           for b in batch.*; do
             for try in 1 2 3 4 5 6; do

@@ -2,16 +2,19 @@
 """Release keys and signed images (draft/companion.md, "Signed images", in ternmesh/spec).
 
 An image's signature is Ed25519 (RFC 8032) by a release key over the 16 ASCII bytes
-"TERN-FIRMWARE-V1" and the SHA-256 of the file exactly as published. It is published beside the
-file as <file>.sig, the 64 bytes and nothing else. docs/signing.md says who holds the key and how.
+"TERN-FIRMWARE-V1" and the SHA-256 of the file exactly as published. A release lists them all in
+one file, SIGNATURES, beside its files: a line for each, the signature as 128 lower-case hex digits,
+two spaces and the file's name, as SHA256SUMS lists digests. A file may instead have <file>.sig
+beside it, the 64 bytes and nothing else; verify reads either. docs/signing.md says who holds the
+key and how.
 
     python3 tools/release_key.py generate KEYFILE   make a new key; write its private half to KEYFILE
     python3 tools/release_key.py public [KEYFILE]   print a key's public half, and its line for
                                                     ports/node/release_keys.h
     python3 tools/release_key.py listed             fail unless the signing key is in release_keys.h
-    python3 tools/release_key.py sign FILE...       write FILE.sig beside each FILE
-    python3 tools/release_key.py verify FILE...     fail unless each FILE.sig verifies with a key
-                                                    in release_keys.h
+    python3 tools/release_key.py sign FILE...       write SIGNATURES beside the FILEs, one line each
+    python3 tools/release_key.py verify FILE...     fail unless each FILE's signature, in SIGNATURES
+                                                    or FILE.sig, verifies with a key in release_keys.h
     python3 tools/release_key.py selftest           check this against the specification's vectors
 
 The private key is 64 hex digits, the Ed25519 seed. sign, public and listed read it from KEYFILE if
@@ -40,6 +43,36 @@ KEYS_H = ROOT / "ports" / "node" / "release_keys.h"
 VECTORS = ROOT / "tests" / "vectors" / "companion.json"
 PREFIX = b"TERN-FIRMWARE-V1"
 ENV = "TERN_RELEASE_SIGNING_KEY"
+LIST = "SIGNATURES"
+
+
+def read_list(text):
+    """SIGNATURES's lines, by file name. Raises ValueError on a line that is not a signature and a
+    name, or a name listed twice."""
+    out = {}
+    for line in text.splitlines():
+        if not line:
+            continue
+        m = re.fullmatch(r"([0-9a-f]{128})  (\S+)", line)
+        if not m:
+            raise ValueError(f"{LIST} has a line that is not a signature and a name: {line!r}")
+        if m.group(2) in out:
+            raise ValueError(f"{LIST} lists {m.group(2)} twice")
+        out[m.group(2)] = bytes.fromhex(m.group(1))
+    return out
+
+
+def signature_for(path):
+    """A file's signature: its .sig beside it if there is one, else its line in SIGNATURES beside
+    it; None if neither has one."""
+    path = Path(path)
+    sig = path.with_name(path.name + ".sig")
+    if sig.exists():
+        return sig.read_bytes()
+    listed = path.with_name(LIST)
+    if listed.exists():
+        return read_list(listed.read_text(encoding="utf-8")).get(path.name)
+    return None
 
 
 def message(data):
@@ -147,11 +180,17 @@ def listed(args):
 
 def sign(args):
     private = signing_key(args)
-    for name in args.files:
-        data = Path(name).read_bytes()
-        sig = private.sign(message(data))
-        Path(name + ".sig").write_bytes(sig)
-        print(f"{name}.sig")
+    paths = [Path(name) for name in args.files]
+    dirs = {p.resolve().parent for p in paths}
+    if len(dirs) != 1:
+        sys.exit("sign: the files must all be in one directory, where SIGNATURES is written")
+    if len({p.name for p in paths}) != len(paths):
+        sys.exit("sign: a file named twice")
+    lines = [f"{private.sign(message(p.read_bytes())).hex()}  {p.name}\n"
+             for p in sorted(paths, key=lambda p: p.name)]
+    out = dirs.pop() / LIST
+    out.write_text("".join(lines), encoding="utf-8")
+    print(f"{out}: {len(lines)} signatures")
 
 
 def verify(args):
@@ -160,10 +199,13 @@ def verify(args):
         sys.exit(f"{KEYS_H.relative_to(ROOT)} lists no release key: nothing can verify")
     bad = 0
     for name in args.files:
-        sig_path = Path(name + ".sig")
-        ok = sig_path.exists() and verifies(keys, Path(name).read_bytes(), sig_path.read_bytes())
+        try:
+            sig = signature_for(name)
+        except ValueError as e:
+            sys.exit(str(e))
+        ok = sig is not None and verifies(keys, Path(name).read_bytes(), sig)
         if not ok:
-            print(f"{name}: {'no signature' if not sig_path.exists() else 'signature does not verify'}")
+            print(f"{name}: {'no signature' if sig is None else 'signature does not verify'}")
             bad += 1
     if bad:
         sys.exit(f"{bad} of {len(args.files)} files are not signed by a release key")
