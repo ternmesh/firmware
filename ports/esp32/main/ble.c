@@ -37,6 +37,7 @@ static volatile uint32_t gen;    /* counts connections; the present one's, set i
 static volatile bool paired;     /* the client on `conn` paired with a passkey */
 static volatile bool subscribed; /* and asked for notifications */
 static volatile uint32_t passkey_setting;
+static volatile bool pairable; /* a passkey that is not shown may be paired with now */
 static bool have_screen;
 static uint8_t own_addr_type;
 
@@ -160,6 +161,12 @@ static int on_gap(struct ble_gap_event *event, void *arg) {
         if (shown && !have_screen) {
             printf("bluetooth: no passkey set and no screen to show one: not pairing. Set one "
                    "over USB.\n");
+            ble_gap_terminate(event->passkey.conn_handle, BLE_ERR_AUTH_FAIL);
+            return 0;
+        }
+        if (!shown && !pairable) {
+            printf("bluetooth: a pairing outside the pairing window, refused. Press the button, "
+                   "or turn the board off and on, and pair within three minutes.\n");
             ble_gap_terminate(event->passkey.conn_handle, BLE_ERR_AUTH_FAIL);
             return 0;
         }
@@ -296,6 +303,8 @@ bool ble_start(const char *name, uint32_t passkey, bool screen) {
 }
 
 void ble_passkey(uint32_t passkey) { passkey_setting = passkey; }
+
+void ble_pairable(bool yes) { pairable = yes; }
 
 void ble_rename(const char *name) {
     if (ble_svc_gap_device_name_set(name) != 0) {

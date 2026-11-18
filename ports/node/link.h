@@ -135,6 +135,13 @@ struct link_host {
     uint8_t updates;
     /* The longest image the node has room for: 0 if it cannot be updated over the link. */
     uint32_t update_room;
+    /* The release keys an image over the link must be signed by (tern/release.h), n_release_keys
+     * of them: an UPDATE_BEGIN whose signature verifies with none is refused, unless
+     * take_unsigned, which only a build for a developer sets (CONFIG_TERN_UPDATE_UNSIGNED), since
+     * the node then takes an image from anyone who can pair. */
+    const uint8_t (*release_keys)[32];
+    size_t n_release_keys;
+    bool take_unsigned;
     /* One frame to the client on a connection. */
     void (*out)(void *ctx, unsigned conn, const uint8_t *frame, size_t len);
     void (*view)(void *ctx, struct link_view *v);
@@ -203,6 +210,9 @@ struct link_host {
     /* UPDATE_BOOTLOADER: 0 if the board will restart into its bootloader's update once the answer
      * is out, or the ERROR code to answer with. Every connection drops then. */
     uint8_t (*bootloader)(void *ctx);
+    /* WIPE: 0 if the board will erase everything it holds, its identity and Bluetooth bonds among
+     * it, and restart as new once the answer is out, or the ERROR code to answer with. */
+    uint8_t (*wipe)(void *ctx);
 };
 
 /* An update under way: the image's size and digest, how much of it the node holds, and the digest

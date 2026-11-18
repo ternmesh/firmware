@@ -11,6 +11,7 @@
 #include "esp_heap_caps.h"
 #include "esp_ota_ops.h"
 #include "esp_random.h"
+#include "esp_sleep.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -398,6 +399,21 @@ void plat_update_reject(void) {
 /* --- The system ------------------------------------------------------------------------------- */
 
 void plat_restart(void) { esp_restart(); }
+
+/* EN, the chip's reset, reads as power coming on; a USB host resetting the chip, as esptool does,
+ * is someone with a cable. A wake from deep sleep is by hand unless its timer gave it. */
+bool plat_started_by_hand(void) {
+    switch (esp_reset_reason()) {
+    case ESP_RST_POWERON:
+    case ESP_RST_EXT:
+    case ESP_RST_USB:
+        return true;
+    case ESP_RST_DEEPSLEEP:
+        return esp_sleep_get_wakeup_cause() != ESP_SLEEP_WAKEUP_TIMER;
+    default:
+        return false; /* the board itself: esp_restart(), a panic, a watchdog, a brownout */
+    }
+}
 
 void plat_sleep_ms(uint32_t ms) { vTaskDelay(pdMS_TO_TICKS(ms)); }
 

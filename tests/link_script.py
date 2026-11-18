@@ -7,12 +7,14 @@ The node is the port's own link.c on a pseudo-terminal, with console text in bet
 so this checks the script, the framing and the link together, everything but the radio and USB.
 """
 
+import json
 import os
 import subprocess
 import tempfile
 import sys
 import time
 
+VECTORS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vectors", "companion.json")
 BOB = "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c"
 GONE = "the node took this client for gone"
 # The specification's join code for a group called Ridge walkers (vectors/groups.json).
@@ -23,8 +25,9 @@ def main():
     node_bin, script = sys.argv[1], sys.argv[2]
     failed = 0
 
-    def run(port, *args, expect, absent=(), meanwhile=None):
-        """Runs the script; what it prints must hold `expect` in order, and nothing in `absent`.
+    def run(port, *args, expect, absent=(), meanwhile=None, code=0):
+        """Runs the script; what it prints must hold `expect` in order, and nothing in `absent`,
+        and it must exit with `code`; one that fails is read with what it says on stderr.
         `meanwhile`, if given, is called while it runs."""
         nonlocal failed
         p = subprocess.Popen([sys.executable, script, "--port", port, *args],
@@ -33,15 +36,16 @@ def main():
             meanwhile()
         out, err = p.communicate(timeout=60)
         r = subprocess.CompletedProcess(p.args, p.returncode, out, err)
+        said = r.stdout + (r.stderr if code else "")
         at, missing = 0, []
         for e in expect:
-            found = r.stdout.find(e, at)
+            found = said.find(e, at)
             if found < 0:
                 missing.append(e)
             else:
                 at = found + len(e)
-        there = [a for a in absent if a in r.stdout]
-        if r.returncode != 0 or missing or there:
+        there = [a for a in absent if a in said]
+        if r.returncode != code or missing or there:
             failed += 1
             print(f"FAIL {' '.join(args)}: missing {missing}, not wanted {there}\n"
                   f"{r.stdout}{r.stderr}")
@@ -58,13 +62,24 @@ def main():
         run(port, "state", expect=["tern host test", "a relay in EU868, at 14 dBm",
                                    "neighbour 1d2e3f40", "air: 1234 of 360000 ms used in 3600 s"])
         run(port, "contact", BOB, "Bob", expect=["saved"])
+        # An image with no signature is not sent, unless asked; asked, the node refuses it.
         image = tempfile.NamedTemporaryFile(suffix=".bin", delete=False)
         image.write(bytes(i * 7 & 0xFF for i in range(5000)))
         image.close()
-        run(port, "update", image.name,
-            expect=["updating host from 0.2.0: 5000 bytes", "100%",
-                    "the node has the image, and restarts into it"])
+        run(port, "update", image.name, expect=["has no signature beside it"], code=1)
+        run(port, "update", image.name, "--unsigned",
+            expect=["sending an image with no signature", "UPDATE_BEGIN: not an image this node "
+                    "runs, or not signed by a release key it holds"], code=1)
         os.unlink(image.name)
+        # The specification's image, signed with its test key, which this node holds.
+        v = json.load(open(VECTORS, encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as d:
+            signed = os.path.join(d, "image.bin")
+            open(signed, "wb").write(bytes.fromhex(v["image"]))
+            open(signed + ".sig", "wb").write(bytes.fromhex(v["image_signature"]))
+            run(port, "update", signed, "--test-key",
+                expect=["updating host from 0.2.0: 400 bytes", "100%",
+                        "the node has the image, and restarts into it"])
         run(port, "send", BOB, "On the ridge by six", "--wait", "2",
             expect=["queued as message #1",
                     "to 3d4017c3e843895a: 'On the ridge by six' (waiting for the radio)",
@@ -76,6 +91,8 @@ def main():
         run(port, "group", "join", RIDGE.lower(), expect=["joined group c8eafadc0857a696"])
         run(port, "group", "code", "c8eafadc0857a696", expect=[RIDGE])
         run(port, "state", expect=["group 'Ridge walkers'"])
+        run(port, "wipe", expect=["wipe erases the node's address"], code=1)
+        run(port, "wipe", "--yes", expect=["wiped: the node starts again as new"])
         run(port, "off", expect=["turned off: press its button to turn it on again"])
     finally:
         board.stdin.close()

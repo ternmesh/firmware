@@ -72,6 +72,13 @@ bool ble_start(const char *name, uint32_t passkey, bool screen);
 /* The passkey for pairings from now: 0 to 999999, or BLE_PASSKEY_RANDOM. */
 void ble_passkey(uint32_t passkey);
 
+/* Whether a pairing with a passkey the node does not show, one set or the default of a board with
+ * no screen, may begin now (draft/companion.md, "Being at the node"): node.c says, from its
+ * pairing window and its bonds. Until told, none may. A pairing with a passkey shown on the screen
+ * always may: whoever reads it is at the node. A client already bonded connects again whatever
+ * this says, since that is not a pairing. */
+void ble_pairable(bool yes);
+
 /* Advertises as `name`, at most BLE_NAME_MAX bytes, from now: at once if the node is advertising,
  * or when it next does. The stack keeps the name, so the caller need not. */
 void ble_rename(const char *name);

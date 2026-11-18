@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "check.h"
+#include "tern/release.h"
 
 /* The companion protocol's frames and byte streams (draft/companion.md), against the
  * specification's vectors. What a node answers is the port's, and is tested with it
@@ -57,6 +58,15 @@ struct unknown_case {
     uint8_t frame[BYTES];
     size_t len;
     int answer; /* the ERROR code a node answers with, or -1 for none */
+};
+struct signature_case {
+    const char *why;
+    uint8_t release_key[32];
+    uint8_t digest[32];
+    uint8_t message[48];
+    uint8_t signature[BYTES];
+    size_t signature_len;
+    bool verifies;
 };
 
 #include "companion.h"
@@ -332,8 +342,36 @@ static void nothing_is_written_that_cannot_be_read(void) {
     CHECK_EQ_U64(tern_companion_write(&m, out), 0);
 }
 
+/* Signed images (draft/companion.md, "Signed images"): what a release key signs, and which
+ * signatures verify, with the key given and with it among others. */
+static void signatures_verify_as_the_draft_says(void) {
+    for (size_t i = 0; i < COUNT(signatures); i++) {
+        const struct signature_case *c = &signatures[i];
+        uint8_t message[TERN_RELEASE_MESSAGE_LEN];
+        tern_release_message(c->digest, message);
+        CHECK(memcmp(message, c->message, sizeof message) == 0);
+        bool got =
+            tern_release_verify(&c->release_key, 1, c->digest, c->signature, c->signature_len);
+        if (got != c->verifies) {
+            printf("  signature \"%s\": %s, not %s\n", c->why, got ? "verifies" : "does not",
+                   c->verifies ? "verifies" : "does not");
+        }
+        CHECK(got == c->verifies);
+        /* Second of three keys, the first not a point and the third another's. */
+        uint8_t keys[3][TERN_RELEASE_KEY_LEN] = {{0}};
+        memset(keys[0], 0xFF, sizeof keys[0]);
+        memcpy(keys[1], c->release_key, sizeof keys[1]);
+        memcpy(keys[2], update_digest, sizeof keys[2]);
+        CHECK(tern_release_verify((const uint8_t(*)[TERN_RELEASE_KEY_LEN])keys, 3, c->digest,
+                                  c->signature, c->signature_len) == c->verifies);
+    }
+    CHECK(!tern_release_verify(release_key, 0, update_digest, image_signature,
+                               sizeof image_signature));
+}
+
 int main(void) {
     RUN(crc_matches_the_published_check_value);
+    RUN(signatures_verify_as_the_draft_says);
     RUN(frames_are_written_and_read);
     RUN(bytes_past_the_fields_are_ignored);
     RUN(rejected_frames_are_answered_as_the_draft_says);

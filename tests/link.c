@@ -23,6 +23,15 @@ struct unknown_case {
     size_t len;
     int answer; /* the ERROR code the node answers with, or -1 for none */
 };
+struct signature_case {
+    const char *why;
+    uint8_t release_key[32];
+    uint8_t digest[32];
+    uint8_t message[48];
+    uint8_t signature[BYTES];
+    size_t signature_len;
+    bool verifies;
+};
 
 /* The specification's exchange, and the frames unknown to older versions, alone: the build writes
  * them from the same JSON as tests/companion.c reads. */
@@ -92,6 +101,8 @@ struct board {
     unsigned offs;      /* how many times OFF asked the board to turn off */
     uint8_t off_answer; /* what the board answers OFF with: 0 to turn off */
     unsigned boots;     /* how many times UPDATE_BOOTLOADER asked the board to restart into it */
+    unsigned wipes;     /* how many times WIPE asked the board to erase itself */
+    uint8_t wipe_answer;
     uint8_t out[96][TERN_COMPANION_MAX_FRAME];
     size_t out_len[96];
     unsigned out_conn[96];
@@ -374,6 +385,12 @@ static uint8_t board_bootloader(void *ctx) {
     return 0;
 }
 
+static uint8_t board_wipe(void *ctx) {
+    struct board *b = ctx;
+    b->wipes++;
+    return b->wipe_answer;
+}
+
 static struct board board;
 static struct link companion;
 
@@ -432,6 +449,10 @@ static void start(void) {
         .update_run = board_update_run,
         .off = board_off,
         .bootloader = board_bootloader,
+        .wipe = board_wipe,
+        /* The specification's test key, as the vectors' node holds it. */
+        .release_keys = release_key,
+        .n_release_keys = 1,
     };
     board.random = made_secret;
     link_init(&companion, &host);
@@ -1342,7 +1363,55 @@ static void an_update_refuses_what_it_should(void) {
 static struct tern_companion_msg begin_update(uint8_t seq, uint32_t size) {
     struct tern_companion_msg q = {.type = TERN_C_UPDATE_BEGIN, .seq = seq, .size = size};
     memcpy(q.digest, update_digest, sizeof q.digest);
+    memcpy(q.data, image_signature, sizeof image_signature); /* the signature is `data` */
+    q.data_len = sizeof image_signature;
     return q;
+}
+
+/* A client of version 12 sends UPDATE_BEGIN without a signature, which the node refuses before any
+ * room is made for the image, and may not ask for WIPE. */
+static void an_older_client_cannot_update_unsigned_or_wipe(void) {
+    begin();
+    follow("older 12", older_12, COUNT(older_12), COUNT(older_12), NULL);
+    CHECK_EQ_U64(board.begun, 0);
+    CHECK_EQ_U64(board.wipes, 0);
+}
+
+/* WIPE is answered before the board erases itself, and with what the board says. */
+static void wipe_is_answered_as_the_board_says(void) {
+    start();
+    follow("wipe", wipe, COUNT(wipe), COUNT(wipe), NULL);
+    CHECK_EQ_U64(board.wipes, 1);
+    board.n_out = 0;
+    board.wipe_answer = TERN_C_ERR_NOT_NOW;
+    request(&(struct tern_companion_msg){.type = TERN_C_WIPE, .seq = 3});
+    CHECK_EQ_U64(board.n_out, 1);
+    CHECK_EQ_I64(sent(0).type, TERN_C_ERROR);
+    CHECK_EQ_U64(sent(0).code, TERN_C_ERR_NOT_NOW);
+}
+
+/* A node that holds no release key takes no image; one built to take unsigned images takes one
+ * with no signature; and the signature is checked before the board makes room. */
+static void signatures_are_checked_before_room_is_made(void) {
+    start();
+    hello();
+    companion.host.n_release_keys = 0;
+    struct tern_companion_msg q = begin_update(2, sizeof update_image);
+    request(&q);
+    CHECK_EQ_U64(sent(0).code, TERN_C_ERR_NOT_AN_IMAGE);
+    CHECK_EQ_U64(board.begun, 0);
+    companion.host.n_release_keys = 1;
+    q.data[0] ^= 1;
+    q.seq = 3;
+    request(&q);
+    CHECK_EQ_U64(sent(0).code, TERN_C_ERR_NOT_AN_IMAGE);
+    CHECK_EQ_U64(board.begun, 0);
+    companion.host.take_unsigned = true;
+    q.data_len = 0;
+    q.seq = 4;
+    request(&q);
+    CHECK_EQ_I64(sent(0).type, TERN_C_UPDATING);
+    CHECK_EQ_U64(board.begun, 1);
 }
 
 /* A node with no board to name, or no room for the image, has none for an update. */
@@ -2887,6 +2956,9 @@ int main(void) {
     RUN(an_update_needs_a_board_and_room);
     RUN(an_update_the_board_cannot_take_starts_again);
     RUN(a_client_of_version_3_cannot_update);
+    RUN(an_older_client_cannot_update_unsigned_or_wipe);
+    RUN(wipe_is_answered_as_the_board_says);
+    RUN(signatures_are_checked_before_room_is_made);
     RUN(a_client_of_version_2_is_answered_without_the_count);
     RUN(a_client_before_groups_is_not_told_of_them);
     RUN(a_group_is_made_with_the_boards_randomness_and_kept);

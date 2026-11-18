@@ -676,6 +676,17 @@ default again with `0xFFFFFFFF` (`set passkey default`). A client that has paire
 connect again without a passkey. `forget` on the console, or the screen's **Phones** page,
 forgets every bonded client.
 
+**Someone must be at the board to pair** (the draft's
+[being at the node](https://github.com/ternmesh/spec/blob/main/draft/companion.md#bluetooth-le)).
+A passkey shown on the screen proves it: whoever reads it is there. A passkey that is not shown,
+**123456** on a board with no screen or one a client set, is taken only for three minutes after
+the board is turned on or reset, or woken from off by its button, and for three minutes after any
+press of its button; a set passkey is held to that only once a phone is bonded. So to pair a board
+with no screen, press its button, or turn it off and on, and pair within three minutes; on a board
+with no button but RESET, such as the LilyGO T3 v1.6.1, press RESET. A restart the board makes
+itself, to apply a setting or run an update, does not count, nor one after a fault. A phone already
+bonded connects whenever it likes.
+
 Bluetooth is always on. What it costs a battery is not measured yet.
 
 ### Updating over the link
@@ -700,8 +711,20 @@ find the image.
 A board flashed with a release from before 0.2.0 has one slot and cannot be updated this way; it
 names no board, and is moved to two slots [over USB](#without-installing-anything) once.
 
-Anyone who has paired can update the board, as they can change its region. The image is not
-signed: the digest says it arrived whole, not who made it.
+**Only signed images.** The board takes an image only if it is signed by one of the release keys
+it is built with (`../node/release_keys.h`, [docs/signing.md](../../docs/signing.md)): the client
+sends the release's `<image>.sig` in `UPDATE_BEGIN`, and the board checks it before a byte of the
+image arrives, refusing with `ERROR` 11 an image with no signature, one that does not verify, or
+any from a client older than the companion protocol's version 13, which cannot send one. Anyone
+who has paired can still ask for an update, as they can change its region, but only the release's
+images are taken. Over USB the board takes anything, as it always has: esptool and the web
+flasher are unchanged, and a developer's own build goes on that way. A build with
+`CONFIG_TERN_UPDATE_UNSIGNED` takes unsigned images over the link too, for a bench; never a release.
+
+**Wiping.** `WIPE` (`tools/companion.py wipe --yes`, or the apps) erases the board as the Reset
+page does: a new address, and nothing of the old one's sessions, contacts, groups, messages,
+settings or paired phones. Whoever holds a board can read everything it keeps, over USB, so wipe a
+board before it changes hands.
 
 ## How it is put together
 

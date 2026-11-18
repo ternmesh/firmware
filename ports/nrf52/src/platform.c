@@ -445,6 +445,24 @@ bool plat_update_on_trial(void) { return false; }
 void plat_update_confirm(void) {}
 void plat_update_reject(void) { plat_restart(); }
 
+/* RESETREAS, read once and cleared, since the chip adds to it at each reset until it is: the reset
+ * pin, and waking from System OFF by the button, are by hand, and so is power coming on, which
+ * leaves it empty. A reset the chip asked for itself (every restart here, the bootloader's
+ * included), its watchdog and a lockup are not. If a bootloader cleared it on its way, which has
+ * not been checked on every board, every start would read as power coming on: the window would
+ * open more often, not less. */
+bool plat_started_by_hand(void) {
+    static int by_hand = -1;
+    if (by_hand < 0) {
+        uint32_t why = nrf_power_resetreas_get(NRF_POWER);
+        nrf_power_resetreas_clear(NRF_POWER, why);
+        uint32_t itself = NRF_POWER_RESETREAS_SREQ_MASK | NRF_POWER_RESETREAS_DOG_MASK |
+                          NRF_POWER_RESETREAS_LOCKUP_MASK;
+        by_hand = (why & itself) == 0;
+    }
+    return by_hand != 0;
+}
+
 /* --- The system ------------------------------------------------------------------------------ */
 
 void plat_restart(void) {

@@ -35,12 +35,14 @@ nothing is heard of it, and acknowledged by the node it is for.
 | Listening first | `tern/listen.h` | When a node may start to send, from the same draft: not while its radio is receiving a frame. It keeps what a radio has said - a preamble, a header, a frame's end - and answers whether it is receiving; the SX126x driver feeds it and a port asks before each frame (`tern_radio_receiving()`). |
 | Sharing an address | `tern/share.h` | How an address leaves the air, [specification draft 0](https://github.com/ternmesh/spec/blob/main/draft/sharing.md): its text form, the `ternmesh.org` link a QR code holds, with the address in base32, reading either back as a person gives it, and the twelve-digit short code two people compare. Its base32 is a join code's too. |
 | Unicast frames | `tern/unicast.h` | Secured unicast, [specification draft 0](https://github.com/ternmesh/spec/blob/main/draft/unicast-security.md): sealing a message into a frame, and recognising, authenticating and opening frames for any of a node's sessions; and the acknowledgement its destination answers with, which only the two ends can make or check, answering a copy only when it is one, four times at most and for ten minutes. A sender that hears nothing back starts the session again by first contact, and a session lives seven days. Each epoch has its own tag key. Keys are erased as the specification requires. About 940 bytes of RAM per session. |
+| Signed images | `tern/release.h` | Whether an image is the publisher's, [the companion protocol's version 13](https://github.com/ternmesh/spec/blob/main/draft/companion.md#signed-images): Ed25519 by a release key over a prefix and the image's SHA-256. An ESP32 node takes an image over the link only if it verifies; releases are signed ([docs/signing.md](docs/signing.md)). |
 | SX1262 driver | `tern/sx126x.h` | The radio seam for Semtech's SX1262, written from its datasheet, errata included. Portable, so every SX1262 board shares it. |
 | Crypto | `tern/crypto.h` | SHA-256, SHA-512, HMAC, HKDF-Expand, AES-128, AES-CCM and X25519, in portable constant-time C, each tested against its standard's published vectors. A reference to check hardware against, not a fast one. |
 
 * [docs/architecture.md](docs/architecture.md) — the core, the ports, and the seam between them
 * [docs/ui.md](docs/ui.md) — what a node shows the person carrying it, and what it will
 * [docs/boards.md](docs/boards.md) — adding a board, and which boards come next
+* [docs/signing.md](docs/signing.md) — signed releases, the release key, and what a node keeps in the clear
 * [CONTRIBUTING.md](CONTRIBUTING.md) — DCO sign-off and the clean-room rule
 * [Governance](https://github.com/ternmesh/spec/blob/main/GOVERNANCE.md)
 

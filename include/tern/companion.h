@@ -8,7 +8,7 @@
 #include "tern/address.h"
 #include "tern/time.h"
 
-/* The companion protocol: version 9 of draft/companion.md in ternmesh/spec.
+/* The companion protocol: version 13 of draft/companion.md in ternmesh/spec.
  *
  * The link between a node and the client driving it, a phone or a computer, over USB serial, TCP
  * or Bluetooth LE. It never goes over LoRa. This is the part every node and every client needs:
@@ -16,7 +16,7 @@
  * text console. What a node answers and when is the node's business, not the core's (in the node
  * every port shares, ports/node/link.c). */
 
-#define TERN_COMPANION_VERSION 12
+#define TERN_COMPANION_VERSION 13
 #define TERN_COMPANION_MAX_FRAME 180
 /* SET 3's power that is the most the node may send at, which it works out (version 10). */
 #define TERN_C_POWER_MOST INT8_MIN
@@ -44,6 +44,7 @@
 #define TERN_COMPANION_UPDATE_CHUNK 172 /* the longest data an UPDATE_DATA carries */
 #define TERN_COMPANION_LINK_MAX 102     /* a join code's link: tern/group.h's TERN_GROUP_LINK_MAX */
 #define TERN_COMPANION_DIGEST 32        /* a SHA-256 */
+#define TERN_COMPANION_SIGNATURE 64     /* UPDATE_BEGIN's: an Ed25519 signature (tern/release.h) */
 #define TERN_COMPANION_GROUP 8          /* a group's id */
 #define TERN_COMPANION_GAP TERN_MS(500) /* a partial frame idle this long is not a frame */
 
@@ -75,6 +76,7 @@ enum tern_companion_type {
     TERN_C_SHARE = 0x34,
     TERN_C_SHARE_GROUP = 0x35,
     TERN_C_UPDATE_BOOTLOADER = 0x36, /* version 12 */
+    TERN_C_WIPE = 0x37,              /* version 13 */
     /* Answers, node to client. */
     TERN_C_OK = 0x40,
     TERN_C_ERROR = 0x41,
@@ -194,10 +196,11 @@ enum tern_companion_source {
  * (text, name, firmware, region, link, or SET's region or card name) is `text`; the one address
  * (to, address, contact) is `address`; and `wait` is MESSAGE's and STATE's u16 or AIRTIME's u32, as
  * `heard` is NEIGHBOUR's u16 or CARD's u32. INFO's board and release, SELF's card_name, and
- * UPDATE_DATA's data, have members of their own. A position's `accuracy` and `age` are one
- * member each, though SET_POSITION's are wider than the news'. SET's value is `text`,
- * `role`, `power`, `passkey`, `cards` or `receiver` as `setting` says. Members a type does not use
- * are ignored when writing and left as they were when reading. */
+ * UPDATE_DATA's data, have members of their own; UPDATE_BEGIN's signature (version 13) is `data`
+ * too, which that request has no other use for, so that no message is the bigger for it. A
+ * position's `accuracy` and `age` are one member each, though SET_POSITION's are wider than the
+ * news'. SET's value is `text`, `role`, `power`, `passkey`, `cards` or `receiver` as `setting`
+ * says. Members a type does not use are ignored when writing and left as they were when reading. */
 struct tern_companion_msg {
     uint8_t type, seq;
     uint8_t version, setting, code, role, session, flags, state, reason, percent, why, news, cards;
@@ -226,7 +229,8 @@ struct tern_companion_msg {
     uint8_t release[TERN_COMPANION_RELEASE_MAX];
     uint8_t card_name_len; /* SELF's */
     uint8_t card_name[TERN_COMPANION_NAME_MAX];
-    uint8_t data_len; /* UPDATE_DATA's */
+    /* UPDATE_DATA's data, or UPDATE_BEGIN's signature: none, or TERN_COMPANION_SIGNATURE bytes */
+    uint8_t data_len;
     uint8_t data[TERN_COMPANION_UPDATE_CHUNK];
 };
 

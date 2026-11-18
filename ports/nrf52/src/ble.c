@@ -40,6 +40,7 @@ static volatile bool paired;     /* the client on `conn` paired with a passkey *
 static volatile bool subscribed; /* and asked for notifications */
 static volatile uint32_t passkey_setting;
 static volatile uint32_t shown_passkey; /* this pairing's, if the node chose it */
+static volatile bool pairable;          /* a passkey that is not shown may be paired with now */
 static bool have_screen;
 
 static void post(const struct ble_event *e) {
@@ -221,8 +222,18 @@ static uint32_t app_passkey(struct bt_conn *c) {
 /* Only the node shows a passkey, and the client types it: Zephyr pairs as a display with no
  * keyboard, which with LE Secure Connections only is protection against a man in the middle. */
 static void passkey_display(struct bt_conn *c, unsigned int passkey) {
+    if (passkey == PASSKEY_REFUSED) {
+        bt_conn_auth_cancel(c); /* no random numbers for one (app_passkey()), window or not */
+        return;
+    }
     if (shown_passkey == BLE_PASSKEY_RANDOM) {
-        return; /* the one set, which the user knows */
+        /* The one set, which the user knows: taken only while someone may be at the node. */
+        if (!pairable) {
+            printf("bluetooth: a pairing outside the pairing window, refused. Press the button, "
+                   "or turn the board off and on, and pair within three minutes.\n");
+            bt_conn_auth_cancel(c);
+        }
+        return;
     }
     if (!have_screen) {
         printf("bluetooth: no passkey set and no screen to show one: not pairing. Set one over "
@@ -263,6 +274,8 @@ bool ble_start(const char *name, uint32_t passkey, bool screen) {
 }
 
 void ble_passkey(uint32_t passkey) { passkey_setting = passkey; }
+
+void ble_pairable(bool yes) { pairable = yes; }
 
 void ble_rename(const char *name) {
     if (bt_set_name(name) != 0) {

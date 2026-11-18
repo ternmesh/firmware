@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "tern/crypto.h"
+#include "tern/release.h"
 
 /* --- Frames out ----------------------------------------------------------------------------- */
 
@@ -1728,6 +1729,15 @@ static void update_begin(struct link *l, const struct tern_companion_msg *q) {
         error(l, q->seq, TERN_C_ERR_FULL);
         return;
     }
+    /* Signed by a release key the node holds, checked on every UPDATE_BEGIN, one that goes on
+     * with an update under way too, before anything changes: a refused one leaves an update under
+     * way as it was. A client before version 13 sends no signature, so it is refused (version 13,
+     * "Signed images"). */
+    if (!l->host.take_unsigned && !tern_release_verify(l->host.release_keys, l->host.n_release_keys,
+                                                       q->digest, q->data, q->data_len)) {
+        error(l, q->seq, TERN_C_ERR_NOT_AN_IMAGE);
+        return;
+    }
     if (!(u->on && u->size == q->size && memcmp(u->digest, q->digest, sizeof u->digest) == 0)) {
         u->on = false;
         if (!l->host.update_begin(l->host.ctx, q->size)) {
@@ -1810,7 +1820,10 @@ static void receive(struct link *l, unsigned conn, tern_time now, const uint8_t 
     }
     l->asker = c;
     memset(q, 0, sizeof *q);
-    enum tern_companion_read r = tern_companion_read(q, frame, len);
+    /* Read as the client's version has it, once it has said: a request a later version gave a
+     * field more, as UPDATE_BEGIN its signature, is whole without it. */
+    enum tern_companion_read r =
+        tern_companion_read_as(q, frame, len, c->hello ? c->version : TERN_COMPANION_VERSION);
     if (r == TERN_C_READ_SHORT || !tern_companion_request(frame[0])) {
         return; /* nothing to answer: too short, or not a request */
     }
@@ -1962,6 +1975,17 @@ static void receive(struct link *l, unsigned conn, tern_time now, const uint8_t 
         uint8_t code = l->host.updates != TERN_C_UPDATES_BOOTLOADER || l->host.bootloader == NULL
                            ? TERN_C_ERR_FULL
                            : l->host.bootloader(l->host.ctx);
+        if (code != 0) {
+            error(l, q->seq, code);
+        } else {
+            answer(l, TERN_C_OK, q->seq);
+        }
+        break;
+    }
+    case TERN_C_WIPE: {
+        /* As OFF: answered first, and the board erases itself and restarts only once the answer
+         * is out, so that the client knows the drop is the one it asked for. */
+        uint8_t code = l->host.wipe == NULL ? TERN_C_ERR_NOT_NOW : l->host.wipe(l->host.ctx);
         if (code != 0) {
             error(l, q->seq, code);
         } else {

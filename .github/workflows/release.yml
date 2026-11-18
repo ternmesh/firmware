@@ -5,6 +5,12 @@ name: Release
 # docs/releases/v<version>.md. A version with a hyphen in it (0.1.0-alpha.1) is marked a
 # pre-release.
 #
+# Every file a release carries is signed (draft/companion.md, "Signed images"; docs/signing.md):
+# <file>.sig beside it, 64 bytes of Ed25519 by the release key, whose private half is the secret
+# TERN_RELEASE_SIGNING_KEY. A release is never published unsigned: without the secret, or with a key
+# that ports/node/release_keys.h does not list, so that the nodes built here would refuse what it
+# signs, the release fails, first before anything is built and again before anything is published.
+#
 # Each board is built in a job of its own, as CI builds them: one after another, the ESP32 boards'
 # 117 builds took nearly four hours. The boards are the ports' own lists, ports/esp32/boards/ and
 # the targets in ports/nrf52/release.sh, so a board added there is in the next release.
@@ -30,6 +36,26 @@ jobs:
           echo "$GITHUB_REF_NAME" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9a-z.]+)?$'
           test -f "docs/releases/$GITHUB_REF_NAME.md"
           echo "version=${GITHUB_REF_NAME#v}" >>"$GITHUB_OUTPUT"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "cryptography>=42"
+      # Before hours of builds: the key is there, the firmware holds it, and no build takes
+      # unsigned images.
+      - name: Check the release key
+        env:
+          TERN_RELEASE_SIGNING_KEY: ${{ secrets.TERN_RELEASE_SIGNING_KEY }}
+        run: |
+          if [ -z "$TERN_RELEASE_SIGNING_KEY" ]; then
+            echo "::error::The secret TERN_RELEASE_SIGNING_KEY is not set. A release is never published unsigned: see docs/signing.md."
+            exit 1
+          fi
+          python3 tools/release_key.py selftest
+          python3 tools/release_key.py listed
+          if grep -rn "CONFIG_TERN_UPDATE_UNSIGNED=y" ports/esp32/sdkconfig.defaults* ports/esp32/boards ports/nrf52/prj.conf ports/nrf52/boards; then
+            echo "::error::A release build would take unsigned updates (CONFIG_TERN_UPDATE_UNSIGNED)."
+            exit 1
+          fi
       - name: List the boards
         id: boards
         run: |
@@ -94,15 +120,33 @@ jobs:
         with:
           path: images
           merge-multiple: true
-      - name: Publish
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "cryptography>=42"
+      - name: Sum
         run: |
           cd images
           sha256sum -- *.bin *.uf2 *.zip >SHA256SUMS
           cat SHA256SUMS
-          cd ..
+      # Each image, and SHA256SUMS, signed, and every signature checked against the keys the
+      # firmware holds before anything is published.
+      - name: Sign
+        env:
+          TERN_RELEASE_SIGNING_KEY: ${{ secrets.TERN_RELEASE_SIGNING_KEY }}
+        run: |
+          if [ -z "$TERN_RELEASE_SIGNING_KEY" ]; then
+            echo "::error::The secret TERN_RELEASE_SIGNING_KEY is not set. A release is never published unsigned: see docs/signing.md."
+            exit 1
+          fi
+          python3 tools/release_key.py listed
+          python3 tools/release_key.py sign images/*.bin images/*.uf2 images/*.zip images/SHA256SUMS
+          python3 tools/release_key.py verify images/*.bin images/*.uf2 images/*.zip images/SHA256SUMS
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
           case "$GITHUB_REF_NAME" in *-*) pre=--prerelease ;; *) pre= ;; esac
           gh release create "$GITHUB_REF_NAME" $pre --verify-tag --title "$GITHUB_REF_NAME" \
             --notes-file "docs/releases/$GITHUB_REF_NAME.md" \
-            images/*.bin images/*.uf2 images/*.zip images/SHA256SUMS
+            images/*.bin images/*.uf2 images/*.zip images/SHA256SUMS images/*.sig
