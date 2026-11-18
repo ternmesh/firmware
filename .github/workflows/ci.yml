@@ -49,7 +49,13 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y ninja-build gcc-arm-none-eabi
+      # Only the compiler and newlib's headers (the core includes string.h). Without
+      # --no-install-recommends apt also fetches the 463 MB C++ library, and Ubuntu's mirror has
+      # stalled on it. A stalled download times out after 30 s and is retried.
+      - run: >-
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends
+          -o Acquire::http::Timeout=30 -o Acquire::Retries=5
+          ninja-build gcc-arm-none-eabi libnewlib-dev libnewlib-arm-none-eabi
       - name: Configure
         run: >-
           cmake -S . -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/arm-none-eabi.cmake
