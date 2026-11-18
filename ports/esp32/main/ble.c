@@ -395,6 +395,17 @@ bool ble_flush(uint32_t ms) {
     }
 }
 
+/* Deep sleep, which board_off() goes into next, turns the radio off with everything else; the
+ * client connected is told first, and nothing advertises meanwhile. */
+void ble_stop(void) {
+    (void)ble_gap_adv_stop();
+    uint16_t c = conn;
+    if (c != BLE_HS_CONN_HANDLE_NONE) {
+        ble_gap_terminate(c, BLE_ERR_RD_CONN_TERM_PWROFF);
+        vTaskDelay(pdMS_TO_TICKS(200));
+    }
+}
+
 void ble_forget(void) {
     uint16_t c = conn;
     if (c != BLE_HS_CONN_HANDLE_NONE) {

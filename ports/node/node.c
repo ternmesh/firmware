@@ -3712,8 +3712,13 @@ __attribute__((noreturn)) static void turn_off(enum ui_off why) {
         screen_flush();
         plat_sleep_ms(2000);
     }
-    /* The radio, asleep, even if the board stopped before starting it (halt()). */
+    /* The radio, asleep, even if the board stopped before starting it (halt()), and Bluetooth off:
+     * a board that waits switched on for its battery to charge would otherwise go on advertising,
+     * and a client would connect to a node that answers nothing. */
     board_radio_sleep();
+    if (have_ble) {
+        ble_stop();
+    }
     board_off(why == UI_OFF_EMPTY ? EMPTY_CHECK_S : 0);
 }
 

@@ -6,6 +6,7 @@
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/conn.h>
 #include <zephyr/bluetooth/gatt.h>
+#include <zephyr/bluetooth/hci.h>
 #include <zephyr/bluetooth/uuid.h>
 #include <zephyr/kernel.h>
 #include <zephyr/random/random.h>
@@ -155,7 +156,12 @@ static void on_disconnected(struct bt_conn *c, uint8_t reason) {
 
 /* The controller frees its connection after the disconnection is reported: advertising again then,
  * with the one connection there is to give. */
-static void on_recycled(void) { advertise(); }
+static volatile bool stopped; /* ble_stop(): never advertise again */
+static void on_recycled(void) {
+    if (!stopped) {
+        advertise();
+    }
+}
 
 static void on_security(struct bt_conn *c, bt_security_t level, enum bt_security_err err) {
     if (c != conn) {
@@ -375,6 +381,21 @@ bool ble_flush(uint32_t ms) {
 }
 
 /* bt_unpair() with any address forgets every bond, and drops the client connected. */
+void ble_stop(void) {
+    stopped = true;
+    (void)bt_le_adv_stop();
+    k_spinlock_key_t key = k_spin_lock(&conn_lock);
+    struct bt_conn *c = conn != NULL ? bt_conn_ref(conn) : NULL;
+    k_spin_unlock(&conn_lock, key);
+    if (c != NULL) {
+        (void)bt_conn_disconnect(c, BT_HCI_ERR_REMOTE_POWER_OFF);
+        bt_conn_unref(c);
+        k_msleep(200); /* the client is told, before the controller goes */
+    }
+    (void)bt_le_adv_stop(); /* in case the disconnection advertised again first */
+    (void)bt_disable();
+}
+
 void ble_forget(void) { (void)bt_unpair(BT_ID_DEFAULT, BT_ADDR_LE_ANY); }
 
 static void count_bond(const struct bt_bond_info *info, void *n) {
