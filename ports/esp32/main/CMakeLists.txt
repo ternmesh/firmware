@@ -20,6 +20,7 @@ idf_component_register(
         ${node}/qr.c
         ${node}/power.c
         ${node}/axp.c
+        ${node}/crumb.c
         ${root}/src/address.c
         ${root}/src/airtime.c
         ${root}/src/aes.c

@@ -58,6 +58,7 @@
 
 #include "ble.h"
 #include "board.h"
+#include "crumb.h"
 #include "demo.h"
 #include "display.h"
 #include "link.h"
@@ -2596,6 +2597,15 @@ static void peers(void) {
     }
 }
 
+/* Where the loop was when the watchdog last restarted the board, if it has since power came on:
+ * said at the start after it, and by 'status'. */
+static void print_watchdog(const struct crumb *c) {
+    printf("the watchdog restarted this board %u time%s since power came on; the last time, the "
+           "loop had stopped in %s, on pass %lu\n",
+           (unsigned)c->restarts, c->restarts == 1 ? "" : "s", crumb_name(c->last_step),
+           (unsigned long)c->last_pass);
+}
+
 static void status(void) {
     char link[TERN_ADDRESS_LINK_LEN + 1], code[TERN_SHORT_CODE_LEN + 1];
     tern_address_link(demo.id.address, link);
@@ -2662,6 +2672,9 @@ static void status(void) {
         printf("messages: %u saved, %u held only until a restart; storage: %u of %u entries used, "
                "%u to spare\n",
                kept, held, used, total, spare);
+    }
+    if (plat_crumb()->restarts != 0) {
+        print_watchdog(plat_crumb());
     }
 }
 
@@ -3972,7 +3985,9 @@ __attribute__((noreturn)) static void halt(enum ui_fault why, int code) {
     }
     tern_time woken = board_now(), down = 0, battery_due = 0;
     bool was = false;
+    crumb_at(plat_crumb(), CRUMB_HALTED);
     for (;;) {
+        plat_watchdog_feed(); /* stopped on purpose, and saying why: not to be restarted */
         tern_time now = board_now();
         bool pressed = board_button();
         if (pressed) {
@@ -4015,6 +4030,12 @@ __attribute__((noreturn)) static void halt(enum ui_fault why, int code) {
 }
 
 void node_main(void) {
+    /* The watchdog first: everything after it is the node's to keep feeding it. What the loop was
+     * doing when the watchdog last restarted it is kept, and said once the console is there. */
+    struct crumb *const cr = plat_crumb();
+    bool watchdog_said = crumb_boot(cr, plat_started_by_watchdog());
+    plat_watchdog_start();
+
     /* Turned off for an empty battery, and woken to look at it again: off again at once, with
      * nothing lit, unless it has been charged a little. The radio is still asleep. */
     bool have_battery = board_battery_init();
@@ -4071,6 +4092,9 @@ void node_main(void) {
     }
     if (!board_console_init()) {
         printf("the console did not start\n");
+    }
+    if (watchdog_said) {
+        print_watchdog(cr);
     }
 
     /* The battery has been read: the platform's generator may now take what it needs to be a true
@@ -4355,25 +4379,46 @@ void node_main(void) {
     boot_until = board_now() + (tern_time)BOOT_MS * 1000000;
     screen_wake();
     for (;;) {
+        /* Fed once a pass: a step that never returns restarts the board, and the step it was in is
+         * kept (crumb.h). */
+        plat_watchdog_feed();
+        crumb_pass(cr);
+        crumb_at(cr, CRUMB_RADIO);
         poll_radio();
         if (bench) {
+            crumb_at(cr, CRUMB_BEACON);
             poll_beacon();
         } else {
+            crumb_at(cr, CRUMB_CONTACT);
             poll_contact();
+            crumb_at(cr, CRUMB_OUTGOING);
             poll_outgoing();
+            crumb_at(cr, CRUMB_FORWARD);
             poll_forward();
+            crumb_at(cr, CRUMB_CARD);
             poll_card();
+            crumb_at(cr, CRUMB_FLOOD);
             poll_flood();
+            crumb_at(cr, CRUMB_ROUTE);
             poll_route();
+            crumb_at(cr, CRUMB_WRITERS);
             poll_writers();
         }
+        crumb_at(cr, CRUMB_CONSOLE);
         poll_console();
+        crumb_at(cr, CRUMB_BLE);
         poll_ble();
+        crumb_at(cr, CRUMB_BUTTON);
         poll_button();
+        crumb_at(cr, CRUMB_SCREEN);
         poll_screen();
+        crumb_at(cr, CRUMB_BATTERY);
         poll_battery();
+        crumb_at(cr, CRUMB_RECEIVER);
         poll_receiver();
+        crumb_at(cr, CRUMB_RESTART);
         restart_if_due();
+        crumb_at(cr, CRUMB_TX_CHECK);
         if (transmitting && board_now() > tx_deadline) {
             /* TX_DONE never came. Listen again rather than stay busy for ever. */
             printf("the radio never said the frame had gone; listening again\n");
@@ -4398,6 +4443,7 @@ void node_main(void) {
             }
             tern_radio_receive(&radio);
         }
+        crumb_at(cr, CRUMB_YIELD);
         poll_led();
         plat_yield();
     }

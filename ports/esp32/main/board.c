@@ -21,6 +21,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "platform.h"
 #include "power.h"
 #include "tern/err.h"
 #include "tern/sx126x.h"
@@ -1043,6 +1044,7 @@ void board_off(uint32_t wake_after_s) {
     pmu_off();
     gpio_deep_sleep_hold_en();
     while (board_button()) {
+        plat_watchdog_feed(); /* held for as long as someone holds it */
         vTaskDelay(pdMS_TO_TICKS(10));
     }
     vTaskDelay(pdMS_TO_TICKS(50)); /* the contacts settle */
@@ -1150,11 +1152,19 @@ bool board_console_init(void) {
 
 bool board_console_read(uint8_t *c) { return usb_serial_jtag_read_bytes(c, 1, 0) == 1; }
 
+/* With no computer there (no USB frames), nothing is written. With one there but nothing reading
+ * the port, it does not drain either: a write waits up to 50 ms once, and after that one has timed
+ * out, waits only 2 ms (for printf() from another task to finish) until one goes again, as
+ * ESP-IDF's own printf() path does (usb_serial_jtag_vfs.c, tx_tried_blocking). A client reading the
+ * port drains it, so its frames wait as before. */
+static bool console_stalled;
+
 void board_console_write(const uint8_t *buf, size_t len) {
-    /* With no computer listening the port does not drain, so nothing waits on it. */
-    if (usb_serial_jtag_is_connected()) {
-        (void)usb_serial_jtag_write_bytes(buf, len, pdMS_TO_TICKS(50));
+    if (!usb_serial_jtag_is_connected()) {
+        return;
     }
+    TickType_t wait = pdMS_TO_TICKS(console_stalled ? 2 : 50);
+    console_stalled = usb_serial_jtag_write_bytes(buf, len, wait) == 0;
 }
 
 void board_console_flush(uint32_t ms) {
@@ -1171,6 +1181,8 @@ bool board_console_init(void) { return uart_driver_install(CONSOLE, 512, 0, 0, N
 
 bool board_console_read(uint8_t *c) { return uart_read_bytes(CONSOLE, c, 1, 0) == 1; }
 
+/* A UART drains at its baud rate whoever listens (the USB-to-serial chip, or nothing, unpowered):
+ * this waits only for that. */
 void board_console_write(const uint8_t *buf, size_t len) {
     (void)uart_write_bytes(CONSOLE, buf, len);
 }

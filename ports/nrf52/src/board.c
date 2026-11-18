@@ -10,9 +10,12 @@
 #include <zephyr/drivers/spi.h>
 #include <zephyr/drivers/uart.h>
 #include <zephyr/kernel.h>
+#include <zephyr/sys/libc-hooks.h>
 #include <zephyr/sys/poweroff.h>
+#include <zephyr/sys/printk-hooks.h>
 #include <zephyr/sys/reboot.h>
 
+#include "platform.h"
 #include "power.h"
 #include "tern/err.h"
 #include "tern/lr11xx.h"
@@ -647,7 +650,9 @@ void board_off(uint32_t wake_after_s) {
     (void)output(&tft_en, GPIO_OUTPUT_INACTIVE);
     (void)output(&vext, GPIO_OUTPUT_INACTIVE);
     battery_off();
+    /* Both waits may outlast the watchdog, which System OFF stops but System ON does not. */
     while (board_button()) {
+        plat_watchdog_feed();
         k_msleep(10);
     }
     k_msleep(50); /* the contacts settle */
@@ -656,6 +661,7 @@ void board_off(uint32_t wake_after_s) {
             if (board_button()) {
                 sys_reboot(SYS_REBOOT_COLD);
             }
+            plat_watchdog_feed();
             k_msleep(100);
         }
         woke_by = WOKE_BY_TIMER;
@@ -679,8 +685,51 @@ bool board_gnss_read(uint8_t *c) {
 
 /* --- The console ----------------------------------------------------------------------------- */
 
-/* USB CDC ACM, which the board makes its console: printf() goes there too. */
-bool board_console_init(void) { return device_is_ready(console); }
+/* USB CDC ACM, which the board makes its console: printf() goes there too.
+ *
+ * Nothing written to it ever waits. Zephyr's CDC ACM (subsys/usb/device_next/class/usbd_cdc_acm.c,
+ * cdc_acm_poll_out()) puts each byte in a 1 KB FIFO, and drops it when that is full unless the
+ * port has hardware flow control, which none of these boards' devicetrees give it. With no
+ * computer reading, the FIFO fills and stays full: what was in it then is sent, stale, when one
+ * next reads, and everything after is dropped. So it is written to only while someone may be
+ * reading: USB powered (VBUS) and a program holding the port open (DTR, which the host raises when
+ * a terminal or a companion opens the port, and drops when it closes it). A client of the
+ * companion link has the port open, so its frames go out as before. */
+#define CDC_ACM DT_NODE_HAS_COMPAT(DT_CHOSEN(zephyr_console), zephyr_cdc_acm_uart)
+
+static bool console_heard(void) {
+#if CDC_ACM && NRF_POWER_HAS_USBREG
+    if (!nrf_power_usbregstatus_vbusdet_get(NRF_POWER)) {
+        return false;
+    }
+#endif
+    uint32_t dtr = 0;
+    /* A console that cannot say (not USB) is always written to: a UART drains by itself. */
+    return uart_line_ctrl_get(console, UART_LINE_CTRL_DTR, &dtr) != 0 || dtr != 0;
+}
+
+/* printf() and printk(), in place of Zephyr's uart_console.c's console_out(): the same, but only
+ * while someone may be reading. */
+static int console_out(int c) {
+    if (console_heard()) {
+        if (c == '\n') {
+            uart_poll_out(console, '\r');
+        }
+        uart_poll_out(console, (unsigned char)c);
+    }
+    return c;
+}
+
+bool board_console_init(void) {
+    if (!device_is_ready(console)) {
+        return false;
+    }
+    __stdout_hook_install(console_out);
+#if defined(CONFIG_PRINTK)
+    __printk_hook_install(console_out);
+#endif
+    return true;
+}
 
 /* The bootloader these boards ship with, Adafruit's (Adafruit_nRF52_Bootloader, src/main.c), opens
  * when it starts with this in GPREGRET, rather than starting the image: over USB, as a serial port
@@ -707,6 +756,9 @@ bool board_console_read(uint8_t *c) {
 }
 
 void board_console_write(const uint8_t *buf, size_t len) {
+    if (!console_heard()) {
+        return;
+    }
     for (size_t i = 0; i < len; i++) {
         uart_poll_out(console, buf[i]);
     }

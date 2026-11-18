@@ -135,6 +135,24 @@ __attribute__((noreturn)) void plat_restart(void);
  * window (draft/companion.md, "Being at the node"), so nothing done over the air or by a client
  * opens one. A chip that cannot tell says true. */
 bool plat_started_by_hand(void);
+
+/* Whether the watchdog made this start: the loop stopped feeding it (plat_watchdog_feed()). Not by
+ * hand (plat_started_by_hand()), and it keeps what any restart keeps. */
+bool plat_started_by_watchdog(void);
+
+/* The chip's watchdog, on the node's own task: started once, before the node does anything that
+ * could stop it, and fed at each pass of its loop and through any wait of its own that may last
+ * longer than PLAT_WATCHDOG_S (turning off with the button held, halt()). Not fed, it restarts the
+ * board. Once started it cannot be stopped; on an nRF52840 it runs on through a restart and the
+ * bootloader, which feeds it while it waits for an update. */
+#define PLAT_WATCHDOG_S 30
+void plat_watchdog_start(void);
+void plat_watchdog_feed(void);
+
+/* Where the loop was (crumb.h), in memory a restart does not clear. */
+struct crumb;
+struct crumb *plat_crumb(void);
+
 void plat_sleep_ms(uint32_t ms);
 void plat_yield(void); /* lets the platform's other tasks run, once a turn of the loop */
 size_t
