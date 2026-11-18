@@ -71,6 +71,7 @@ struct tern_flood_config tern_flood_defaults(void) {
         .busy_span = TERN_S(30),
         .resends = 1,
         .echo = 16,
+        .lower = true,
     };
 }
 
@@ -205,6 +206,11 @@ bool tern_flood_send(struct tern_flood *f, tern_time now, const uint8_t *frame, 
         .state = TERN_FLOOD_WAITING, .own = true, .len = (uint8_t)len, .at = now};
     memcpy(s->frame, frame, len);
     s->frame[1] = tern_flood_starts(frame[0], f->config.hops);
+    /* A frame that would start at the most starts one lower half the time, so that the first
+     * relay's copy looks like the writer's. Kinds that start lower start where they say. */
+    if (f->config.lower && s->frame[1] == f->config.hops && s->frame[1] > 1) {
+        s->frame[1] = (uint8_t)(s->frame[1] - rand_below(f, 2));
+    }
     tern_flood_id(frame, len, s->id);
     take(f, s->id);
     return true;

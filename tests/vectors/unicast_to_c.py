@@ -64,11 +64,12 @@ def main():
         for d in c["deliveries"]:
             ack = (f"true, {c_array(d['proof'], 4)}" if d["acknowledge"]
                    else "false, {0}")
+            when = f"{'true' if d.get('restart') else 'false'}, {d['at_s']}u"
             if d["accept"]:
                 ds.append(f"{{{c_bytes(d['frame'])}, true, {d['counter']}u, "
-                          f"{c_bytes(d['plaintext'])}, {ack}}}")
+                          f"{c_bytes(d['plaintext'])}, {ack}, {when}}}")
             else:
-                ds.append(f"{{{c_bytes(d['frame'])}, false, 0, NULL, 0, {ack}}}")
+                ds.append(f"{{{c_bytes(d['frame'])}, false, 0, NULL, 0, {ack}, {when}}}")
         lines.append(
             f"    {{{c_str(c['name'])}, {c_array(c['session_secret'], 32)}, {c['direction']}, "
             f"(const struct delivery[]){{{', '.join(ds)}}}, {len(ds)}}},"
@@ -86,8 +87,8 @@ def main():
 
         ds = ", ".join(
             f"{{{c_bytes(d['frame'])}, true, {d['session']}, {d['counter']}u, "
-            f"{c_bytes(d['plaintext'])}, {acks(d)}}}" if d["accept"] else
-            f"{{{c_bytes(d['frame'])}, false, 0, 0, NULL, 0, {acks(d)}}}"
+            f"{c_bytes(d['plaintext'])}, {acks(d)}, {d['at_s']}u}}" if d["accept"] else
+            f"{{{c_bytes(d['frame'])}, false, 0, 0, NULL, 0, {acks(d)}, {d['at_s']}u}}"
             for d in c["deliveries"]
         )
         lines.append(
@@ -99,14 +100,25 @@ def main():
 
     lines.append("static const struct sender_case senders[] = {")
     for c in v["senders"]:
+        thens = {None: "THEN_NOTHING", "acknowledged": "THEN_ACKNOWLEDGED",
+                 "given up": "THEN_GIVEN_UP"}
         ss = ", ".join(
-            f"{{{s['direction']}, {c_bytes(s['plaintext'])}, {s['counter']}u, "
-            f"{c_bytes(s['frame'])}}}"
+            f"{{{'true' if s.get('restart') else 'false'}, {s['direction']}, "
+            f"{c_bytes(s['plaintext'])}, {s['counter'] or 0}u, "
+            f"{c_bytes(s['frame'] or '')}, {thens[s['then']]}}}"
             for s in c["sends"]
         )
         lines.append(
             f"    {{{c_str(c['name'])}, {c_array(c['session_secret'], 32)}, "
             f"(const struct send[]){{{ss}}}, {len(c['sends'])}}},"
+        )
+    lines.append("};")
+
+    lines.append("static const struct lifetime_case lifetimes[] = {")
+    for c in v["lifetimes"]:
+        lines.append(
+            f"    {{{c['made_s']}u, {c['at_s']}u, {'true' if c['sends'] else 'false'}, "
+            f"{'true' if c['holds'] else 'false'}}},"
         )
     lines.append("};")
 

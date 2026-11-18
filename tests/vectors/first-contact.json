@@ -1,5 +1,5 @@
 {
-  "description": "First contact, draft 0 (draft/first-contact.md). For each address, an implementation given seed MUST derive address, x25519_private and x25519_public. Each rejected address MUST be refused: as a target to contact, and in a message_3. For each handshake, an initiator given initiator_seed, the address of responder_seed, initiator_ephemeral and c_i MUST send frames[0], MUST send frames[2] on receiving frames[1], and on receiving frames[3] MUST derive session_secret; a responder given responder_seed, responder_ephemeral and c_r MUST send frames[1] on receiving frames[0], and on receiving frames[2] MUST send frames[3], learn the initiator's address and derive session_secret. Setting the ephemeral keys and connection identifiers is a test hook. A node given a not_for_me frame MUST NOT reply. For each of sources, a responder given responder_seed, responder_ephemeral and c_r MUST send reply on receiving frame: message_2 to the routing id, source, that frame names. Each rejected frame replaces message number `message` of the named handshake, and its receiver, otherwise in the state that handshake leaves it in, MUST reject it: send nothing and derive no session. Every frame is as its sender makes it for a destination it hears: hops is 32, power 14, and next the destination. Those three are the nodes' on the way to set (draft/forwarding.md), and a frame is the one given if it is equal in hdr, byte 0, and from destination, byte 7, on. Routing ids are numbers; other values are hex.",
+  "description": "First contact, draft 0 (draft/first-contact.md). For each address, an implementation given seed MUST derive address, x25519_private and x25519_public. Each rejected address MUST be refused: as a target to contact, and in a message_3. For each handshake, an initiator given initiator_seed, the address of responder_seed, initiator_ephemeral and c_i MUST send frames[0], MUST send frames[2] on receiving frames[1], and on receiving frames[3] MUST derive session_secret; a responder given responder_seed, responder_ephemeral and c_r MUST send frames[1] on receiving frames[0], and on receiving frames[2] MUST send frames[3], learn the initiator's address and derive session_secret. Setting the ephemeral keys and connection identifiers is a test hook. A node given a not_for_me frame MUST NOT reply. For each of sources, a responder given responder_seed, responder_ephemeral and c_r MUST send reply on receiving frame: message_2 to the routing id, source, that frame names. Each rejected frame replaces message number `message` of the named handshake, and its receiver, otherwise in the state that handshake leaves it in, MUST reject it: send nothing and derive no session. Every frame is as its sender makes it for a destination it hears: hops is 32, power 14, and next the destination. Those three are the nodes' on the way to set (draft/forwarding.md), and a frame is the one given if it is equal in hdr, byte 0, and from destination, byte 7, on. Routing ids are numbers; other values are hex. For each of answers, a responder given responder_seed, receiving each frame of arrivals at at_s seconds, MUST answer exactly those whose answered is true; its own ephemeral keys and connection identifiers are its own to choose.",
   "generator": "vectors/tools/first_contact.py",
   "exporter_label": 32768,
   "addresses": [
@@ -302,6 +302,70 @@
       "handshake": "first",
       "message": 3,
       "frame": "53200e8326f1cf8326f1cfc846abec583f48d0290cde97914882e0dcc14fbe53f87cfd2b8ad35d0fe131e57fff2c07fb36a4d2bcae1349a577c10b546e8e07b69abf0b2db6d116ac5b4d875dc4bc607c"
+    }
+  ],
+  "answers": [
+    {
+      "name": "answers",
+      "note": "one message_1 again and again, then another node's: four message_2 frames in any ten minutes, first or again, and no more",
+      "responder_seed": "e504638ece856468a5fa2dcde22d6488b01e18f5d4b37389fe568b5dee00e4a3",
+      "arrivals": [
+        {
+          "frame": "51200e8326f1cf8326f1cfb82fd4961d224f6f03005820d92ae47c9616a0fb4015d6ffa6bb16a1d8d2ae5e05dfd0f0a8a16b9e72bd951700",
+          "at_s": 0,
+          "answered": true
+        },
+        {
+          "frame": "51200e8326f1cf8326f1cfb82fd4961d224f6f03005820d92ae47c9616a0fb4015d6ffa6bb16a1d8d2ae5e05dfd0f0a8a16b9e72bd951700",
+          "at_s": 10,
+          "answered": true
+        },
+        {
+          "frame": "51200e8326f1cf8326f1cfb82fd4961d224f6f03005820d92ae47c9616a0fb4015d6ffa6bb16a1d8d2ae5e05dfd0f0a8a16b9e72bd951700",
+          "at_s": 20,
+          "answered": true
+        },
+        {
+          "frame": "51200e8326f1cf8326f1cfb82fd4961d224f6f03005820d92ae47c9616a0fb4015d6ffa6bb16a1d8d2ae5e05dfd0f0a8a16b9e72bd951700",
+          "at_s": 30,
+          "answered": true
+        },
+        {
+          "frame": "51200e8326f1cf8326f1cfb82fd4961d224f6f03005820d92ae47c9616a0fb4015d6ffa6bb16a1d8d2ae5e05dfd0f0a8a16b9e72bd951700",
+          "at_s": 40,
+          "answered": false
+        },
+        {
+          "frame": "51200e8326f1cf8326f1cfb82fd4961d224f6f03005820d92ae47c9616a0fb4015d6ffa6bb16a1d8d2ae5e05dfd0f0a8a16b9e72bd951700",
+          "at_s": 100,
+          "answered": false
+        },
+        {
+          "frame": "51200e8326f1cf8326f1cfa36b6aa98ec036710300582017914ff14254f4f2db4c27cc95e1ed3f1caab2aee4aac12654972cffb2b6772202",
+          "at_s": 700,
+          "answered": true
+        },
+        {
+          "frame": "51200e8326f1cf8326f1cfa36b6aa98ec036710300582017914ff14254f4f2db4c27cc95e1ed3f1caab2aee4aac12654972cffb2b6772202",
+          "at_s": 701,
+          "answered": true
+        },
+        {
+          "frame": "51200e8326f1cf8326f1cfa36b6aa98ec036710300582017914ff14254f4f2db4c27cc95e1ed3f1caab2aee4aac12654972cffb2b6772202",
+          "at_s": 702,
+          "answered": true
+        },
+        {
+          "frame": "51200e8326f1cf8326f1cfa36b6aa98ec036710300582017914ff14254f4f2db4c27cc95e1ed3f1caab2aee4aac12654972cffb2b6772202",
+          "at_s": 703,
+          "answered": true
+        },
+        {
+          "frame": "51200e8326f1cf8326f1cfa36b6aa98ec036710300582017914ff14254f4f2db4c27cc95e1ed3f1caab2aee4aac12654972cffb2b6772202",
+          "at_s": 704,
+          "answered": false
+        }
+      ]
     }
   ]
 }

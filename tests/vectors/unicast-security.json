@@ -1,5 +1,5 @@
 {
-  "description": "Secured unicast frames, draft 0 (draft/unicast-security.md), and their acknowledgements (draft/forwarding.md). For each accepted case, an implementation given session_secret, direction, counter, hops, power, next, destination and plaintext MUST produce frame, and given session_secret, direction and frame MUST recover counter and plaintext. Each rejected case MUST be rejected by a receiver holding session_secret and expecting counter in direction. For each sequence, a receiver of a new session given the deliveries in order MUST accept exactly those marked accept, with that counter and plaintext, and MUST acknowledge exactly those marked acknowledge, with the frame's tag and that proof. For each collision case, a receiver holding every listed session, all new, given the deliveries in order MUST accept exactly those marked accept, attributed to that session (an index into sessions) and counter, with that plaintext, and for each delivery MUST send exactly the acknowledgements listed, each with the frame's tag and that proof, to the other end of that session. For each senders case, an implementation acting as both ends of a new session, given each send's direction and plaintext in order and choosing the counter itself, MUST produce that send's frame; counter is given only to help debugging. For each acknowledgements case, the node that sent message counter in direction, holding session_secret, MUST take frame as showing that the message arrived if valid is true, and MUST NOT if it is false. Values are hex; hdr is 72 (0x48), or 73 with the node flag set. hops, power, next and destination are integers, power signed, laid out as draft/forwarding.md gives, and where a case does not give them they are 32, 14, 0x0A0B0C0D and 0x01020304.",
+  "description": "Secured unicast frames, draft 0 (draft/unicast-security.md), and their acknowledgements (draft/forwarding.md). For each accepted case, an implementation given session_secret, direction, counter, hops, power, next, destination and plaintext MUST produce frame, and given session_secret, direction and frame MUST recover counter and plaintext. Each rejected case MUST be rejected by a receiver holding session_secret and expecting counter in direction. For each sequence, a receiver of a new session given the deliveries in order, each at at_s seconds, MUST accept exactly those marked accept, with that counter and plaintext, and MUST acknowledge exactly those marked acknowledge, with the frame's tag and that proof; a delivery marked restart comes after the receiver has restarted, keeping only what it stored. For each collision case, a receiver holding every listed session, all new, given the deliveries in order, each at at_s seconds, MUST accept exactly those marked accept, attributed to that session (an index into sessions) and counter, with that plaintext, and for each delivery MUST send exactly the acknowledgements listed, each with the frame's tag and that proof, to the other end of that session. For each senders case, an implementation acting as both ends of a new session, given each send's direction and plaintext in order and choosing the counter itself, MUST produce that send's frame, or, where frame is null, MUST NOT send in the session but start again; a send marked restart comes after both ends have restarted, keeping only what they stored, and then is what became of the message afterwards: acknowledged (validly), given up, or null for nothing yet. counter is given only to help debugging. For each lifetimes case, a node that derived a session's secret at made_s seconds MAY send in it at at_s if sends is true and MUST NOT if it is false, and MUST have erased it by at_s if holds is false. For each acknowledgements case, the node that sent message counter in direction, holding session_secret, MUST take frame as showing that the message arrived if valid is true, and MUST NOT if it is false. Values are hex; hdr is 72 (0x48), or 73 with the node flag set. hops, power, next and destination are integers, power signed, laid out as draft/forwarding.md gives, and where a case does not give them they are 32, 14, 0x0A0B0C0D and 0x01020304.",
   "generator": "vectors/tools/unicast.py",
   "accepted": [
     {
@@ -18,13 +18,13 @@
         "epoch": 0,
         "epoch_key": "69e66434f9549f37bbed9008549211ec54869dc4c22172dac6b87388440e0434",
         "message_key": "bab944a475109660ef17c71c8378f1f7",
-        "tag_key": "ddeb265222561c8c0a622cb8852f161d",
+        "tag_key": "44ca7c05c978f615a87308da420b77cb",
         "iv": "5a456f34a4fc63183b4a0bf34a",
         "nonce": "5a456f34a4fc63183b4a0bf34a",
-        "dtag": "65000b48",
-        "proof": "4f9ebb5a"
+        "dtag": "ac605c6f",
+        "proof": "6e30ceff"
       },
-      "frame": "48200e0a0b0c0d0102030465000b485ea6c368bdcc3ddb99ccfc176d"
+      "frame": "48200e0a0b0c0d01020304ac605c6f5ea6c368bd802ae9840aa92595"
     },
     {
       "name": "reply",
@@ -42,13 +42,13 @@
         "epoch": 0,
         "epoch_key": "b38420633060edce9ce7f0395a67622239a303a274c19826ca2e875e55af1d91",
         "message_key": "a86c20fc470bc941e69ce14f60fa13c3",
-        "tag_key": "0a30712ad3adfcfbdfe86d9d64e02316",
+        "tag_key": "976ee6c0481004b064fd35282eae8f94",
         "iv": "16f1151cba29bee234525758a1",
         "nonce": "16f1151cba29bee234525758a1",
-        "dtag": "9bdbbb75",
-        "proof": "1c390a8f"
+        "dtag": "3cfd50e6",
+        "proof": "da32b522"
       },
-      "frame": "48200e0a0b0c0d010203049bdbbb754d37fe96e8bc8c25cafcb7f789"
+      "frame": "48200e0a0b0c0d010203043cfd50e64d37fe96e8c9f06fdd084b6545"
     },
     {
       "name": "last-of-epoch-0",
@@ -66,17 +66,17 @@
         "epoch": 0,
         "epoch_key": "69e66434f9549f37bbed9008549211ec54869dc4c22172dac6b87388440e0434",
         "message_key": "14a1c68f25fdd030a1d05cb54f9db070",
-        "tag_key": "ddeb265222561c8c0a622cb8852f161d",
+        "tag_key": "44ca7c05c978f615a87308da420b77cb",
         "iv": "5a456f34a4fc63183b4a0bf34a",
         "nonce": "5a456f34a4fc63183b4a0bf355",
-        "dtag": "9a1546bd",
-        "proof": "d59bb956"
+        "dtag": "ce56426d",
+        "proof": "3bb8be3d"
       },
-      "frame": "48200e0a0b0c0d010203049a1546bd9b8e5fc5ab8ef1307ad9d3288a"
+      "frame": "48200e0a0b0c0d01020304ce56426d9b8e5fc5abc89ebcb96480d331"
     },
     {
       "name": "first-of-epoch-1",
-      "note": "counter 32: epoch 1, one step of the epoch chain",
+      "note": "counter 32: epoch 1, one step of the epoch chain, and epoch 1's tag key",
       "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "direction": 1,
       "counter": 32,
@@ -90,13 +90,13 @@
         "epoch": 1,
         "epoch_key": "bf6676af36def76cc899b20ee39ee942f263522613d359bcdffc772bbb1eb8f4",
         "message_key": "9994f509d54176e405657eb2af5e136c",
-        "tag_key": "ddeb265222561c8c0a622cb8852f161d",
+        "tag_key": "a446910517a231c5fcc3b9518c78be0d",
         "iv": "5a456f34a4fc63183b4a0bf34a",
         "nonce": "5a456f34a4fc63183b4a0bf36a",
-        "dtag": "6a8ae005",
-        "proof": "12a041dc"
+        "dtag": "5d1c0b85",
+        "proof": "ca5e9d4c"
       },
-      "frame": "48200e0a0b0c0d010203046a8ae005c56150cee0b0b4ef6d4d20e69e"
+      "frame": "48200e0a0b0c0d010203045d1c0b85c56150cee0fdeb208b102cc434"
     },
     {
       "name": "far",
@@ -114,13 +114,13 @@
         "epoch": 31,
         "epoch_key": "8421d82ac066079fc72aa621f80b09978bc4bda5397589864189826ca71b2031",
         "message_key": "c2e7c581fb99fe8fa4b52731c1d577a9",
-        "tag_key": "ddeb265222561c8c0a622cb8852f161d",
+        "tag_key": "448e1dea4b30d013f31a398dc76aad18",
         "iv": "5a456f34a4fc63183b4a0bf34a",
         "nonce": "5a456f34a4fc63183b4a0bf0a2",
-        "dtag": "7db2f03e",
-        "proof": "ab7608d8"
+        "dtag": "78c7a430",
+        "proof": "a1c59f10"
       },
-      "frame": "48200e0a0b0c0d010203047db2f03edda058b0cd9afb080b66137786"
+      "frame": "48200e0a0b0c0d0102030478c7a430dda058b0cd2993131a8cb04133"
     },
     {
       "name": "relayed",
@@ -138,13 +138,13 @@
         "epoch": 0,
         "epoch_key": "69e66434f9549f37bbed9008549211ec54869dc4c22172dac6b87388440e0434",
         "message_key": "bab944a475109660ef17c71c8378f1f7",
-        "tag_key": "ddeb265222561c8c0a622cb8852f161d",
+        "tag_key": "44ca7c05c978f615a87308da420b77cb",
         "iv": "5a456f34a4fc63183b4a0bf34a",
         "nonce": "5a456f34a4fc63183b4a0bf34a",
-        "dtag": "65000b48",
-        "proof": "4f9ebb5a"
+        "dtag": "ac605c6f",
+        "proof": "6e30ceff"
       },
-      "frame": "481dfcbeef00010102030465000b485ea6c368bdcc3ddb99ccfc176d"
+      "frame": "481dfcbeef000101020304ac605c6f5ea6c368bd802ae9840aa92595"
     },
     {
       "name": "empty",
@@ -162,13 +162,13 @@
         "epoch": 0,
         "epoch_key": "69e66434f9549f37bbed9008549211ec54869dc4c22172dac6b87388440e0434",
         "message_key": "7a9eb1e0b69fb477362c811a77d9c00a",
-        "tag_key": "ddeb265222561c8c0a622cb8852f161d",
+        "tag_key": "44ca7c05c978f615a87308da420b77cb",
         "iv": "5a456f34a4fc63183b4a0bf34a",
         "nonce": "5a456f34a4fc63183b4a0bf34d",
-        "dtag": "186955b3",
-        "proof": "ffc4f727"
+        "dtag": "bf55907b",
+        "proof": "725ac647"
       },
-      "frame": "48200e0a0b0c0d01020304186955b34f611dfa41ab8738"
+      "frame": "48200e0a0b0c0d01020304bf55907b2518a35457133352"
     },
     {
       "name": "non-latin",
@@ -186,13 +186,13 @@
         "epoch": 0,
         "epoch_key": "62cc08b9c3ef4f79c2e5ac0ad2323eea40352caadf1fbea548910a4630fc6cda",
         "message_key": "35e4dd2befc1d9b1301b43ef04087d73",
-        "tag_key": "b68f2d45a709e71680e45bc15057e1ac",
+        "tag_key": "a42159edad189a40e4cc9922ead15af5",
         "iv": "67c3db50fd2636de5432f72b13",
         "nonce": "67c3db50fd2636de5432f72b16",
-        "dtag": "deaf64ab",
-        "proof": "3de1c4d7"
+        "dtag": "58784f3c",
+        "proof": "2096d921"
       },
-      "frame": "48200e0a0b0c0d01020304deaf64ab465e3274bb1b7e9682883756d2046e38f3f59cba7b02fe65"
+      "frame": "48200e0a0b0c0d0102030458784f3c465e3274bb1b7e9682883756d2046e389128f1c5084a93ca"
     },
     {
       "name": "largest",
@@ -210,13 +210,13 @@
         "epoch": 0,
         "epoch_key": "a07b2698cccd83abb97173e441b3071454af62d8279b7aa70414937099f2d32e",
         "message_key": "9af209fd279007a8aa211aafba025223",
-        "tag_key": "cda69726f4338adb07fe1f7e49dcb6a6",
+        "tag_key": "1285572d6636a223ae2da0a8c87e2980",
         "iv": "3a0e42b4b53e963add66e32ad7",
         "nonce": "3a0e42b4b53e963add66e32ad5",
-        "dtag": "31d53f18",
-        "proof": "bf363a9d"
+        "dtag": "18d24279",
+        "proof": "89b56b6d"
       },
-      "frame": "48200e0a0b0c0d0102030431d53f1810216d2fab91343b51ca651715176f3ced35303148ea904987c2b6c98c32e3aa2b59f736d57db778b8a948ac22061063d404954ec50df358c3cb07112508bb80c27f59307b4450a0a7259ada5fbdc04a7c708386c6fddf2c9d367b2ce6c1b2600d765a3332f95dab1500e6b77f5e1eb6d4027898f9a07a74b14e378bd904de6abf0b0e90dc775a146b39a5109c09d59ffb9e0eeacbd7ca99ab9ac990101b5a88df9220503d72429e9cc284d86c969d3cf2bc710a2d4cedd6fe14bc4a1cd5557f254f2a621141fe42bb2510b0c170cfc5e77fd8c6710f99f8323e8301005ef2f2b334f54c4df9a18125a34f1dedd91ee1"
+      "frame": "48200e0a0b0c0d0102030418d2427910216d2fab91343b51ca651715176f3ced35303148ea904987c2b6c98c32e3aa2b59f736d57db778b8a948ac22061063d404954ec50df358c3cb07112508bb80c27f59307b4450a0a7259ada5fbdc04a7c708386c6fddf2c9d367b2ce6c1b2600d765a3332f95dab1500e6b77f5e1eb6d4027898f9a07a74b14e378bd904de6abf0b0e90dc775a146b39a5109c09d59ffb9e0eeacbd7ca99ab9ac990101b5a88df9220503d72429e9cc284d86c969d3cf2bc710a2d4cedd6fe14bc4a1cd5557f254f2a621141fe42bb2510b0c170cfc5e77fd8c6710f99f8323e8301005ef2f2b334f54c4df9a181738373d89d2f3758"
     },
     {
       "name": "for-the-node",
@@ -234,13 +234,13 @@
         "epoch": 0,
         "epoch_key": "69e66434f9549f37bbed9008549211ec54869dc4c22172dac6b87388440e0434",
         "message_key": "d789bcd9aef5945b3257728ee62a2dc8",
-        "tag_key": "ddeb265222561c8c0a622cb8852f161d",
+        "tag_key": "44ca7c05c978f615a87308da420b77cb",
         "iv": "5a456f34a4fc63183b4a0bf34a",
         "nonce": "5a456f34a4fc63183b4a0bf34b",
-        "dtag": "e02952d9",
-        "proof": "8e58bfad"
+        "dtag": "f9dbe32f",
+        "proof": "fc55a4fb"
       },
-      "frame": "49200e0a0b0c0d01020304e02952d99f2a86437fe3c8c70ab7682c3d877c677b5042eb623c080dc07b8ae2"
+      "frame": "49200e0a0b0c0d01020304f9dbe32f9f2a86437fe3c8c70ab7682c3d877c677b5042ebb46e203a0fb83e94"
     }
   ],
   "rejected": [
@@ -250,7 +250,7 @@
       "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "direction": 1,
       "counter": 0,
-      "frame": "48200e0a0b0c0d0102030465000b485ea6c368bdcc3ddb99ccfc176c"
+      "frame": "48200e0a0b0c0d01020304ac605c6f5ea6c368bd802ae9840aa92594"
     },
     {
       "name": "ciphertext-flipped",
@@ -258,7 +258,7 @@
       "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "direction": 1,
       "counter": 0,
-      "frame": "48200e0a0b0c0d0102030465000b48dea6c368bdcc3ddb99ccfc176d"
+      "frame": "48200e0a0b0c0d01020304ac605c6fdea6c368bd802ae9840aa92595"
     },
     {
       "name": "header-changed",
@@ -266,7 +266,7 @@
       "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "direction": 1,
       "counter": 0,
-      "frame": "49200e0a0b0c0d0102030465000b485ea6c368bdcc3ddb99ccfc176d"
+      "frame": "49200e0a0b0c0d01020304ac605c6f5ea6c368bd802ae9840aa92595"
     },
     {
       "name": "reserved-flag",
@@ -274,7 +274,7 @@
       "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "direction": 1,
       "counter": 0,
-      "frame": "4a200e0a0b0c0d0102030465000b485ea6c368bdcc3ddb99ccfc176d"
+      "frame": "4a200e0a0b0c0d01020304ac605c6f5ea6c368bd802ae9840aa92595"
     },
     {
       "name": "truncated",
@@ -282,7 +282,7 @@
       "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "direction": 1,
       "counter": 0,
-      "frame": "48200e0a0b0c0d0102030465000b485ea6c368bdcc3d"
+      "frame": "48200e0a0b0c0d01020304ac605c6f5ea6c368bd802a"
     },
     {
       "name": "first-draft-layout",
@@ -290,7 +290,7 @@
       "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "direction": 1,
       "counter": 0,
-      "frame": "48200e0a65000b485ea6c368bdcc3ddb99ccfc176d"
+      "frame": "48200e0aac605c6f5ea6c368bd802ae9840aa92595"
     },
     {
       "name": "wrong-direction",
@@ -298,7 +298,23 @@
       "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "direction": 1,
       "counter": 0,
-      "frame": "48200e0a0b0c0d010203049bdbbb754d37fe96e8bc8c25cafcb7f789"
+      "frame": "48200e0a0b0c0d010203043cfd50e64d37fe96e8c9f06fdd084b6545"
+    },
+    {
+      "name": "first-draft-tag-key-0",
+      "note": "counter 0 sealed whole, but with the destination tag the first draft's one tag key gives",
+      "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "direction": 1,
+      "counter": 0,
+      "frame": "48200e0a0b0c0d0102030465000b485ea6c368bdcc3ddb99ccfc176d"
+    },
+    {
+      "name": "first-draft-tag-key-32",
+      "note": "counter 32 sealed whole, but with the destination tag the first draft's one tag key gives",
+      "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "direction": 1,
+      "counter": 32,
+      "frame": "48200e0a0b0c0d010203046a8ae005c56150cee0b0b4ef6d4d20e69e"
     }
   ],
   "sequences": [
@@ -309,20 +325,22 @@
       "direction": 1,
       "deliveries": [
         {
-          "frame": "48200e0a0b0c0d0102030465000b485ba6dc77b3e1eb60329b13cec66147ea1c",
+          "frame": "48200e0a0b0c0d01020304ac605c6f5ba6dc77b3e1eb6032d13847f74138983c",
+          "at_s": 0,
           "accept": true,
           "counter": 0,
           "plaintext": "6d6573736167652030",
           "acknowledge": true,
-          "proof": "4f9ebb5a"
+          "proof": "6e30ceff"
         },
         {
-          "frame": "48200e0a0b0c0d0102030465000b485ba6dc77b3e1eb60329b13cec66147ea1c",
+          "frame": "48200e0a0b0c0d01020304ac605c6f5ba6dc77b3e1eb6032d13847f74138983c",
+          "at_s": 1,
           "accept": false,
           "counter": null,
           "plaintext": null,
           "acknowledge": true,
-          "proof": "4f9ebb5a"
+          "proof": "6e30ceff"
         }
       ]
     },
@@ -333,36 +351,40 @@
       "direction": 1,
       "deliveries": [
         {
-          "frame": "48200e0a0b0c0d0102030465000b485ba6dc77b3e1eb60329b13cec66147ea1c",
+          "frame": "48200e0a0b0c0d01020304ac605c6f5ba6dc77b3e1eb6032d13847f74138983c",
+          "at_s": 0,
           "accept": true,
           "counter": 0,
           "plaintext": "6d6573736167652030",
           "acknowledge": true,
-          "proof": "4f9ebb5a"
+          "proof": "6e30ceff"
         },
         {
-          "frame": "48200e0a0b0c0d01020304e02952d9f38b31f4da406923ffb66ae64eade3cef7",
+          "frame": "48200e0a0b0c0d01020304f9dbe32ff38b31f4da406923ff623cbaa165f86a46",
+          "at_s": 1,
           "accept": true,
           "counter": 1,
           "plaintext": "6d6573736167652031",
           "acknowledge": true,
-          "proof": "8e58bfad"
+          "proof": "fc55a4fb"
         },
         {
-          "frame": "48200e0a0b0c0d01020304c3a724469be05541388153afa1f1fa8d67b1554e01",
+          "frame": "48200e0a0b0c0d010203040fd70bf49be05541388153afa10d44e29a841d60e1",
+          "at_s": 2,
           "accept": true,
           "counter": 2,
           "plaintext": "6d6573736167652032",
           "acknowledge": true,
-          "proof": "6d6eef8d"
+          "proof": "f39b7676"
         },
         {
-          "frame": "48200e0a0b0c0d01020304e02952d9f38b31f4da406923ffb66ae64eade3cef7",
+          "frame": "48200e0a0b0c0d01020304f9dbe32ff38b31f4da406923ff623cbaa165f86a46",
+          "at_s": 3,
           "accept": false,
           "counter": null,
           "plaintext": null,
           "acknowledge": true,
-          "proof": "8e58bfad"
+          "proof": "fc55a4fb"
         }
       ]
     },
@@ -373,28 +395,31 @@
       "direction": 1,
       "deliveries": [
         {
-          "frame": "48200e0a0b0c0d01020304c3a724469be05541388153afa1f1fa8d67b1554e01",
+          "frame": "48200e0a0b0c0d010203040fd70bf49be05541388153afa10d44e29a841d60e1",
+          "at_s": 0,
           "accept": true,
           "counter": 2,
           "plaintext": "6d6573736167652032",
           "acknowledge": true,
-          "proof": "6d6eef8d"
+          "proof": "f39b7676"
         },
         {
-          "frame": "48200e0a0b0c0d0102030465000b485ba6dc77b3e1eb60329b13cec66147ea1c",
+          "frame": "48200e0a0b0c0d01020304ac605c6f5ba6dc77b3e1eb6032d13847f74138983c",
+          "at_s": 1,
           "accept": true,
           "counter": 0,
           "plaintext": "6d6573736167652030",
           "acknowledge": true,
-          "proof": "4f9ebb5a"
+          "proof": "6e30ceff"
         },
         {
-          "frame": "48200e0a0b0c0d01020304e02952d9f38b31f4da406923ffb66ae64eade3cef7",
+          "frame": "48200e0a0b0c0d01020304f9dbe32ff38b31f4da406923ff623cbaa165f86a46",
+          "at_s": 2,
           "accept": true,
           "counter": 1,
           "plaintext": "6d6573736167652031",
           "acknowledge": true,
-          "proof": "8e58bfad"
+          "proof": "fc55a4fb"
         }
       ]
     },
@@ -405,7 +430,8 @@
       "direction": 1,
       "deliveries": [
         {
-          "frame": "48200e0a0b0c0d010203046a8ae005c0614fd1ee13d58be1b9c8a3fe2ee53a6077",
+          "frame": "48200e0a0b0c0d010203045d1c0b85c0614fd1ee13d58be1b958915c1aaaddd785",
+          "at_s": 0,
           "accept": false,
           "counter": null,
           "plaintext": null,
@@ -413,12 +439,13 @@
           "proof": null
         },
         {
-          "frame": "48200e0a0b0c0d010203049a1546bd9e8e40daa53d8638af4a89d7d63462bfa2f5",
+          "frame": "48200e0a0b0c0d01020304ce56426d9e8e40daa53d8638af4a12ca943d317e7aa1",
+          "at_s": 1,
           "accept": true,
           "counter": 31,
           "plaintext": "6d657373616765203331",
           "acknowledge": true,
-          "proof": "d59bb956"
+          "proof": "3bb8be3d"
         }
       ]
     },
@@ -429,20 +456,22 @@
       "direction": 1,
       "deliveries": [
         {
-          "frame": "48200e0a0b0c0d0102030465000b485ba6dc77b3e1eb60329b13cec66147ea1c",
+          "frame": "48200e0a0b0c0d01020304ac605c6f5ba6dc77b3e1eb6032d13847f74138983c",
+          "at_s": 0,
           "accept": true,
           "counter": 0,
           "plaintext": "6d6573736167652030",
           "acknowledge": true,
-          "proof": "4f9ebb5a"
+          "proof": "6e30ceff"
         },
         {
-          "frame": "48200e0a0b0c0d010203046a8ae005c0614fd1ee13d58be1b9c8a3fe2ee53a6077",
+          "frame": "48200e0a0b0c0d010203045d1c0b85c0614fd1ee13d58be1b958915c1aaaddd785",
+          "at_s": 1,
           "accept": true,
           "counter": 32,
           "plaintext": "6d657373616765203332",
           "acknowledge": true,
-          "proof": "12a041dc"
+          "proof": "ca5e9d4c"
         }
       ]
     },
@@ -453,15 +482,17 @@
       "direction": 1,
       "deliveries": [
         {
-          "frame": "48200e0a0b0c0d0102030465000b485ba6dc77b3e1eb60329b13cec66147ea1c",
+          "frame": "48200e0a0b0c0d01020304ac605c6f5ba6dc77b3e1eb6032d13847f74138983c",
+          "at_s": 0,
           "accept": true,
           "counter": 0,
           "plaintext": "6d6573736167652030",
           "acknowledge": true,
-          "proof": "4f9ebb5a"
+          "proof": "6e30ceff"
         },
         {
-          "frame": "48200e0a0b0c0d01020304193001964379625561717860b41ea4943f08b84e85eb",
+          "frame": "48200e0a0b0c0d01020304896f51e24379625561717860b41e04b37f23170a1b96",
+          "at_s": 1,
           "accept": false,
           "counter": null,
           "plaintext": null,
@@ -477,31 +508,35 @@
       "direction": 1,
       "deliveries": [
         {
-          "frame": "48200e0a0b0c0d0102030465000b485ba6dc77b3e1eb60329b13cec66147ea1c",
+          "frame": "48200e0a0b0c0d01020304ac605c6f5ba6dc77b3e1eb6032d13847f74138983c",
+          "at_s": 0,
           "accept": true,
           "counter": 0,
           "plaintext": "6d6573736167652030",
           "acknowledge": true,
-          "proof": "4f9ebb5a"
+          "proof": "6e30ceff"
         },
         {
-          "frame": "48200e0a0b0c0d01020304dbe0e7178261575afcb2931008cb39eb8abe53933eec",
+          "frame": "48200e0a0b0c0d01020304bada18a48261575afcb2931008cb5f2264b75d75954c",
+          "at_s": 1,
           "accept": true,
           "counter": 30,
           "plaintext": "6d657373616765203330",
           "acknowledge": true,
-          "proof": "39077b2b"
+          "proof": "76c42156"
         },
         {
-          "frame": "48200e0a0b0c0d01020304ec80cca9a0d912cef0ba85a12df2bd25f712644afbaf",
+          "frame": "48200e0a0b0c0d01020304da150284a0d912cef0ba85a12df22f240de7f70cace7",
+          "at_s": 2,
           "accept": true,
           "counter": 60,
           "plaintext": "6d657373616765203630",
           "acknowledge": true,
-          "proof": "d9e4c7dc"
+          "proof": "f895e130"
         },
         {
-          "frame": "48200e0a0b0c0d01020304b59bee9366db18c5c52d433f8af40309cf8049d09ad5",
+          "frame": "48200e0a0b0c0d01020304770e072a66db18c5c52d433f8af46f262cc19cd82c40",
+          "at_s": 3,
           "accept": false,
           "counter": null,
           "plaintext": null,
@@ -509,12 +544,13 @@
           "proof": null
         },
         {
-          "frame": "48200e0a0b0c0d01020304211801ec9f8b390c2e45da63406e9aafeb9a9afac80b",
+          "frame": "48200e0a0b0c0d01020304a1064f6a9f8b390c2e45da63406eec54cc9bc45a71b3",
+          "at_s": 4,
           "accept": true,
           "counter": 29,
           "plaintext": "6d657373616765203239",
           "acknowledge": true,
-          "proof": "bdbb030d"
+          "proof": "0b80e283"
         }
       ]
     },
@@ -525,28 +561,31 @@
       "direction": 1,
       "deliveries": [
         {
-          "frame": "48200e0a0b0c0d0102030465000b485ba6dc77b3e1eb60329b13cec66147ea1c",
+          "frame": "48200e0a0b0c0d01020304ac605c6f5ba6dc77b3e1eb6032d13847f74138983c",
+          "at_s": 0,
           "accept": true,
           "counter": 0,
           "plaintext": "6d6573736167652030",
           "acknowledge": true,
-          "proof": "4f9ebb5a"
+          "proof": "6e30ceff"
         },
         {
-          "frame": "48200e0a0b0c0d010203049a1546bd9e8e40daa53d8638af4a89d7d63462bfa2f5",
+          "frame": "48200e0a0b0c0d01020304ce56426d9e8e40daa53d8638af4a12ca943d317e7aa1",
+          "at_s": 1,
           "accept": true,
           "counter": 31,
           "plaintext": "6d657373616765203331",
           "acknowledge": true,
-          "proof": "d59bb956"
+          "proof": "3bb8be3d"
         },
         {
-          "frame": "48200e0a0b0c0d0102030465000b485ba6dc77b3e1eb60329b13cec66147ea1c",
+          "frame": "48200e0a0b0c0d01020304ac605c6f5ba6dc77b3e1eb6032d13847f74138983c",
+          "at_s": 2,
           "accept": false,
           "counter": null,
           "plaintext": null,
           "acknowledge": true,
-          "proof": "4f9ebb5a"
+          "proof": "6e30ceff"
         }
       ]
     },
@@ -557,28 +596,272 @@
       "direction": 1,
       "deliveries": [
         {
-          "frame": "48200e0a0b0c0d0102030465000b485ba6dc77b3e1eb60329b13cec66147ea1c",
+          "frame": "48200e0a0b0c0d01020304ac605c6f5ba6dc77b3e1eb6032d13847f74138983c",
+          "at_s": 0,
           "accept": true,
           "counter": 0,
           "plaintext": "6d6573736167652030",
           "acknowledge": true,
-          "proof": "4f9ebb5a"
+          "proof": "6e30ceff"
         },
         {
-          "frame": "48200e0a0b0c0d010203046a8ae005c0614fd1ee13d58be1b9c8a3fe2ee53a6077",
+          "frame": "48200e0a0b0c0d010203045d1c0b85c0614fd1ee13d58be1b958915c1aaaddd785",
+          "at_s": 1,
           "accept": true,
           "counter": 32,
           "plaintext": "6d657373616765203332",
           "acknowledge": true,
-          "proof": "12a041dc"
+          "proof": "ca5e9d4c"
         },
         {
-          "frame": "48200e0a0b0c0d0102030465000b485ba6dc77b3e1eb60329b13cec66147ea1c",
+          "frame": "48200e0a0b0c0d01020304ac605c6f5ba6dc77b3e1eb6032d13847f74138983c",
+          "at_s": 2,
           "accept": false,
           "counter": null,
           "plaintext": null,
           "acknowledge": false,
           "proof": null
+        }
+      ]
+    },
+    {
+      "name": "copy-capped",
+      "note": "COPY_ACKS acknowledgements of one message, the first among them, and no more",
+      "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "direction": 1,
+      "deliveries": [
+        {
+          "frame": "48200e0a0b0c0d01020304ac605c6f5ba6dc77b3e1eb6032d13847f74138983c",
+          "at_s": 0,
+          "accept": true,
+          "counter": 0,
+          "plaintext": "6d6573736167652030",
+          "acknowledge": true,
+          "proof": "6e30ceff"
+        },
+        {
+          "frame": "48200e0a0b0c0d01020304ac605c6f5ba6dc77b3e1eb6032d13847f74138983c",
+          "at_s": 1,
+          "accept": false,
+          "counter": null,
+          "plaintext": null,
+          "acknowledge": true,
+          "proof": "6e30ceff"
+        },
+        {
+          "frame": "48200e0a0b0c0d01020304ac605c6f5ba6dc77b3e1eb6032d13847f74138983c",
+          "at_s": 2,
+          "accept": false,
+          "counter": null,
+          "plaintext": null,
+          "acknowledge": true,
+          "proof": "6e30ceff"
+        },
+        {
+          "frame": "48200e0a0b0c0d01020304ac605c6f5ba6dc77b3e1eb6032d13847f74138983c",
+          "at_s": 3,
+          "accept": false,
+          "counter": null,
+          "plaintext": null,
+          "acknowledge": true,
+          "proof": "6e30ceff"
+        },
+        {
+          "frame": "48200e0a0b0c0d01020304ac605c6f5ba6dc77b3e1eb6032d13847f74138983c",
+          "at_s": 4,
+          "accept": false,
+          "counter": null,
+          "plaintext": null,
+          "acknowledge": false,
+          "proof": null
+        }
+      ]
+    },
+    {
+      "name": "copy-late",
+      "note": "a copy is answered COPY_TIME after its message was accepted, and not a second later",
+      "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "direction": 1,
+      "deliveries": [
+        {
+          "frame": "48200e0a0b0c0d01020304ac605c6f5ba6dc77b3e1eb6032d13847f74138983c",
+          "at_s": 0,
+          "accept": true,
+          "counter": 0,
+          "plaintext": "6d6573736167652030",
+          "acknowledge": true,
+          "proof": "6e30ceff"
+        },
+        {
+          "frame": "48200e0a0b0c0d01020304ac605c6f5ba6dc77b3e1eb6032d13847f74138983c",
+          "at_s": 600,
+          "accept": false,
+          "counter": null,
+          "plaintext": null,
+          "acknowledge": true,
+          "proof": "6e30ceff"
+        },
+        {
+          "frame": "48200e0a0b0c0d01020304ac605c6f5ba6dc77b3e1eb6032d13847f74138983c",
+          "at_s": 601,
+          "accept": false,
+          "counter": null,
+          "plaintext": null,
+          "acknowledge": false,
+          "proof": null
+        }
+      ]
+    },
+    {
+      "name": "copy-forged",
+      "note": "frames with counter 1's tag and hdr that are not it, of its length and of another: neither is a copy, and neither is answered",
+      "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "direction": 1,
+      "deliveries": [
+        {
+          "frame": "48200e0a0b0c0d01020304f9dbe32ff38b31f4da406923ff623cbaa165f86a46",
+          "at_s": 0,
+          "accept": true,
+          "counter": 1,
+          "plaintext": "6d6573736167652031",
+          "acknowledge": true,
+          "proof": "fc55a4fb"
+        },
+        {
+          "frame": "48200e0a0b0c0d01020304f9dbe32fa2d27ebb871b303ff2dcaec80228f0394b",
+          "at_s": 1,
+          "accept": false,
+          "counter": null,
+          "plaintext": null,
+          "acknowledge": false,
+          "proof": null
+        },
+        {
+          "frame": "48200e0a0b0c0d01020304f9dbe32fa2d27e3498c0155ce7dc3f",
+          "at_s": 2,
+          "accept": false,
+          "counter": null,
+          "plaintext": null,
+          "acknowledge": false,
+          "proof": null
+        },
+        {
+          "frame": "48200e0a0b0c0d01020304f9dbe32ff38b31f4da406923ff623cbaa165f86a46",
+          "at_s": 3,
+          "accept": false,
+          "counter": null,
+          "plaintext": null,
+          "acknowledge": true,
+          "proof": "fc55a4fb"
+        }
+      ]
+    },
+    {
+      "name": "restart",
+      "note": "the window outlives a restart: a counter accepted before is not accepted again, and one not yet accepted still is. The replays come after COPY_TIME, so that whether a copy is answered does not depend on what a restart kept",
+      "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "direction": 1,
+      "deliveries": [
+        {
+          "frame": "48200e0a0b0c0d01020304ac605c6f5ba6dc77b3e1eb6032d13847f74138983c",
+          "at_s": 0,
+          "accept": true,
+          "counter": 0,
+          "plaintext": "6d6573736167652030",
+          "acknowledge": true,
+          "proof": "6e30ceff"
+        },
+        {
+          "frame": "48200e0a0b0c0d010203040fd70bf49be05541388153afa10d44e29a841d60e1",
+          "at_s": 1,
+          "accept": true,
+          "counter": 2,
+          "plaintext": "6d6573736167652032",
+          "acknowledge": true,
+          "proof": "f39b7676"
+        },
+        {
+          "restart": true,
+          "frame": "48200e0a0b0c0d01020304f9dbe32ff38b31f4da406923ff623cbaa165f86a46",
+          "at_s": 2,
+          "accept": true,
+          "counter": 1,
+          "plaintext": "6d6573736167652031",
+          "acknowledge": true,
+          "proof": "fc55a4fb"
+        },
+        {
+          "restart": true,
+          "frame": "48200e0a0b0c0d010203040fd70bf49be05541388153afa10d44e29a841d60e1",
+          "at_s": 700,
+          "accept": false,
+          "counter": null,
+          "plaintext": null,
+          "acknowledge": false,
+          "proof": null
+        },
+        {
+          "frame": "48200e0a0b0c0d01020304ac605c6f5ba6dc77b3e1eb6032d13847f74138983c",
+          "at_s": 701,
+          "accept": false,
+          "counter": null,
+          "plaintext": null,
+          "acknowledge": false,
+          "proof": null
+        },
+        {
+          "frame": "48200e0a0b0c0d01020304c8f74f0b0e23a44595c77b8bb8d231749fdae5afe5",
+          "at_s": 702,
+          "accept": true,
+          "counter": 3,
+          "plaintext": "6d6573736167652033",
+          "acknowledge": true,
+          "proof": "60654bbb"
+        }
+      ]
+    },
+    {
+      "name": "restart-ahead",
+      "note": "H outlives a restart: after H = 32, counter 64 is in the window and 65 is not",
+      "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "direction": 1,
+      "deliveries": [
+        {
+          "frame": "48200e0a0b0c0d01020304ac605c6f5ba6dc77b3e1eb6032d13847f74138983c",
+          "at_s": 0,
+          "accept": true,
+          "counter": 0,
+          "plaintext": "6d6573736167652030",
+          "acknowledge": true,
+          "proof": "6e30ceff"
+        },
+        {
+          "frame": "48200e0a0b0c0d010203045d1c0b85c0614fd1ee13d58be1b958915c1aaaddd785",
+          "at_s": 1,
+          "accept": true,
+          "counter": 32,
+          "plaintext": "6d657373616765203332",
+          "acknowledge": true,
+          "proof": "ca5e9d4c"
+        },
+        {
+          "restart": true,
+          "frame": "48200e0a0b0c0d010203044c303174275f01ce14dbf2e519323f941d640c7e8f0f",
+          "at_s": 2,
+          "accept": false,
+          "counter": null,
+          "plaintext": null,
+          "acknowledge": false,
+          "proof": null
+        },
+        {
+          "frame": "48200e0a0b0c0d01020304ceee959e072b88470647021eb5dd9b34224a674e392a",
+          "at_s": 3,
+          "accept": true,
+          "counter": 64,
+          "plaintext": "6d657373616765203634",
+          "acknowledge": true,
+          "proof": "f1f6f4c6"
         }
       ]
     }
@@ -589,27 +872,28 @@
       "note": "two sessions whose tags collide; the frame is session 0's",
       "sessions": [
         {
-          "session_secret": "1f31c8d6fddc18e57117f91e5f1fb032f8ea58ec44bb3a0033b7c8f5f4df6252",
+          "session_secret": "9cdbce7b8e51cd7191e6c7782e49386df7fee0eadd2eb29278f181f24bf7709c",
           "direction": 1
         },
         {
-          "session_secret": "3252283451789fbf81c4490cfb30bcc447fc020ab21cde347421f27451ad0ee5",
+          "session_secret": "ac1fbab5f3cc0f91f8131529433c5e252894590ef86c12b5bdb7c1af0dad5e16",
           "direction": 1
         }
       ],
-      "dtag": "785569e6",
+      "dtag": "6b520b0c",
       "deliveries": [
         {
-          "frame": "48200e0a0b0c0d01020304785569e6f98552973434d951b243371a5497d7abda7148",
+          "frame": "48200e0a0b0c0d010203046b520b0c16286e14d928e456a565f8915b5b7d2184fbd6",
+          "at_s": 0,
           "accept": true,
           "session": 0,
-          "counter": 0,
+          "counter": 17,
           "plaintext": "636f6c6c6973696f6e2030",
           "acknowledge": [
             {
               "session": 0,
-              "counter": 0,
-              "proof": "a7eb4af5"
+              "counter": 17,
+              "proof": "8b807e61"
             }
           ]
         }
@@ -620,18 +904,19 @@
       "note": "two sessions whose tags collide; the frame is session 1's",
       "sessions": [
         {
-          "session_secret": "1f31c8d6fddc18e57117f91e5f1fb032f8ea58ec44bb3a0033b7c8f5f4df6252",
+          "session_secret": "9cdbce7b8e51cd7191e6c7782e49386df7fee0eadd2eb29278f181f24bf7709c",
           "direction": 1
         },
         {
-          "session_secret": "3252283451789fbf81c4490cfb30bcc447fc020ab21cde347421f27451ad0ee5",
+          "session_secret": "ac1fbab5f3cc0f91f8131529433c5e252894590ef86c12b5bdb7c1af0dad5e16",
           "direction": 1
         }
       ],
-      "dtag": "785569e6",
+      "dtag": "6b520b0c",
       "deliveries": [
         {
-          "frame": "48200e0a0b0c0d01020304785569e6aac3848a81b66ef4a2d3647faff76c29113e20",
+          "frame": "48200e0a0b0c0d010203046b520b0c622bc75ab1ef43649e7a43a87d7d9d9119316b",
+          "at_s": 0,
           "accept": true,
           "session": 1,
           "counter": 29,
@@ -640,7 +925,7 @@
             {
               "session": 1,
               "counter": 29,
-              "proof": "04a92a67"
+              "proof": "f1c46934"
             }
           ]
         }
@@ -648,35 +933,37 @@
     },
     {
       "name": "tag-collision-both",
-      "note": "both colliding frames to one receiver: the second session's entry must survive the first acceptance. Then a copy, which is acknowledged for both",
+      "note": "both colliding frames to one receiver: the second session's entry must survive the first acceptance. Then a copy of each, which shares its tag with both messages but its AEAD tag with its own: it is acknowledged for its own alone",
       "sessions": [
         {
-          "session_secret": "1f31c8d6fddc18e57117f91e5f1fb032f8ea58ec44bb3a0033b7c8f5f4df6252",
+          "session_secret": "9cdbce7b8e51cd7191e6c7782e49386df7fee0eadd2eb29278f181f24bf7709c",
           "direction": 1
         },
         {
-          "session_secret": "3252283451789fbf81c4490cfb30bcc447fc020ab21cde347421f27451ad0ee5",
+          "session_secret": "ac1fbab5f3cc0f91f8131529433c5e252894590ef86c12b5bdb7c1af0dad5e16",
           "direction": 1
         }
       ],
-      "dtag": "785569e6",
+      "dtag": "6b520b0c",
       "deliveries": [
         {
-          "frame": "48200e0a0b0c0d01020304785569e6f98552973434d951b243371a5497d7abda7148",
+          "frame": "48200e0a0b0c0d010203046b520b0c16286e14d928e456a565f8915b5b7d2184fbd6",
+          "at_s": 0,
           "accept": true,
           "session": 0,
-          "counter": 0,
+          "counter": 17,
           "plaintext": "636f6c6c6973696f6e2030",
           "acknowledge": [
             {
               "session": 0,
-              "counter": 0,
-              "proof": "a7eb4af5"
+              "counter": 17,
+              "proof": "8b807e61"
             }
           ]
         },
         {
-          "frame": "48200e0a0b0c0d01020304785569e6aac3848a81b66ef4a2d3647faff76c29113e20",
+          "frame": "48200e0a0b0c0d010203046b520b0c622bc75ab1ef43649e7a43a87d7d9d9119316b",
+          "at_s": 1,
           "accept": true,
           "session": 1,
           "counter": 29,
@@ -685,12 +972,13 @@
             {
               "session": 1,
               "counter": 29,
-              "proof": "04a92a67"
+              "proof": "f1c46934"
             }
           ]
         },
         {
-          "frame": "48200e0a0b0c0d01020304785569e6f98552973434d951b243371a5497d7abda7148",
+          "frame": "48200e0a0b0c0d010203046b520b0c16286e14d928e456a565f8915b5b7d2184fbd6",
+          "at_s": 2,
           "accept": false,
           "session": null,
           "counter": null,
@@ -698,13 +986,23 @@
           "acknowledge": [
             {
               "session": 0,
-              "counter": 0,
-              "proof": "a7eb4af5"
-            },
+              "counter": 17,
+              "proof": "8b807e61"
+            }
+          ]
+        },
+        {
+          "frame": "48200e0a0b0c0d010203046b520b0c622bc75ab1ef43649e7a43a87d7d9d9119316b",
+          "at_s": 3,
+          "accept": false,
+          "session": null,
+          "counter": null,
+          "plaintext": null,
+          "acknowledge": [
             {
               "session": 1,
               "counter": 29,
-              "proof": "04a92a67"
+              "proof": "f1c46934"
             }
           ]
         }
@@ -721,31 +1019,36 @@
           "direction": 1,
           "plaintext": "73656e642030",
           "counter": 0,
-          "frame": "48200e0a0b0c0d0102030465000b4845a6c160f2b607f8531840127a02"
+          "frame": "48200e0a0b0c0d01020304ac605c6f45a6c160f2b60acea37e6d042a2b",
+          "then": "acknowledged"
         },
         {
           "direction": 1,
           "plaintext": "73656e642031",
           "counter": 1,
-          "frame": "48200e0a0b0c0d01020304e02952d9ed8b2ce39b16096e0156f8de4ed3"
+          "frame": "48200e0a0b0c0d01020304f9dbe32fed8b2ce39b160f292c4a2fefecb9",
+          "then": "acknowledged"
         },
         {
           "direction": 2,
           "plaintext": "73656e642032",
           "counter": 0,
-          "frame": "48200e0a0b0c0d010203049bdbbb755637fc9ea7d3e9d649a3922e68bf"
+          "frame": "48200e0a0b0c0d010203043cfd50e65637fc9ea7d353c4dfe8588cb52d",
+          "then": "acknowledged"
         },
         {
           "direction": 1,
           "plaintext": "73656e642033",
           "counter": 2,
-          "frame": "48200e0a0b0c0d01020304c3a7244685e0485679d53a29b9ff1a3e709b"
+          "frame": "48200e0a0b0c0d010203040fd70bf485e0485679d5691fa661025acf60",
+          "then": "acknowledged"
         },
         {
           "direction": 2,
           "plaintext": "73656e642034",
           "counter": 1,
-          "frame": "48200e0a0b0c0d010203044405a31905fd4decc91dd2fa512045b41863"
+          "frame": "48200e0a0b0c0d010203046c90f1c405fd4decc91d12818e0d81886ac5",
+          "then": "acknowledged"
         }
       ]
     },
@@ -758,207 +1061,941 @@
           "direction": 1,
           "plaintext": "73656e642030",
           "counter": 0,
-          "frame": "48200e0a0b0c0d01020304e321660e5d8e113cfbd03f6b73d0f6722889"
+          "frame": "48200e0a0b0c0d01020304c88a3ae35d8e113cfbd0b5294159f68b67ac",
+          "then": "acknowledged"
         },
         {
           "direction": 1,
           "plaintext": "73656e642031",
           "counter": 1,
-          "frame": "48200e0a0b0c0d010203047b6393bdf3f2f4868ccf1e7bd6970e5657a0"
+          "frame": "48200e0a0b0c0d01020304bfcc5acbf3f2f4868ccfbd2c9a293632286f",
+          "then": "acknowledged"
         },
         {
           "direction": 1,
           "plaintext": "73656e642032",
           "counter": 2,
-          "frame": "48200e0a0b0c0d0102030458f95f0941e8e496d76da9047b8048c4fa1c"
+          "frame": "48200e0a0b0c0d010203048489d53f41e8e496d76d31500673112c78f2",
+          "then": "acknowledged"
         },
         {
           "direction": 1,
           "plaintext": "73656e642033",
           "counter": 3,
-          "frame": "48200e0a0b0c0d010203047dc4d1c61dc6cdd5e13f86620cf2f6f1f93e"
+          "frame": "48200e0a0b0c0d01020304cb7496ad1dc6cdd5e13f501f8685310a60b3",
+          "then": "acknowledged"
         },
         {
           "direction": 1,
           "plaintext": "73656e642034",
           "counter": 4,
-          "frame": "48200e0a0b0c0d01020304bcda31b358de1e73af3d22952ff8c4821e30"
+          "frame": "48200e0a0b0c0d010203047c930f6b58de1e73af3df94874f6cb4bde2a",
+          "then": "acknowledged"
         },
         {
           "direction": 1,
           "plaintext": "73656e642035",
           "counter": 5,
-          "frame": "48200e0a0b0c0d01020304deaf64abfba192a15595bc7b5d7169019ac7"
+          "frame": "48200e0a0b0c0d0102030458784f3cfba192a15595c72966bfe4035718",
+          "then": "acknowledged"
         },
         {
           "direction": 1,
           "plaintext": "73656e642036",
           "counter": 6,
-          "frame": "48200e0a0b0c0d01020304574dfbf8881ea9baafb6bfb850d3aadd52e9"
+          "frame": "48200e0a0b0c0d01020304bdfc4f54881ea9baafb60a97587dad15efee",
+          "then": "acknowledged"
         },
         {
           "direction": 1,
           "plaintext": "73656e642037",
           "counter": 7,
-          "frame": "48200e0a0b0c0d0102030417b746d571d56af10f91a6c78eaffe233724"
+          "frame": "48200e0a0b0c0d010203049681e77f71d56af10f91cc16fd37f2171e7b",
+          "then": "acknowledged"
         },
         {
           "direction": 1,
           "plaintext": "73656e642038",
           "counter": 8,
-          "frame": "48200e0a0b0c0d010203047b04a4910b813c70e80f874ff305cda304b1"
+          "frame": "48200e0a0b0c0d01020304dd3f0b720b813c70e80f4b27c8e502802e6f",
+          "then": "acknowledged"
         },
         {
           "direction": 1,
           "plaintext": "73656e642039",
           "counter": 9,
-          "frame": "48200e0a0b0c0d01020304457eec8e8ec0575dd75687edf048bf91ac62"
+          "frame": "48200e0a0b0c0d010203040cb0d95e8ec0575dd756351c9972cd8c5c7b",
+          "then": "acknowledged"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203130",
           "counter": 10,
-          "frame": "48200e0a0b0c0d010203042ab0f3e7f2520a007f0db3ee37cbb4cf0de98c"
+          "frame": "48200e0a0b0c0d0102030473e791eaf2520a007f0db3a10bb47e1b3fa3c6",
+          "then": "acknowledged"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203131",
           "counter": 11,
-          "frame": "48200e0a0b0c0d01020304e42ce64c31ea64815b983e9e74ab088a2a8765"
+          "frame": "48200e0a0b0c0d010203049b0f36b831ea64815b983ed9b2cebebca7ddf8",
+          "then": "acknowledged"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203132",
           "counter": 12,
-          "frame": "48200e0a0b0c0d01020304477782acb1f0a41ceb957fdcefc808054b5f05"
+          "frame": "48200e0a0b0c0d0102030427310b6ab1f0a41ceb957f1479d8116c60e3b8",
+          "then": "acknowledged"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203133",
           "counter": 13,
-          "frame": "48200e0a0b0c0d01020304f2c5dcb9885949f1df65c6159bbcc8e5fe9101"
+          "frame": "48200e0a0b0c0d0102030447c07b58885949f1df65c61e0ac8f55a03af9e",
+          "then": "acknowledged"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203134",
           "counter": 14,
-          "frame": "48200e0a0b0c0d0102030443d93af11272038f0dcfd31eb4354a4a485a8e"
+          "frame": "48200e0a0b0c0d01020304acc49fb01272038f0dcfd39ada6c9adef37d6f",
+          "then": "acknowledged"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203135",
           "counter": 15,
-          "frame": "48200e0a0b0c0d010203042fb62a769f97c126c92dcd917e7a87ae5deea8"
+          "frame": "48200e0a0b0c0d0102030404bef6779f97c126c92dcd4ca0f8ba8adb25f2",
+          "then": "acknowledged"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203136",
           "counter": 16,
-          "frame": "48200e0a0b0c0d01020304d803f3dddb4ad12c87a5d6a491a5cbf7529cbe"
+          "frame": "48200e0a0b0c0d010203046fc74923db4ad12c87a5d659a6f72d9ad130d1",
+          "then": "acknowledged"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203137",
           "counter": 17,
-          "frame": "48200e0a0b0c0d010203042e2c22ed95655c8bb002f9c36ef4310789b162"
+          "frame": "48200e0a0b0c0d01020304dd8e8a8895655c8bb002f93b7ffef61908ca1f",
+          "then": "acknowledged"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203138",
           "counter": 18,
-          "frame": "48200e0a0b0c0d010203046b8df34d13fe3c2c4dbdcb9cb226b6ee545da2"
+          "frame": "48200e0a0b0c0d01020304272ac9d913fe3c2c4dbdcb9e1913d12c35828d",
+          "then": "acknowledged"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203139",
           "counter": 19,
-          "frame": "48200e0a0b0c0d0102030413b586dd5f6406c854241ae0ebd1f1045b9fb3"
+          "frame": "48200e0a0b0c0d0102030407fd9bed5f6406c854241ade71fb8f518f3e54",
+          "then": "acknowledged"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203230",
           "counter": 20,
-          "frame": "48200e0a0b0c0d01020304b2d67d979b349af05a53bad18cca07ee418abc"
+          "frame": "48200e0a0b0c0d01020304e271a02e9b349af05a53baf68d3ad0516c51c6",
+          "then": "acknowledged"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203231",
           "counter": 21,
-          "frame": "48200e0a0b0c0d01020304fbcfe2003b54f0304688f7c4f783bda6d59b43"
+          "frame": "48200e0a0b0c0d010203049fdbae8f3b54f0304688f7613590ca34565cb3",
+          "then": "acknowledged"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203232",
           "counter": 22,
-          "frame": "48200e0a0b0c0d010203044ea5e482b97b258eae360d99d234f9dbf7fdd9"
+          "frame": "48200e0a0b0c0d01020304accd138cb97b258eae360da0b24439f77d5ed9",
+          "then": "acknowledged"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203233",
           "counter": 23,
-          "frame": "48200e0a0b0c0d01020304ad12d40da2e864a75171d00f3bf6ce954b9cdf"
+          "frame": "48200e0a0b0c0d01020304adcf23b0a2e864a75171d042155c9fbbbec297",
+          "then": "acknowledged"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203234",
           "counter": 24,
-          "frame": "48200e0a0b0c0d01020304605e3c0d6aab10dddc5f6ab4ee76b2a539b6f8"
+          "frame": "48200e0a0b0c0d010203043382535c6aab10dddc5f6a4032435ac16e5c13",
+          "then": "acknowledged"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203235",
           "counter": 25,
-          "frame": "48200e0a0b0c0d0102030486f3f047d89412d64f0fd8a3f3ad0fd7d53962"
+          "frame": "48200e0a0b0c0d0102030471f23055d89412d64f0fd8dd30fc1a978fd9a2",
+          "then": "acknowledged"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203236",
           "counter": 26,
-          "frame": "48200e0a0b0c0d010203044866c6a6d07e9beffe1492728b1746db66ecde"
+          "frame": "48200e0a0b0c0d01020304320576dad07e9beffe149283594576c89e616f",
+          "then": "acknowledged"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203237",
           "counter": 27,
-          "frame": "48200e0a0b0c0d01020304c672c88a45b25c51ee14328d01694694ce7b36"
+          "frame": "48200e0a0b0c0d0102030436fa9d3f45b25c51ee14321305e3ab01a9a453",
+          "then": "acknowledged"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203238",
           "counter": 28,
-          "frame": "48200e0a0b0c0d01020304d1553daf51ce342292773361677e386134170c"
+          "frame": "48200e0a0b0c0d01020304ba16cd0051ce342292773325b67e0f996d7463",
+          "then": "acknowledged"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203239",
           "counter": 29,
-          "frame": "48200e0a0b0c0d010203046f648ad740c5a86dffe0bebb4357167a9a5c92"
+          "frame": "48200e0a0b0c0d010203040a4cac8d40c5a86dffe0be5e9f15da5e492eae",
+          "then": "acknowledged"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203330",
           "counter": 30,
-          "frame": "48200e0a0b0c0d01020304446af1565f5be9242ace203e3db18945749368"
+          "frame": "48200e0a0b0c0d010203044cdb65d65f5be9242ace207dea2ea49d108065",
+          "then": "acknowledged"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203331",
           "counter": 31,
-          "frame": "48200e0a0b0c0d01020304f2e956e63ad3e2363144ff88e60106f056e21c"
+          "frame": "48200e0a0b0c0d010203044088d2fd3ad3e2363144ff7389e407ca560506",
+          "then": "acknowledged"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203332",
           "counter": 32,
-          "frame": "48200e0a0b0c0d01020304fd49d529837aae1fb15d8a392bc7a15b67d3ee"
+          "frame": "48200e0a0b0c0d01020304cdd03971837aae1fb15d8ae43cad1ab8774ef5",
+          "then": "acknowledged"
         },
         {
           "direction": 1,
           "plaintext": "73656e64203333",
           "counter": 33,
-          "frame": "48200e0a0b0c0d0102030408559222692ee096fc3c398244b9546b533683"
+          "frame": "48200e0a0b0c0d01020304174f3e6d692ee096fc3c39fbcdd9de40f979b6",
+          "then": "acknowledged"
         }
       ]
+    },
+    {
+      "name": "restarts",
+      "note": "the counter outlives a restart of both ends: each goes on from the next",
+      "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "sends": [
+        {
+          "direction": 1,
+          "plaintext": "73656e642030",
+          "counter": 0,
+          "frame": "48200e0a0b0c0d01020304ac605c6f45a6c160f2b60acea37e6d042a2b",
+          "then": "acknowledged"
+        },
+        {
+          "direction": 2,
+          "plaintext": "73656e642031",
+          "counter": 0,
+          "frame": "48200e0a0b0c0d010203043cfd50e65637fc9ea7d029e4c6e1fba72e45",
+          "then": "acknowledged"
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e642032",
+          "counter": 1,
+          "frame": "48200e0a0b0c0d01020304f9dbe32fed8b2ce39b15784d3a081558499d",
+          "then": "acknowledged"
+        },
+        {
+          "restart": true,
+          "direction": 1,
+          "plaintext": "73656e642034",
+          "counter": 2,
+          "frame": "48200e0a0b0c0d010203040fd70bf485e0485679d2380c118464b1598d",
+          "then": "acknowledged"
+        },
+        {
+          "direction": 2,
+          "plaintext": "73656e642035",
+          "counter": 1,
+          "frame": "48200e0a0b0c0d010203046c90f1c405fd4decc91c3026ee1b5e01d452",
+          "then": "acknowledged"
+        },
+        {
+          "restart": true,
+          "direction": 1,
+          "plaintext": "73656e642037",
+          "counter": 3,
+          "frame": "48200e0a0b0c0d01020304c8f74f0b1023b952d4977affd4d84290988e",
+          "then": "acknowledged"
+        }
+      ]
+    },
+    {
+      "name": "unanswered",
+      "note": "32 messages with nothing acknowledged, and no more: counter 32 might be beyond the receiver's window",
+      "session_secret": "a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3",
+      "sends": [
+        {
+          "direction": 1,
+          "plaintext": "73656e642030",
+          "counter": 0,
+          "frame": "48200e0a0b0c0d01020304c88a3ae35d8e113cfbd0b5294159f68b67ac",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e642031",
+          "counter": 1,
+          "frame": "48200e0a0b0c0d01020304bfcc5acbf3f2f4868ccfbd2c9a293632286f",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e642032",
+          "counter": 2,
+          "frame": "48200e0a0b0c0d010203048489d53f41e8e496d76d31500673112c78f2",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e642033",
+          "counter": 3,
+          "frame": "48200e0a0b0c0d01020304cb7496ad1dc6cdd5e13f501f8685310a60b3",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e642034",
+          "counter": 4,
+          "frame": "48200e0a0b0c0d010203047c930f6b58de1e73af3df94874f6cb4bde2a",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e642035",
+          "counter": 5,
+          "frame": "48200e0a0b0c0d0102030458784f3cfba192a15595c72966bfe4035718",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e642036",
+          "counter": 6,
+          "frame": "48200e0a0b0c0d01020304bdfc4f54881ea9baafb60a97587dad15efee",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e642037",
+          "counter": 7,
+          "frame": "48200e0a0b0c0d010203049681e77f71d56af10f91cc16fd37f2171e7b",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e642038",
+          "counter": 8,
+          "frame": "48200e0a0b0c0d01020304dd3f0b720b813c70e80f4b27c8e502802e6f",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e642039",
+          "counter": 9,
+          "frame": "48200e0a0b0c0d010203040cb0d95e8ec0575dd756351c9972cd8c5c7b",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203130",
+          "counter": 10,
+          "frame": "48200e0a0b0c0d0102030473e791eaf2520a007f0db3a10bb47e1b3fa3c6",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203131",
+          "counter": 11,
+          "frame": "48200e0a0b0c0d010203049b0f36b831ea64815b983ed9b2cebebca7ddf8",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203132",
+          "counter": 12,
+          "frame": "48200e0a0b0c0d0102030427310b6ab1f0a41ceb957f1479d8116c60e3b8",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203133",
+          "counter": 13,
+          "frame": "48200e0a0b0c0d0102030447c07b58885949f1df65c61e0ac8f55a03af9e",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203134",
+          "counter": 14,
+          "frame": "48200e0a0b0c0d01020304acc49fb01272038f0dcfd39ada6c9adef37d6f",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203135",
+          "counter": 15,
+          "frame": "48200e0a0b0c0d0102030404bef6779f97c126c92dcd4ca0f8ba8adb25f2",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203136",
+          "counter": 16,
+          "frame": "48200e0a0b0c0d010203046fc74923db4ad12c87a5d659a6f72d9ad130d1",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203137",
+          "counter": 17,
+          "frame": "48200e0a0b0c0d01020304dd8e8a8895655c8bb002f93b7ffef61908ca1f",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203138",
+          "counter": 18,
+          "frame": "48200e0a0b0c0d01020304272ac9d913fe3c2c4dbdcb9e1913d12c35828d",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203139",
+          "counter": 19,
+          "frame": "48200e0a0b0c0d0102030407fd9bed5f6406c854241ade71fb8f518f3e54",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203230",
+          "counter": 20,
+          "frame": "48200e0a0b0c0d01020304e271a02e9b349af05a53baf68d3ad0516c51c6",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203231",
+          "counter": 21,
+          "frame": "48200e0a0b0c0d010203049fdbae8f3b54f0304688f7613590ca34565cb3",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203232",
+          "counter": 22,
+          "frame": "48200e0a0b0c0d01020304accd138cb97b258eae360da0b24439f77d5ed9",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203233",
+          "counter": 23,
+          "frame": "48200e0a0b0c0d01020304adcf23b0a2e864a75171d042155c9fbbbec297",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203234",
+          "counter": 24,
+          "frame": "48200e0a0b0c0d010203043382535c6aab10dddc5f6a4032435ac16e5c13",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203235",
+          "counter": 25,
+          "frame": "48200e0a0b0c0d0102030471f23055d89412d64f0fd8dd30fc1a978fd9a2",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203236",
+          "counter": 26,
+          "frame": "48200e0a0b0c0d01020304320576dad07e9beffe149283594576c89e616f",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203237",
+          "counter": 27,
+          "frame": "48200e0a0b0c0d0102030436fa9d3f45b25c51ee14321305e3ab01a9a453",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203238",
+          "counter": 28,
+          "frame": "48200e0a0b0c0d01020304ba16cd0051ce342292773325b67e0f996d7463",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203239",
+          "counter": 29,
+          "frame": "48200e0a0b0c0d010203040a4cac8d40c5a86dffe0be5e9f15da5e492eae",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203330",
+          "counter": 30,
+          "frame": "48200e0a0b0c0d010203044cdb65d65f5be9242ace207dea2ea49d108065",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203331",
+          "counter": 31,
+          "frame": "48200e0a0b0c0d010203044088d2fd3ad3e2363144ff7389e407ca560506",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203332",
+          "counter": null,
+          "frame": null,
+          "then": null
+        }
+      ]
+    },
+    {
+      "name": "acknowledged-moves-on",
+      "note": "with counter 5 acknowledged, messages go up to 37, and no further",
+      "session_secret": "a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3",
+      "sends": [
+        {
+          "direction": 1,
+          "plaintext": "73656e642030",
+          "counter": 0,
+          "frame": "48200e0a0b0c0d01020304c88a3ae35d8e113cfbd0b5294159f68b67ac",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e642031",
+          "counter": 1,
+          "frame": "48200e0a0b0c0d01020304bfcc5acbf3f2f4868ccfbd2c9a293632286f",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e642032",
+          "counter": 2,
+          "frame": "48200e0a0b0c0d010203048489d53f41e8e496d76d31500673112c78f2",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e642033",
+          "counter": 3,
+          "frame": "48200e0a0b0c0d01020304cb7496ad1dc6cdd5e13f501f8685310a60b3",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e642034",
+          "counter": 4,
+          "frame": "48200e0a0b0c0d010203047c930f6b58de1e73af3df94874f6cb4bde2a",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e642035",
+          "counter": 5,
+          "frame": "48200e0a0b0c0d0102030458784f3cfba192a15595c72966bfe4035718",
+          "then": "acknowledged"
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e642036",
+          "counter": 6,
+          "frame": "48200e0a0b0c0d01020304bdfc4f54881ea9baafb60a97587dad15efee",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e642037",
+          "counter": 7,
+          "frame": "48200e0a0b0c0d010203049681e77f71d56af10f91cc16fd37f2171e7b",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e642038",
+          "counter": 8,
+          "frame": "48200e0a0b0c0d01020304dd3f0b720b813c70e80f4b27c8e502802e6f",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e642039",
+          "counter": 9,
+          "frame": "48200e0a0b0c0d010203040cb0d95e8ec0575dd756351c9972cd8c5c7b",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203130",
+          "counter": 10,
+          "frame": "48200e0a0b0c0d0102030473e791eaf2520a007f0db3a10bb47e1b3fa3c6",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203131",
+          "counter": 11,
+          "frame": "48200e0a0b0c0d010203049b0f36b831ea64815b983ed9b2cebebca7ddf8",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203132",
+          "counter": 12,
+          "frame": "48200e0a0b0c0d0102030427310b6ab1f0a41ceb957f1479d8116c60e3b8",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203133",
+          "counter": 13,
+          "frame": "48200e0a0b0c0d0102030447c07b58885949f1df65c61e0ac8f55a03af9e",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203134",
+          "counter": 14,
+          "frame": "48200e0a0b0c0d01020304acc49fb01272038f0dcfd39ada6c9adef37d6f",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203135",
+          "counter": 15,
+          "frame": "48200e0a0b0c0d0102030404bef6779f97c126c92dcd4ca0f8ba8adb25f2",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203136",
+          "counter": 16,
+          "frame": "48200e0a0b0c0d010203046fc74923db4ad12c87a5d659a6f72d9ad130d1",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203137",
+          "counter": 17,
+          "frame": "48200e0a0b0c0d01020304dd8e8a8895655c8bb002f93b7ffef61908ca1f",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203138",
+          "counter": 18,
+          "frame": "48200e0a0b0c0d01020304272ac9d913fe3c2c4dbdcb9e1913d12c35828d",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203139",
+          "counter": 19,
+          "frame": "48200e0a0b0c0d0102030407fd9bed5f6406c854241ade71fb8f518f3e54",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203230",
+          "counter": 20,
+          "frame": "48200e0a0b0c0d01020304e271a02e9b349af05a53baf68d3ad0516c51c6",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203231",
+          "counter": 21,
+          "frame": "48200e0a0b0c0d010203049fdbae8f3b54f0304688f7613590ca34565cb3",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203232",
+          "counter": 22,
+          "frame": "48200e0a0b0c0d01020304accd138cb97b258eae360da0b24439f77d5ed9",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203233",
+          "counter": 23,
+          "frame": "48200e0a0b0c0d01020304adcf23b0a2e864a75171d042155c9fbbbec297",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203234",
+          "counter": 24,
+          "frame": "48200e0a0b0c0d010203043382535c6aab10dddc5f6a4032435ac16e5c13",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203235",
+          "counter": 25,
+          "frame": "48200e0a0b0c0d0102030471f23055d89412d64f0fd8dd30fc1a978fd9a2",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203236",
+          "counter": 26,
+          "frame": "48200e0a0b0c0d01020304320576dad07e9beffe149283594576c89e616f",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203237",
+          "counter": 27,
+          "frame": "48200e0a0b0c0d0102030436fa9d3f45b25c51ee14321305e3ab01a9a453",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203238",
+          "counter": 28,
+          "frame": "48200e0a0b0c0d01020304ba16cd0051ce342292773325b67e0f996d7463",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203239",
+          "counter": 29,
+          "frame": "48200e0a0b0c0d010203040a4cac8d40c5a86dffe0be5e9f15da5e492eae",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203330",
+          "counter": 30,
+          "frame": "48200e0a0b0c0d010203044cdb65d65f5be9242ace207dea2ea49d108065",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203331",
+          "counter": 31,
+          "frame": "48200e0a0b0c0d010203044088d2fd3ad3e2363144ff7389e407ca560506",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203332",
+          "counter": 32,
+          "frame": "48200e0a0b0c0d01020304cdd03971837aae1fb15d8ae43cad1ab8774ef5",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203333",
+          "counter": 33,
+          "frame": "48200e0a0b0c0d01020304174f3e6d692ee096fc3c39fbcdd9de40f979b6",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203334",
+          "counter": 34,
+          "frame": "48200e0a0b0c0d01020304e1bf928aadb4138be418c6a663d70adec024fa",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203335",
+          "counter": 35,
+          "frame": "48200e0a0b0c0d01020304e1e9602185868c0051bfc8659ba9454494383c",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203336",
+          "counter": 36,
+          "frame": "48200e0a0b0c0d01020304867d475cf5d57267174bb03ca5699364fe3438",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203337",
+          "counter": 37,
+          "frame": "48200e0a0b0c0d0102030455894702885e7ddffc567d296e6d2dc80be0de",
+          "then": null
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e64203338",
+          "counter": null,
+          "frame": null,
+          "then": null
+        }
+      ]
+    },
+    {
+      "name": "given-up",
+      "note": "two messages given up in a row: the third starts again",
+      "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "sends": [
+        {
+          "direction": 1,
+          "plaintext": "73656e642030",
+          "counter": 0,
+          "frame": "48200e0a0b0c0d01020304ac605c6f45a6c160f2b60acea37e6d042a2b",
+          "then": "acknowledged"
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e642031",
+          "counter": 1,
+          "frame": "48200e0a0b0c0d01020304f9dbe32fed8b2ce39b160f292c4a2fefecb9",
+          "then": "given up"
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e642032",
+          "counter": 2,
+          "frame": "48200e0a0b0c0d010203040fd70bf485e0485679d46e99895bd875e8c6",
+          "then": "given up"
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e642033",
+          "counter": null,
+          "frame": null,
+          "then": null
+        }
+      ]
+    },
+    {
+      "name": "given-up-apart",
+      "note": "an acknowledgement between two given up: the next goes",
+      "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "sends": [
+        {
+          "direction": 1,
+          "plaintext": "73656e642030",
+          "counter": 0,
+          "frame": "48200e0a0b0c0d01020304ac605c6f45a6c160f2b60acea37e6d042a2b",
+          "then": "given up"
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e642031",
+          "counter": 1,
+          "frame": "48200e0a0b0c0d01020304f9dbe32fed8b2ce39b160f292c4a2fefecb9",
+          "then": "acknowledged"
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e642032",
+          "counter": 2,
+          "frame": "48200e0a0b0c0d010203040fd70bf485e0485679d46e99895bd875e8c6",
+          "then": "given up"
+        },
+        {
+          "direction": 1,
+          "plaintext": "73656e642033",
+          "counter": 3,
+          "frame": "48200e0a0b0c0d01020304c8f74f0b1023b952d4938f6888079deba40f",
+          "then": "acknowledged"
+        }
+      ]
+    },
+    {
+      "name": "given-up-restart",
+      "note": "what is given up outlives a restart",
+      "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "sends": [
+        {
+          "direction": 2,
+          "plaintext": "73656e642030",
+          "counter": 0,
+          "frame": "48200e0a0b0c0d010203043cfd50e65637fc9ea7d18d3c3ebee0f50502",
+          "then": "given up"
+        },
+        {
+          "restart": true,
+          "direction": 2,
+          "plaintext": "73656e642032",
+          "counter": 1,
+          "frame": "48200e0a0b0c0d010203046c90f1c405fd4decc91bb795ecde8f2872ab",
+          "then": "given up"
+        },
+        {
+          "direction": 2,
+          "plaintext": "73656e642033",
+          "counter": null,
+          "frame": null,
+          "then": null
+        }
+      ]
+    }
+  ],
+  "lifetimes": [
+    {
+      "made_s": 1000,
+      "at_s": 1000,
+      "sends": true,
+      "holds": true
+    },
+    {
+      "made_s": 1000,
+      "at_s": 605800,
+      "sends": true,
+      "holds": true
+    },
+    {
+      "made_s": 1000,
+      "at_s": 605801,
+      "sends": false,
+      "holds": true
+    },
+    {
+      "made_s": 1000,
+      "at_s": 692200,
+      "sends": false,
+      "holds": true
+    },
+    {
+      "made_s": 1000,
+      "at_s": 692201,
+      "sends": false,
+      "holds": false
     }
   ],
   "acknowledgements": [
@@ -968,9 +2005,9 @@
       "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "direction": 1,
       "counter": 0,
-      "dtag": "65000b48",
-      "proof": "4f9ebb5a",
-      "frame": "5020020a0b0c0d0506070865000b484f9ebb5a",
+      "dtag": "ac605c6f",
+      "proof": "6e30ceff",
+      "frame": "5020020a0b0c0d05060708ac605c6f6e30ceff",
       "valid": true
     },
     {
@@ -979,20 +2016,20 @@
       "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "direction": 1,
       "counter": 0,
-      "dtag": "65000b48",
-      "proof": "4f9ebb5a",
-      "frame": "501ef7beef00010506070865000b484f9ebb5a",
+      "dtag": "ac605c6f",
+      "proof": "6e30ceff",
+      "frame": "501ef7beef000105060708ac605c6f6e30ceff",
       "valid": true
     },
     {
       "name": "epoch-1",
-      "note": "counter 32: the proof needs no epoch key",
+      "note": "counter 32: its tag and proof are made with epoch 1's tag key",
       "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "direction": 1,
       "counter": 32,
-      "dtag": "6a8ae005",
-      "proof": "12a041dc",
-      "frame": "5020020a0b0c0d050607086a8ae00512a041dc",
+      "dtag": "5d1c0b85",
+      "proof": "ca5e9d4c",
+      "frame": "5020020a0b0c0d050607085d1c0b85ca5e9d4c",
       "valid": true
     },
     {
@@ -1001,9 +2038,9 @@
       "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "direction": 2,
       "counter": 0,
-      "dtag": "9bdbbb75",
-      "proof": "1c390a8f",
-      "frame": "5020020a0b0c0d050607089bdbbb751c390a8f",
+      "dtag": "3cfd50e6",
+      "proof": "da32b522",
+      "frame": "5020020a0b0c0d050607083cfd50e6da32b522",
       "valid": true
     },
     {
@@ -1012,9 +2049,9 @@
       "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "direction": 1,
       "counter": 0,
-      "dtag": "65000b48",
-      "proof": "4f9ebb5a",
-      "frame": "5020020a0b0c0d0506070865000b484f9ebb5b",
+      "dtag": "ac605c6f",
+      "proof": "6e30ceff",
+      "frame": "5020020a0b0c0d05060708ac605c6f6e30cefe",
       "valid": false
     },
     {
@@ -1023,9 +2060,9 @@
       "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "direction": 1,
       "counter": 0,
-      "dtag": "65000b48",
-      "proof": "4f9ebb5a",
-      "frame": "5020020a0b0c0d0506070865000b4865000b48",
+      "dtag": "ac605c6f",
+      "proof": "6e30ceff",
+      "frame": "5020020a0b0c0d05060708ac605c6fac605c6f",
       "valid": false
     },
     {
@@ -1034,9 +2071,9 @@
       "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "direction": 1,
       "counter": 0,
-      "dtag": "65000b48",
-      "proof": "4f9ebb5a",
-      "frame": "5020020a0b0c0d0506070865000b488e58bfad",
+      "dtag": "ac605c6f",
+      "proof": "6e30ceff",
+      "frame": "5020020a0b0c0d05060708ac605c6ffc55a4fb",
       "valid": false
     },
     {
@@ -1045,9 +2082,9 @@
       "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "direction": 1,
       "counter": 0,
-      "dtag": "65000b48",
-      "proof": "4f9ebb5a",
-      "frame": "5020020a0b0c0d0506070865000b481c390a8f",
+      "dtag": "ac605c6f",
+      "proof": "6e30ceff",
+      "frame": "5020020a0b0c0d05060708ac605c6fda32b522",
       "valid": false
     },
     {
@@ -1056,9 +2093,9 @@
       "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "direction": 1,
       "counter": 0,
-      "dtag": "65000b48",
-      "proof": "4f9ebb5a",
-      "frame": "5020020a0b0c0d05060708e02952d98e58bfad",
+      "dtag": "ac605c6f",
+      "proof": "6e30ceff",
+      "frame": "5020020a0b0c0d05060708f9dbe32ffc55a4fb",
       "valid": false
     },
     {
@@ -1067,9 +2104,9 @@
       "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "direction": 1,
       "counter": 0,
-      "dtag": "65000b48",
-      "proof": "4f9ebb5a",
-      "frame": "5020020a0b0c0d0506070865000b484f9ebb5a00",
+      "dtag": "ac605c6f",
+      "proof": "6e30ceff",
+      "frame": "5020020a0b0c0d05060708ac605c6f6e30ceff00",
       "valid": false
     },
     {
@@ -1078,9 +2115,9 @@
       "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "direction": 1,
       "counter": 0,
-      "dtag": "65000b48",
-      "proof": "4f9ebb5a",
-      "frame": "5020020a0b0c0d0506070865000b484f9ebb",
+      "dtag": "ac605c6f",
+      "proof": "6e30ceff",
+      "frame": "5020020a0b0c0d05060708ac605c6f6e30ce",
       "valid": false
     },
     {
@@ -1089,9 +2126,20 @@
       "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "direction": 1,
       "counter": 0,
-      "dtag": "65000b48",
-      "proof": "4f9ebb5a",
-      "frame": "4820020a0b0c0d0506070865000b484f9ebb5a",
+      "dtag": "ac605c6f",
+      "proof": "6e30ceff",
+      "frame": "4820020a0b0c0d05060708ac605c6f6e30ceff",
+      "valid": false
+    },
+    {
+      "name": "first-draft-tag-key",
+      "note": "counter 32's tag and proof as the first draft's one tag key made them",
+      "session_secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "direction": 1,
+      "counter": 32,
+      "dtag": "5d1c0b85",
+      "proof": "ca5e9d4c",
+      "frame": "5020020a0b0c0d050607086a8ae00512a041dc",
       "valid": false
     }
   ]

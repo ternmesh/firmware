@@ -1,5 +1,5 @@
 {
-  "description": "Frames that follow routes, draft 0 (draft/forwarding.md). Routing ids are numbers; frames and tags are hex. In hops, sent is the frame the node sent and heard the one it then received. In waits, listens is whether a node that has sent the frame listens for its hop to succeed, and sends it again if it does not. In backs, power is what a frame was sent at in dBm and snr_quarter_db what it was heard at, and needs is what an answer must go at for its sender to hear it, between the node's lowest and full power. In powers, neighbour is what Routes gives for the neighbour, its boost included, back is what the node the frame came from needs or null for a frame that answers none, and try counts from 0. In agains, a frame of length bytes is sent again at that spreading factor and bandwidth, with the profiles' preamble and coding rate (vectors/phy.json), by a hop that heard nothing of it (hop) or by its source with no acknowledgement (source): airtime_ns is its time on the air and longest_ns the longest it may wait first. In listens, a radio at that spreading factor and bandwidth finds a preamble or a header, says a frame has ended (end), or is given a frame to send (sent) at the times in events, and receiving is whether a node may not start to send at each time in asks, every event at or before that time having happened.",
+  "description": "Frames that follow routes, draft 0 (draft/forwarding.md). Routing ids are numbers; frames and tags are hex. In hops, sent is the frame the node sent and heard the one it then received; ends is whether that ends the hop, and teaches whether the node takes it as a sample of its neighbour's floor. In waits, listens is whether a node that has sent the frame listens for its hop to succeed, and sends it again if it does not. In backs, power is what a frame was sent at in dBm and snr_quarter_db what it was heard at, and needs is what an answer must go at for its sender to hear it, between the node's lowest and full power. In powers, neighbour is what Routes gives for the neighbour, its boost included, back is what the node the frame came from needs or null for a frame that answers none, and try counts from 0. In agains, a frame of length bytes is sent again at that spreading factor and bandwidth, with the profiles' preamble and coding rate (vectors/phy.json), by a hop that heard nothing of it (hop) or by its source with no acknowledgement (source): airtime_ns is its time on the air and longest_ns the longest it may wait first. In listens, a radio at that spreading factor and bandwidth finds a preamble or a header, says a frame has ended (end), or is given a frame to send (sent) at the times in events, and receiving is whether a node may not start to send at each time in asks, every event at or before that time having happened.",
   "generator": "vectors/tools/forwarding.py",
   "heads": [
     {
@@ -158,133 +158,162 @@
       "why": "passed on",
       "sent": "48140e000000070000000930313233606162636465666768696a6b6c",
       "heard": "4813fe000000080000000930313233606162636465666768696a6b6c",
-      "ends": true
+      "ends": true,
+      "teaches": true
     },
     {
       "why": "another copy of what it sent",
       "sent": "48140e000000070000000930313233606162636465666768696a6b6c",
       "heard": "48140e000000070000000930313233606162636465666768696a6b6c",
-      "ends": false
+      "ends": false,
+      "teaches": false
     },
     {
       "why": "passed on twice: not by its neighbour",
       "sent": "48140e000000070000000930313233606162636465666768696a6b6c",
       "heard": "48120e000000070000000930313233606162636465666768696a6b6c",
-      "ends": false
+      "ends": false,
+      "teaches": false
     },
     {
       "why": "another tag",
       "sent": "48140e000000070000000930313233606162636465666768696a6b6c",
       "heard": "48130e000000070000000940414243606162636465666768696a6b6c",
-      "ends": false
+      "ends": false,
+      "teaches": false
     },
     {
       "why": "the same tag and another message",
       "sent": "48140e000000070000000930313233606162636465666768696a6b6c",
       "heard": "48130e00000007000000093031323300000000000000000000000000",
-      "ends": false
+      "ends": false,
+      "teaches": false
     },
     {
       "why": "the same tag and a longer message",
       "sent": "48140e000000070000000930313233606162636465666768696a6b6c",
       "heard": "48130e000000070000000930313233606162636465666768696a6b6c00",
-      "ends": false
+      "ends": false,
+      "teaches": false
     },
     {
       "why": "for another node",
       "sent": "48140e000000070000000930313233606162636465666768696a6b6c",
       "heard": "48130e000000070000000a30313233606162636465666768696a6b6c",
-      "ends": false
+      "ends": false,
+      "teaches": false
     },
     {
       "why": "a message for the node, passed on",
       "sent": "49140e000000070000000930313233606162636465666768696a6b6c",
       "heard": "49130e000000080000000930313233606162636465666768696a6b6c",
-      "ends": true
+      "ends": true,
+      "teaches": true
     },
     {
       "why": "a message for the node, acknowledged",
       "sent": "49140e000000070000000930313233606162636465666768696a6b6c",
       "heard": "502003000000070000004d3031323300000000",
-      "ends": true
+      "ends": true,
+      "teaches": false
     },
     {
       "why": "the same bytes as a message for the user: another frame",
       "sent": "49140e000000070000000930313233606162636465666768696a6b6c",
       "heard": "48130e000000070000000930313233606162636465666768696a6b6c",
-      "ends": false
+      "ends": false,
+      "teaches": false
     },
     {
       "why": "acknowledged",
       "sent": "48140e000000070000000930313233606162636465666768696a6b6c",
       "heard": "502003000000070000004d3031323300000000",
-      "ends": true
+      "ends": true,
+      "teaches": false
+    },
+    {
+      "why": "acknowledged by the node it went to: still no sample",
+      "sent": "48140e0000004d0000000930313233606162636465666768696a6b6c",
+      "heard": "502003000000070000004d3031323300000000",
+      "ends": true,
+      "teaches": false
     },
     {
       "why": "acknowledged, heard further off",
       "sent": "48140e000000070000000930313233606162636465666768696a6b6c",
       "heard": "500503000000070000004d3031323300000000",
-      "ends": true
+      "ends": true,
+      "teaches": false
     },
     {
       "why": "another message acknowledged",
       "sent": "48140e000000070000000930313233606162636465666768696a6b6c",
       "heard": "502003000000070000004d4041424300000000",
-      "ends": false
+      "ends": false,
+      "teaches": false
     },
     {
       "why": "an acknowledgement passed on",
       "sent": "50140300000007000000093031323300000000",
       "heard": "50130300000008000000093031323300000000",
-      "ends": true
+      "ends": true,
+      "teaches": true
     },
     {
       "why": "an acknowledgement is not ended by a message",
       "sent": "50140300000007000000093031323300000000",
       "heard": "48130e000000070000000930313233606162636465666768696a6b6c",
-      "ends": false
+      "ends": false,
+      "teaches": false
     },
     {
       "why": "hops do not wrap",
       "sent": "48000e000000070000000930313233606162636465666768696a6b6c",
       "heard": "48ff0e000000070000000930313233606162636465666768696a6b6c",
-      "ends": false
+      "ends": false,
+      "teaches": false
     },
     {
       "why": "first contact passed on",
       "sent": "511406000000070000000930313233707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798",
       "heard": "511306000000080000000930313233707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798",
-      "ends": true
+      "ends": true,
+      "teaches": true
     },
     {
       "why": "first contact, another copy of what it sent",
       "sent": "531406000000070000000930313233707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0",
       "heard": "531406000000070000000930313233707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0",
-      "ends": false
+      "ends": false,
+      "teaches": false
     },
     {
       "why": "first contact, another message with the same tag",
       "sent": "521406000000070000000930313233707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c",
       "heard": "5213060000000700000009303132337172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d",
-      "ends": false
+      "ends": false,
+      "teaches": false
     },
     {
       "why": "first contact is not ended by an acknowledgement with its tag",
       "sent": "511406000000070000000930313233707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798",
       "heard": "502003000000070000004d3031323300000000",
-      "ends": false
+      "ends": false,
+      "teaches": false
     },
     {
       "why": "first contact is not ended by its answer",
       "sent": "511406000000070000000930313233707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798",
       "heard": "522006000000070000004d30313233707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c",
-      "ends": false
+      "ends": false,
+      "teaches": false
     },
     {
       "why": "a message is not ended by first contact with its tag",
       "sent": "48140e000000070000000930313233606162636465666768696a6b6c",
       "heard": "541306000000070000000930313233707172737475767778",
-      "ends": false
+      "ends": false,
+      "teaches": false
     }
   ],
   "waits": [

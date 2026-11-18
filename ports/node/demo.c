@@ -66,6 +66,21 @@ static uint32_t get_u32(const uint8_t *p) {
     return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
 }
 
+/* Brings the age of a slot's session up to the board's clock, in whole seconds. */
+static void age_now(struct demo *d, int slot) {
+    tern_time t = d->now > d->aged[slot] ? d->now - d->aged[slot] : 0;
+    uint32_t whole = (uint32_t)(t / TERN_S(1));
+    uint32_t *age = &d->s[slot].session.age;
+    *age = *age > UINT32_MAX - whole ? UINT32_MAX : *age + whole;
+    d->aged[slot] += (tern_time)whole * TERN_S(1);
+}
+
+/* How long a slot's session has been held, by the time the board has been on. */
+static tern_time age_of(const struct demo *d, int slot) {
+    tern_time t = d->now > d->aged[slot] ? d->now - d->aged[slot] : 0;
+    return (tern_time)d->s[slot].session.age * TERN_S(1) + t;
+}
+
 static bool save_state(struct demo *d, int slot) {
     char key[STATE_KEY_MAX];
     uint8_t rec[RECORD_LEN] = {0};
@@ -74,6 +89,7 @@ static bool save_state(struct demo *d, int slot) {
     put_u32(rec, RECORD_MAGIC);
     rec[AT_ROLE] = s->role;
     if (s->role != 0) {
+        age_now(d, slot);
         copy(&rec[AT_PEER], s->peer, TERN_ADDRESS_LEN);
         put_u32(&rec[AT_SENT], s->sent);
         put_u32(&rec[AT_HEARD], s->heard);
@@ -188,6 +204,15 @@ bool demo_start(struct demo *d, const struct demo_store *store, tern_time hold) 
     d->accept_until = 0;
     d->trusted = NULL;
     d->trusted_ctx = NULL;
+    /* The ports' clock starts at boot, and so does the time each session's age counts on from. */
+    d->now = 0;
+    for (int i = 0; i < DEMO_PEERS; i++) {
+        d->aged[i] = 0;
+    }
+    d->answers = 0;
+    d->answers_next = 0;
+    d->answer_span = DEMO_SPAN;
+    d->ended_slot = -1;
     forget_handshake(d);
 
     bool ok = store->load(store->ctx, IDENTITY_KEY, &rec, sizeof rec) && rec.magic == MAGIC;
@@ -233,6 +258,7 @@ enum demo_result demo_contact(struct demo *d, const uint8_t peer[TERN_ADDRESS_LE
                               uint8_t *frame, size_t *len) {
     uint8_t ephemeral[TERN_CONTACT_EPHEMERAL], c_i;
     struct demo_handshake *h = &d->h;
+    d->now = now;
     if (same(peer, d->id.address, TERN_ADDRESS_LEN)) {
         return DEMO_OWN_ADDRESS;
     }
@@ -253,7 +279,6 @@ enum demo_result demo_contact(struct demo *d, const uint8_t peer[TERN_ADDRESS_LE
         forget_handshake(d);
         return DEMO_BAD_ADDRESS;
     }
-    (void)now;
     h->phase = DEMO_INITIATING;
     copy(frame, h->out, h->out_len);
     *len = h->out_len;
@@ -277,6 +302,9 @@ static enum demo_result seal(struct demo *d, int slot, bool node, const uint8_t 
         return DEMO_TOO_LONG;
     }
     struct demo_state *s = &d->s[slot];
+    if (demo_restart(d, slot)) {
+        return DEMO_SPENT;
+    }
     int err = (node ? tern_unicast_seal_node : tern_unicast_seal)(&s->session.tx, msg, len, frame,
                                                                   len + TERN_UNICAST_OVERHEAD);
     if (err == TERN_ESPENT) {
@@ -298,13 +326,33 @@ enum demo_result demo_seal_node(struct demo *d, int slot, const uint8_t *msg, si
     return seal(d, slot, true, msg, len, frame);
 }
 
-bool demo_acked(const struct demo *d, int slot, uint32_t counter, const uint8_t *frame,
-                size_t len) {
-    return held(d, slot) && tern_unicast_acked(&d->s[slot].session.tx, counter, frame, len);
+bool demo_acked(struct demo *d, int slot, uint32_t counter, const uint8_t *frame, size_t len) {
+    if (!held(d, slot) || !tern_unicast_acked(&d->s[slot].session.tx, counter, frame, len)) {
+        return false;
+    }
+    /* K and G are kept as the counter is. Unsaved, a restart takes the session for less well
+     * acknowledged than it was, which costs at most a first contact sooner than needed. */
+    (void)save_state(d, slot);
+    return true;
 }
 
-static enum demo_heard unicast_frame(struct demo *d, const uint8_t *frame, size_t len, uint8_t *msg,
-                                     struct demo_received *out) {
+void demo_given_up(struct demo *d, int slot) {
+    if (held(d, slot)) {
+        tern_unicast_given_up(&d->s[slot].session.tx);
+        (void)save_state(d, slot);
+    }
+}
+
+bool demo_restart(const struct demo *d, int slot) {
+    if (!held(d, slot)) {
+        return false;
+    }
+    const struct tern_unicast_tx *tx = &d->s[slot].session.tx;
+    return tx->spent || tern_unicast_restart(tx) || age_of(d, slot) > TERN_SESSION_LIFE;
+}
+
+static enum demo_heard unicast_frame(struct demo *d, tern_time now, const uint8_t *frame,
+                                     size_t len, uint8_t *msg, struct demo_received *out) {
     /* Every session's receiver, and the slot each is in. */
     struct tern_unicast_rx *rx[DEMO_PEERS];
     int slot[DEMO_PEERS];
@@ -323,7 +371,7 @@ static enum demo_heard unicast_frame(struct demo *d, const uint8_t *frame, size_
     }
     struct tern_unicast_received r;
     enum demo_heard what = DEMO_HEARD_MALFORMED;
-    if (tern_unicast_open(rx, n, frame, len, msg, TERN_UNICAST_MAX_PLAINTEXT, &r) == TERN_OK) {
+    if (tern_unicast_open(rx, n, frame, len, msg, TERN_UNICAST_MAX_PLAINTEXT, now, &r) == TERN_OK) {
         switch (r.verdict) {
         case TERN_UNICAST_ACCEPTED: {
             struct demo_state *s = &d->s[slot[r.session]];
@@ -359,7 +407,7 @@ static enum demo_heard unicast_frame(struct demo *d, const uint8_t *frame, size_
             do {
                 out->ack_slot[out->acks] = slot[r.session];
                 out->acks += tern_unicast_ack(rx[r.session], r.counter, out->ack[out->acks]);
-            } while (out->acks < DEMO_ACKS && tern_unicast_copy_next(rx, n, frame, len, &r));
+            } while (out->acks < DEMO_ACKS && tern_unicast_copy_next(rx, n, frame, len, now, &r));
             what = DEMO_HEARD_COPY;
             break;
         case TERN_UNICAST_NOT_OURS:
@@ -418,6 +466,7 @@ static enum demo_heard start_session(struct demo *d, tern_time now, const uint8_
     s->size = sizeof *s;
     s->role = h->c.role;
     (void)tern_contact_finish(&h->c, &s->session, s->peer); /* erases the handshake */
+    d->aged[slot] = now;                                    /* a new session's age starts now */
     copy(out->peer, s->peer, TERN_ADDRESS_LEN);
 
     if (!save_state(d, slot)) {
@@ -445,6 +494,20 @@ static enum demo_heard start_session(struct demo *d, tern_time now, const uint8_
     return DEMO_HEARD_PAIRED;
 }
 
+/* Whether this board may send another message_2, first or again: no more than DEMO_ANSWERS in
+ * any DEMO_SPAN (draft/first-contact.md, "How often"). */
+static bool may_answer(const struct demo *d, tern_time now) {
+    return d->answers < DEMO_ANSWERS || now - d->answered[d->answers_next] >= d->answer_span;
+}
+
+static void answered(struct demo *d, tern_time now) {
+    d->answered[d->answers_next] = now;
+    d->answers_next = (uint8_t)((d->answers_next + 1) % DEMO_ANSWERS);
+    if (d->answers < DEMO_ANSWERS) {
+        d->answers++;
+    }
+}
+
 static enum demo_heard contact_frame(struct demo *d, tern_time now, const uint8_t *frame,
                                      size_t len, struct demo_received *out) {
     struct demo_handshake *h = &d->h;
@@ -454,6 +517,12 @@ static enum demo_heard contact_frame(struct demo *d, tern_time now, const uint8_
      * that began a handshake sends its own frames again, and answers nothing twice. */
     if ((h->phase == DEMO_RESPONDING || h->phase == DEMO_ANSWERED) && h->in_len != 0 &&
         tern_contact_same(frame, len, h->in, h->in_len)) {
+        if (frame[0] == 0x51) {
+            if (!may_answer(d, now)) {
+                return DEMO_HEARD_OTHER; /* as if not heard: it keeps nothing alive */
+            }
+            answered(d, now);
+        }
         copy(out->reply, h->out, h->out_len);
         out->reply_len = h->out_len;
         if (frame[0] == 0x51) {
@@ -474,6 +543,10 @@ static enum demo_heard contact_frame(struct demo *d, tern_time now, const uint8_
         if (h->phase == DEMO_INITIATING || (h->phase == DEMO_RESPONDING && !again)) {
             return DEMO_HEARD_OTHER;
         }
+        /* Discarded before anything is computed for it. */
+        if (!may_answer(d, now)) {
+            return DEMO_HEARD_OTHER;
+        }
         if (!draw(d, ephemeral, &c_r)) {
             return DEMO_HEARD_OTHER;
         }
@@ -491,6 +564,7 @@ static enum demo_heard contact_frame(struct demo *d, tern_time now, const uint8_
         forget_handshake(d);
         h->c = c;
         tern_contact_wipe(&c);
+        answered(d, now);
         remember(h, frame, len, out);
         h->phase = DEMO_RESPONDING;
         h->until = now + d->hold;
@@ -526,11 +600,12 @@ enum demo_heard demo_receive(struct demo *d, tern_time now, const uint8_t *frame
     out->reply_len = 0;
     out->acks = 0;
     out->slot = -1;
+    d->now = now;
     if (len == 0) {
         return DEMO_HEARD_MALFORMED;
     }
     if (frame[0] == TERN_UNICAST_HDR || frame[0] == TERN_UNICAST_HDR_NODE) {
-        return unicast_frame(d, frame, len, msg, out);
+        return unicast_frame(d, now, frame, len, msg, out);
     }
     if (frame[0] >= 0x51 && frame[0] <= 0x54) {
         return contact_frame(d, now, frame, len, out);
@@ -548,10 +623,30 @@ bool demo_abandon(struct demo *d) {
 
 enum demo_tick demo_tick(struct demo *d, tern_time now) {
     struct demo_handshake *h = &d->h;
+    d->now = now;
     if ((h->phase == DEMO_RESPONDING || h->phase == DEMO_ANSWERED) && now >= h->until) {
         bool unfinished = h->phase == DEMO_RESPONDING;
         forget_handshake(d);
         return unfinished ? DEMO_TICK_LAPSED : DEMO_TICK_NONE;
+    }
+    /* What a session keeps only a while, it lets go of. */
+    for (int i = 0; i < DEMO_PEERS; i++) {
+        if (held(d, i)) {
+            tern_unicast_expire(&d->s[i].session, now);
+        }
+    }
+    /* A session past its life and its grace is erased (draft/unicast-security.md, "A session's
+     * life"). One the store will not forget is tried again at the next tick. */
+    for (int i = 0; i < DEMO_PEERS; i++) {
+        if (held(d, i) && age_of(d, i) > TERN_SESSION_LIFE + TERN_SESSION_GRACE) {
+            uint8_t peer[TERN_ADDRESS_LEN];
+            copy(peer, d->s[i].peer, TERN_ADDRESS_LEN);
+            if (demo_forget(d, i)) {
+                d->ended_slot = i;
+                copy(d->ended_peer, peer, TERN_ADDRESS_LEN);
+                return DEMO_TICK_ENDED;
+            }
+        }
     }
     return DEMO_TICK_NONE;
 }

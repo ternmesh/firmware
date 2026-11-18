@@ -79,7 +79,11 @@ struct board {
 static bool boot(struct board *b) {
     struct demo_store st = {&b->flash, store_load, store_save, store_random};
     memset(&b->ram, 0xA5, sizeof b->ram); /* RAM holds nothing useful at power-on */
-    return demo_start(&b->ram, &st, HOLD);
+    bool ok = demo_start(&b->ram, &st, HOLD);
+    /* Most of these tests make contact many times at one moment; how often a board answers is
+     * its own test's (a_board_answers_so_many_handshakes). */
+    b->ram.answer_span = 0;
+    return ok;
 }
 
 static struct board *new_board(void) {
@@ -477,8 +481,9 @@ static void unsaved_reception_is_taken_when_it_comes_again(void) {
 }
 
 /* A message heard comes with its acknowledgement, which only the board that sent it takes, and
- * only for that message. Heard again, it is not shown again, and is acknowledged again, after a
- * restart too. */
+ * only for that message. Heard again, it is not shown again, and is acknowledged again, until it
+ * has been acknowledged four times; and after a restart, which keeps no more than the
+ * specification asks to be kept, not at all. */
 static void a_message_is_acknowledged_and_a_copy_again(void) {
     struct board *a = new_board(), *b = new_board(), *c = new_board();
     uint8_t frame[TERN_UNICAST_MAX_FRAME], msg[TERN_UNICAST_MAX_PLAINTEXT];
@@ -503,16 +508,112 @@ static void a_message_is_acknowledged_and_a_copy_again(void) {
     CHECK(!demo_acked(&a->ram, 0, 0, ack, sizeof ack));
     ack[18] ^= 0x01;
 
-    for (int i = 0; i < 2; i++) {
+    for (int i = 0; i < 3; i++) {
         memset(msg, 0x55, sizeof msg);
         CHECK(demo_receive(&b->ram, 0, frame, 25, msg, &r) == DEMO_HEARD_COPY);
         CHECK(r.msg_len == 0 && msg[0] == 0x55 && r.counter == 0);
         CHECK(r.acks == 1 && memcmp(r.ack[0], ack, sizeof ack) == 0);
         CHECK_EQ_U64(b->ram.s[0].heard, 1);
-        CHECK(boot(b));
     }
+    CHECK(demo_receive(&b->ram, 0, frame, 25, msg, &r) != DEMO_HEARD_MESSAGE && r.acks == 0);
+    CHECK(boot(b));
+    CHECK(demo_receive(&b->ram, 0, frame, 25, msg, &r) != DEMO_HEARD_MESSAGE && r.acks == 0);
     /* A board the message was not for acknowledges nothing. */
     CHECK(demo_receive(&c->ram, 0, frame, 25, msg, &r) == DEMO_HEARD_OTHER && r.acks == 0);
+}
+
+/* A copy is answered for ten minutes after its message was taken, and not after; and a frame
+ * with the message's tag that is not the message is not answered at all. */
+static void a_copy_is_answered_only_for_a_while_and_only_if_it_is_one(void) {
+    struct board *a = new_board(), *b = new_board();
+    uint8_t frame[TERN_UNICAST_MAX_FRAME], other[TERN_UNICAST_MAX_FRAME];
+    uint8_t msg[TERN_UNICAST_MAX_PLAINTEXT];
+    struct demo_received r;
+    CHECK(contact(a, b, 0) == DEMO_HEARD_PAIRED);
+    CHECK(demo_seal(&a->ram, 0, (const uint8_t *)"hi", 2, frame) == DEMO_OK);
+    CHECK(demo_receive(&b->ram, TERN_S(5), frame, 25, msg, &r) == DEMO_HEARD_MESSAGE);
+    memcpy(other, frame, 25);
+    other[17] ^= 0x01; /* the first bytes of its AEAD tag */
+    CHECK(demo_receive(&b->ram, TERN_S(6), other, 25, msg, &r) != DEMO_HEARD_COPY && r.acks == 0);
+    CHECK(demo_receive(&b->ram, TERN_S(605), frame, 25, msg, &r) == DEMO_HEARD_COPY && r.acks == 1);
+    CHECK(demo_receive(&b->ram, TERN_S(606), frame, 25, msg, &r) != DEMO_HEARD_COPY && r.acks == 0);
+}
+
+/* Two messages given up in a row, and the session is to start again; first contact puts a new
+ * one in its place, and that one is not. An acknowledgement between two given up resets the
+ * count, and a restart does not lose it. */
+static void two_given_up_start_the_session_again(void) {
+    struct board *a = new_board(), *b = new_board();
+    uint8_t frame[TERN_UNICAST_MAX_FRAME];
+    uint32_t n;
+    CHECK(contact(a, b, 0) == DEMO_HEARD_PAIRED);
+    demo_given_up(&a->ram, 0);
+    CHECK(!demo_restart(&a->ram, 0));
+    CHECK(boot(a));
+    demo_given_up(&a->ram, 0);
+    CHECK(demo_restart(&a->ram, 0));
+    CHECK(demo_seal(&a->ram, 0, (const uint8_t *)"no", 2, frame) == DEMO_SPENT);
+    CHECK(contact(a, b, 0) == DEMO_HEARD_PAIRED);
+    CHECK(!demo_restart(&a->ram, 0));
+    CHECK(say(a, b, "yes", &n) == DEMO_HEARD_MESSAGE && n == 0);
+}
+
+/* 32 messages with nothing acknowledged, and the 33rd waits for first contact. */
+static void thirty_two_unacknowledged_start_the_session_again(void) {
+    struct board *a = new_board(), *b = new_board();
+    uint8_t frame[TERN_UNICAST_MAX_FRAME];
+    CHECK(contact(a, b, 0) == DEMO_HEARD_PAIRED);
+    for (int i = 0; i < 32; i++) {
+        CHECK(demo_seal(&a->ram, 0, (const uint8_t *)"x", 1, frame) == DEMO_OK);
+    }
+    CHECK(demo_restart(&a->ram, 0));
+    CHECK(demo_seal(&a->ram, 0, (const uint8_t *)"x", 1, frame) == DEMO_SPENT);
+}
+
+/* A session is not sent in once it is seven days old, by the time the board has been on, and is
+ * erased a day after that; the age outlives a restart. */
+static void a_session_lives_seven_days(void) {
+    struct board *a = new_board(), *b = new_board();
+    uint8_t frame[TERN_UNICAST_MAX_FRAME];
+    tern_time made = TERN_S(100);
+    CHECK(contact(a, b, made) == DEMO_HEARD_PAIRED);
+    CHECK(demo_tick(&a->ram, made + TERN_SESSION_LIFE / 2) == DEMO_TICK_NONE);
+    CHECK(demo_seal(&a->ram, 0, (const uint8_t *)"x", 1, frame) == DEMO_OK); /* saves its age */
+    CHECK(boot(a));
+    /* The board's clock starts again at 0, and the age goes on from what was saved. */
+    CHECK(demo_tick(&a->ram, TERN_SESSION_LIFE / 2) == DEMO_TICK_NONE);
+    CHECK(!demo_restart(&a->ram, 0));
+    CHECK(demo_tick(&a->ram, TERN_SESSION_LIFE / 2 + TERN_S(1)) == DEMO_TICK_NONE);
+    CHECK(demo_restart(&a->ram, 0));
+    CHECK(demo_seal(&a->ram, 0, (const uint8_t *)"x", 1, frame) == DEMO_SPENT);
+    CHECK(demo_tick(&a->ram, TERN_SESSION_LIFE / 2 + TERN_SESSION_GRACE) == DEMO_TICK_NONE);
+    CHECK_EQ_U64(demo_peers(&a->ram), 1);
+    CHECK(demo_tick(&a->ram, TERN_SESSION_LIFE / 2 + TERN_SESSION_GRACE + TERN_S(1)) ==
+          DEMO_TICK_ENDED);
+    CHECK(a->ram.ended_slot == 0 && memcmp(a->ram.ended_peer, b->ram.id.address, 32) == 0);
+    CHECK_EQ_U64(demo_peers(&a->ram), 0);
+    CHECK(boot(a));
+    CHECK_EQ_U64(demo_peers(&a->ram), 0);
+}
+
+/* A board sends no more than four message_2 frames in any ten minutes, first or again: a
+ * message_1 past that is not answered, and costs nothing. */
+static void a_board_answers_so_many_handshakes(void) {
+    struct board *a = new_board(), *b = new_board(), *c = new_board();
+    struct frame f, again;
+    struct demo_received r;
+    b->ram.answer_span = DEMO_SPAN;
+    CHECK(demo_contact(&a->ram, b->ram.id.address, 0, again.data, &again.len) == DEMO_OK);
+    tern_time at[] = {0, TERN_S(10), TERN_S(20), TERN_S(30), TERN_S(40), TERN_S(100)};
+    for (size_t i = 0; i < sizeof at / sizeof at[0]; i++) {
+        f = again;
+        enum demo_heard h = deliver(b, at[i], &f, &r);
+        CHECK(i < 4 ? h == DEMO_HEARD_CONTACT && f.len == 60 : h == DEMO_HEARD_OTHER && f.len == 0);
+    }
+    /* Ten minutes after the second, a third board's: the first handshake has long lapsed. */
+    CHECK(demo_tick(&b->ram, TERN_S(700)) == DEMO_TICK_LAPSED);
+    CHECK(demo_contact(&c->ram, b->ram.id.address, TERN_S(700), f.data, &f.len) == DEMO_OK);
+    CHECK(deliver(b, TERN_S(700), &f, &r) == DEMO_HEARD_CONTACT && f.len == 60);
 }
 
 static void failed_save_sends_nothing(void) {
@@ -786,6 +887,11 @@ int main(void) {
     RUN(unsaved_reception_is_not_shown);
     RUN(unsaved_reception_is_taken_when_it_comes_again);
     RUN(a_message_is_acknowledged_and_a_copy_again);
+    RUN(a_copy_is_answered_only_for_a_while_and_only_if_it_is_one);
+    RUN(two_given_up_start_the_session_again);
+    RUN(thirty_two_unacknowledged_start_the_session_again);
+    RUN(a_session_lives_seven_days);
+    RUN(a_board_answers_so_many_handshakes);
     RUN(failed_save_sends_nothing);
     RUN(session_that_cannot_be_saved_is_not_started);
     RUN(record_from_another_build_is_not_used);
