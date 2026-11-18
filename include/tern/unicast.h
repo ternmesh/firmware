@@ -212,6 +212,12 @@ int tern_unicast_open(struct tern_unicast_rx *const *rx, size_t count, const uin
                       size_t len, uint8_t *plaintext, size_t plaintext_cap, tern_time now,
                       struct tern_unicast_received *out);
 
+/* Whether tern_unicast_open() would accept the frame, and in which session, changing nothing: for a
+ * caller that keeps a copy of that one session's receiver, to put back if it cannot store what
+ * accepting the frame does to it. It opens the frame to know, into plaintext, which it erases. */
+bool tern_unicast_peek(struct tern_unicast_rx *const *rx, size_t count, const uint8_t *frame,
+                       size_t len, uint8_t *plaintext, size_t plaintext_cap, size_t *session);
+
 /* A frame that is a COPY may be one of more than one message: four bytes of tag and four of AEAD
  * tag can be those of two, in two sessions or in one, and nothing else in the frame says which.
  * Each still answered is owed its acknowledgement. Given what tern_unicast_open() or this last

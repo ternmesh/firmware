@@ -357,17 +357,21 @@ static enum demo_heard unicast_frame(struct demo *d, tern_time now, const uint8_
     struct tern_unicast_rx *rx[DEMO_PEERS];
     int slot[DEMO_PEERS];
     size_t n = 0;
-    /* The windows as they were, to go back to if what the frame does to one cannot be saved. */
-    static struct tern_unicast_rx before[DEMO_PEERS];
     for (int i = 0; i < DEMO_PEERS; i++) {
         if (d->s[i].role != 0) {
             rx[n] = &d->s[i].session.rx;
-            before[n] = d->s[i].session.rx;
             slot[n++] = i;
         }
     }
     if (n == 0) {
         return len >= TERN_UNICAST_OVERHEAD ? DEMO_HEARD_OTHER : DEMO_HEARD_MALFORMED;
+    }
+    /* The window the frame would move, as it was, to go back to if it cannot be saved: only the
+     * one session's, which saves keeping a copy of every one. */
+    static struct tern_unicast_rx before;
+    size_t which = 0;
+    if (tern_unicast_peek(rx, n, frame, len, msg, TERN_UNICAST_MAX_PLAINTEXT, &which)) {
+        before = *rx[which];
     }
     struct tern_unicast_received r;
     enum demo_heard what = DEMO_HEARD_MALFORMED;
@@ -382,7 +386,7 @@ static enum demo_heard unicast_frame(struct demo *d, tern_time now, const uint8_
              * tries again, and is not acknowledged as a copy of a message nobody was shown. */
             if (!save_state(d, slot[r.session])) {
                 tern_wipe(msg, r.len);
-                s->session.rx = before[r.session];
+                s->session.rx = before;
                 s->heard--;
                 what = DEMO_HEARD_UNSAVED;
                 break;
@@ -420,7 +424,7 @@ static enum demo_heard unicast_frame(struct demo *d, tern_time now, const uint8_
             break;
         }
     }
-    tern_wipe(before, sizeof before);
+    tern_wipe(&before, sizeof before);
     return what;
 }
 

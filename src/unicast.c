@@ -290,7 +290,7 @@ static void drop_old_tag_keys(struct tern_unicast_rx *rx) {
         }
         if (!needed) {
             tern_wipe(rx->old_tag_keys[i], TERN_AES128_KEY);
-            rx->old_held &= (uint8_t)~(1u << i);
+            rx->old_held &= (uint8_t) ~(1u << i);
         }
     }
 }
@@ -507,6 +507,46 @@ int tern_unicast_open(struct tern_unicast_rx *const *rx, size_t count, const uin
     }
     out->verdict = matched ? TERN_UNICAST_FORGED : TERN_UNICAST_NOT_OURS;
     return TERN_OK;
+}
+
+bool tern_unicast_peek(struct tern_unicast_rx *const *rx, size_t count, const uint8_t *frame,
+                       size_t len, uint8_t *plaintext, size_t plaintext_cap, size_t *session) {
+    if ((rx == NULL && count > 0) || frame == NULL || session == NULL ||
+        len < TERN_UNICAST_OVERHEAD || len > TERN_UNICAST_MAX_FRAME ||
+        (frame[0] != TERN_UNICAST_HDR && frame[0] != TERN_UNICAST_HDR_NODE)) {
+        return false;
+    }
+    size_t pt_len = len - TERN_UNICAST_OVERHEAD;
+    if (pt_len > plaintext_cap || (plaintext == NULL && pt_len > 0)) {
+        return false;
+    }
+    const uint8_t *tag = &frame[AT_DTAG];
+    const uint8_t *ct = &frame[AT_BODY];
+    uint8_t aad[1 + TERN_UNICAST_DTAG];
+    aad[0] = frame[0];
+    copy(&aad[1], tag, TERN_UNICAST_DTAG);
+    /* As tern_unicast_open() looks, and stopping where it would accept. */
+    for (size_t i = 0; i < count; i++) {
+        const struct tern_unicast_rx *r = rx[i];
+        uint32_t lo = window_lo(r), hi = window_hi(r);
+        for (uint64_t m = lo; m <= hi; m++) {
+            uint32_t n = (uint32_t)m;
+            if (!same(r->dtags[m % 64], tag, TERN_UNICAST_DTAG) || accepted(r, n)) {
+                continue;
+            }
+            uint8_t mk[TERN_AES128_KEY], nc[TERN_CCM_NONCE];
+            message_key(r->epoch_keys[(n >> EPOCH_SHIFT) - r->first_epoch], n, mk);
+            nonce(r->iv, n, nc);
+            bool ok = tern_ccm_open(mk, nc, aad, sizeof aad, ct, pt_len, &ct[pt_len], plaintext);
+            tern_wipe(mk, sizeof mk);
+            if (ok) {
+                tern_wipe(plaintext, pt_len);
+                *session = i;
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 /* --- Acknowledgements ------------------------------------------------------------------------- */

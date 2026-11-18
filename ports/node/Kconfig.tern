@@ -95,7 +95,7 @@
         range 8 32
         default 8
         help
-            Each is about 1.65 KB of RAM and 290 bytes of flash. A board holding as many as
+            Each is about 1 KB of RAM and 290 bytes of flash. A board holding as many as
             this takes no new one until one is ended, so this is how many people its user can
             talk to at once. The ESP32-S3 and nRF52840 builds hold 16
             (sdkconfig.defaults.esp32s3, ports/nrf52/prj.conf); the classic ESP32's static RAM
