@@ -45,8 +45,7 @@
 
 #define LORA DT_NODELABEL(lora)
 #define VBATT DT_NODELABEL(vbatt)
-#define NONE                                                                                       \
-    { 0 }
+#define NONE {0}
 
 static const struct spi_dt_spec lora_spi =
     SPI_DT_SPEC_GET(LORA, SPI_WORD_SET(8) | SPI_TRANSFER_MSB | SPI_OP_MODE_CONTROLLER);
@@ -293,6 +292,21 @@ void board_radio_sleep(void) {
     switch_to(false, false);
     set(&lora_ant, 0);
 }
+
+void board_radio_doze(void) {
+    if (radio_started) {
+#if LR11XX
+        (void)tern_lr11xx_sleep(&lr);
+#else
+        (void)tern_sx126x_sleep(&sx);
+#endif
+    }
+    switch_to(false, false);
+    set(&lora_ant, 0);
+}
+
+/* Its pins set up again, harmlessly, the chip reset and its driver started again. */
+int board_radio_wake(void) { return board_init(); }
 
 /* --- The button and the LED ------------------------------------------------------------------ */
 

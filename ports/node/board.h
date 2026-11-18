@@ -43,6 +43,13 @@ void board_radio_counts_reset(void);
  * left as it is. */
 void board_radio_sleep(void);
 
+/* A leaf that sleeps (doze.h): board_radio_doze() puts the radio, started, into its deepest sleep
+ * between polls, with an amplifier or antenna switch after it off, losing its settings; and
+ * board_radio_wake() brings it back as board_init() leaves it, reset and its driver started again,
+ * for the node to configure. TERN_OK, or the driver's error. */
+void board_radio_doze(void);
+int board_radio_wake(void);
+
 tern_time board_now(void);
 
 /* The board's button (PRG on the Heltecs), which reads true while it is held. */

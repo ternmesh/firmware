@@ -413,6 +413,30 @@ static void a_frame_held_too_long_is_dropped(void) {
     CHECK_EQ_I64(net.node[LEAF].got, 0);
 }
 
+/* Told not to sleep, a leaf asleep listens again at once, and its announces stop naming a keeper;
+ * told to sleep again, it does, with the keeper it had. */
+static void a_leaf_told_to_stop_listens_and_can_sleep_again(void) {
+    uint32_t keeper = 0;
+    tern_time wake;
+    net_init();
+    CHECK(tern_route_sleeping(&net.node[LEAF].r, NULL));
+    tern_route_sleep_set(&net.node[LEAF].r, 0, 0);
+    CHECK(!tern_route_sleeping(&net.node[LEAF].r, NULL));
+    CHECK(!tern_forward_may_sleep(&net.node[LEAF].f, net.now, &wake));
+    CHECK(tern_route_listen_until(&net.node[LEAF].r) == INT64_MAX);
+    run(net.now + TERN_S(120));
+    CHECK(!tern_route_sleeping(&net.node[LEAF].r, NULL));
+    /* The keeper heard it announce awake: it no longer takes it for asleep, and holds nothing. */
+    message(SRC, LEAF, 0xD4);
+    run(net.now + TERN_S(30));
+    CHECK_EQ_I64(net.node[LEAF].got, 1);
+    CHECK_EQ_I64(net.node[KEEPER].f.counts.held, 0);
+    tern_route_sleep_set(&net.node[LEAF].r, WAKE, 2);
+    run(net.now + TERN_S(60));
+    CHECK(tern_route_sleeping(&net.node[LEAF].r, &keeper));
+    CHECK(keeper == id_of(KEEPER));
+}
+
 /* A leaf that does not sleep is a leaf as before: never off. */
 static void a_leaf_that_does_not_sleep_never_may(void) {
     struct tern_route r;
@@ -444,5 +468,6 @@ int main(void) {
     RUN(a_leaf_with_nothing_for_it_is_nearly_always_off);
     RUN(a_leaf_whose_keeper_goes_takes_another);
     RUN(a_frame_held_too_long_is_dropped);
+    RUN(a_leaf_told_to_stop_listens_and_can_sleep_again);
     return CHECK_DONE();
 }

@@ -138,7 +138,12 @@ static int bus_transfer(void *ctx, const uint8_t *tx, uint8_t *rx, size_t len) {
     return spi_device_polling_transmit(spi, &t) == ESP_OK ? TERN_OK : TERN_EIO;
 }
 
-int board_init(void) {
+/* The radio's pins, its power and its SPI bus: once, however often board_init() is called. */
+static int bus_start(void) {
+    static bool up;
+    if (up) {
+        return TERN_OK;
+    }
     gpio_config_t out = {.pin_bit_mask = bit(B->lora.reset) | bit(B->led),
                          .mode = GPIO_MODE_OUTPUT};
     gpio_config_t in = {.pin_bit_mask = bit(B->lora.busy), .mode = GPIO_MODE_INPUT};
@@ -167,7 +172,17 @@ int board_init(void) {
         spi_bus_add_device(SPI2_HOST, &dev, &spi) != ESP_OK) {
         return TERN_EIO;
     }
+    up = true;
+    return TERN_OK;
+}
 
+/* Again, for a radio woken from a sleeping leaf's doze (board_radio_wake()): the bus is as the
+ * first time left it, and only the chip is reset and started again. */
+int board_init(void) {
+    int err = bus_start();
+    if (err != TERN_OK) {
+        return err;
+    }
     /* Hold NRESET low for over 100 us, then let the chip start: 5 ms is what an SX127x asks
      * (its datasheet, page 117), and an SX1262 is ready sooner (its section 8.1). */
     gpio_set_level(B->lora.reset, 0);
@@ -224,6 +239,17 @@ void board_radio_sleep(void) {
         (void)(is_sx127x() ? tern_sx127x_sleep(&sx127x) : tern_sx126x_sleep(&sx126x));
     }
 }
+
+static void amp_doze(void);
+
+void board_radio_doze(void) {
+    if (radio_started()) {
+        (void)(is_sx127x() ? tern_sx127x_sleep(&sx127x) : tern_sx126x_sleep(&sx126x));
+    }
+    amp_doze();
+}
+
+int board_radio_wake(void) { return board_init(); }
 
 /* --- The amplifier --------------------------------------------------------------------------- */
 
@@ -286,6 +312,16 @@ static void amp_off(void) {
     }
     hold(B->amp.enable);
     hold(B->amp.power);
+}
+
+/* Unpowered while the radio dozes, and not held: amp_init() powers it again as the radio wakes. */
+static void amp_doze(void) {
+    if (!has_amp()) {
+        return;
+    }
+    amp_tx(false);
+    set(B->amp.enable, 0);
+    set(B->amp.power, 0);
 }
 
 static int amp_configure(void *ctx, const struct tern_radio_config *cfg) {

@@ -1824,6 +1824,24 @@ static void lose_keeper(struct tern_route *r) {
     trickle_begin(r);
 }
 
+void tern_route_sleep_set(struct tern_route *r, uint16_t wake, uint8_t listen_s) {
+    r->config.sleep_wake = wake;
+    r->config.sleep_listen_s = listen_s;
+    if (!r->sleeping || sleeper(r)) {
+        return;
+    }
+    /* It stops: its keeper is let go, not taken out of use, since nothing is wrong with it. A
+     * poll already handed to the radio is still said to have gone (tern_route_sent()). */
+    r->sleeping = false;
+    r->keeper_was = r->keeper;
+    r->keeper = 0;
+    r->poll_now = false;
+    r->poll_waiting = false;
+    r->listen_until = INT64_MIN;
+    r->interval = r->config.i_min;
+    trickle_begin(r);
+}
+
 /* What a leaf that may sleep does at r->now: begins to sleep once it has a keeper; gives one up
  * that has gone; and asleep, polls when its poll is due, announcing first when that is due. */
 static void sleep_step(struct tern_route *r) {
@@ -2321,6 +2339,9 @@ size_t tern_route_poll(struct tern_route *r, tern_time now, uint8_t frame[TERN_R
 }
 
 void tern_route_sent(struct tern_route *r, tern_time now) {
+    if (r->poll_out && !r->sleeping) {
+        r->poll_out = false; /* it stopped sleeping while its poll went */
+    }
     if (r->poll_out) {
         r->poll_out = false;
         r->poll_waiting = true;

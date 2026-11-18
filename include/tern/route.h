@@ -755,6 +755,12 @@ enum tern_route_keep tern_route_keeper_of(const struct tern_route *r, uint32_t l
 /* The forwarder holds `held` frames for `leaf`: what the next answer to its poll says. */
 void tern_route_holding(struct tern_route *r, uint32_t leaf, uint8_t held);
 
+/* Sets, or changes, what config's sleep_wake and sleep_listen_s say, while the router runs: a wake
+ * of 0 for a leaf that listens all the time. A leaf asleep that is told not to sleep stops at once:
+ * it listens again, and its next announce, soon, says so. One told a new wake gives it in its next
+ * poll. A relay keeps it and never sleeps. */
+void tern_route_sleep_set(struct tern_route *r, uint16_t wake, uint8_t listen_s);
+
 /* Whether this node is a leaf asleep: it may turn its radio off, and its keeper is `keeper`. */
 bool tern_route_sleeping(const struct tern_route *r, uint32_t *keeper);
 
