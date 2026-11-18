@@ -48,6 +48,7 @@ add_library(tern
     src/position.c
     src/radio.c
     src/region.c
+    src/release.c
     src/route.c
     src/sha256.c
     src/sha512.c

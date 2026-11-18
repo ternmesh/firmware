@@ -268,6 +268,20 @@ static uint8_t off(void *ctx) {
     return 0;
 }
 
+static uint8_t wipe(void *ctx) {
+    (void)ctx;
+    static const char line[] = "(wiping)\r\n";
+    to_port(line, sizeof line - 1);
+    return 0;
+}
+
+/* The specification's published test key (vectors/companion.json, release_key): never a release
+ * key, and the one this host takes images signed by. */
+static const uint8_t test_key[1][32] = {{0x1a, 0x1d, 0x70, 0xf7, 0xc6, 0x6d, 0xb8, 0xfd,
+                                         0x2a, 0xf5, 0xc1, 0x79, 0xb7, 0x98, 0x3c, 0x74,
+                                         0xb9, 0xbf, 0xb9, 0x90, 0xb3, 0xd6, 0x0d, 0x58,
+                                         0xd3, 0xfe, 0x06, 0xa6, 0x36, 0x86, 0xb1, 0x51}};
+
 int main(int argc, char **argv) {
     master = posix_openpt(O_RDWR | O_NOCTTY);
     if (master < 0 || grantpt(master) != 0 || unlockpt(master) != 0) {
@@ -321,7 +335,10 @@ int main(int argc, char **argv) {
                              .update_begin = update_begin,
                              .update_write = update_write,
                              .update_run = update_run,
-                             .off = off};
+                             .release_keys = test_key,
+                             .n_release_keys = 1,
+                             .off = off,
+                             .wipe = wipe};
     link_init(&node, &host);
     link_open(&node, LINK_SERIAL, lapse, 0);
     struct tern_companion_parser parser;

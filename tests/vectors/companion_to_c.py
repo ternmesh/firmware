@@ -28,6 +28,7 @@ TYPES = {
     "SHARE_GROUP": 0x35, "POSITION": 0x8E, "GROUP_POSITION": 0x8F, "SHARING": 0x90,
     "GROUP_SHARING": 0x91, "CARD": 0x92, "CARD_GONE": 0x93, "GROUP_LINK": 0x26,
     "JOIN_LINK": 0x27, "LINK": 0x47, "FIX": 0x94, "OFF": 0x06, "UPDATE_BOOTLOADER": 0x36,
+    "WIPE": 0x37,
 }
 STRINGS = ("text", "name", "firmware", "region", "link")
 ADDRESSES = ("to", "address", "contact")
@@ -58,10 +59,10 @@ def msg(kind, seq, fields):
             parts.append(f".{name}_len = {len(raw) // 2}")
             if raw:
                 parts.append(f".{name} = {hexbytes(raw)}")
-        elif name == "data":
-            parts.append(f".data_len = {len(value) // 2}")
+        elif name in ("data", "signature"):
+            parts.append(f".{name}_len = {len(value) // 2}")
             if value:
-                parts.append(f".data = {hexbytes(value)}")
+                parts.append(f".{name} = {hexbytes(value)}")
         elif name == "digest":
             parts.append(f".digest = {hexbytes(value)}")
         elif name in ADDRESSES:
@@ -137,15 +138,26 @@ def cases(L, v):
 def exchange(L, v):
     """The exchange, and each earlier version's connection as older_<version>, with the two
     groups' secrets; and the update's two connections as update_0 and update_1, its refusals,
-    and its image; and the connections to a node updated by its bootloader as bootloader_0 and
-    bootloader_1."""
+    its image, the release key the node holds and the image's signature; the connections to a
+    node updated by its bootloader as bootloader_0 and bootloader_1; WIPE's connection as wipe;
+    and the signatures, as signatures."""
     L.append(f"static const uint8_t made_secret[16] = {hexbytes(v['made'])};")
     L.append(f"static const uint8_t invited_secret[16] = {hexbytes(v['invited'])};")
     L.append(f"static const uint8_t update_image[] = {hexbytes(v['image'])};")
     L.append(f"static const uint8_t update_digest[32] = {hexbytes(v['image_digest'])};")
+    L.append(f"static const uint8_t release_key[1][32] = {{{hexbytes(v['release_key'])}}};")
+    L.append(f"static const uint8_t image_signature[64] = {hexbytes(v['image_signature'])};")
+    L.append("static const struct signature_case signatures[] = {")
+    L += [
+        f"    {{\"{s['why']}\", {hexbytes(s['release_key'])}, {hexbytes(s['digest'])}, "
+        f"{hexbytes(s['message'])}, {blob(s['signature'])}, {'true' if s['verifies'] else 'false'}}},"
+        for s in v["signatures"]
+    ]
+    L.append("};")
     runs = [("exchange", v["exchange"])] + [(f"older_{o['version']}", o["frames"]) for o in v["older"]]
     runs += [(f"update_{i}", c) for i, c in enumerate(v["update"])] + [("refusals", v["refusals"])]
     runs += [(f"bootloader_{i}", c) for i, c in enumerate(v["bootloader"])]
+    runs += [("wipe", v["wipe"])]
     for name, frames in runs:
         L.append(f"static const struct step {name}[] = {{")
         L += [

@@ -20,6 +20,7 @@
     python3 tools/companion.py --port /dev/ttyUSB0 update tern-heltec-v3-eu868-0.2.0-app.bin
     python3 tools/companion.py --port /dev/ttyACM0 update tern-heltec-t114-us915-0.6.0.zip
     python3 tools/companion.py --port /dev/ttyUSB0 off
+    python3 tools/companion.py --port /dev/ttyUSB0 wipe --yes
     python3 tools/companion.py selftest tests/vectors/companion.json
 
 `contact` saves an address under a name, which also lets that node make first contact; `end` ends
@@ -39,7 +40,15 @@ it on again; `state` prints the node's fix, whether its receiver's or the last a
 it was given part of the same image before, and the node restarts into it. A node whose bootloader
 takes its updates, as an nRF52840 board's does, is asked to restart into it, and the release's
 `.zip` goes to the bootloader over Bluetooth (tools/ble_dfu.py, which needs bleak).
+An image is sent only with its signature, the release's `<image>.sig` beside it, and only if that
+verifies here with a release key (ports/node/release_keys.h; checking needs the `cryptography`
+package, and tools/release_key.py). Without it, a node updated over the link checks the signature
+itself; a node's bootloader checks none, so an nRF52840 board's `.zip` is not sent unchecked.
+`--unsigned` sends an image anyway, for a developer's own build: a node that checks signatures still
+refuses it. `--test-key` checks against the specification's published test key instead.
 `off` turns the node off; nothing on the port turns it on again, only its own button.
+`wipe --yes` erases the node: its address, contacts, groups, messages, settings and Bluetooth bonds,
+for good, and it starts again as new.
 While it waits for news it sends PING every IDLE seconds, as the specification asks, and if the
 node took it for gone anyway, it says HELLO again and syncs what it missed.
 The node's console text, which shares the port, is printed on stderr with --console.
@@ -67,7 +76,7 @@ MAX_FRAME, MAGIC = 180, b"\xf5\x54"
 # version brought; `--speak` says another, so that `watch` is told of groups, positions or cards.
 VERSION = 1
 # The latest version the frames below are, which selftest reads the vectors by.
-LATEST = 12
+LATEST = 13
 # SET 4's value for the node's default passkey: a new one on its screen each time, or 123456 on a
 # node without one.
 PASSKEY_DEFAULT = 0xFFFFFFFF
@@ -101,7 +110,7 @@ FRAMES = {
     0x25: ("JOIN", [("id", "I")]),
     0x26: ("GROUP_LINK", [("group", "gid")]),
     0x27: ("JOIN_LINK", [("link", "str")]),
-    0x30: ("UPDATE_BEGIN", [("size", "I"), ("digest", "digest")]),
+    0x30: ("UPDATE_BEGIN", [("size", "I"), ("digest", "digest"), ("signature", "raw")]),
     0x31: ("UPDATE_DATA", [("offset", "I"), ("data", "raw")]),
     0x32: ("UPDATE_END", []),
     0x33: ("SET_POSITION", [("lat", "i"), ("lon", "i"), ("altitude", "h"), ("accuracy", "H"),
@@ -111,6 +120,7 @@ FRAMES = {
     0x35: ("SHARE_GROUP", [("group", "gid"), ("precision", "B"), ("fields", "B"),
                            ("interval", "H"), ("minutes", "H")]),
     0x36: ("UPDATE_BOOTLOADER", []),
+    0x37: ("WIPE", []),
     0x40: ("OK", []),
     0x41: ("ERROR", [("code", "B")]),
     0x42: ("INFO", [("version", "B"), ("firmware", "str"), ("board", "str"), ("release", "str"),
@@ -157,7 +167,8 @@ FRAMES = {
 }
 # Fields a later version added at the end of a frame: an earlier version's frame stops before them.
 LATER = {(0x43, "news"): 3, (0x42, "board"): 4, (0x42, "release"): 4, (0x80, "cards"): 6,
-         (0x80, "card_name"): 6, (0x80, "most"): 10, (0x80, "pairing"): 11, (0x42, "update"): 12}
+         (0x80, "card_name"): 6, (0x80, "most"): 10, (0x80, "pairing"): 11, (0x42, "update"): 12,
+         (0x30, "signature"): 13}
 BYTES = {"addr": 32, "gid": 8, "digest": 32}
 TYPE = {name: t for t, (name, _) in FRAMES.items()}
 SETTINGS = {1: ("region", "str"), 2: ("role", "B"), 3: ("power", "b"), 4: ("passkey", "I"),
@@ -174,7 +185,8 @@ REASONS = ["", "for a route", "for a session", "for the region's limit", "for it
 ERRORS = {1: "not something this node knows", 2: "malformed", 3: "refused",
           4: "not a valid address, or the node's own", 5: "no room", 6: "HELLO first",
           7: "the Bluetooth MTU is too small", 8: "not now", 9: "not held",
-          10: "not where the update is", 11: "not an image this node runs",
+          10: "not where the update is",
+          11: "not an image this node runs, or not signed by a release key it holds",
           12: "not a contact"}
 
 
@@ -579,7 +591,43 @@ def sharing(args):
             "interval": args.interval, "minutes": args.minutes}
 
 
-def update(node, info, path):
+def signature_of(path, data, bootloader, args):
+    """The image's signature, from <path>.sig, checked here against the release keys where this
+    computer can: b"" for none, sent only if the user asked for that with --unsigned."""
+    sig_path = path + ".sig"
+    if not os.path.exists(sig_path):
+        if not args.unsigned:
+            raise SystemExit(f"{path} has no signature beside it ({os.path.basename(sig_path)}), so "
+                             "it may not be the release's. --unsigned sends it anyway.")
+        print("sending an image with no signature, as asked")
+        return b""
+    sig = open(sig_path, "rb").read()
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import release_key  # noqa: PLC0415  (needs cryptography)
+    except ImportError:
+        if bootloader and not args.unsigned:
+            raise SystemExit("the package's signature cannot be checked here (pip install "
+                             "cryptography), and the node's bootloader checks none. --unsigned "
+                             "sends it unchecked.")
+        print("the signature is not checked here (pip install cryptography)"
+              + ("" if bootloader else "; the node checks it"))
+        return sig
+    if args.test_key:
+        keys = [release_key.public_of(release_key.parse_seed(release_key.test_seed(), "test"))]
+    else:
+        keys = release_key.listed_keys()
+    if release_key.verifies(keys, data, sig):
+        print("signed by a release key" + (" (the test key)" if args.test_key else ""))
+    elif args.unsigned:
+        print("the signature does not verify with a release key; sending it anyway, as asked")
+    else:
+        raise SystemExit(f"{sig_path} does not verify with a release key, so {path} may not be the "
+                         "release's. --unsigned sends it anyway.")
+    return sig
+
+
+def update(node, info, path, args):
     """Sends the image a chunk at a time, from where the node's bytes end, and asks it to run it.
     A chunk not answered is sent again; one the node had already is answered without being taken
     twice. UPDATE_END is not sent again: the node may be restarting into the image."""
@@ -593,8 +641,10 @@ def update(node, info, path):
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         import ble_dfu  # noqa: PLC0415
 
+        signature_of(path, open(path, "rb").read(), True, args)
         print(f"updating {info['board']} from {info['release'] or 'an unknown release'}, by its "
-              f"bootloader over Bluetooth")
+              f"bootloader over Bluetooth. Until it has the image, anyone in range could give it "
+              f"another.")
         node.request("UPDATE_BOOTLOADER")
         ble_dfu.update(path)
         return
@@ -604,9 +654,11 @@ def update(node, info, path):
     import hashlib  # noqa: PLC0415
 
     digest = hashlib.sha256(image).digest()
+    signature = signature_of(path, image, False, args)
     print(f"updating {info['board']} from {info['release'] or 'an unknown release'}: "
           f"{len(image)} bytes, SHA-256 {digest.hex()}")
-    at = node.request("UPDATE_BEGIN", size=len(image), digest=digest)["offset"]
+    begin = dict(size=len(image), digest=digest, signature=signature)
+    at = node.request("UPDATE_BEGIN", **begin)["offset"]
     if at:
         print(f"going on from byte {at}")
     shown = -1
@@ -614,7 +666,7 @@ def update(node, info, path):
         chunk = image[at:at + UPDATE_CHUNK]
         a = node.request("UPDATE_DATA", refusable=True, retry=True, offset=at, data=chunk)
         if a["type"] == "ERROR" and a["code"] == 10:
-            at = node.request("UPDATE_BEGIN", size=len(image), digest=digest)["offset"]
+            at = node.request("UPDATE_BEGIN", **begin)["offset"]
             continue
         if a["type"] == "ERROR":
             raise SystemExit(f"UPDATE_DATA: {ERRORS.get(a['code'], a['code'])}")
@@ -634,7 +686,7 @@ def joins_codes(info):
 
 
 def run(args):
-    latest = ("state", "update", "group", "position", "share", "off")
+    latest = ("state", "update", "group", "position", "share", "off", "wipe")
     speak = LATEST if args.command in latest else VERSION
     if args.command == "set":
         speak = max(speak, SINCE.get(args.setting, VERSION))
@@ -683,6 +735,14 @@ def run(args):
             raise SystemExit("this node's firmware is too old to be turned off from here")
         node.request("OFF")
         print("turned off: press its button to turn it on again")
+    elif args.command == "wipe":
+        if info["version"] < 13:
+            raise SystemExit("this node's firmware is too old to be wiped from here")
+        if not args.yes:
+            raise SystemExit("wipe erases the node's address, contacts, groups, messages, settings "
+                             "and Bluetooth bonds, for good. Run it again with --yes to do it.")
+        node.request("WIPE")
+        print("wiped: the node starts again as new, with a new address, and must be paired again")
     elif args.command == "forget":
         node.request("REMOVE_CONTACT", address=address(args.address))
         print("removed")
@@ -739,7 +799,7 @@ def run(args):
         node.request("SET", setting=n, value=value)
         print("set")
     elif args.command == "update":
-        update(node, info, args.image)
+        update(node, info, args.image, args)
     elif args.command == "watch":
         # From the first message, so a sync after a lapse can tell what changed; the old ones
         # are not news, and are not printed.
@@ -757,7 +817,7 @@ def selftest(path):
     failed = 0
     for f in v["frames"]:
         fields = dict(f["fields"])
-        for k in ("to", "address", "contact", "group", "digest", "data"):
+        for k in ("to", "address", "contact", "group", "digest", "data", "signature"):
             if k in fields:
                 fields[k] = bytes.fromhex(fields[k])
         frame = bytes.fromhex(f["frame"])
@@ -767,7 +827,7 @@ def selftest(path):
         ok = ok and got is not None and got["type"] == f["type"]
         failed += not ok
     # Each connection read by the version its client speaks: an older one's SYNCED is two bytes.
-    runs = [v["exchange"], *v["update"], v["refusals"]]
+    runs = [v["exchange"], *v["update"], v["refusals"], v["wipe"]]
     for c in [{"version": LATEST, "frames": f} for f in runs] + v["older"]:
         for f in c["frames"]:
             got = decode(bytes.fromhex(f["frame"]), c["version"])
@@ -843,7 +903,13 @@ def main():
     u.add_argument("image", help="the release's image for this node's board and region: its "
                    "-app.bin for an ESP32 board, its .zip for an nRF52840 one, which goes over "
                    "Bluetooth")
+    u.add_argument("--unsigned", action="store_true",
+                   help="send it even with no signature, or one that does not verify")
+    u.add_argument("--test-key", action="store_true",
+                   help="check the signature against the specification's test key")
     sub.add_parser("off", help="turn the node off; only its own button turns it on again")
+    wp = sub.add_parser("wipe", help="erase the node, for good: it starts again as new")
+    wp.add_argument("--yes", action="store_true", help="yes, erase it")
     x = sub.add_parser("selftest")
     x.add_argument("vectors")
     args = p.parse_args()

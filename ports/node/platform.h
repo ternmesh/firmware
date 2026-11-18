@@ -128,6 +128,13 @@ __attribute__((noreturn)) void plat_update_reject(void);
 /* --- The system ------------------------------------------------------------------------------- */
 
 __attribute__((noreturn)) void plat_restart(void);
+
+/* Whether this start was by hand: power coming on, the reset button, or the button waking the
+ * board from off. Not a restart the board made itself (to apply a setting, run an update or be
+ * erased), nor one its watchdog or a fault made, nor a wake its timer gave: those open no pairing
+ * window (draft/companion.md, "Being at the node"), so nothing done over the air or by a client
+ * opens one. A chip that cannot tell says true. */
+bool plat_started_by_hand(void);
 void plat_sleep_ms(uint32_t ms);
 void plat_yield(void); /* lets the platform's other tasks run, once a turn of the loop */
 size_t

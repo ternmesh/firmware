@@ -73,6 +73,7 @@ enum field {
     DATA,      /* up to TERN_COMPANION_UPDATE_CHUNK bytes of anything, into data */
     CARD_NAME, /* a string of up to TERN_COMPANION_NAME_MAX, into card_name */
     LINK,      /* a string of up to TERN_COMPANION_LINK_MAX, into text */
+    SIGNATURE, /* up to TERN_COMPANION_SIGNATURE bytes of anything, into signature */
 };
 
 struct layout {
@@ -100,13 +101,14 @@ static const struct layout layouts[] = {
     {TERN_C_JOIN, {ID}},
     {TERN_C_GROUP_LINK, {GROUP}},
     {TERN_C_JOIN_LINK, {LINK}},
-    {TERN_C_UPDATE_BEGIN, {SIZE, DIGEST}},
+    {TERN_C_UPDATE_BEGIN, {SIZE, DIGEST, SIGNATURE}},
     {TERN_C_UPDATE_DATA, {OFFSET, DATA}},
     {TERN_C_UPDATE_END, {END}},
     {TERN_C_SET_POSITION, {LAT, LON, ALTITUDE, ACC16, AGE16}},
     {TERN_C_SHARE, {ADDRESS, PRECISION, SHARED, INTERVAL, MINUTES}},
     {TERN_C_SHARE_GROUP, {GROUP, PRECISION, SHARED, INTERVAL, MINUTES}},
     {TERN_C_UPDATE_BOOTLOADER, {END}},
+    {TERN_C_WIPE, {END}},
     {TERN_C_OK, {END}},
     {TERN_C_ERROR, {CODE}},
     {TERN_C_INFO, {VERSION, FIRMWARE, BOARD, RELEASE, UPDATE}},
@@ -143,8 +145,8 @@ static const struct layout layouts[] = {
 static const struct {
     uint8_t type, from, since;
 } later_fields[] = {
-    {TERN_C_SYNCED, 0, 3}, {TERN_C_INFO, 2, 4},  {TERN_C_SELF, 5, 6},
-    {TERN_C_SELF, 7, 10},  {TERN_C_SELF, 8, 11}, {TERN_C_INFO, 4, 12},
+    {TERN_C_SYNCED, 0, 3}, {TERN_C_INFO, 2, 4},  {TERN_C_SELF, 5, 6},          {TERN_C_SELF, 7, 10},
+    {TERN_C_SELF, 8, 11},  {TERN_C_INFO, 4, 12}, {TERN_C_UPDATE_BEGIN, 2, 13},
 };
 
 static bool added_later(uint8_t type, size_t i, uint8_t version) {
@@ -199,6 +201,9 @@ static const struct layout *layout_of(uint8_t type) {
 }
 
 uint8_t tern_companion_since(uint8_t type) {
+    if (type == TERN_C_WIPE) {
+        return 13;
+    }
     if (type == TERN_C_UPDATE_BOOTLOADER) {
         return 12;
     }
@@ -267,6 +272,8 @@ static size_t string_max(enum field f) {
         return TERN_COMPANION_UPDATE_CHUNK;
     case LINK:
         return TERN_COMPANION_LINK_MAX;
+    case SIGNATURE:
+        return TERN_COMPANION_SIGNATURE;
     default:
         return TERN_COMPANION_REGION_MAX;
     }
@@ -394,6 +401,9 @@ static uint8_t *variable_of(struct tern_companion_msg *m, enum field f, uint8_t 
     case CARD_NAME:
         *len = &m->card_name_len;
         return m->card_name;
+    case SIGNATURE:
+        *len = &m->signature_len;
+        return m->signature;
     default:
         *len = &m->text_len;
         return m->text;
@@ -513,7 +523,8 @@ enum tern_companion_read tern_companion_read_as(struct tern_companion_msg *m, co
                 return TERN_C_READ_MALFORMED;
             }
             size_t n = frame[at];
-            if (n > string_max(f) || (f != DATA && !tern_companion_utf8(frame + at + 1, n))) {
+            bool raw = f == DATA || f == SIGNATURE;
+            if (n > string_max(f) || (!raw && !tern_companion_utf8(frame + at + 1, n))) {
                 return TERN_C_READ_MALFORMED;
             }
             uint8_t *len_of;

@@ -133,6 +133,33 @@ jobs:
           path: firmware/ports/nrf52/release/
           if-no-files-found: error
 
+  # Signing a release (docs/signing.md), with the specification's published test key, never the
+  # release key: the tool agrees with the specification's vectors, signs and verifies, and a file
+  # changed after signing, or a key the firmware does not hold, fails.
+  signing:
+    name: signing (test key)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "cryptography>=42"
+      - run: python3 tools/release_key.py selftest
+      - name: Sign and verify with the test key
+        run: |
+          mkdir -p "$RUNNER_TEMP/release" && cd "$RUNNER_TEMP/release"
+          head -c 5000 /dev/urandom >tern-test-app.bin
+          python3 "$GITHUB_WORKSPACE/tools/release_key.py" --test sign tern-test-app.bin
+          test "$(wc -c <tern-test-app.bin.sig)" -eq 64
+          python3 "$GITHUB_WORKSPACE/tools/release_key.py" --test verify tern-test-app.bin
+          echo x >>tern-test-app.bin
+          tool="python3 $GITHUB_WORKSPACE/tools/release_key.py"
+          # Each of these must fail; `!` would not stop the step, so each is tested.
+          if $tool --test verify tern-test-app.bin; then exit 1; fi
+          if TERN_RELEASE_SIGNING_KEY= $tool sign tern-test-app.bin; then exit 1; fi
+          if $tool --test listed; then exit 1; fi
+
   format:
     runs-on: ubuntu-24.04
     steps:

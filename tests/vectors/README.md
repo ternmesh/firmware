@@ -40,9 +40,10 @@ into a header for `tests/forward.c`, and its listens alone into one for `tests/l
 
 `companion.json` is a copy of
 [`vectors/companion.json`](https://github.com/ternmesh/spec/blob/main/vectors/companion.json), as
-of the companion protocol's version 12, which adds UPDATE_BOOTLOADER and INFO's update, for a
-node whose bootloader takes its updates ([ternmesh/spec#55](https://github.com/ternmesh/spec/pull/55)),
-after version 11's SELF's pairing, for a node without a screen
+of the companion protocol's version 13, which adds UPDATE_BEGIN's signature, signed images'
+signatures and WIPE ([ternmesh/spec#61](https://github.com/ternmesh/spec/pull/61)), after version 12's UPDATE_BOOTLOADER and
+INFO's update, for a node whose bootloader takes its updates
+([ternmesh/spec#55](https://github.com/ternmesh/spec/pull/55)), and version 11's SELF's pairing, for a node without a screen
 that pairs with a default passkey ([ternmesh/spec#54](https://github.com/ternmesh/spec/pull/54)),
 and version 10's the most a node may send at
 ([ternmesh/spec#51](https://github.com/ternmesh/spec/pull/51), with its SELF corrected in

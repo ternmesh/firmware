@@ -207,3 +207,15 @@
         help
             Tern's is 0x5E (draft/phy.md). Meshtastic's is 0x2B, MeshCore's 0x12 and LoRaWAN's
             0x34; a board set to one of those hears that network's frames and can disturb it.
+
+    config TERN_UPDATE_UNSIGNED
+        bool "Take updates over the link that are not signed (for development only)"
+        default n
+        help
+            A node takes an image over the companion link only if it is signed by one of the
+            release keys it is built with (ports/node/release_keys.h, docs/signing.md). Set
+            this to take any image instead, for a developer who updates their own builds over
+            Bluetooth. A node built so takes an image from anyone who can pair with it, so it is
+            for a bench, never a release: release.yml refuses to sign a build with it set. It
+            can be changed only by flashing a build over USB, which already gives a person with
+            the board in hand everything.

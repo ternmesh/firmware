@@ -109,14 +109,18 @@ builds what a release carries, for each board an image for each region, into `re
   Bluetooth, Nordic's legacy DFU, as the boards ship; everything the board has saved is kept.
   `python3 tools/companion.py --port <port> update tern-<board>-<region>-<version>.zip` does it
   from a computer (it needs `bleak`), in five or six minutes. See [below](#updating-over-bluetooth).
-* **Erasing.** The Erase page wipes the flash's storage and restarts. The time on the air is
+* **Erasing.** The Erase page, or `WIPE` from a client, wipes the flash's storage and restarts. The time on the air is
   carried across that restart in RAM; if the bootloader clears it on the way, the region's count
   starts again.
 * **Storage.** What the node saves goes in Zephyr's settings, on NVS in the 32 KB the bootloader
   leaves for it.
   `status` gives the storage's use in bytes rather than the ESP32's entries.
 * **Bluetooth** is Zephyr's host and the chip's own controller, with the same service, pairing and
-  frames as the ESP32 boards: a phone that pairs with one pairs with the other the same way.
+  frames as the ESP32 boards: a phone that pairs with one pairs with the other the same way,
+  within three minutes of the board being turned on, reset or woken by its button, or of a press
+  of its button, unless it shows the passkey on a screen (the ESP32 port's
+  [Over Bluetooth](../esp32/README.md#over-bluetooth)). The RAK4631 has no button but RESET: press
+  RESET, and pair.
 
 ## Updating over Bluetooth
 
@@ -129,6 +133,19 @@ waits for another over Bluetooth. Heltec ship it on the T114. The bootloader a T
 (Seeed's 0.9.1) took the first step and never answered it, and once reset came back in USB only:
 a board with such a bootloader tells a client it cannot be updated, and is updated by copying the
 `.uf2` on, as above.
+
+**While the bootloader waits, anyone in range can install an image.** The bootloader is not Tern
+and checks no signature: it takes any DFU package whose CRC is right, from whichever phone or
+computer connects to it first, not only the one that asked. A client starts it only once paired,
+and the release's `.zip` is signed (`<zip>.sig`, [docs/signing.md](../../docs/signing.md)), so a
+client can refuse a package that is not the release's before it starts; but the board itself
+cannot refuse one. The window lasts until the bootloader has an image, and if a transfer breaks off
+OTAFIX waits for another over Bluetooth, for as long as it has power. Nothing in this firmware can
+shorten that: the window is the bootloader's, it is not replaced here, and replacing a bootloader in
+the field can leave a board that only a debugger mends. Update a board where nobody you do not
+trust is in Bluetooth range, and finish what you start. Over USB, the UF2 drive likewise takes any
+image copied onto it. Only a bootloader that checks signatures closes this, and it is not done
+yet (the specification's decision memo, `decisions/signed-firmware-updates.md`).
 
 To put OTAFIX on a board, copy the release's `update-<board>_bootloader-<version>_nosd.uf2` onto
 its drive, as an image: it rewrites the bootloader alone, and leaves Tern and what it saved. Do

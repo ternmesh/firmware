@@ -63,6 +63,7 @@
 #include "link.h"
 #include "platform.h"
 #include "power.h"
+#include "release_keys.h"
 #include "status.h"
 #include "tern/airtime.h"
 #include "tern/card.h"
@@ -324,6 +325,13 @@ static bool off_due; /* a client sent OFF: the board turns off once its answer h
 /* A client sent UPDATE_BOOTLOADER: the board restarts into its bootloader once its answer has
  * gone. */
 static bool bootloader_due;
+static bool wipe_due; /* a client sent WIPE: the board erases itself once its answer has gone */
+/* The pairing window (draft/companion.md, "Bluetooth LE"): until when a passkey that is not shown
+ * on the screen is taken, PAIR_WINDOW_S after a start by hand or a press of the button. 0 for
+ * closed. And how many clients are bonded, as last counted. */
+#define PAIR_WINDOW_S 180
+static tern_time pair_until;
+static unsigned bonds;
 static bool have_ble;
 static uint16_t battery_mv;      /* 0 for none, or not read */
 static struct power_watch watch; /* whether the battery charges, or is empty (power.h) */
@@ -491,6 +499,13 @@ static uint8_t link_update_run(void *ctx) {
     }
     printf("the update is whole: restarting into %s\n", version);
     restart_due = RESTART_NOW;
+    return 0;
+}
+
+/* WIPE: the board erases everything and restarts as new once the answer has gone. */
+static uint8_t link_wipe(void *ctx) {
+    (void)ctx;
+    wipe_due = true;
     return 0;
 }
 
@@ -893,8 +908,9 @@ static bool keep_seq(void) {
     return route.seq == route_seq_saved;
 }
 
-static void heard(const struct tern_radio_event *ev) {
-    uint8_t msg[TERN_UNICAST_MAX_PLAINTEXT + 1];
+/* A frame heard, its plaintext, if it has one, opened into msg (TERN_UNICAST_MAX_PLAINTEXT + 1
+ * bytes): heard() erases it after. */
+static void heard_into(const struct tern_radio_event *ev, uint8_t *msg) {
     struct demo_received got;
     struct tern_forward_heard routed = {TERN_FORWARD_NOTHING, INT8_MIN};
     /* SNR comes in centibels: -725 is -7.25 dB. */
@@ -1043,6 +1059,12 @@ static void heard(const struct tern_radio_event *ev) {
             printf("(not acknowledged: no route back to the peer yet, or no room)\n");
         }
     }
+}
+
+static void heard(const struct tern_radio_event *ev) {
+    uint8_t msg[TERN_UNICAST_MAX_PLAINTEXT + 1];
+    heard_into(ev, msg);
+    tern_wipe(msg, sizeof msg); /* a message's words, or an invite's group secret */
 }
 
 static void poll_radio(void) {
@@ -2889,6 +2911,7 @@ static void command(char *line) {
     } else if (strcmp(line, "forget") == 0) {
         if (have_ble) {
             ble_forget();
+            bonds = 0;
             printf("every Bluetooth client is forgotten, and must pair again\n");
         } else {
             printf("Bluetooth did not start\n");
@@ -2933,6 +2956,25 @@ static void screen_flush(void);
 /* A setting that takes a restart is applied once its answer has gone: out of the console, and given
  * a moment to leave as a notification. OFF is the same, but for what the board does after. */
 static void restart_if_due(void) {
+    if (wipe_due) {
+        /* Nothing is saved first: all of it goes. The answer is the one frame the client must
+         * have, as for OFF. */
+        printf("a client asked: erasing this board and starting again, with a new address\n");
+        fflush(stdout);
+        board_console_flush(500);
+        if (have_ble && !ble_flush(5000)) {
+            printf("bluetooth: the answer to WIPE may not have reached the client\n");
+        }
+        if (have_screen) {
+            SCENE(sc);
+            ui_erasing(sc);
+            present(sc);
+            screen_flush();
+            board_screen_show(true); /* before the restart cuts its supply */
+        }
+        plat_sleep_ms(200);
+        plat_erase_and_restart();
+    }
     if (bootloader_due) {
         (void)link_keep_writers(&companion);
         printf("a client asked for an update: restarting into the bootloader, which takes it over "
@@ -3026,6 +3068,30 @@ static uint32_t ble_key(void) {
                                                               : settings.passkey;
 }
 
+/* Opens the pairing window for PAIR_WINDOW_S from now: someone is at the board. */
+static void pair_window_open(void) {
+    bool was = pair_until != 0;
+    pair_until = board_now() + (tern_time)PAIR_WINDOW_S * 1000000000LL;
+    if (!was && have_ble && !have_screen) {
+        printf("bluetooth: a phone may pair for the next %d s\n", PAIR_WINDOW_S);
+    }
+}
+
+/* Whether a pairing with a passkey the board does not show may begin now: in the window, or with a
+ * passkey a client set while nothing is bonded (draft/companion.md, "Being at the node"). */
+static void pair_window_poll(void) {
+    if (pair_until != 0 && board_now() >= pair_until) {
+        pair_until = 0;
+        if (have_ble && !have_screen) {
+            printf("bluetooth: the pairing window has closed; press the button, or turn the board "
+                   "off and on, to pair another phone\n");
+        }
+    }
+    if (have_ble) {
+        ble_pairable(pair_until != 0 || (settings.passkey != PASSKEY_RANDOM && bonds == 0));
+    }
+}
+
 static void start_bluetooth(void) {
     char name[BLE_NAME_MAX + 1];
     make_ble_name(name);
@@ -3036,6 +3102,11 @@ static void start_bluetooth(void) {
         printf("Bluetooth did not start; the USB port is the only companion link\n");
         return;
     }
+    bonds = ble_paired();
+    if (plat_started_by_hand()) {
+        pair_window_open();
+    }
+    pair_window_poll();
     printf("bluetooth: seen by phones as \"%s\"%s\n", name,
            settings.passkey == PASSKEY_RANDOM && !have_screen ? ", passkey 123456 until one is set"
                                                               : "");
@@ -3081,6 +3152,7 @@ static void poll_ble(void) {
             printf("bluetooth: pairing; the passkey is on the screen\n");
             break;
         case BLE_PAIRED:
+            bonds = ble_paired();
             if (pairing_passkey != PAIRING_NONE) {
                 pairing_passkey = PAIRING_NONE;
                 screen_due = 0;
@@ -3092,6 +3164,7 @@ static void poll_ble(void) {
 }
 
 static void poll_console(void) {
+    pair_window_poll();
     static const struct tern_companion_sink sink = {NULL, console_frame, console_text};
     uint8_t c;
     while (board_console_read(&c)) {
@@ -3770,6 +3843,7 @@ static void screen_hold(void) {
             erase_and_restart();
         }
         ble_forget();
+        bonds = 0;
         printf("%s held on Phones: every Bluetooth client is forgotten, and must pair again\n",
                board_button_name());
         return;
@@ -3812,6 +3886,7 @@ static void poll_button(void) {
     tern_time now = board_now();
     bool pressed = board_button();
     if (pressed && !was) {
+        pair_window_open(); /* someone is at the board */
         down = now;
         held = false;
         waking = have_screen && (screen_asleep || now < boot_until);
@@ -4223,6 +4298,13 @@ void node_main(void) {
         .update_run = link_update_run,
         .off = link_off,
         .bootloader = link_bootloader,
+        .wipe = link_wipe,
+        /* Signed by the publisher's release keys (release_keys.h), unless built for a bench. */
+        .release_keys = node_release_keys,
+        .n_release_keys = sizeof node_release_keys / sizeof node_release_keys[0] - 1,
+#if defined(CONFIG_TERN_UPDATE_UNSIGNED)
+        .take_unsigned = true,
+#endif
     };
     host.updates = plat_update_how();
     printf("%s\n", host.updates == TERN_C_UPDATES_LINK
