@@ -284,7 +284,7 @@ static bool hold(struct tern_forward *f, uint32_t leaf, const uint8_t *frame, si
 /* A frame handed over that is not to go now, its leaf asleep again or its hop given up, is held
  * again; with no room it is dropped. */
 static void hold_again(struct tern_forward *f, struct tern_forward_slot *s, tern_time now) {
-    (void)hold(f, s->kept_for, s->frame, s->len, s->hops, s->held_at, now);
+    (void)hold(f, s->kept_for, s->frame, s->len, s->hops, TERN_S((int64_t)s->held_s), now);
     s->state = TERN_FORWARD_FREE;
 }
 
@@ -451,7 +451,7 @@ void tern_forward_heard(struct tern_forward *f, tern_time now, const uint8_t *fr
         uint16_t wake;
         if (tern_route_keeper_of(f->route, next, now, &answered, &wake) == TERN_KEEP_AWAKE) {
             s->kept_for = next; /* its leaf awake: held if its hop is given up */
-            s->held_at = now;
+            s->held_s = (uint32_t)(now / TERN_S(1));
         }
     }
     memcpy(s->frame, frame, len);
@@ -749,7 +749,7 @@ static void keep(struct tern_forward *f, tern_time now) {
                 .at = now,
                 .deadline = -1,
                 .kept_for = keeps ? leaf : 0,
-                .held_at = k->at,
+                .held_s = (uint32_t)(k->at / TERN_S(1)),
             };
             memcpy(s->frame, k->frame, k->len);
             f->counts.handed += keeps;

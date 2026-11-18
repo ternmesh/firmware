@@ -58,8 +58,8 @@
 #define TERN_FORWARD_SLOTS_MAX 255
 #define TERN_FORWARD_SALVAGE_MAX 4
 #define TERN_FORWARD_NOTICE 0xFF /* the handle of a frame no slot holds: a held notice */
-#define TERN_FORWARD_NOTICES 4   /* held notices waiting to go */
-#define TERN_FORWARD_WAKES 8     /* destinations a source knows sleep */
+#define TERN_FORWARD_NOTICES 2   /* held notices waiting to go */
+#define TERN_FORWARD_WAKES 4     /* destinations a source knows sleep */
 
 /* Whether a frame is one of this layer's, by its first byte. */
 static inline bool tern_forward_contact(uint8_t hdr) {
@@ -162,10 +162,10 @@ struct tern_forward_slot {
     uint32_t gone[TERN_FORWARD_SALVAGE_MAX];
     tern_time at;
     tern_time deadline; /* when its acknowledgement is given up on, or -1 */
-    /* A frame a keeper held for a sleeping leaf and is handing over: the leaf, and when it was
-     * first held. 0 for any other frame. */
+    /* A frame a keeper held for a sleeping leaf and is handing over: the leaf, and the second it
+     * was first held (tern_time / 1 s, kept to 32 bits). 0 for any other frame. */
     uint32_t kept_for;
-    tern_time held_at;
+    uint32_t held_s;
     uint8_t frame[TERN_FORWARD_FRAME_MAX];
 };
 
