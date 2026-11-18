@@ -131,8 +131,9 @@ take unsigned images; a release is never published unsigned. CI signs and verifi
 specification's published **test key** (`tools/release_key.py --test`), whose private half is in
 `tests/vectors/companion.json` for anyone to use. It is never a release key.
 
-Until the owner adds a key, `release_keys.h` lists none, so an ESP32 node built from this tree
-takes no update over the link at all, and a tag fails at once.
+`release_keys.h` lists one release key, added on 2026-11-18:
+`09800d79c2c3d0cab7f1710a18cd50d6f0e39c57d9cfe395b371195d4942f88d`. A node built with an empty
+list takes no update over the link at all, and a tag with no key listed fails at once.
 
 ### Setting it up (the owner, once)
 
