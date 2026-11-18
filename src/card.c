@@ -86,7 +86,8 @@ enum tern_card_verdict tern_cards_receive(struct tern_cards *c,
         return TERN_CARD_REFUSED;
     }
     size_t m_len = signed_part(frame, name_len, m);
-    if (!tern_address_verify(address, m, m_len, frame + NAME_AT + name_len)) {
+    /* Valid, just above: not checked a second time. */
+    if (!tern_address_verify_valid(address, m, m_len, frame + NAME_AT + name_len)) {
         return TERN_CARD_FORGED;
     }
 

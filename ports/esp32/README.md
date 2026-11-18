@@ -306,7 +306,8 @@ the radio, while Wi-Fi or Bluetooth is on. The noise source must be off before B
 So the board starts with the noise source on, makes its identity and the router's seed from it,
 and turns it off as Bluetooth starts; from then on, Bluetooth is the source, and every key made
 after it, a first contact's included, is made from it. If Bluetooth does not start, the noise
-source goes back on.
+source goes back on. While neither is on, the generator's numbers are only pseudo-random, and the
+board asks for none: anything that needs one fails as it would with no generator at all.
 
 First contact is the specification's: an EDHOC handshake of four frames, of 56, 60, 80 and 24
 bytes. Neither address goes over the air in clear, each board proves it holds the key behind its
@@ -493,17 +494,18 @@ What to know before trusting one with anything:
   minute to minute sending or receiving, it drops some of the group frames it would pass on,
   more of them the busier it is, and its own never. It counts what it sent and what it received
   whole: a frame lost part-way is not counted, so it takes itself for less busy than it is.
-* **A message recorded and sent again is not read again**, with four exceptions. Each board
+* **A message recorded and sent again is not read again**, with two exceptions. Each board
   numbers the group frames it writes, and a board keeps, for each of up to sixteen writers in a
-  group, the highest number it has read and which of the 31 below it. It keeps them in flash,
-  written at most once a minute. So an old frame sent again by someone who recorded it, which
-  needs no secret, is dropped. It is still read as new:
+  group, the highest number it has read and which of the 31 below it. It writes them to flash as
+  it reads each frame, before it shows it or passes it to a client, so losing power at any moment
+  forgets none. So an old frame sent again by someone who recorded it, which needs no secret, is
+  dropped. It is still read as new:
   * by a board that never received it and has read nothing later from its writer;
-  * by a board that lost power within a minute of first reading it;
-  * by a board so full of sessions, groups and messages that flash had no room to spare for
-    the numbers, after it restarts;
   * in a group where more than sixteen boards write, when its writer is the one the board has
     gone longest without hearing.
+
+  A board so full of sessions, groups and messages that flash has no room to spare for the
+  numbers drops the group frames it reads, and says so on its console, until there is room.
 * **Boards on 0.2.0-alpha.1 or earlier and boards on this cannot read each other's group
   messages.** The frame changed to carry the number, and each takes the other's for a frame
   that fails its check. Update every board in a group together. Groups, their names and saved

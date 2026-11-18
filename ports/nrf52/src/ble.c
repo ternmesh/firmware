@@ -192,23 +192,27 @@ static void on_mtu(struct bt_conn *c, uint16_t tx, uint16_t rx) {
 
 static struct bt_gatt_cb gatt_callbacks = {.att_mtu_updated = on_mtu};
 
-/* A passkey from 0 to 999999, uniform, from the chip's true generator. */
-static uint32_t random_passkey(void) {
-    const uint32_t keys = 1000000, limit = UINT32_MAX - UINT32_MAX % keys;
-    uint32_t r;
-    do {
-        sys_csrand_get(&r, sizeof r);
-    } while (r >= limit);
-    return r % keys;
+/* 32 bits from the chip's true generator, if it gave them. */
+static bool csrand32(void *ctx, uint32_t *r) {
+    (void)ctx;
+    return sys_csrand_get(r, sizeof *r) == 0;
 }
 
-/* The passkey for this pairing: the one set, or a new one to show on the screen. */
+/* Out of a passkey's range, and not BT_PASSKEY_RAND: Zephyr fails the pairing on it (smp.c,
+ * display_passkey()) without showing anything or drawing a passkey of its own. */
+#define PASSKEY_REFUSED 1000000u
+
+/* The passkey for this pairing: the one set, or a new one to show on the screen. If the generator
+ * gives none, none is made up: the pairing is refused, and the client may try again. */
 static uint32_t app_passkey(struct bt_conn *c) {
     (void)c;
     uint32_t key = passkey_setting;
     shown_passkey = BLE_PASSKEY_RANDOM;
     if (key == BLE_PASSKEY_RANDOM) {
-        key = random_passkey();
+        if (!ble_passkey_draw(csrand32, NULL, &key)) {
+            printf("bluetooth: no random numbers for a passkey: not pairing\n");
+            return PASSKEY_REFUSED;
+        }
         shown_passkey = key;
     }
     return key;

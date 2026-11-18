@@ -832,7 +832,12 @@ static void heard_flood(const struct tern_radio_event *ev) {
         got.verdict != TERN_GROUP_ACCEPTED) {
         return; /* another group's, most often: nothing to say */
     }
-    link_group_heard(&companion);
+    /* Its writer's count goes to flash before anything is done with it: unsaved, a restart would
+     * forget the count, and the same frame, sent again, would be taken a second time. */
+    if (!link_group_heard(&companion)) {
+        printf("a group frame dropped: its count could not be saved (storage full?)\n");
+        return;
+    }
     flash_led();
     if (got.node) {
         /* For this board, not words: a position, or a kind it does not know and lets go of. */
@@ -1701,10 +1706,14 @@ static void route_sign(void *ctx, const uint8_t *m, size_t len, uint8_t sig[TERN
     tern_identity_sign(ctx, m, len, sig);
 }
 
+/* The neighbours' addresses are checked as each is first heard, and not again while the cache
+ * holds it: the check is half of what an announce costs to verify. */
+static struct tern_address_cache neighbour_addresses;
+
 static bool route_verify(void *ctx, const uint8_t address[TERN_ADDRESS_LEN], const uint8_t *m,
                          size_t len, const uint8_t sig[TERN_ANNOUNCE_SIG]) {
     (void)ctx;
-    return tern_address_valid(address) && tern_address_verify(address, m, len, sig);
+    return tern_address_verify_cached(&neighbour_addresses, address, m, len, sig);
 }
 
 /* The band a region's radios keep to, for a frequency set by hand, at the profile's power: New
@@ -2313,19 +2322,18 @@ static bool link_save_writers(void *ctx, const uint8_t *buf, size_t len) {
     return plat_store_save_if_room("writers", buf, len);
 }
 
-/* A board that keeps hearing its groups writes their writers to flash this often and no more,
- * for the flash's sake. A restart with no warning can so forget the counts of the last minute,
- * and read those frames again if someone sends them again. */
+/* The groups' writers are written as each group frame is accepted (heard_flood()); what flash did
+ * not take then, the frame dropped, is tried again this often and no more, for the flash's sake. */
 #define WRITERS_EVERY_S 60
-static tern_time writers_kept; /* when they were last written, or 0 if not since the start */
+static tern_time writers_tried; /* when they were last tried, or 0 if not since the start */
 
 static void poll_writers(void) {
     tern_time now = board_now();
-    if (writers_kept != 0 && now - writers_kept < (tern_time)WRITERS_EVERY_S * 1000000000LL) {
+    if (writers_tried != 0 && now - writers_tried < (tern_time)WRITERS_EVERY_S * 1000000000LL) {
         return;
     }
-    if (link_keep_writers(&companion)) {
-        writers_kept = now != 0 ? now : 1;
+    if (!link_keep_writers(&companion)) {
+        writers_tried = now != 0 ? now : 1;
     }
 }
 
@@ -2888,7 +2896,6 @@ static void screen_flush(void);
  * a moment to leave as a notification. OFF is the same, but for what the board does after. */
 static void restart_if_due(void) {
     if (bootloader_due) {
-        link_group_heard(&companion);
         (void)link_keep_writers(&companion);
         printf("a client asked for an update: restarting into the bootloader, which takes it over "
                "Bluetooth\n");
@@ -2909,7 +2916,6 @@ static void restart_if_due(void) {
         plat_update_by_bootloader();
     }
     if (off_due) {
-        link_group_heard(&companion);
         (void)link_keep_writers(&companion);
         const char *key = board_button_name();
         printf("a client asked: turning off. %s%sRESET turns it on again.\n",
@@ -2930,8 +2936,7 @@ static void restart_if_due(void) {
     if (restart_due == RESTART_NOW ||
         (restart_due == RESTART_QUIET &&
          board_now() - link_answered_at(&companion) >= (tern_time)RESTART_QUIET_MS * 1000000)) {
-        link_group_heard(&companion); /* whatever the minute has not yet written */
-        (void)link_keep_writers(&companion);
+        (void)link_keep_writers(&companion); /* whatever flash did not take */
         printf("restarting to apply a setting\n");
         fflush(stdout);
         board_console_flush(500);
@@ -2986,10 +2991,10 @@ static uint32_t ble_key(void) {
 static void start_bluetooth(void) {
     char name[BLE_NAME_MAX + 1];
     make_ble_name(name);
-    plat_bluetooth_starting(true);
+    plat_bluetooth_starting();
     have_ble = ble_start(name, ble_key(), have_screen);
+    plat_bluetooth_started(have_ble);
     if (!have_ble) {
-        plat_bluetooth_starting(false);
         printf("Bluetooth did not start; the USB port is the only companion link\n");
         return;
     }

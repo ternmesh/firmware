@@ -2569,7 +2569,8 @@ static void a_restart_gives_no_count_again(void) {
     CHECK_EQ_U64(count, 3 * LINK_COUNT_STEP);
 }
 
-/* A frame for the group the board made, from another member, as the board would be handed it. */
+/* A frame for the group the board made, from another member, as the board would be handed it:
+ * accepted, its writers saved, or, if flash did not take them, dropped (TERN_GROUP_AGAIN). */
 static enum tern_group_verdict hear(uint32_t from, uint32_t count) {
     struct tern_group theirs, *held[LINK_GROUPS];
     struct tern_group_received got;
@@ -2581,39 +2582,46 @@ static enum tern_group_verdict hear(uint32_t from, uint32_t count) {
     link_groups(&companion, held);
     CHECK(tern_group_open(held, LINK_GROUPS, 0x01020304, frame, 2 + TERN_GROUP_OVERHEAD, content,
                           sizeof content, &got) == 0);
-    if (got.verdict == TERN_GROUP_ACCEPTED) {
-        link_group_heard(&companion);
+    if (got.verdict == TERN_GROUP_ACCEPTED && !link_group_heard(&companion)) {
+        return TERN_GROUP_AGAIN;
     }
     return got.verdict;
 }
 
 static void a_groups_writers_are_kept_across_a_restart(void) {
     make_group();
-    CHECK(!link_keep_writers(&companion)); /* nothing heard: nothing to write */
-    CHECK(hear(0x77, 5) == TERN_GROUP_ACCEPTED);
-    CHECK(hear(0x78, 900) == TERN_GROUP_ACCEPTED);
-    /* A write flash does not take is tried again at the next call, not forgotten. */
-    board.save_fails = true;
-    CHECK(link_keep_writers(&companion));
+    CHECK(link_keep_writers(&companion)); /* nothing heard: nothing to write */
     CHECK_EQ_U64(board.writer_saves, 0);
-    board.save_fails = false;
-    CHECK(link_keep_writers(&companion));
+    /* Each frame accepted is written at once. */
+    CHECK(hear(0x77, 5) == TERN_GROUP_ACCEPTED);
     CHECK_EQ_U64(board.writer_saves, 1);
+    CHECK(hear(0x78, 900) == TERN_GROUP_ACCEPTED);
+    CHECK_EQ_U64(board.writer_saves, 2);
     CHECK_EQ_U64(board.writers_len, TERN_COMPANION_GROUP + 1 + 16);
-    CHECK(!link_keep_writers(&companion));
+    CHECK(link_keep_writers(&companion));
+    CHECK_EQ_U64(board.writer_saves, 2);
     CHECK(hear(0x77, 5) == TERN_GROUP_AGAIN); /* refused: nothing changed, nothing to write */
-    CHECK(!link_keep_writers(&companion));
+    CHECK_EQ_U64(board.writer_saves, 2);
 
+    /* A restart with no warning, straight after a frame, forgets nothing. */
     restart();
     CHECK(hear(0x77, 5) == TERN_GROUP_AGAIN);
     CHECK(hear(0x78, 900) == TERN_GROUP_AGAIN);
     CHECK(hear(0x77, 6) == TERN_GROUP_ACCEPTED);
-
-    /* What was accepted and not yet written is what a restart with no warning forgets. */
     restart();
-    CHECK(hear(0x77, 5) == TERN_GROUP_AGAIN);
-    CHECK(hear(0x77, 6) == TERN_GROUP_ACCEPTED);
+    CHECK(hear(0x77, 6) == TERN_GROUP_AGAIN);
+
+    /* A frame whose writers flash does not take is dropped, never shown, and its writers are tried
+     * again at the next call: its count with them, so the frame is not taken later either. */
+    board.save_fails = true;
+    CHECK(hear(0x77, 7) == TERN_GROUP_AGAIN);
+    CHECK(!link_keep_writers(&companion));
+    board.save_fails = false;
     CHECK(link_keep_writers(&companion));
+    CHECK(hear(0x77, 7) == TERN_GROUP_AGAIN);
+    restart();
+    CHECK(hear(0x77, 7) == TERN_GROUP_AGAIN);
+    CHECK(hear(0x77, 8) == TERN_GROUP_ACCEPTED);
 
     /* Flash that holds what the link did not write is passed over, not trusted. */
     board.writers[TERN_COMPANION_GROUP] = 200; /* more writers than a group has */

@@ -119,10 +119,102 @@ static void signature_s_must_be_below_l(void) {
     tern_identity_wipe(&id);
 }
 
+/* An address of small order is not valid, and signs everything: with A the neutral element,
+ * [S]B - [k]A is B whatever the message, so R = B and S = 1 pass for any message, and with A of
+ * order 2 they pass for every message whose k is even. tern_address_verify() refuses both, as it
+ * refuses any address that is not valid; tern_address_verify_valid(), which leaves that check to
+ * its caller, shows the forgery is real. */
+static void small_order_addresses_sign_nothing(void) {
+    uint8_t neutral[32] = {1}, order_2[32], sig[64] = {0};
+    memset(order_2, 0xff, sizeof order_2); /* y = p - 1, x = 0 */
+    order_2[0] = 0xec;
+    order_2[31] = 0x7f;
+    /* R = B, S = 1. */
+    unhex("5866666666666666666666666666666666666666666666666666666666666666", sig);
+    sig[32] = 1;
+    CHECK(!tern_address_valid(neutral));
+    CHECK(!tern_address_valid(order_2));
+    unsigned passed = 0;
+    for (uint8_t i = 0; i < 16; i++) {
+        uint8_t msg[1] = {i};
+        CHECK(tern_address_verify_valid(neutral, msg, sizeof msg, sig));
+        CHECK(!tern_address_verify(neutral, msg, sizeof msg, sig));
+        passed += tern_address_verify_valid(order_2, msg, sizeof msg, sig);
+        CHECK(!tern_address_verify(order_2, msg, sizeof msg, sig));
+    }
+    CHECK(passed > 0);
+}
+
+/* Signing goes by the constant-time ladder and checking by the variable-time multiplication: two
+ * routes to the same point, for many keys and messages. */
+static void signing_and_checking_agree(void) {
+    for (unsigned s = 0; s < 48; s++) {
+        uint8_t seed[32], msg[40], sig[64];
+        struct tern_identity id;
+        for (size_t i = 0; i < sizeof seed; i++) {
+            seed[i] = (uint8_t)(s * 151 + i * 29 + 7);
+        }
+        for (size_t i = 0; i < sizeof msg; i++) {
+            msg[i] = (uint8_t)(s * 13 + i);
+        }
+        tern_identity_init(&id, seed);
+        CHECK(tern_address_valid(id.address));
+        tern_identity_sign(&id, msg, s % sizeof msg, sig);
+        CHECK(tern_address_verify(id.address, msg, s % sizeof msg, sig));
+        CHECK(tern_address_verify_valid(id.address, msg, s % sizeof msg, sig));
+        sig[s % 64] ^= 0x10;
+        CHECK(!tern_address_verify(id.address, msg, s % sizeof msg, sig));
+        CHECK(!tern_address_verify_valid(id.address, msg, s % sizeof msg, sig));
+        tern_identity_wipe(&id);
+    }
+}
+
+/* The cache holds what it found valid, and only that: a small-order address is refused every
+ * time, a valid one is held whether or not its signature was good, and once full the oldest
+ * goes. What it holds changes no answer. */
+static void the_cache_holds_valid_addresses(void) {
+    struct tern_address_cache c = {0};
+    uint8_t neutral[32] = {1}, sig[64] = {0}, msg[3] = {1, 2, 3};
+    unhex("5866666666666666666666666666666666666666666666666666666666666666", sig);
+    sig[32] = 1;
+    CHECK(!tern_address_verify_cached(&c, neutral, msg, sizeof msg, sig));
+    CHECK(!tern_address_verify_cached(&c, neutral, msg, sizeof msg, sig));
+    CHECK_EQ_U64(c.used, 0);
+
+    struct tern_identity id[TERN_ADDRESS_CACHED + 1];
+    uint8_t good[TERN_ADDRESS_CACHED + 1][64];
+    for (size_t i = 0; i <= TERN_ADDRESS_CACHED; i++) {
+        uint8_t seed[32];
+        memset(seed, (int)(i + 40), sizeof seed);
+        tern_identity_init(&id[i], seed);
+        tern_identity_sign(&id[i], msg, sizeof msg, good[i]);
+    }
+    /* A bad signature from a valid address: refused, and the address held. */
+    CHECK(!tern_address_verify_cached(&c, id[0].address, msg, sizeof msg, sig));
+    CHECK_EQ_U64(c.used, 1);
+    CHECK(tern_address_verify_cached(&c, id[0].address, msg, sizeof msg, good[0]));
+    CHECK_EQ_U64(c.used, 1);
+    CHECK(!tern_address_verify_cached(&c, id[0].address, msg, sizeof msg, good[1]));
+    for (size_t i = 1; i <= TERN_ADDRESS_CACHED; i++) {
+        CHECK(tern_address_verify_cached(&c, id[i].address, msg, sizeof msg, good[i]));
+    }
+    CHECK_EQ_U64(c.used, TERN_ADDRESS_CACHED);
+    CHECK(memcmp(c.address[0], id[TERN_ADDRESS_CACHED].address, 32) == 0); /* in id[0]'s place */
+    CHECK_EQ_U64(c.next, 1);
+    CHECK(tern_address_verify_cached(&c, id[0].address, msg, sizeof msg, good[0]));
+    CHECK(memcmp(c.address[1], id[0].address, 32) == 0);
+    for (size_t i = 0; i <= TERN_ADDRESS_CACHED; i++) {
+        tern_identity_wipe(&id[i]);
+    }
+}
+
 int main(void) {
     RUN(addresses_match_rfc_8032);
     RUN(conversion_agrees_with_x25519);
     RUN(signatures_match_rfc_8032);
     RUN(signature_s_must_be_below_l);
+    RUN(small_order_addresses_sign_nothing);
+    RUN(signing_and_checking_agree);
+    RUN(the_cache_holds_valid_addresses);
     return CHECK_DONE();
 }
