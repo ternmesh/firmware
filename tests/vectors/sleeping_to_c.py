@@ -92,6 +92,13 @@ def main():
         for c in v["poll_ids"]
     ]
     L.append("};")
+    L.append("static const struct rest_case rests[] = {")
+    L += [
+        f"    {{{b(c['given_up'] is not None)}, {c['given_up'] or 0}, {b(c['answered'])}, "
+        f"{b(c['may_take'])}}},"
+        for c in v["keeper_rest"]
+    ]
+    L.append("};")
     L.append("static const struct hold_for_case hold_fors[] = {")
     L += [f"    {{{c['wake']}, {c['hold_for']}}}," for c in v["hold_for"]]
     L.append("};")
@@ -104,6 +111,7 @@ def main():
     L.append(f"#define V_WAKE_MAX {p['WAKE_MAX']}")
     L.append(f"#define V_LISTEN_MIN {p['LISTEN_MIN']}")
     L.append(f"#define V_HOLD_EXTRA {p['HOLD_EXTRA']}")
+    L.append(f"#define V_KEEPER_REST {p['KEEPER_REST']}")
     L.append(f"#define V_ACK_WAIT_MS {p['ACK_WAIT_ms']}")
     L.append(f"#define V_ACK_FACTOR {p['ACK_FACTOR']}")
     with open(out, "w", encoding="utf-8") as f:

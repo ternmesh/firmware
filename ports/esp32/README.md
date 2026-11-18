@@ -389,7 +389,10 @@ turns its radio off between polls to a relay, its **keeper**, which holds what i
 meanwhile and hands it over at the next poll. A message to a sleeping leaf takes up to that long to
 arrive. The leaf tells each board it has a session with that it sleeps, so their messages to it
 wait for it, and announces every ten minutes at most. It needs a relay running this firmware or
-later in range: a relay on earlier firmware does not keep it, and drops its announces.
+later in range: a relay on earlier firmware does not keep it, and drops its announces. A leaf
+gives up a relay that leaves six polls in a row unanswered, takes no relay it gave up for an hour
+unless that relay answers it, and with none to take listens all the time, as a leaf that does not
+sleep; `sleep` then says `not asleep: no relay answers polls; trying 482fa614 again in 3540 s`.
 
 ```
 sleep: on, polling its keeper at least every 300 s and listening 2 s after each poll

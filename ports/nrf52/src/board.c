@@ -45,7 +45,8 @@
 
 #define LORA DT_NODELABEL(lora)
 #define VBATT DT_NODELABEL(vbatt)
-#define NONE {0}
+#define NONE                                                                                       \
+    { 0 }
 
 static const struct spi_dt_spec lora_spi =
     SPI_DT_SPEC_GET(LORA, SPI_WORD_SET(8) | SPI_TRANSFER_MSB | SPI_OP_MODE_CONTROLLER);

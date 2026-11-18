@@ -1897,11 +1897,20 @@ static void sleep_status(void) {
                    (long long)(route.poll_at > now ? (route.poll_at - now) / 1000000000LL : 0),
                    (unsigned)route.poll_misses, route.poll_misses == 1 ? "" : "s",
                    (unsigned)TERN_SLEEP_POLL_TRIES);
+        } else if (route.starting) {
+            printf("not asleep: it is still starting\n");
         } else {
-            printf("not asleep yet: %s\n",
-                   route.starting ? "it is still starting"
-                                  : "it waits for a keeper, a relay it hears with the link up "
-                                    "both ways");
+            uint32_t relay = 0;
+            tern_time until = 0;
+            if (tern_route_resting(&route, now, &relay, &until)) {
+                /* Relays on firmware before sleeping leaves do not answer polls (draft/sleeping.md,
+                 * "A relay that does not keep"): it listens meanwhile. */
+                printf("not asleep: no relay answers polls; trying %08lx again in %lld s\n",
+                       (unsigned long)relay, (long long)((until - now) / 1000000000LL));
+            } else {
+                printf("not asleep: it waits for a keeper, a relay it hears with the link up both "
+                       "ways\n");
+            }
         }
     }
     uint32_t on = doze_on_permille(&doze, now);
@@ -2914,8 +2923,11 @@ static void status(void) {
         bool asleep = tern_route_sleeping(&route, &keeper);
         printf("sleep: on, every %lu s; %s; radio on %lu.%lu%% of the time. 'sleep' says more.\n",
                (unsigned long)tern_sleep_wake_s(own_wake()),
-               asleep ? "asleep" : "waiting for a keeper", (unsigned long)(on / 10),
-               (unsigned long)(on % 10));
+               asleep ? "asleep"
+               : tern_route_resting(&route, board_now(), &keeper, &(tern_time){0})
+                   ? "not asleep: no relay answers polls"
+                   : "waiting for a keeper",
+               (unsigned long)(on / 10), (unsigned long)(on % 10));
     }
     if (demo.h.phase == DEMO_INITIATING || demo.h.phase == DEMO_RESPONDING) {
         printf("first contact: under way, as the %s\n",
@@ -4561,18 +4573,18 @@ void node_main(void) {
      * here while they sleep, and its answers to their polls paid for as acknowledgements are. */
     tern_route_budget(&route, &budget);
     if (relay) {
-        struct tern_forward_kept *store = NULL;
+        struct tern_forward_kept *kept = NULL;
 #if defined(__ZEPHYR__)
-        store = keeper_store;
+        kept = keeper_store;
 #else
         /* From the heap, so that a chip whose static RAM is full builds as before, and only if it
          * leaves what Bluetooth and the rest need. */
-        if (plat_heap_free() >= KEEPER_FRAMES * sizeof *store + 64u * 1024u) {
-            store = calloc(KEEPER_FRAMES, sizeof *store);
+        if (plat_heap_free() >= KEEPER_FRAMES * sizeof *kept + 64u * 1024u) {
+            kept = calloc(KEEPER_FRAMES, sizeof *kept);
         }
 #endif
-        if (store != NULL) {
-            tern_forward_keeper(&forward, store, KEEPER_FRAMES);
+        if (kept != NULL) {
+            tern_forward_keeper(&forward, kept, KEEPER_FRAMES);
         } else {
             printf("no room to keep sleeping leaves: frames for one go to it as to any leaf\n");
         }

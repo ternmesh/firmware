@@ -467,6 +467,7 @@ struct tern_route_bucket {
 #define TERN_ROUTE_ASKS 16       /* requests waiting to go */
 #define TERN_ROUTE_ANSWERS 4     /* answers to solicits waiting to go */
 #define TERN_ROUTE_KEPT_LEAVES 4 /* sleeping leaves a relay keeps track of as their keeper */
+#define TERN_ROUTE_RESTED 4      /* relays a sleeping leaf gave up as keeper, remembered */
 #define TERN_ROUTE_FORGOTTEN                                                                       \
     64 /* forgotten neighbours whose last numbers are kept: FORGOTTEN_KEPT */
 
@@ -680,6 +681,13 @@ struct tern_route {
     tern_time poll_at;
     tern_time listen_until;
     tern_time slept_announce; /* -1 for none yet */
+    /* Relays it gave up as keeper, not to be taken again for KEEPER_REST unless one answers a poll
+     * of its (tern/sleep.h): each one's routing id, 0 for a free place, and the second it was
+     * given up (tern_time / 1 s). The oldest makes way for a new one. */
+    struct {
+        uint32_t relay;
+        uint32_t at_s;
+    } rested[TERN_ROUTE_RESTED];
 
     bool out;           /* the last frame polled was an announce not yet reported sent */
     tern_time out_at;   /* when it was built */
@@ -760,6 +768,12 @@ void tern_route_holding(struct tern_route *r, uint32_t leaf, uint8_t held);
  * it listens again, and its next announce, soon, says so. One told a new wake gives it in its next
  * poll. A relay keeps it and never sleeps. */
 void tern_route_sleep_set(struct tern_route *r, uint16_t wake, uint8_t listen_s);
+
+/* For a leaf that would sleep and is not asleep: whether it waits for a relay it gave up as keeper
+ * to rest (KEEPER_REST), and if so which, and when it may take it again; of those resting, the
+ * one whose rest ends first. */
+bool tern_route_resting(const struct tern_route *r, tern_time now, uint32_t *relay,
+                        tern_time *until);
 
 /* Whether this node is a leaf asleep: it may turn its radio off, and its keeper is `keeper`. */
 bool tern_route_sleeping(const struct tern_route *r, uint32_t *keeper);

@@ -53,6 +53,11 @@ struct poll_id_case {
     uint16_t last, id;
     bool answers;
 };
+struct rest_case {
+    bool given_up;
+    int64_t since_s;
+    bool answered, may_take;
+};
 struct hold_for_case {
     uint16_t wake;
     int64_t hold_for;
@@ -71,6 +76,7 @@ static void parameters_are_the_specifications(void) {
     CHECK_EQ_I64(TERN_SLEEP_WAKE_MAX_S, V_WAKE_MAX);
     CHECK_EQ_I64(TERN_SLEEP_LISTEN_MIN_S, V_LISTEN_MIN);
     CHECK_EQ_I64(TERN_SLEEP_HOLD_EXTRA_S, V_HOLD_EXTRA);
+    CHECK_EQ_I64(TERN_SLEEP_KEEPER_REST_S, V_KEEPER_REST);
 }
 
 static void polls_and_answers_are_written_and_read(void) {
@@ -181,6 +187,10 @@ static void keepers_and_sources_reckon_time_as_the_specification_does(void) {
         CHECK(tern_sleep_answers_poll(poll_ids[i].polled, poll_ids[i].last, poll_ids[i].id) ==
               poll_ids[i].answers);
     }
+    for (size_t i = 0; i < COUNT(rests); i++) {
+        CHECK(tern_sleep_may_take(rests[i].given_up, TERN_S(rests[i].since_s), rests[i].answered) ==
+              rests[i].may_take);
+    }
     for (size_t i = 0; i < COUNT(hold_fors); i++) {
         CHECK_EQ_I64(tern_sleep_hold_for(hold_fors[i].wake), TERN_S(hold_fors[i].hold_for));
     }
@@ -222,7 +232,9 @@ static struct {
     int16_t snr[NODES][NODES];
     struct tern_lora lora;
     tern_time now;
-    tern_time awake; /* the leaf's time with its radio on */
+    tern_time awake;  /* the leaf's time with its radio on */
+    bool deaf[NODES]; /* a relay on firmware before sleeping leaves: it takes no poll */
+    unsigned polls;   /* the leaf's, sent */
 } net;
 
 static uint32_t id_of(int i) { return 0x2000u + (uint32_t)i; }
@@ -233,10 +245,14 @@ static bool off(int k) {
 }
 
 static void on_air(int from, const uint8_t *frame, size_t len, int8_t dbm) {
+    net.polls += from == LEAF && frame[0] == TERN_HDR_POLL;
     for (int k = 0; k < NODES; k++) {
         struct node *y = &net.node[k];
         int snr = net.snr[from][k] == NONE ? NONE : net.snr[from][k] + 4 * (dbm - FULL);
         if (k == from || snr == NONE || snr < SNR_FLOOR_Q || off(k)) {
+            continue;
+        }
+        if (net.deaf[k] && frame[0] == TERN_HDR_POLL) {
             continue;
         }
         if (tern_route_frame(frame, len)) {
@@ -437,6 +453,34 @@ static void a_leaf_told_to_stop_listens_and_can_sleep_again(void) {
     CHECK(keeper == id_of(KEEPER));
 }
 
+/* No relay it hears answers a poll, as none on earlier firmware does: the leaf gives each up in
+ * turn, takes neither again while it rests, and listens all the time meanwhile, polling no more;
+ * once the rests are over it tries again, and sleeps if a relay now answers. */
+static void relays_that_do_not_keep_are_rested(void) {
+    uint32_t keeper = 0, relay = 0;
+    tern_time until = 0, wake;
+    net_init();
+    CHECK(tern_route_sleeping(&net.node[LEAF].r, &keeper));
+    net.deaf[KEEPER] = net.deaf[OTHER] = true;
+    net.polls = 0;
+    run(net.now + TERN_S(1800));
+    CHECK(!tern_route_sleeping(&net.node[LEAF].r, NULL));
+    CHECK(!tern_forward_may_sleep(&net.node[LEAF].f, net.now, &wake));
+    CHECK(tern_route_resting(&net.node[LEAF].r, net.now, &relay, &until));
+    CHECK(relay == id_of(KEEPER)); /* given up first, so its rest ends first */
+    /* No storm: POLL_TRIES to each relay, and none after. */
+    CHECK(net.polls <= 2 * TERN_SLEEP_POLL_TRIES + 1);
+    unsigned sent = net.polls;
+    run(until - TERN_S(60));
+    CHECK_EQ_I64(net.polls, sent);
+    CHECK(!tern_route_sleeping(&net.node[LEAF].r, NULL));
+    /* The relays are updated; the rests end, and the leaf sleeps again. */
+    net.deaf[KEEPER] = net.deaf[OTHER] = false;
+    run(until + TERN_S(1200));
+    CHECK(tern_route_sleeping(&net.node[LEAF].r, &keeper));
+    CHECK(keeper == id_of(KEEPER));
+}
+
 /* A leaf that does not sleep is a leaf as before: never off. */
 static void a_leaf_that_does_not_sleep_never_may(void) {
     struct tern_route r;
@@ -469,5 +513,6 @@ int main(void) {
     RUN(a_leaf_whose_keeper_goes_takes_another);
     RUN(a_frame_held_too_long_is_dropped);
     RUN(a_leaf_told_to_stop_listens_and_can_sleep_again);
+    RUN(relays_that_do_not_keep_are_rested);
     return CHECK_DONE();
 }
