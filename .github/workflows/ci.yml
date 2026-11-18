@@ -12,6 +12,7 @@ jobs:
   test:
     name: test (${{ matrix.cc }})
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -29,6 +30,7 @@ jobs:
   macos:
     name: test (macos, clang)
     runs-on: macos-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - run: brew install ninja
@@ -44,12 +46,32 @@ jobs:
   cortex-m4:
     name: build (cortex-m4, freestanding)
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y ninja-build gcc-arm-none-eabi
+      # Arm's own toolchain, kept in the cache, not Ubuntu's gcc-arm-none-eabi: Ubuntu's mirror
+      # trickled that package so slowly three times in a day that the job ran out of time. The
+      # checksum is the one Arm publishes beside the file.
+      - name: Cache the Arm toolchain
+        id: arm-cache
+        uses: actions/cache@v4
+        with:
+          path: arm-gnu-toolchain
+          key: arm-gnu-toolchain-14.3.rel1-x86_64
+      - name: Download the Arm toolchain
+        if: steps.arm-cache.outputs.cache-hit != 'true'
+        run: |
+          file=arm-gnu-toolchain-14.3.rel1-x86_64-arm-none-eabi.tar.xz
+          curl -fsSL --retry 5 --retry-all-errors --connect-timeout 30 -o "$file" \
+            "https://developer.arm.com/-/media/Files/downloads/gnu/14.3.rel1/binrel/$file"
+          echo "8f6903f8ceb084d9227b9ef991490413014d991874a1e34074443c2a72b14dbd  $file" | sha256sum -c -
+          mkdir arm-gnu-toolchain
+          tar xf "$file" -C arm-gnu-toolchain --strip-components=1
+          rm "$file"
+      - run: echo "$PWD/arm-gnu-toolchain/bin" >> "$GITHUB_PATH"
       - name: Configure
         run: >-
-          cmake -S . -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/arm-none-eabi.cmake
+          cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=cmake/arm-none-eabi.cmake
           -DCMAKE_BUILD_TYPE=MinSizeRel -DBUILD_TESTING=OFF -DTERN_WERROR=ON
       - run: cmake --build build
       - run: arm-none-eabi-size build/libtern.a
@@ -71,6 +93,7 @@ jobs:
   sim:
     name: test (in the simulator)
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
@@ -93,6 +116,7 @@ jobs:
   esp32:
     name: build (${{ matrix.board }}, esp-idf)
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -117,6 +141,7 @@ jobs:
   nrf52:
     name: build (${{ matrix.board }}, zephyr)
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -139,6 +164,7 @@ jobs:
   signing:
     name: signing (test key)
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -164,6 +190,7 @@ jobs:
 
   format:
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y clang-format-18

@@ -24,6 +24,7 @@ permissions:
 jobs:
   version:
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     outputs:
       version: ${{ steps.tag.outputs.version }}
       esp32: ${{ steps.boards.outputs.esp32 }}
@@ -71,6 +72,7 @@ jobs:
     name: esp32 (${{ matrix.board }})
     needs: version
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -93,6 +95,7 @@ jobs:
     name: nrf52 (${{ matrix.board }})
     needs: version
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -114,6 +117,7 @@ jobs:
   publish:
     needs: [esp32, nrf52]
     runs-on: ubuntu-24.04
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
