@@ -208,6 +208,45 @@ static void the_cache_holds_valid_addresses(void) {
     }
 }
 
+/* A routing key (draft/routing.md, "Routing ids"; tests/route.c has the specification's vectors):
+ * valid as an address is, not the address, another for another epoch, and the key that the
+ * identity's blinded signatures check against, and the only one. */
+static void routing_keys_are_blinded_and_sign(void) {
+    static const char *const seeds[] = {
+        "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+        "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb",
+    };
+    static const uint8_t msg[] = "tern v0 announce";
+    for (size_t i = 0; i < sizeof seeds / sizeof seeds[0]; i++) {
+        uint8_t seed[32], key[32], later[32], sig[64];
+        struct tern_identity id;
+        unhex(seeds[i], seed);
+        tern_identity_init(&id, seed);
+        CHECK(tern_address_blind(key, id.address, TERN_EPOCH));
+        CHECK(memcmp(key, id.key, 32) == 0 && memcmp(key, id.address, 32) != 0);
+        CHECK(tern_address_valid(id.key));
+        CHECK(tern_address_blind(later, id.address, TERN_EPOCH + 1));
+        CHECK(memcmp(later, id.key, 32) != 0);
+
+        tern_identity_sign_blinded(&id, TERN_EPOCH, msg, sizeof msg - 1, sig);
+        CHECK(tern_address_verify(id.key, msg, sizeof msg - 1, sig));
+        CHECK(!tern_address_verify(id.address, msg, sizeof msg - 1, sig));
+        CHECK(!tern_address_verify(later, msg, sizeof msg - 1, sig));
+        /* Not the identity key's own signature: another nonce, and another S. */
+        uint8_t plain[64];
+        tern_identity_sign(&id, msg, sizeof msg - 1, plain);
+        CHECK(memcmp(plain, sig, 32) != 0 && memcmp(plain + 32, sig + 32, 32) != 0);
+
+        tern_identity_sign_blinded(&id, TERN_EPOCH + 1, msg, sizeof msg - 1, sig);
+        CHECK(tern_address_verify(later, msg, sizeof msg - 1, sig));
+        CHECK(!tern_address_verify(id.key, msg, sizeof msg - 1, sig));
+        tern_identity_wipe(&id);
+    }
+    /* An address of small order has no key. */
+    uint8_t small[32] = {1}, key[32];
+    CHECK(!tern_address_blind(key, small, TERN_EPOCH));
+}
+
 int main(void) {
     RUN(addresses_match_rfc_8032);
     RUN(conversion_agrees_with_x25519);
@@ -216,5 +255,6 @@ int main(void) {
     RUN(small_order_addresses_sign_nothing);
     RUN(signing_and_checking_agree);
     RUN(the_cache_holds_valid_addresses);
+    RUN(routing_keys_are_blinded_and_sign);
     return CHECK_DONE();
 }

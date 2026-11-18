@@ -1,22 +1,75 @@
 {
-  "description": "Routing, draft 0 (draft/routing.md). Routing ids, sequence numbers, promise codes and metrics are numbers; addresses and frames are hex. In floors, powers are dBm, snr_quarter_db is the signal-to-noise ratio in quarters of a decibel, as the SX126x reports it, and floor_sixteenths is the floor in sixteenths of a dBm. In links, own_margin_sixteenths is the node's full power less its floor for the neighbour, in sixteenths of a decibel, and their_margin is the margin byte the neighbour gave; either is null when it is missing, and the steps follow one another. In places, neighbours is a full table, each with the node's floor for it, whether its link is up and whether it is out of use, floor_sixteenths is the floor an announce from a node not in it gives, and replaces is an index into neighbours. In selection and kept, each route's metric is the one its neighbour announced, every link costs link_cost, and selected, selects and replaces are indexes into routes. In defaults, each neighbour's out_of_use says whether it is out of use, tried and next are indexes into neighbours, busy_ppm is the leaf's busy share in millionths, and metric is the default route's. Each announce is signed with seed, whose address is address, and carries the address in the frame if carries_address is true. A rejected frame MUST be discarded whether or not the receiver holds its sender's address. In verified, announce is an index into announces, held_address is the address the receiver holds for its sender (null for none), takes whether it takes the announce rather than discarding it, and holds_address the address it then holds for the sender, if the rest of the section then takes the announce from a neighbour. In listed, metric_field is a listed route's metric as it goes on the air, retracts whether it retracts the route, leaf and metric what it says otherwise (null for a retraction), and field what a node writes for them. In anchors, each of relays is a neighbour of a leaf, relay saying whether it is one, with whether its link is up, whether it is out of use, its link's margin in sixteenths of a decibel, the seconds since it was heard and its promise in seconds (null for none); sparse is whether the leaf solicits there, anchor an index into relays (null for none), and asks whether it asks after it on its SOLICIT_GAP. In answering, own_margin_sixteenths is the relay's full power less its floor for the leaf, asked whether the solicit asks after it, wait the most its answer waits in airtimes of the answer (null if it does not answer), and cancelled whether others' answers cancel it. In answered, asked is the relay the leaf asked after, its anchor when it asked, another or null for none; asked_heard and others_heard whether it heard from that relay and from any other in SOLICIT_WAIT; anchor_now whether its anchor now is the one it last re-attached to, another, or null for none; attached_before whether it has re-attached before; does is settled, again, waits, moved or reattaches. In leaves, relay is what the destination's own last announce said of its role (null if the node does not keep it as a neighbour), listed whether each route the node holds to it was listed as one to a leaf, selected an index into listed (null for none), was what the node took before, and leaf what it takes now. In selection and kept, a route whose usable is false goes through a neighbour the node may not use: its link is down or it is out of use. In powers, a node, a leaf or not, with the neighbours given, each with its floor and whether it is out of use, and with the lowest and full power given in dBm, sends a frame for every neighbour at power. In answered, relays are the leaf's relay neighbours, the one asked after first if any, each with whether its link is up, whether it was out of use, whether the leaf heard from it in SOLICIT_WAIT, and whether it is out of use after. In given_up, relays are a leaf's neighbours as in anchors, at the index of the one hops hops in a row are given up at, out_of_use_after whether each is then out of use, asks whether the leaf then asks, after the index it asks after (null for none) and anchored whether that was its anchor. In elsewhere, a node keeps a neighbour whose link is up or not, out of use or not and a relay or not, whose own last announce gave own_seq, and another neighbour offers a route to it at offered_seq, a retraction or not; out_of_use_after is whether the first is then out of use. In samples, a node, a leaf or not, keeps a neighbour, a relay or not, with floor_sixteenths, their_margin (0 for none) and its link up or not, and hears from it a solicit or an answer (an answer to me is one for this node) sent at power, heard at snr_quarter_db at SF9, with margin; its full power is full_power, and the floor, the margin and the link are then the ones after; a relay that answers a solicit answers with answer_margin at answer_power, both null where it does not answer. Where kept is false the node does not keep the sender, and takes nothing from the frame: it keeps no neighbour for it and answers nothing. out_of_use and out_of_use_after say whether the neighbour is out of use before and after: heard from, it is in use again. In answered, anchor_heard, where the leaf asked after a relay that was not its anchor, says whether it heard from the relay that was (null where there was none, or the anchor is the one asked after), and that relay is among relays; anchor_heard_first whether it heard that anchor in the first solicit of the pair, which the leaf keeps for the second as anchor_heard_first_after; each relay's heard_first says whether the leaf heard from it in the first solicit of the pair. In in_use_again, a node keeps a neighbour out of use and hears from it what heard says: an announce it takes, one it discards (as a copy, by its number), a frame the neighbour passed on, a solicit or an answer; out_of_use_after is whether it is then out of use.",
+  "description": "Routing, draft 0 (draft/routing.md). Routing ids, sequence numbers, promise codes and metrics are numbers; addresses and frames are hex. In floors, powers are dBm, snr_quarter_db is the signal-to-noise ratio in quarters of a decibel, as the SX126x reports it, and floor_sixteenths is the floor in sixteenths of a dBm. In links, own_margin_sixteenths is the node's full power less its floor for the neighbour, in sixteenths of a decibel, and their_margin is the margin byte the neighbour gave; either is null when it is missing, and the steps follow one another. In places, neighbours is a full table, each with the node's floor for it, whether its link is up and whether it is out of use, floor_sixteenths is the floor an announce from a node not in it gives, and replaces is an index into neighbours. In selection and kept, each route's metric is the one its neighbour announced, every link costs link_cost, and selected, selects and replaces are indexes into routes. In defaults, each neighbour's out_of_use says whether it is out of use, tried and next are indexes into neighbours, busy_ppm is the leaf's busy share in millionths, and metric is the default route's. In ids, blind is h as 32 bytes little-endian, key the routing key [h]A, and id the routing id, each at epoch 0; where seed is given, blinded_scalar is b and blinded_prefix the prefix its signatures are made with. No routing id is derived from an address in no_ids. Each announce is signed by the routing key of the address of seed, address, whose key is key, and carries the key in the frame if carries_key is true. A rejected frame MUST be discarded whether or not the receiver holds its sender's key. In verified, announce is an index into announces, held_key is the key the receiver holds for its sender (null for none), takes whether it takes the announce rather than discarding it, and holds_key the key it then holds for the sender, if the rest of the section then takes the announce from a neighbour. In listed, metric_field is a listed route's metric as it goes on the air, retracts whether it retracts the route, leaf and metric what it says otherwise (null for a retraction), and field what a node writes for them. In anchors, each of relays is a neighbour of a leaf, relay saying whether it is one, with whether its link is up, whether it is out of use, its link's margin in sixteenths of a decibel, the seconds since it was heard and its promise in seconds (null for none); sparse is whether the leaf solicits there, anchor an index into relays (null for none), and asks whether it asks after it on its SOLICIT_GAP. In answering, own_margin_sixteenths is the relay's full power less its floor for the leaf, asked whether the solicit asks after it, wait the most its answer waits in airtimes of the answer (null if it does not answer), and cancelled whether others' answers cancel it. In answered, asked is the relay the leaf asked after, its anchor when it asked, another or null for none; asked_heard and others_heard whether it heard from that relay and from any other in SOLICIT_WAIT; anchor_now whether its anchor now is the one it last re-attached to, another, or null for none; attached_before whether it has re-attached before; does is settled, again, waits, moved or reattaches. In leaves, relay is what the destination's own last announce said of its role (null if the node does not keep it as a neighbour), listed whether each route the node holds to it was listed as one to a leaf, selected an index into listed (null for none), was what the node took before, and leaf what it takes now. In selection and kept, a route whose usable is false goes through a neighbour the node may not use: its link is down or it is out of use. In powers, a node, a leaf or not, with the neighbours given, each with its floor and whether it is out of use, and with the lowest and full power given in dBm, sends a frame for every neighbour at power. In answered, relays are the leaf's relay neighbours, the one asked after first if any, each with whether its link is up, whether it was out of use, whether the leaf heard from it in SOLICIT_WAIT, and whether it is out of use after. In given_up, relays are a leaf's neighbours as in anchors, at the index of the one hops hops in a row are given up at, out_of_use_after whether each is then out of use, asks whether the leaf then asks, after the index it asks after (null for none) and anchored whether that was its anchor. In elsewhere, a node keeps a neighbour whose link is up or not, out of use or not and a relay or not, whose own last announce gave own_seq, and another neighbour offers a route to it at offered_seq, a retraction or not; out_of_use_after is whether the first is then out of use. In samples, a node, a leaf or not, keeps a neighbour, a relay or not, with floor_sixteenths, their_margin (0 for none) and its link up or not, and hears from it a solicit or an answer (an answer to me is one for this node) sent at power, heard at snr_quarter_db at SF9, with margin; its full power is full_power, and the floor, the margin and the link are then the ones after; a relay that answers a solicit answers with answer_margin at answer_power, both null where it does not answer. Where kept is false the node does not keep the sender, and takes nothing from the frame: it keeps no neighbour for it and answers nothing. out_of_use and out_of_use_after say whether the neighbour is out of use before and after: heard from, it is in use again. In answered, anchor_heard, where the leaf asked after a relay that was not its anchor, says whether it heard from the relay that was (null where there was none, or the anchor is the one asked after), and that relay is among relays; anchor_heard_first whether it heard that anchor in the first solicit of the pair, which the leaf keeps for the second as anchor_heard_first_after; each relay's heard_first says whether the leaf heard from it in the first solicit of the pair. In in_use_again, a node keeps a neighbour out of use and hears from it what heard says: an announce it takes, one it discards (as a copy, by its number), a frame the neighbour passed on, a solicit or an answer; out_of_use_after is whether it is then out of use.",
   "generator": "vectors/tools/routing.py",
   "ids": [
     {
-      "address": "0000000000000000000000000000000000000000000000000000000000000000",
-      "id": 289929253
+      "address": "3b6a27bcceb6a42d62a3a8d02a6f0d73653215771de243a63ac048a18b59da29",
+      "blind": "aee60205aab348a5979bfa92075cacccf693875825edf9ce6eac55b2fee48e07",
+      "key": "3cac296a1a10d6e48b5617609b8c60ad1d45bed83a2d05191f9c593c3baa85b9",
+      "id": 2355060531
     },
     {
-      "address": "1111111111111111111111111111111111111111111111111111111111111111",
-      "id": 3167332448
+      "address": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "blind": "749434fb22067217258e07ca3b9eeb1e44e8d6008c1ee908e3ba1d5498a0b703",
+      "key": "df404b2bb36231649ed3bbea7be09ae207c7d799fabaaffd7852e31f1da7ab79",
+      "id": 1545353172
     },
     {
-      "address": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5",
-      "id": 1399809041
+      "address": "29e5833a915a6429a4e3a7948475c338ef436eb82be89c92f059704403db9d55",
+      "blind": "78aa42929f013dafbd6abfb9478c737cd09de848bd4a323c11f84ea041107904",
+      "key": "7181485df2ec81ba825a3b0dd092d4d54cba1daabb70075111a57a96846a0a95",
+      "id": 2538206572
     },
     {
-      "address": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
-      "id": 1752530551
+      "address": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+      "blind": "a9ec8b4da15be90ba1b60043feed45e655b45fd47ebc8f07315803d57449e409",
+      "key": "d08ba1f3b1d8eb75f47d972c21329de02f75ca84562017fd2640dc85c3ae521f",
+      "id": 1832418206
+    },
+    {
+      "seed": "67b665228d76c9f4d596e7f1ced6fe1b1bc7dfc77803a56b7da51179d13c4e24",
+      "address": "d6d15fabbc42ce56174a4363e757437a4a7baf421b690caa24676f3f4f17c996",
+      "blind": "54d880bb6b3567f7a66ef7e730dba14aabf30192bd90950416a1ba3801b38c01",
+      "key": "3325ffb41e75e0776c2ddbab9ec08c9bf45f7112078e0a772f06e9736db335d2",
+      "id": 3019831007,
+      "blinded_scalar": "f225efc6ac7e64fde96bb98be58ddffcd241203f767f957a1e28fe00e345a80b",
+      "blinded_prefix": "53d7a4784646c2824b276cd3587744aca668ffd1901282af8318c61a8eef6248"
+    },
+    {
+      "seed": "e504638ece856468a5fa2dcde22d6488b01e18f5d4b37389fe568b5dee00e4a3",
+      "address": "19dd846009f5b0274b07bc4347a3635a3fee4464f2720f79e233f38ce8f95108",
+      "blind": "4dd7106b2e4e6389425e2515c0fcd1bae7d0042c51226a8626e29a6581ca8f04",
+      "key": "c3ae3d804dfe75931870942786549e1c83ed082af55f8403d91c05fc9250b609",
+      "id": 2922406531,
+      "blinded_scalar": "186871fe727425c36bd04ff2a8e9d876b8c6870ffdde9ef043aa850e67a0040d",
+      "blinded_prefix": "de5e34e5f95c891578df2006cff61793d986c67c6b2cf32cef851695acea6327"
+    },
+    {
+      "seed": "c5bf3d9f0a38850460f4972f3e1c8b2feaed0a33c2d0a748de217bc947e64856",
+      "address": "dfc0ccb9e5961a0350bbb875ccce76e6947e7ad64643b3796d07f27e09a6f054",
+      "blind": "6c4893472fe4a560c77bac899d06db0a33617cf6baa40c7d27922eb28ffc450a",
+      "key": "644d03e9d416c932469fdb2d20efeb0add707c906243cdc52c945dc07da8b5dd",
+      "id": 3436257972,
+      "blinded_scalar": "91ef8fc27515c53eda4bf0fb2f3e898193e846e665e686753e741762be66d806",
+      "blinded_prefix": "3970f8f47cf998cb6fb6250ae8123dd272a6925ec97176a68f11c5b822de87ba"
+    }
+  ],
+  "no_ids": [
+    {
+      "why": "the neutral element",
+      "address": "0100000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "why": "a point of order 8",
+      "address": "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05"
+    },
+    {
+      "why": "an address plus a point of order 8",
+      "address": "a38f33bce1db848db94f41dfe0805a1d7babadacc49ca08425c6c978efa92834"
+    },
+    {
+      "why": "no point: no x has this y",
+      "address": "0200000000000000000000000000000000000000000000000000000000000000"
     }
   ],
   "newer": [
@@ -125,12 +178,12 @@
   ],
   "announces": [
     {
-      "sender": 488787823,
+      "sender": 3019831007,
       "number": 65535,
       "seq": 0,
       "relay": false,
       "starting": true,
-      "carries_address": true,
+      "carries_key": true,
       "promise": 600,
       "round": 0,
       "power": 22,
@@ -138,51 +191,53 @@
       "routes": [],
       "seed": "67b665228d76c9f4d596e7f1ced6fe1b1bc7dfc77803a56b7da51179d13c4e24",
       "address": "d6d15fabbc42ce56174a4363e757437a4a7baf421b690caa24676f3f4f17c996",
-      "frame": "591d224f6fffff00000602580000160000d6d15fabbc42ce56174a4363e757437a4a7baf421b690caa24676f3f4f17c996600ae5078613d4a86c68c2ba5b6665e25e56b506fb1c6f2c420371a873c52d7d8b571cc48e57209b2f155139c2229bbc5d869ec37c480dfcb4be9deae0265e0f"
+      "key": "3325ffb41e75e0776c2ddbab9ec08c9bf45f7112078e0a772f06e9736db335d2",
+      "frame": "59b3fef6dfffff000006025800001600003325ffb41e75e0776c2ddbab9ec08c9bf45f7112078e0a772f06e9736db335d2cac0730ea9368825efeba99433a65a32efd55ec874aa646412cbc01ac7a4908713c9a0d21bfa9a5662ff122cc9dbee3c8edfb0d24a541be5138f9d177419110e"
     },
     {
-      "sender": 2200367567,
+      "sender": 2922406531,
       "number": 258,
       "seq": 32769,
       "relay": true,
       "starting": false,
-      "carries_address": false,
+      "carries_key": false,
       "promise": 33435,
       "round": 2,
       "power": -9,
       "neighbours": [
         {
-          "id": 289929253,
+          "id": 2355060531,
           "margin": 128
         },
         {
-          "id": 1399809041,
+          "id": 2538206572,
           "margin": 255
         }
       ],
       "routes": [
         {
-          "destination": 1399809041,
+          "destination": 2538206572,
           "seq": 7,
           "metric": 54
         },
         {
-          "destination": 1752530551,
+          "destination": 1832418206,
           "seq": 65534,
           "metric": 65535
         }
       ],
       "seed": "e504638ece856468a5fa2dcde22d6488b01e18f5d4b37389fe568b5dee00e4a3",
       "address": "19dd846009f5b0274b07bc4347a3635a3fee4464f2720f79e233f38ce8f95108",
-      "frame": "598326f1cf0102800101829b0002f702021147f82580536f6411ff536f64110007003668757e77fffeffff150bca074acf0c954a860a4d4435982e613d0823f0fd7cc6617f1dd0f2206e4f9269332d5c2094f1d5a7f48dc82f18b47b69d2ec7581b2742cba793f5d0ab90c"
+      "key": "c3ae3d804dfe75931870942786549e1c83ed082af55f8403d91c05fc9250b609",
+      "frame": "59ae3062830102800101829b0002f702028c5f5f33809749f56cff9749f56c000700366d387b9efffeffff7b8fef44a32da42b6cd479fcb670772557393c9534344d7d5cbb833cd1751dd06797d73d63475506a4f5b457941fad5bd455e850ccf0d2a3b027a905902c5304"
     },
     {
-      "sender": 2394961521,
+      "sender": 3436257972,
       "number": 5,
       "seq": 9,
       "relay": true,
       "starting": false,
-      "carries_address": false,
+      "carries_key": false,
       "promise": 65535,
       "round": 1,
       "power": 2,
@@ -296,66 +351,69 @@
       ],
       "seed": "c5bf3d9f0a38850460f4972f3e1c8b2feaed0a33c2d0a748de217bc947e64856",
       "address": "dfc0ccb9e5961a0350bbb875ccce76e6947e7ad64643b3796d07f27e09a6f054",
-      "frame": "598ec036710005000901ffff00010200150001000100010036000100020002006c00010003000300a200010004000400d8000100050005010e0001000600060144000100070007017a00010008000801b000010009000901e60001000a000a021c0001000b000b02520001000c000c02880001000d000d02be0001000e000e02f40001000f000f032a0001001000100360000100110011039600010012001203cc00010013001304020001001400140438000100150015046e4e6f56c536209006e58a41739c905d15dada8a33af4505753abbf2b8a99c75e837ed69883b6bf84ba354ca3c72d8aacafd42e9b2f15cf57b9d221e8105aef405"
+      "key": "644d03e9d416c932469fdb2d20efeb0add707c906243cdc52c945dc07da8b5dd",
+      "frame": "59ccd122b40005000901ffff00010200150001000100010036000100020002006c00010003000300a200010004000400d8000100050005010e0001000600060144000100070007017a00010008000801b000010009000901e60001000a000a021c0001000b000b02520001000c000c02880001000d000d02be0001000e000e02f40001000f000f032a0001001000100360000100110011039600010012001203cc00010013001304020001001400140438000100150015046eab497226272f3a17d6a0b89f8175d41f2a1556ee2984f8c86e6876be84b8c3beecff5733030853229ab295f55c6b69a3ce51e4a7c765556599570f2bd5e0860a"
     },
     {
-      "sender": 2200367567,
+      "sender": 2922406531,
       "number": 259,
       "seq": 32769,
       "relay": true,
       "starting": false,
-      "carries_address": true,
+      "carries_key": true,
       "promise": 600,
       "round": 1,
       "power": 14,
       "neighbours": [
         {
-          "id": 289929253,
+          "id": 2355060531,
           "margin": 130
         }
       ],
       "routes": [
         {
-          "destination": 1399809041,
+          "destination": 2538206572,
           "seq": 7,
           "metric": 54
         }
       ],
       "seed": "e504638ece856468a5fa2dcde22d6488b01e18f5d4b37389fe568b5dee00e4a3",
       "address": "19dd846009f5b0274b07bc4347a3635a3fee4464f2720f79e233f38ce8f95108",
-      "frame": "598326f1cf0103800105025800010e010119dd846009f5b0274b07bc4347a3635a3fee4464f2720f79e233f38ce8f951081147f82582536f641100070036e3a0302ee59bfdd259de29affbf5ce90678954be230af9918f66a795b1c3a2684e16473865ab2d6bf0c8db1b91ea4a0cabedd61cf2988a2a1ba4cd81f51ee30c"
+      "key": "c3ae3d804dfe75931870942786549e1c83ed082af55f8403d91c05fc9250b609",
+      "frame": "59ae3062830103800105025800010e0101c3ae3d804dfe75931870942786549e1c83ed082af55f8403d91c05fc9250b6098c5f5f33829749f56c00070036427787ae5ae0d06712aa292fcc40584da7176b85bf5aa86115129bb51f1e95f88807773bb2175216617f701bba9e2bd179a4053a71e10c9fd0ee894b6e789500"
     },
     {
-      "sender": 2394961521,
+      "sender": 3436257972,
       "number": 6,
       "seq": 9,
       "relay": true,
       "starting": false,
-      "carries_address": false,
+      "carries_key": false,
       "promise": 600,
       "round": 1,
       "power": 8,
       "neighbours": [],
       "routes": [
         {
-          "destination": 289929253,
+          "destination": 2355060531,
           "seq": 256,
           "metric": 32822
         },
         {
-          "destination": 1752530551,
+          "destination": 1832418206,
           "seq": 3,
           "metric": 32766
         },
         {
-          "destination": 3167332448,
+          "destination": 1545353172,
           "seq": 4,
           "metric": 65535
         }
       ],
       "seed": "c5bf3d9f0a38850460f4972f3e1c8b2feaed0a33c2d0a748de217bc947e64856",
       "address": "dfc0ccb9e5961a0350bbb875ccce76e6947e7ad64643b3796d07f27e09a6f054",
-      "frame": "598ec036710006000901025800010800031147f8250100803668757e7700037ffebcc9a8600004ffffb81f5168d0dc2c3d6c92b7232b7172f040e141628e145409ee989de0fc90aef056fde517a7c50692b80fd352a342c9b3b2c0e07e8a36136e189364d7c25f7507"
+      "key": "644d03e9d416c932469fdb2d20efeb0add707c906243cdc52c945dc07da8b5dd",
+      "frame": "59ccd122b40006000901025800010800038c5f5f33010080366d387b9e00037ffe5c1c37d40004ffff0f0837f9e369ccc1f7c9f6258b7dcbf714646feee18004da3075a11a48ea7e7af0a2c6f499ea046384e6b436613a7f807c25fd4d37ec4c441b3907a942da4c01"
     }
   ],
   "requests": [
@@ -363,186 +421,186 @@
       "next": 4294967295,
       "requests": [
         {
-          "destination": 1752530551,
+          "destination": 1832418206,
           "seq": 0,
           "hops": 0
         }
       ],
-      "frame": "5affffffff0168757e77000000"
+      "frame": "5affffffff016d387b9e000000"
     },
     {
-      "next": 3167332448,
+      "next": 1545353172,
       "requests": [
         {
-          "destination": 1399809041,
+          "destination": 2538206572,
           "seq": 8,
           "hops": 32
         },
         {
-          "destination": 1752530551,
+          "destination": 1832418206,
           "seq": 65535,
           "hops": 1
         }
       ],
-      "frame": "5abcc9a86002536f641100082068757e77ffff01"
+      "frame": "5a5c1c37d4029749f56c0008206d387b9effff01"
     }
   ],
   "solicits": [
     {
-      "sender": 289929253,
+      "sender": 2355060531,
       "id": 0,
-      "after": 3167332448,
+      "after": 1545353172,
       "power": 22,
-      "frame": "5b1147f8250000bcc9a86016"
+      "frame": "5b8c5f5f3300005c1c37d416"
     },
     {
-      "sender": 1752530551,
+      "sender": 1832418206,
       "id": 65535,
       "after": 4294967295,
       "power": -9,
-      "frame": "5b68757e77fffffffffffff7"
+      "frame": "5b6d387b9efffffffffffff7"
     }
   ],
   "answers": [
     {
-      "sender": 3167332448,
-      "leaf": 289929253,
+      "sender": 1545353172,
+      "leaf": 2355060531,
       "id": 0,
       "margin": 128,
       "power": 14,
-      "frame": "5cbcc9a8601147f8250000800e"
+      "frame": "5c5c1c37d48c5f5f330000800e"
     },
     {
-      "sender": 1399809041,
-      "leaf": 1752530551,
+      "sender": 2538206572,
+      "leaf": 1832418206,
       "id": 65535,
       "margin": 1,
       "power": -9,
-      "frame": "5c536f641168757e77ffff01f7"
+      "frame": "5c9749f56c6d387b9effff01f7"
     }
   ],
   "rejected": [
     {
       "why": "an announce a byte short",
-      "frame": "598326f1cf0102800101829b0002f702021147f82580536f6411ff536f64110007003668757e77fffeffff150bca074acf0c954a860a4d4435982e613d0823f0fd7cc6617f1dd0f2206e4f9269332d5c2094f1d5a7f48dc82f18b47b69d2ec7581b2742cba793f5d0ab9"
+      "frame": "59ae3062830102800101829b0002f702028c5f5f33809749f56cff9749f56c000700366d387b9efffeffff7b8fef44a32da42b6cd479fcb670772557393c9534344d7d5cbb833cd1751dd06797d73d63475506a4f5b457941fad5bd455e850ccf0d2a3b027a905902c53"
     },
     {
       "why": "an announce a byte long",
-      "frame": "598326f1cf0102800101829b0002f702021147f82580536f6411ff536f64110007003668757e77fffeffff150bca074acf0c954a860a4d4435982e613d0823f0fd7cc6617f1dd0f2206e4f9269332d5c2094f1d5a7f48dc82f18b47b69d2ec7581b2742cba793f5d0ab90c00"
+      "frame": "59ae3062830102800101829b0002f702028c5f5f33809749f56cff9749f56c000700366d387b9efffeffff7b8fef44a32da42b6cd479fcb670772557393c9534344d7d5cbb833cd1751dd06797d73d63475506a4f5b457941fad5bd455e850ccf0d2a3b027a905902c530400"
     },
     {
       "why": "an announce shorter than its head and signature",
-      "frame": "598326f1cf0102800101829b0002f702021147f82580536f6411ff536f64110007003668757e77fffeffff150bca074acf0c954a860a4d4435982e613d0823f0fd7cc6617f1dd0f2206e4f9269332d5c"
+      "frame": "59ae3062830102800101829b0002f702028c5f5f33809749f56cff9749f56c000700366d387b9efffeffff7b8fef44a32da42b6cd479fcb670772557393c9534344d7d5cbb833cd1751dd06797d73d63"
     },
     {
       "why": "an announce with an unknown flag",
-      "frame": "598326f1cf0102800109829b0002f702021147f82580536f6411ff536f64110007003668757e77fffeffff150bca074acf0c954a860a4d4435982e613d0823f0fd7cc6617f1dd0f2206e4f9269332d5c2094f1d5a7f48dc82f18b47b69d2ec7581b2742cba793f5d0ab90c"
+      "frame": "59ae3062830102800109829b0002f702028c5f5f33809749f56cff9749f56c000700366d387b9efffeffff7b8fef44a32da42b6cd479fcb670772557393c9534344d7d5cbb833cd1751dd06797d73d63475506a4f5b457941fad5bd455e850ccf0d2a3b027a905902c5304"
     },
     {
       "why": "an announce from routing id 0",
-      "frame": "59000000000102800101829b0002f702021147f82580536f6411ff536f64110007003668757e77fffeffff150bca074acf0c954a860a4d4435982e613d0823f0fd7cc6617f1dd0f2206e4f9269332d5c2094f1d5a7f48dc82f18b47b69d2ec7581b2742cba793f5d0ab90c"
+      "frame": "59000000000102800101829b0002f702028c5f5f33809749f56cff9749f56c000700366d387b9efffeffff7b8fef44a32da42b6cd479fcb670772557393c9534344d7d5cbb833cd1751dd06797d73d63475506a4f5b457941fad5bd455e850ccf0d2a3b027a905902c5304"
     },
     {
       "why": "an announce from routing id ffffffff",
-      "frame": "59ffffffff0102800101829b0002f702021147f82580536f6411ff536f64110007003668757e77fffeffff150bca074acf0c954a860a4d4435982e613d0823f0fd7cc6617f1dd0f2206e4f9269332d5c2094f1d5a7f48dc82f18b47b69d2ec7581b2742cba793f5d0ab90c"
+      "frame": "59ffffffff0102800101829b0002f702028c5f5f33809749f56cff9749f56c000700366d387b9efffeffff7b8fef44a32da42b6cd479fcb670772557393c9534344d7d5cbb833cd1751dd06797d73d63475506a4f5b457941fad5bd455e850ccf0d2a3b027a905902c5304"
     },
     {
       "why": "an announce from the receiver's own routing id",
-      "frame": "5968757e77ffff000002025800001600005ac31ac662687de500e12d26181c4244fa234c693c1a15a0d4aa292c1bd64b9dd9fcafec27379856facea09f22b10058b90d99bd803fd8b28889dd709afa600d"
+      "frame": "596d387b9effff000002025800001600002d412a498ab5744b05db94151a74d2f383d1a64c74006f05d2ed083453ef982b830e7cc61bf027894cc4ab23f234b323f7369d91a884677e6b054026ebeef70f"
     },
     {
       "why": "an announce whose signature is not its sender's",
-      "frame": "598326f1cf0102800101829b0002f702021147f82580536f6411ff536f64110007003668757e77fffeffff150bca074acf0c954a860a4d4435982e613d0823f0fd7cc6617f1dd0f2206e4f9269332d5c2094f1d5a7f48dc82f18b47b69d2ec7581b2742cba793f5d0ab90d"
+      "frame": "59ae3062830102800101829b0002f702028c5f5f33809749f56cff9749f56c000700366d387b9efffeffff7b8fef44a32da42b6cd479fcb670772557393c9534344d7d5cbb833cd1751dd06797d73d63475506a4f5b457941fad5bd455e850ccf0d2a3b027a905902c5305"
     },
     {
       "why": "an announce changed after it was signed",
-      "frame": "598326f1cf0102800101829b0002f602021147f82580536f6411ff536f64110007003668757e77fffeffff150bca074acf0c954a860a4d4435982e613d0823f0fd7cc6617f1dd0f2206e4f9269332d5c2094f1d5a7f48dc82f18b47b69d2ec7581b2742cba793f5d0ab90c"
+      "frame": "59ae3062830102800101829b0002f602028c5f5f33809749f56cff9749f56c000700366d387b9efffeffff7b8fef44a32da42b6cd479fcb670772557393c9534344d7d5cbb833cd1751dd06797d73d63475506a4f5b457941fad5bd455e850ccf0d2a3b027a905902c5304"
     },
     {
-      "why": "an announce carrying an address of small order",
-      "frame": "59245d720a0103800105025800010e010126e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc051147f82582536f6411000700363199f349dff580b7871ba50368e441b5add2b8ab4dc1181633b359a521a0f71f4b00ec5eb312893b7ae609fd58b162dc8cf58c0dc246a82641d2887a3a075d0a"
+      "why": "an announce carrying a key of small order",
+      "frame": "59245d720a0103800105025800010e010126e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc058c5f5f33829749f56c00070036189ea1d8a80eea04b0251dda7328fed95814e26057665377a836d75130065be0a75feeb1a15290ae86542668163009cf1f3203b5621c4f4989923d8acdd22004"
     },
     {
-      "why": "an announce carrying an address not its sender's",
-      "frame": "591d224f6f0103800105025800010e010119dd846009f5b0274b07bc4347a3635a3fee4464f2720f79e233f38ce8f951081147f82582536f641100070036d88460a83ea2995e3720268b2419bf84cca140ccee02b3f69fdc68553dd6e9b3980a659afba12df065800509b066be4e95c9df3ebc25932fe45a137f17b4250c"
+      "why": "an announce carrying a key not its sender's",
+      "frame": "59b3fef6df0103800105025800010e0101c3ae3d804dfe75931870942786549e1c83ed082af55f8403d91c05fc9250b6098c5f5f33829749f56c00070036f330759dd0cd5fed0ecbcf0494860666071f52692b469485638f40ff1684fb0373d2a8030a79ea9961fc166618c19c71e203ec6e85fc497a13ca72e44aa97b03"
     },
     {
       "why": "a request a byte short",
-      "frame": "5abcc9a86002536f641100082068757e77ffff"
+      "frame": "5a5c1c37d4029749f56c0008206d387b9effff"
     },
     {
       "why": "a request a byte long",
-      "frame": "5abcc9a86002536f641100082068757e77ffff0100"
+      "frame": "5a5c1c37d4029749f56c0008206d387b9effff0100"
     },
     {
       "why": "a request with nothing in it",
-      "frame": "5abcc9a86000"
+      "frame": "5a5c1c37d400"
     },
     {
       "why": "a solicit a byte short",
-      "frame": "5b1147f8250001bcc9a860"
+      "frame": "5b8c5f5f3300015c1c37d4"
     },
     {
       "why": "a solicit a byte long",
-      "frame": "5b1147f8250001bcc9a8601600"
+      "frame": "5b8c5f5f3300015c1c37d41600"
     },
     {
       "why": "a solicit from routing id 0",
-      "frame": "5b000000000001bcc9a86016"
+      "frame": "5b0000000000015c1c37d416"
     },
     {
       "why": "a solicit from the receiver's own routing id",
-      "frame": "5b68757e770001bcc9a86016"
+      "frame": "5b6d387b9e00015c1c37d416"
     },
     {
       "why": "an answer a byte short",
-      "frame": "5cbcc9a8601147f82500018c"
+      "frame": "5c5c1c37d48c5f5f3300018c"
     },
     {
       "why": "an answer a byte long",
-      "frame": "5cbcc9a8601147f82500018c1600"
+      "frame": "5c5c1c37d48c5f5f3300018c1600"
     },
     {
       "why": "an answer from routing id ffffffff",
-      "frame": "5cffffffff1147f82500018c16"
+      "frame": "5cffffffff8c5f5f3300018c16"
     }
   ],
   "verified": [
     {
       "announce": 3,
-      "held_address": null,
+      "held_key": null,
       "takes": true,
-      "holds_address": "19dd846009f5b0274b07bc4347a3635a3fee4464f2720f79e233f38ce8f95108"
+      "holds_key": "c3ae3d804dfe75931870942786549e1c83ed082af55f8403d91c05fc9250b609"
     },
     {
       "announce": 3,
-      "held_address": "19dd846009f5b0274b07bc4347a3635a3fee4464f2720f79e233f38ce8f95108",
+      "held_key": "c3ae3d804dfe75931870942786549e1c83ed082af55f8403d91c05fc9250b609",
       "takes": true,
-      "holds_address": "19dd846009f5b0274b07bc4347a3635a3fee4464f2720f79e233f38ce8f95108"
+      "holds_key": "c3ae3d804dfe75931870942786549e1c83ed082af55f8403d91c05fc9250b609"
     },
     {
       "announce": 1,
-      "held_address": "19dd846009f5b0274b07bc4347a3635a3fee4464f2720f79e233f38ce8f95108",
+      "held_key": "c3ae3d804dfe75931870942786549e1c83ed082af55f8403d91c05fc9250b609",
       "takes": true,
-      "holds_address": "19dd846009f5b0274b07bc4347a3635a3fee4464f2720f79e233f38ce8f95108"
+      "holds_key": "c3ae3d804dfe75931870942786549e1c83ed082af55f8403d91c05fc9250b609"
     },
     {
       "announce": 1,
-      "held_address": null,
+      "held_key": null,
       "takes": false,
-      "holds_address": null
+      "holds_key": null
     },
     {
       "announce": 1,
-      "held_address": "dfc0ccb9e5961a0350bbb875ccce76e6947e7ad64643b3796d07f27e09a6f054",
+      "held_key": "644d03e9d416c932469fdb2d20efeb0add707c906243cdc52c945dc07da8b5dd",
       "takes": false,
-      "holds_address": "dfc0ccb9e5961a0350bbb875ccce76e6947e7ad64643b3796d07f27e09a6f054"
+      "holds_key": "644d03e9d416c932469fdb2d20efeb0add707c906243cdc52c945dc07da8b5dd"
     },
     {
       "announce": 0,
-      "held_address": null,
+      "held_key": null,
       "takes": true,
-      "holds_address": "d6d15fabbc42ce56174a4363e757437a4a7baf421b690caa24676f3f4f17c996"
+      "holds_key": "3325ffb41e75e0776c2ddbab9ec08c9bf45f7112078e0a772f06e9736db335d2"
     }
   ],
   "floors": [

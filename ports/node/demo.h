@@ -95,6 +95,9 @@ struct demo {
     tern_time hold; /* how long a responder keeps a handshake with nothing of it heard */
     struct tern_identity id;
     struct demo_state s[DEMO_PEERS]; /* a slot with role 0 holds none */
+    /* Each slot's peer's routing id, worked out from its address when first asked for
+     * (demo_peer_id()), 0 until then: it takes two scalar multiplications. */
+    uint32_t ids[DEMO_PEERS];
     int last; /* the slot of the session last made or used, or -1 with none: where a board with
                  only a button sends */
     struct demo_handshake h;
@@ -156,6 +159,9 @@ void demo_trust(struct demo *d, bool (*trusted)(void *ctx, const uint8_t address
  * board holds. */
 int demo_peer(const struct demo *d, const uint8_t address[TERN_ADDRESS_LEN]);
 size_t demo_peers(const struct demo *d);
+
+/* The routing id of a slot's peer (draft/routing.md, "Routing ids"), kept once worked out. */
+uint32_t demo_peer_id(struct demo *d, int slot);
 
 /* Ends the session in that slot and erases it from the store. False, and the session kept, if
  * the store would not take it: a session forgotten only until the next restart would come back. */

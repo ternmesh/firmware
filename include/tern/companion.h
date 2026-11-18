@@ -16,7 +16,7 @@
  * text console. What a node answers and when is the node's business, not the core's (in the node
  * every port shares, ports/node/link.c). */
 
-#define TERN_COMPANION_VERSION 13
+#define TERN_COMPANION_VERSION 14
 #define TERN_COMPANION_MAX_FRAME 180
 /* SET 3's power that is the most the node may send at, which it works out (version 10). */
 #define TERN_C_POWER_MOST INT8_MIN

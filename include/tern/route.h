@@ -36,12 +36,13 @@
  * A node that restarts has lost what Babel's condition rests on, so a router starts by saying so
  * and selecting nothing through a neighbour until it has: the specification's "Starting".
  *
- * Every announce is signed by its sender's identity key, and a router takes nothing from one it
- * cannot check (the specification's "Signed"): tern_route_auth() gives it the node's address and
- * the means to sign and check. A router never given them sends announces of the right size whose
- * signatures are zeros, and takes every announce unchecked; that is for a simulator, and for
- * tests that are about something else. Requests, solicits and answers are not signed: the
- * specification leaves that open. */
+ * Every announce is signed by its sender's routing key, a key blinded from its address
+ * (tern/address.h), and a router takes nothing from one it cannot check (the specification's
+ * "Signed"): tern_route_auth() gives it the node's routing key and the means to sign and check.
+ * The router never handles an address: announces carry the key in its place. A router never given
+ * them sends announces of the right size whose signatures are zeros, and takes every announce
+ * unchecked; that is for a simulator, and for tests that are about something else. Requests,
+ * solicits and answers are not signed: the specification leaves that open. */
 
 #define TERN_ROUTE_EVERYONE 0xFFFFFFFFu /* in a request: every neighbour */
 #define TERN_ROUTE_INF 0xFFFFu          /* a metric that retracts a route */
@@ -75,7 +76,14 @@ static inline bool tern_route_frame(const uint8_t *frame, size_t len) {
 /* --- Rules, each as the specification states it. The router is built from these, and the tests
  * check them against the specification's vectors. --- */
 
-/* A node's routing id, from its address. */
+/* The routing id a routing key makes, as announces name their senders: the first of SHA-256("tern
+ * routing id" || key)'s eight words that is not reserved. */
+uint32_t tern_route_key_id(const uint8_t key[TERN_ADDRESS_LEN]);
+
+/* A node's routing id, from its address: the id its routing key at TERN_EPOCH makes
+ * (tern_address_blind()). 0, which is never a routing id, for an address that is not valid. Two
+ * scalar multiplications (src/route_id.c), so a caller that needs the id of the same address again
+ * keeps it. */
 uint32_t tern_route_id(const uint8_t address[TERN_ADDRESS_LEN]);
 
 /* Whether sequence number a is newer than b, modulo 2^16. */
@@ -109,8 +117,8 @@ struct tern_announce {
     int8_t power;
     uint8_t named_count;
     uint8_t route_count;
-    bool carries_address;
-    uint8_t address[TERN_ADDRESS_LEN]; /* the sender's, if carries_address */
+    bool carries_key;
+    uint8_t key[TERN_ADDRESS_LEN]; /* the sender's routing key, if carries_key */
     struct tern_announce_named named[TERN_ANNOUNCE_NAMED_MAX];
     struct tern_announce_route routes[TERN_ANNOUNCE_ROUTES_MAX];
     uint8_t sig[TERN_ANNOUNCE_SIG];
@@ -157,7 +165,7 @@ size_t tern_announce_signed(const uint8_t *frame, size_t len,
                             uint8_t m[TERN_ANNOUNCE_LABEL_LEN + TERN_ROUTE_FRAME_MAX]);
 
 /* Reads a frame. Returns false for one the specification says to discard, but for an announce
- * from the reader's own id, which only the reader can know, and one whose address or signature
+ * from the reader's own id, which only the reader can know, and one whose key or signature
  * does not check, which needs the reader's keys. */
 bool tern_announce_read(struct tern_announce *a, const uint8_t *frame, size_t len);
 bool tern_request_read(struct tern_request *q, const uint8_t *frame, size_t len);
@@ -264,7 +272,7 @@ struct tern_route_config {
     uint8_t dead_hops;       /* frames given up on running, unheard between, that forget one */
     uint8_t jitter;          /* airtimes a request waits, at most */
     uint8_t start_announces; /* announces a node is starting for */
-    uint8_t address_after;   /* announces that carry the address after a neighbour is found */
+    uint8_t address_after;   /* announces that carry the key after a neighbour is found */
     uint8_t address_every;   /* and at least one in this many does */
     /* A leaf's default route (the specification's): with no route to a destination, a leaf
      * hands its frame to its nearest relay, which holds routes to every node, so the leaf needs
@@ -304,8 +312,8 @@ struct tern_route_neighbour {
     uint8_t boost;     /* decibels more a frame to it goes at, for those it has lost */
     tern_time heard;   /* when it was last heard */
     tern_time promise; /* how soon it said it would announce again */
-    bool has_address;
-    uint8_t address[TERN_ADDRESS_LEN]; /* what its announces are checked with */
+    bool has_key;
+    uint8_t key[TERN_ADDRESS_LEN]; /* its routing key: what its announces are checked with */
 };
 
 /* Which neighbour of a full table of `n` a node just heard takes the place of, `floor` being what
@@ -416,14 +424,15 @@ struct tern_route_bucket {
 #define TERN_ROUTE_FORGOTTEN                                                                       \
     64 /* forgotten neighbours whose last numbers are kept: FORGOTTEN_KEPT */
 
-/* How a router signs its announces and checks its neighbours'. `verify` says whether the address
- * is valid and sig is its signature over len bytes of m; `sign` signs with the node's own key,
- * whose address is `address`. Both are given what tern_announce_signed() makes. */
+/* How a router signs its announces and checks its neighbours'. `verify` says whether the key is
+ * valid, as an address is, and sig is its signature over len bytes of m; `sign` signs with the
+ * node's own routing key, which is `key` (tern_identity_sign_blinded()). Both are given what
+ * tern_announce_signed() makes. */
 struct tern_route_auth {
-    const uint8_t *address;
+    const uint8_t *key;
     void *ctx;
     void (*sign)(void *ctx, const uint8_t *m, size_t len, uint8_t sig[TERN_ANNOUNCE_SIG]);
-    bool (*verify)(void *ctx, const uint8_t address[TERN_ADDRESS_LEN], const uint8_t *m, size_t len,
+    bool (*verify)(void *ctx, const uint8_t key[TERN_ADDRESS_LEN], const uint8_t *m, size_t len,
                    const uint8_t sig[TERN_ANNOUNCE_SIG]);
 };
 
@@ -488,7 +497,7 @@ struct tern_route_counts {
     uint32_t routes;                          /* routes they carried */
     uint32_t changed;                         /* of those, changed ones sent first */
     uint32_t named;                           /* neighbours they named */
-    uint32_t addressed;                       /* of them, carrying the address */
+    uint32_t addressed;                       /* of them, carrying the key */
     uint32_t requests;                        /* request frames built */
 };
 
@@ -500,7 +509,7 @@ struct tern_route {
     uint16_t number;  /* of its next announce */
     uint16_t cost;    /* a link's */
     uint8_t starting; /* announces it has still to send before it selects routes through others */
-    uint8_t address_owed; /* announces still to carry the address for a neighbour just found */
+    uint8_t address_owed; /* announces still to carry the key for a neighbour just found */
     bool numbers_kept;    /* tern_route_numbering_from() was called */
     /* The last number of each neighbour lately forgotten, so that no recording of it comes back as
      * a neighbour found. */
@@ -589,7 +598,7 @@ struct tern_route {
     uint32_t asked_anchor;   /* its anchor when it asked, 0 for none */
     bool anchor_heard_first; /* and heard in the first solicit of the pair */
     tern_time pair_since;    /* when the first of a pair went */
-    bool loud;               /* its next announce goes at full power, with its address */
+    bool loud;               /* its next announce goes at full power, with its key */
 
     bool out;           /* the last frame polled was an announce not yet reported sent */
     tern_time out_at;   /* when it was built */
@@ -609,7 +618,7 @@ void tern_route_init(struct tern_route *r, const struct tern_route_config *confi
                      tern_time now);
 
 /* Has the router sign its announces and check its neighbours', as the specification requires;
- * the auth is copied, and the address it points to must outlive the router. Called once, before
+ * the auth is copied, and the key it points to must outlive the router. Called once, before
  * the first frame is heard or polled. */
 void tern_route_auth(struct tern_route *r, const struct tern_route_auth *auth);
 

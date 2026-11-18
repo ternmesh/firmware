@@ -41,6 +41,7 @@ idf_component_register(
         ${root}/src/region.c
         ${root}/src/release.c
         ${root}/src/route.c
+        ${root}/src/route_id.c
         ${root}/src/sha256.c
         ${root}/src/sha512.c
         ${root}/src/share.c
