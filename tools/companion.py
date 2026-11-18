@@ -40,7 +40,8 @@ it on again; `state` prints the node's fix, whether its receiver's or the last a
 it was given part of the same image before, and the node restarts into it. A node whose bootloader
 takes its updates, as an nRF52840 board's does, is asked to restart into it, and the release's
 `.zip` goes to the bootloader over Bluetooth (tools/ble_dfu.py, which needs bleak).
-An image is sent only with its signature, the release's `<image>.sig` beside it, and only if that
+An image is sent only with its signature, from the release's SIGNATURES beside it (or an
+`<image>.sig`), and only if that
 verifies here with a release key (ports/node/release_keys.h; checking needs the `cryptography`
 package, and tools/release_key.py). Without it, a node updated over the link checks the signature
 itself; a node's bootloader checks none, so an nRF52840 board's `.zip` is not sent unchecked.
@@ -65,6 +66,7 @@ import argparse
 import json
 import os
 import random
+import re
 import struct
 import sys
 import time
@@ -591,17 +593,35 @@ def sharing(args):
             "interval": args.interval, "minutes": args.minutes}
 
 
-def signature_of(path, data, bootloader, args):
-    """The image's signature, from <path>.sig, checked here against the release keys where this
-    computer can: b"" for none, sent only if the user asked for that with --unsigned."""
+def listed_signature(path):
+    """The image's signature from <path>.sig, or else from its line in the release's SIGNATURES
+    beside it (a line for each file: the signature in hex, two spaces, the name); None if neither
+    has one. The source is named for messages."""
     sig_path = path + ".sig"
-    if not os.path.exists(sig_path):
+    if os.path.exists(sig_path):
+        return open(sig_path, "rb").read(), sig_path
+    listed = os.path.join(os.path.dirname(path), "SIGNATURES")
+    if os.path.exists(listed):
+        name = os.path.basename(path)
+        for line in open(listed, encoding="utf-8").read().splitlines():
+            hexsig, _, listed_name = line.partition("  ")
+            if listed_name == name and re.fullmatch(r"[0-9a-f]{128}", hexsig):
+                return bytes.fromhex(hexsig), f"{name}'s line in {listed}"
+    return None, sig_path
+
+
+def signature_of(path, data, bootloader, args):
+    """The image's signature, from <path>.sig or the release's SIGNATURES beside it, checked here
+    against the release keys where this computer can: b"" for none, sent only if the user asked for
+    that with --unsigned."""
+    sig, sig_path = listed_signature(path)
+    if sig is None:
         if not args.unsigned:
-            raise SystemExit(f"{path} has no signature beside it ({os.path.basename(sig_path)}), so "
-                             "it may not be the release's. --unsigned sends it anyway.")
+            raise SystemExit(f"{path} has no signature beside it (no {os.path.basename(sig_path)}, "
+                             "and no line in a SIGNATURES), so it may not be the release's. "
+                             "--unsigned sends it anyway.")
         print("sending an image with no signature, as asked")
         return b""
-    sig = open(sig_path, "rb").read()
     try:
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         import release_key  # noqa: PLC0415  (needs cryptography)

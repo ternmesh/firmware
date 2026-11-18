@@ -713,7 +713,7 @@ names no board, and is moved to two slots [over USB](#without-installing-anythin
 
 **Only signed images.** The board takes an image only if it is signed by one of the release keys
 it is built with (`../node/release_keys.h`, [docs/signing.md](../../docs/signing.md)): the client
-sends the release's `<image>.sig` in `UPDATE_BEGIN`, and the board checks it before a byte of the
+sends the image's signature from the release's `SIGNATURES` in `UPDATE_BEGIN`, and the board checks it before a byte of the
 image arrives, refusing with `ERROR` 11 an image with no signature, one that does not verify, or
 any from a client older than the companion protocol's version 13, which cannot send one. Anyone
 who has paired can still ask for an update, as they can change its region, but only the release's

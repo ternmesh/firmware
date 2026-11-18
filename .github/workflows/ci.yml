@@ -150,9 +150,11 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/release" && cd "$RUNNER_TEMP/release"
           head -c 5000 /dev/urandom >tern-test-app.bin
-          python3 "$GITHUB_WORKSPACE/tools/release_key.py" --test sign tern-test-app.bin
-          test "$(wc -c <tern-test-app.bin.sig)" -eq 64
-          python3 "$GITHUB_WORKSPACE/tools/release_key.py" --test verify tern-test-app.bin
+          head -c 3000 /dev/urandom >tern-test.uf2
+          python3 "$GITHUB_WORKSPACE/tools/release_key.py" --test sign tern-test-app.bin tern-test.uf2
+          test "$(wc -l <SIGNATURES)" -eq 2
+          grep -Eq '^[0-9a-f]{128}  tern-test-app\.bin$' SIGNATURES
+          python3 "$GITHUB_WORKSPACE/tools/release_key.py" --test verify tern-test-app.bin tern-test.uf2
           echo x >>tern-test-app.bin
           tool="python3 $GITHUB_WORKSPACE/tools/release_key.py"
           # Each of these must fail; `!` would not stop the step, so each is tested.

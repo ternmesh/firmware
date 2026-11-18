@@ -22,28 +22,34 @@ What it does and does not stop:
 
 ## What is published
 
-For each file `F` a release carries (each `.bin`, `.uf2` and `.zip`, and `SHA256SUMS`):
+Every file `F` a release carries (each `.bin`, `.uf2` and `.zip`, and `SHA256SUMS`) is signed:
+an Ed25519 signature (RFC 8032) by the release key over the 48 bytes `"TERN-FIRMWARE-V1"` (16 ASCII
+bytes) followed by `SHA-256(F)`, the file exactly as published. The signatures are in one file:
 
 | File | Holds |
 |---|---|
-| `F.sig` | 64 bytes, nothing else: the Ed25519 signature (RFC 8032) by the release key over the 48 bytes `"TERN-FIRMWARE-V1"` (16 ASCII bytes) followed by `SHA-256(F)`, the file exactly as published |
+| `SIGNATURES` | a line for each file: its signature as 128 lowercase hex digits, two spaces, and the file's name, as `SHA256SUMS` lists digests |
+
+One file, not a `F.sig` beside each: a `.sig` for each of a release's 541 files would take it to
+1083, over what GitHub takes in one release, and 0.7.0-alpha.1's first publish failed that way.
+The tools still read an `F.sig` beside a file, the 64 bytes and nothing else, where there is one.
 
 `SHA256SUMS` lists the images only, not the signatures. To check a file by hand:
 
 ```sh
 pip install "cryptography>=42"
-python3 tools/release_key.py verify tern-heltec-v3-eu868-0.7.0-app.bin   # reads the .sig beside it
+python3 tools/release_key.py verify tern-heltec-v3-eu868-0.7.0-app.bin   # reads SIGNATURES beside it
 ```
 
 ### In the site's `latest.json`
 
-The site (ternmesh/site, `tools/firmware.ts`) fetches each image it offers with its `.sig`, and
-refuses a release whose signature for any of them is missing or does not verify with a release
-key. Each entry of `latest.json`'s `images` gains one field:
+The site (ternmesh/site, `tools/firmware.ts`) fetches the release's `SIGNATURES` with the images
+it offers, and refuses a release whose signature for any of them is missing or does not verify
+with a release key. Each entry of `latest.json`'s `images` gains one field:
 
 | Field | |
 |---|---|
-| `signature` | the 64 bytes of the file's `.sig`, as 128 lowercase hex digits |
+| `signature` | the file's signature, as 128 lowercase hex digits, as `SIGNATURES` gives it |
 
 So an entry reads:
 
@@ -96,7 +102,7 @@ does not show only for three minutes after someone has been at it.
    even with the right passkey, unless it shows a passkey on its screen.
 
 **The site's web flasher** writes images over USB, which a node never checks. It should check
-each image's `.sig` against the release keys before writing it, and say so if one does not
+each image's signature against the release keys before writing it, and say so if one does not
 verify, since it is the one place a tampered image would be caught.
 
 ## What a node keeps

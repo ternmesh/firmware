@@ -137,7 +137,7 @@ a board with such a bootloader tells a client it cannot be updated, and is updat
 **While the bootloader waits, anyone in range can install an image.** The bootloader is not Tern
 and checks no signature: it takes any DFU package whose CRC is right, from whichever phone or
 computer connects to it first, not only the one that asked. A client starts it only once paired,
-and the release's `.zip` is signed (`<zip>.sig`, [docs/signing.md](../../docs/signing.md)), so a
+and the release's `.zip` is signed (in its `SIGNATURES`, [docs/signing.md](../../docs/signing.md)), so a
 client can refuse a package that is not the release's before it starts; but the board itself
 cannot refuse one. The window lasts until the bootloader has an image, and if a transfer breaks off
 OTAFIX waits for another over Bluetooth, for as long as it has power. Nothing in this firmware can
