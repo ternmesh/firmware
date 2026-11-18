@@ -1,5 +1,5 @@
 {
-  "description": "Groups, draft 0 (draft/groups.md). Secrets, nonces, frames and content are hex; routing ids (from, self) and hops are numbers, and power is signed. hops and power are the flood's (draft/flooding.md), and are 5 and 14 where a case does not give them. self is the routing id of the node receiving. In members, group is the index in groups of the group a frame is accepted for. hdr is 0x60 for a frame of words and 0x61 for one for the node, as node says. count is a number. In counts, each delivery's frame is content from its from, with its count, sealed under group_secret with hops and power, and with a nonce of its place in deliveries, from 0, as eight bytes most significant first; frame gives it. In invites and bad_invites, plaintext is that of a unicast message whose hdr has the node flag set (draft/unicast-security.md). In join_codes, payload is the code's, link is how it is shown, and reads are other ways it is written that read as the same code; each of bad_join_codes reads as none.",
+  "description": "Groups, draft 0 (draft/groups.md). Secrets, nonces, frames and content are hex; routing ids (from, self) and hops are numbers, and power is signed. hops and power are the flood's (draft/flooding.md), and are 5 and 14 where a case does not give them. self is the routing id of the node receiving. In members, group is the index in groups of the group a frame is accepted for. hdr is 0x60 for a frame of words and 0x61 for one for the node, as node says. count is a number. In counts, each delivery's frame is content from its from, with its count, sealed under group_secret with hops and power, and with a nonce of its place in deliveries, from 0, as eight bytes most significant first; frame gives it. In replacements, each delivery's frame is given; under is the secret an accepted frame was opened under, and secret and old are the group's secret and old secret once the frame has been received, old null for none. In invites and bad_invites, plaintext is that of a unicast message whose hdr has the node flag set (draft/unicast-security.md). In join_codes, payload is the code's, link is how it is shown, and reads are other ways it is written that read as the same code; each of bad_join_codes reads as none.",
   "generator": "vectors/tools/groups.py",
   "accepted": [
     {
@@ -814,7 +814,7 @@
     },
     {
       "name": "writers",
-      "note": "16 writers held, then one more. The one forgotten is the one a frame was accepted from longest ago: the second, since the first wrote again, and a frame that is refused does not count. Its old frame is then accepted again, which forgets the third, whose own is accepted again in turn",
+      "note": "16 writers held, then one more. The one forgotten is, of those heard from once, the one a frame was accepted from longest ago: the second, since the first wrote again, and a frame that is refused does not count. Its old frame is then accepted again, which forgets the third, whose own is accepted again in turn",
       "group_secret": "000102030405060708090a0b0c0d0e0f",
       "self": 168496141,
       "content": "68656c6c6f",
@@ -964,6 +964,554 @@
           "count": 50,
           "frame": "60050e0000000000000017a92beb0d471d7c54631d45dc571e643ceed03028de7b06fdc5",
           "accept": true
+        }
+      ]
+    },
+    {
+      "name": "writers-once-first",
+      "note": "the first writer is heard from twice, and the rest once each; then one more. The one forgotten is the second, heard from once longest ago, and not the first, though the first was heard from longer ago: its frame is still refused, and the second's is accepted again",
+      "group_secret": "000102030405060708090a0b0c0d0e0f",
+      "self": 168496141,
+      "content": "68656c6c6f",
+      "hops": 5,
+      "power": 14,
+      "deliveries": [
+        {
+          "from": 1879048192,
+          "count": 50,
+          "frame": "60050e0000000000000000e4205580aba756a512892f9aa863f1a904ba755cdf47f6ad92",
+          "accept": true
+        },
+        {
+          "from": 1879048192,
+          "count": 51,
+          "frame": "60050e0000000000000001bd538cc89a73949bb3e10eae57f8231221ab8b17b88002be42",
+          "accept": true
+        },
+        {
+          "from": 1879048193,
+          "count": 50,
+          "frame": "60050e0000000000000002f6c79d8c1a2c07bd52fd26853f437a1a16f4d1e6a987968911",
+          "accept": true
+        },
+        {
+          "from": 1879048194,
+          "count": 50,
+          "frame": "60050e00000000000000034fb5cc221aa6bd885d5b1819ebaeec1995b9018b64f5597c69",
+          "accept": true
+        },
+        {
+          "from": 1879048195,
+          "count": 50,
+          "frame": "60050e00000000000000046b27815ed65e1ac7dd4882bf2771a7199c814d510521feead1",
+          "accept": true
+        },
+        {
+          "from": 1879048196,
+          "count": 50,
+          "frame": "60050e0000000000000005038f048f877c3d6bafae964eda13297767708370a25d9608a8",
+          "accept": true
+        },
+        {
+          "from": 1879048197,
+          "count": 50,
+          "frame": "60050e0000000000000006ff9cf29e843ca4f973bfa4df69f1407bed8e5b6f3d2ca2620f",
+          "accept": true
+        },
+        {
+          "from": 1879048198,
+          "count": 50,
+          "frame": "60050e0000000000000007e8a1fe986f621a088f32725296a2b5916ee16d7769e189f23b",
+          "accept": true
+        },
+        {
+          "from": 1879048199,
+          "count": 50,
+          "frame": "60050e00000000000000087c70dcada37207918d9f34065af9f3c831fc5cb39e116eecc4",
+          "accept": true
+        },
+        {
+          "from": 1879048200,
+          "count": 50,
+          "frame": "60050e0000000000000009bec11280b3d141fe6888cb1b959ca6d2b6433bbe6f0063cea3",
+          "accept": true
+        },
+        {
+          "from": 1879048201,
+          "count": 50,
+          "frame": "60050e000000000000000a6777ecf2ff3ac70e5140d4a56995f168606291a32580369d25",
+          "accept": true
+        },
+        {
+          "from": 1879048202,
+          "count": 50,
+          "frame": "60050e000000000000000bc75a4ec5fa5010eb153e3dbcae081b99b77fcf2d5faaeafc4f",
+          "accept": true
+        },
+        {
+          "from": 1879048203,
+          "count": 50,
+          "frame": "60050e000000000000000c12161970827025b6b05f3e8491e520ea117565aff1bf1d228f",
+          "accept": true
+        },
+        {
+          "from": 1879048204,
+          "count": 50,
+          "frame": "60050e000000000000000db8735167e2c0598a44e1211e102041f8f376cd524f41049b14",
+          "accept": true
+        },
+        {
+          "from": 1879048205,
+          "count": 50,
+          "frame": "60050e000000000000000e44de64cfd2e5b594eec569e7a8bc3888b932bf751998a32d02",
+          "accept": true
+        },
+        {
+          "from": 1879048206,
+          "count": 50,
+          "frame": "60050e000000000000000f785012fcd978ed4671d780ad599f4a436238fe6e16a2e092ae",
+          "accept": true
+        },
+        {
+          "from": 1879048207,
+          "count": 50,
+          "frame": "60050e0000000000000010bb944769b309b2ff632eeb7ed011c62d7e5f4c7970e77b06ed",
+          "accept": true
+        },
+        {
+          "from": 1879048208,
+          "count": 1,
+          "frame": "60050e000000000000001164005f51e969fcd797c4ba65a2feb579794b1daff507367918",
+          "accept": true
+        },
+        {
+          "from": 1879048192,
+          "count": 51,
+          "frame": "60050e00000000000000125214dba826cdc5759ad77d44c5ffe2e7cd324c27c0970b96ff",
+          "accept": false
+        },
+        {
+          "from": 1879048193,
+          "count": 50,
+          "frame": "60050e0000000000000013d0b4031b43b62b1bbbf7d861117ddf944899f0d4da1a647261",
+          "accept": true
+        }
+      ]
+    },
+    {
+      "name": "writers-all-twice",
+      "note": "all 16 heard from twice, then one more: the one forgotten is the one heard longest ago, the first. Its frame is then accepted again, and what that forgets is the newcomer, heard from once, and none heard from twice. Another newcomer forgets the first, now heard from once; the second's frame is still refused, and the newcomer forgotten is accepted again",
+      "group_secret": "000102030405060708090a0b0c0d0e0f",
+      "self": 168496141,
+      "content": "68656c6c6f",
+      "hops": 5,
+      "power": 14,
+      "deliveries": [
+        {
+          "from": 1879048192,
+          "count": 50,
+          "frame": "60050e0000000000000000e4205580aba756a512892f9aa863f1a904ba755cdf47f6ad92",
+          "accept": true
+        },
+        {
+          "from": 1879048192,
+          "count": 51,
+          "frame": "60050e0000000000000001bd538cc89a73949bb3e10eae57f8231221ab8b17b88002be42",
+          "accept": true
+        },
+        {
+          "from": 1879048193,
+          "count": 50,
+          "frame": "60050e0000000000000002f6c79d8c1a2c07bd52fd26853f437a1a16f4d1e6a987968911",
+          "accept": true
+        },
+        {
+          "from": 1879048193,
+          "count": 51,
+          "frame": "60050e00000000000000034fb5cc221aa6bd8b5d5b1818ebaeec19951d74e1446bab419a",
+          "accept": true
+        },
+        {
+          "from": 1879048194,
+          "count": 50,
+          "frame": "60050e00000000000000046b27815ed65e1ac6dd4882bf2771a7199c8f92aaa3cf78c30c",
+          "accept": true
+        },
+        {
+          "from": 1879048194,
+          "count": 51,
+          "frame": "60050e0000000000000005038f048f877c3d6dafae964fda1329776703c1ae7c789605a8",
+          "accept": true
+        },
+        {
+          "from": 1879048195,
+          "count": 50,
+          "frame": "60050e0000000000000006ff9cf29e843ca4ff73bfa4df69f1407bede2cdb05f8fd4f5ca",
+          "accept": true
+        },
+        {
+          "from": 1879048195,
+          "count": 51,
+          "frame": "60050e0000000000000007e8a1fe986f621a0d8f32725396a2b5916ef288ec8b9b329991",
+          "accept": true
+        },
+        {
+          "from": 1879048196,
+          "count": 50,
+          "frame": "60050e00000000000000087c70dcada37207928d9f34065af9f3c8313cb93c21121b3dc2",
+          "accept": true
+        },
+        {
+          "from": 1879048196,
+          "count": 51,
+          "frame": "60050e0000000000000009bec11280b3d141f26888cb1a959ca6d2b6f431d5e808ee4849",
+          "accept": true
+        },
+        {
+          "from": 1879048197,
+          "count": 50,
+          "frame": "60050e000000000000000a6777ecf2ff3ac7025140d4a56995f168608353213f4523653f",
+          "accept": true
+        },
+        {
+          "from": 1879048197,
+          "count": 51,
+          "frame": "60050e000000000000000bc75a4ec5fa5010e4153e3dbdae081b99b74e9e23671ca37687",
+          "accept": true
+        },
+        {
+          "from": 1879048198,
+          "count": 50,
+          "frame": "60050e000000000000000c12161970827025bbb05f3e8491e520ea11df20546c205936fb",
+          "accept": true
+        },
+        {
+          "from": 1879048198,
+          "count": 51,
+          "frame": "60050e000000000000000db8735167e2c0598044e1211f102041f8f3e3fbd770af1fa0b8",
+          "accept": true
+        },
+        {
+          "from": 1879048199,
+          "count": 50,
+          "frame": "60050e000000000000000e44de64cfd2e5b59eeec569e7a8bc3888b9a2e1e8daabcffd02",
+          "accept": true
+        },
+        {
+          "from": 1879048199,
+          "count": 51,
+          "frame": "60050e000000000000000f785012fcd978ed4f71d780ac599f4a436213164d40c2dd9e42",
+          "accept": true
+        },
+        {
+          "from": 1879048200,
+          "count": 50,
+          "frame": "60050e0000000000000010bb944769b309b2f8632eeb7ed011c62d7ea49b91709aa2abad",
+          "accept": true
+        },
+        {
+          "from": 1879048200,
+          "count": 51,
+          "frame": "60050e000000000000001164005f51e969fccf97c4ba57a2feb57979d91c04ab3df2bbdc",
+          "accept": true
+        },
+        {
+          "from": 1879048201,
+          "count": 50,
+          "frame": "60050e00000000000000125214dba826cdc57c9ad77d45c5ffe2e7cd7822cc12f0401062",
+          "accept": true
+        },
+        {
+          "from": 1879048201,
+          "count": 51,
+          "frame": "60050e0000000000000013d0b4031b43b62b13bbf7d860117ddf9448560670ff7bc6cc9d",
+          "accept": true
+        },
+        {
+          "from": 1879048202,
+          "count": 50,
+          "frame": "60050e00000000000000143d889bbe197883a0643e0f946d7c03c5cc35a52c2b338fe738",
+          "accept": true
+        },
+        {
+          "from": 1879048202,
+          "count": 51,
+          "frame": "60050e0000000000000015264fef26ea675f3533a293d2146122d9eb60418567b69f4280",
+          "accept": true
+        },
+        {
+          "from": 1879048203,
+          "count": 50,
+          "frame": "60050e0000000000000016f7a54ef4f92b9a4a558d0013c3194927c2aaf1a536e327b73e",
+          "accept": true
+        },
+        {
+          "from": 1879048203,
+          "count": 51,
+          "frame": "60050e0000000000000017a92beb0d471d7c5c631d45dd571e643cee526bf148b3522ab9",
+          "accept": true
+        },
+        {
+          "from": 1879048204,
+          "count": 50,
+          "frame": "60050e0000000000000018f4effd4a9bad01dca0c7558b8510459ae4bd96c65b65ac275f",
+          "accept": true
+        },
+        {
+          "from": 1879048204,
+          "count": 51,
+          "frame": "60050e00000000000000198fd1dfb61bc963bda3ba5f5263de3f0766ab2a8e6b3a490622",
+          "accept": true
+        },
+        {
+          "from": 1879048205,
+          "count": 50,
+          "frame": "60050e000000000000001a1b88929c4c0bbfd47b4c43ee9ed3d28ae0aa9a8d190f7c55b4",
+          "accept": true
+        },
+        {
+          "from": 1879048205,
+          "count": 51,
+          "frame": "60050e000000000000001bfc647f3496ee8a4171431da903d5f626b00cd54999604aeef2",
+          "accept": true
+        },
+        {
+          "from": 1879048206,
+          "count": 50,
+          "frame": "60050e000000000000001c3f533886dc7c6f73f8107324ad35da0c814512d8f03fbf444f",
+          "accept": true
+        },
+        {
+          "from": 1879048206,
+          "count": 51,
+          "frame": "60050e000000000000001d7df947a37e68c45a309f00b74a376812e56f98edfe440f2980",
+          "accept": true
+        },
+        {
+          "from": 1879048207,
+          "count": 50,
+          "frame": "60050e000000000000001ed25d4af0c4b6c530aa9598e4a57578a8ba99641c6ca32cd359",
+          "accept": true
+        },
+        {
+          "from": 1879048207,
+          "count": 51,
+          "frame": "60050e000000000000001fedeb3a9ff61202ee091efd448f7f26a8887385accff036d163",
+          "accept": true
+        },
+        {
+          "from": 1879048208,
+          "count": 1,
+          "frame": "60050e00000000000000208f22844efaf0f394bae1dba59f7d6a793cb0c964a9fbc4dd33",
+          "accept": true
+        },
+        {
+          "from": 1879048192,
+          "count": 51,
+          "frame": "60050e00000000000000219462c0cd99db754b83df50f5f644b0cca773b569a0b3dc84db",
+          "accept": true
+        },
+        {
+          "from": 1879048209,
+          "count": 1,
+          "frame": "60050e00000000000000225936ca934ba535a0c06276a70fd3773c5b1e5e6f7461bd767d",
+          "accept": true
+        },
+        {
+          "from": 1879048193,
+          "count": 51,
+          "frame": "60050e0000000000000023e7f35642f7fd30b6a6c32bdcc820ddbaa1beabffe0bc30bdc7",
+          "accept": false
+        },
+        {
+          "from": 1879048208,
+          "count": 1,
+          "frame": "60050e0000000000000024a4fc3ac47201c653c708f6a7a1c094ed604c15e6e164482bb5",
+          "accept": true
+        }
+      ]
+    }
+  ],
+  "replacements": [
+    {
+      "name": "replaced",
+      "note": "a member follows a replacement: it reads under the old secret and the new, with their writers apart, and refuses a frame again; a replacement of the old secret to a greater secret changes nothing, and one to a lesser is followed, forgetting the greater; a replacement to the secret held, to the old secret, or of 16 bytes changes nothing; when the new secret is replaced in turn, the first old secret is forgotten. The secrets replaced to are the first 16 bytes of SHA-256(\"tern group\" || u32be(i)) for i from 100.",
+      "group_secret": "000102030405060708090a0b0c0d0e0f",
+      "self": 168496141,
+      "hops": 5,
+      "power": 14,
+      "deliveries": [
+        {
+          "frame": "60050e0000000000000000e4205580c68969e512892fa9a863f1a904d04f422875b125ab",
+          "accept": true,
+          "under": "000102030405060708090a0b0c0d0e0f",
+          "from": 489570112,
+          "count": 1,
+          "node": false,
+          "content": "68656c6c6f",
+          "secret": "000102030405060708090a0b0c0d0e0f",
+          "old": null
+        },
+        {
+          "frame": "61050e0000000000000001bd538cc8f75dabdbb3e10e9f3c043c92cd59e27db3bcb84f59dcd97b783d7af8e5d58ce7ca",
+          "accept": true,
+          "under": "000102030405060708090a0b0c0d0e0f",
+          "from": 489570112,
+          "count": 2,
+          "node": true,
+          "content": "039973ec83bf5248eedcc755be05b97337",
+          "secret": "9973ec83bf5248eedcc755be05b97337",
+          "old": "000102030405060708090a0b0c0d0e0f"
+        },
+        {
+          "frame": "60050e0000000000000002f6c79d8c41104ae252fd26b23b4762138fcc2882459d4c9e",
+          "accept": true,
+          "under": "000102030405060708090a0b0c0d0e0f",
+          "from": 725372254,
+          "count": 5,
+          "node": false,
+          "content": "6c617465",
+          "secret": "9973ec83bf5248eedcc755be05b97337",
+          "old": "000102030405060708090a0b0c0d0e0f"
+        },
+        {
+          "frame": "60050e0000000000000003ee3f8769e8008a8123b0642ca705707982a2293c53fa95",
+          "accept": true,
+          "under": "9973ec83bf5248eedcc755be05b97337",
+          "from": 489570112,
+          "count": 3,
+          "node": false,
+          "content": "6e6577",
+          "secret": "9973ec83bf5248eedcc755be05b97337",
+          "old": "000102030405060708090a0b0c0d0e0f"
+        },
+        {
+          "frame": "60050e0000000000000002f6c79d8c41104ae252fd26b23b4762138fcc2882459d4c9e",
+          "accept": false,
+          "secret": "9973ec83bf5248eedcc755be05b97337",
+          "old": "000102030405060708090a0b0c0d0e0f"
+        },
+        {
+          "frame": "60050e0000000000000005c61d8c2716cb538bf9b96cde23504bdc9de08d8333e9ecd1d8",
+          "accept": true,
+          "under": "9973ec83bf5248eedcc755be05b97337",
+          "from": 725372254,
+          "count": 5,
+          "node": false,
+          "content": "6d6f766564",
+          "secret": "9973ec83bf5248eedcc755be05b97337",
+          "old": "000102030405060708090a0b0c0d0e0f"
+        },
+        {
+          "frame": "61050e0000000000000006ff9cf29edf00e9a273bfa4eb02765d503daa80fd12e39ea456b58a7a24e7087333d948a4c7",
+          "accept": true,
+          "under": "000102030405060708090a0b0c0d0e0f",
+          "from": 725372254,
+          "count": 6,
+          "node": true,
+          "content": "03e27147bf633f7331b7a69676a4a10f4e",
+          "secret": "9973ec83bf5248eedcc755be05b97337",
+          "old": "000102030405060708090a0b0c0d0e0f"
+        },
+        {
+          "frame": "61050e0000000000000007e8a1fe98232f44618f327261fdf83bb60da79a085da92158c1d4647a32dc460c78dd70e665",
+          "accept": true,
+          "under": "000102030405060708090a0b0c0d0e0f",
+          "from": 1011703407,
+          "count": 1,
+          "node": true,
+          "content": "033fe24b0c076fdbe8330de45d31461c6e",
+          "secret": "3fe24b0c076fdbe8330de45d31461c6e",
+          "old": "000102030405060708090a0b0c0d0e0f"
+        },
+        {
+          "frame": "60050e0000000000000008b68f7a7fbbf5351f2830f701a03b0932c2c0111e081f3985",
+          "accept": false,
+          "secret": "3fe24b0c076fdbe8330de45d31461c6e",
+          "old": "000102030405060708090a0b0c0d0e0f"
+        },
+        {
+          "frame": "60050e0000000000000009dbd9a6c342f1d8c15a3617f21dc144bba14a588fb56989bf0735",
+          "accept": true,
+          "under": "3fe24b0c076fdbe8330de45d31461c6e",
+          "from": 1011703407,
+          "count": 2,
+          "node": false,
+          "content": "6c6573736572",
+          "secret": "3fe24b0c076fdbe8330de45d31461c6e",
+          "old": "000102030405060708090a0b0c0d0e0f"
+        },
+        {
+          "frame": "61050e000000000000000a6b8509ad8f61987c25a078d8ef964e39f70acc553f7d8695a511e12480eb40105dcea21eb7",
+          "accept": true,
+          "under": "3fe24b0c076fdbe8330de45d31461c6e",
+          "from": 1011703407,
+          "count": 3,
+          "node": true,
+          "content": "033fe24b0c076fdbe8330de45d31461c6e",
+          "secret": "3fe24b0c076fdbe8330de45d31461c6e",
+          "old": "000102030405060708090a0b0c0d0e0f"
+        },
+        {
+          "frame": "61050e000000000000000b4dea1a34e239eaa9f1c8b67663ba2f1144eada0b077a301b4bce229e5e5e7077abb9dc370c",
+          "accept": true,
+          "under": "3fe24b0c076fdbe8330de45d31461c6e",
+          "from": 1011703407,
+          "count": 4,
+          "node": true,
+          "content": "03000102030405060708090a0b0c0d0e0f",
+          "secret": "3fe24b0c076fdbe8330de45d31461c6e",
+          "old": "000102030405060708090a0b0c0d0e0f"
+        },
+        {
+          "frame": "61050e000000000000000c94aea7b530a75ba6313625a5493923d4a1aacd0cbbd965c66d2c5263f431edd6b64c4df5",
+          "accept": true,
+          "under": "3fe24b0c076fdbe8330de45d31461c6e",
+          "from": 1011703407,
+          "count": 5,
+          "node": true,
+          "content": "039b34d1eb5883f6f4018918548a662d",
+          "secret": "3fe24b0c076fdbe8330de45d31461c6e",
+          "old": "000102030405060708090a0b0c0d0e0f"
+        },
+        {
+          "frame": "61050e000000000000000d9e640001fba24f7c8fce39beaa45e0794d15eb85f6f72b87c43d405d42b8867a78a15bc18e",
+          "accept": true,
+          "under": "3fe24b0c076fdbe8330de45d31461c6e",
+          "from": 489570112,
+          "count": 1,
+          "node": true,
+          "content": "039b34d1eb5883f6f4018918548a662d14",
+          "secret": "9b34d1eb5883f6f4018918548a662d14",
+          "old": "3fe24b0c076fdbe8330de45d31461c6e"
+        },
+        {
+          "frame": "60050e000000000000000e44de64cf89d9f8c7eec569d2a7b63a81ac5d4a69c9d99e75",
+          "accept": false,
+          "secret": "9b34d1eb5883f6f4018918548a662d14",
+          "old": "3fe24b0c076fdbe8330de45d31461c6e"
+        },
+        {
+          "frame": "60050e000000000000000f63a0dbdd7859da744fa22103f719902a9ccb0a19c7e281",
+          "accept": true,
+          "under": "3fe24b0c076fdbe8330de45d31461c6e",
+          "from": 1011703407,
+          "count": 6,
+          "node": false,
+          "content": "6f6c64",
+          "secret": "9b34d1eb5883f6f4018918548a662d14",
+          "old": "3fe24b0c076fdbe8330de45d31461c6e"
+        },
+        {
+          "frame": "60050e0000000000000010812f5893f9e6953d14cb637838604ed45ae145d4566fb285737f",
+          "accept": true,
+          "under": "9b34d1eb5883f6f4018918548a662d14",
+          "from": 1011703407,
+          "count": 1,
+          "node": false,
+          "content": "6e6577657374",
+          "secret": "9b34d1eb5883f6f4018918548a662d14",
+          "old": "3fe24b0c076fdbe8330de45d31461c6e"
         }
       ]
     }

@@ -90,19 +90,35 @@ int tern_group_seal_node(const struct tern_group *g, const uint8_t nonce[TERN_GR
     return seal(g, TERN_GROUP_HDR_NODE, nonce, from, count, content, len, frame, frame_cap);
 }
 
+/* Whether x is a better place than `than` for a new writer: a free place before any writer, then a
+ * writer heard from once before one heard from more often, then the one heard longest ago. */
+static bool rather(const struct tern_group_writer *x, const struct tern_group_writer *than) {
+    if (x->from == 0 || than->from == 0) {
+        return than->from != 0;
+    }
+    uint32_t xa = x->heard & TERN_GROUP_TWICE, ta = than->heard & TERN_GROUP_TWICE;
+    if (xa != ta) {
+        return xa == 0;
+    }
+    return (x->heard & ~TERN_GROUP_TWICE) < (than->heard & ~TERN_GROUP_TWICE);
+}
+
 /* Whether a frame from this writer with this count is one to accept, keeping the count if so. A
- * writer not held takes a free place, or that of the one a frame was accepted from longest ago. */
+ * writer not held takes a free place, or else that of the writer rather() picks. */
 static bool fresh(struct tern_group *g, uint32_t from, uint32_t count) {
     struct tern_group_writer *w = NULL, *spare = &g->writers[0];
-    for (size_t i = 0; i < TERN_GROUP_WRITERS && w == NULL; i++) {
+    for (size_t i = 0; i < TERN_GROUP_WRITERS; i++) {
         struct tern_group_writer *x = &g->writers[i];
         if (x->from == from) {
             w = x;
-        } else if (spare->from != 0 && (x->from == 0 || x->heard < spare->heard)) {
+            break;
+        }
+        if (rather(x, spare)) {
             spare = x;
         }
     }
-    if (w == NULL) {
+    bool first = w == NULL;
+    if (first) {
         *spare = (struct tern_group_writer){.from = from, .top = count, .had = 1};
         w = spare;
     } else if (count > w->top) {
@@ -116,8 +132,17 @@ static bool fresh(struct tern_group *g, uint32_t from, uint32_t count) {
         }
         w->had |= (uint32_t)1 << back;
     }
-    w->heard = ++g->heard;
+    g->heard = (g->heard + 1) & ~TERN_GROUP_TWICE;
+    w->heard = g->heard | (first ? 0 : TERN_GROUP_TWICE);
     return true;
+}
+
+bool tern_group_nonce_ok(const uint8_t *last, const uint8_t nonce[TERN_GROUP_NONCE]) {
+    bool same = true;
+    for (size_t i = 1; i < TERN_GROUP_NONCE; i++) {
+        same = same && nonce[i] == nonce[0];
+    }
+    return !same && (last == NULL || memcmp(last, nonce, TERN_GROUP_NONCE) != 0);
 }
 
 int tern_group_open(struct tern_group *const *g, size_t count, uint32_t self, const uint8_t *frame,
@@ -191,7 +216,9 @@ size_t tern_group_keep(const struct tern_group *g, uint8_t out[TERN_GROUP_KEPT])
         const struct tern_group_writer *next = NULL;
         for (size_t i = 0; i < TERN_GROUP_WRITERS; i++) {
             const struct tern_group_writer *w = &g->writers[i];
-            if (w->from != 0 && w->heard > after && (next == NULL || w->heard < next->heard)) {
+            uint32_t when = w->heard & ~TERN_GROUP_TWICE;
+            if (w->from != 0 && when > after &&
+                (next == NULL || when < (next->heard & ~TERN_GROUP_TWICE))) {
                 next = w;
             }
         }
@@ -201,7 +228,7 @@ size_t tern_group_keep(const struct tern_group *g, uint8_t out[TERN_GROUP_KEPT])
         put32(out + n, next->from);
         put32(out + n + 4, next->top);
         n += 8;
-        after = next->heard;
+        after = next->heard & ~TERN_GROUP_TWICE;
     }
 }
 
@@ -218,10 +245,11 @@ void tern_group_restore(struct tern_group *g, const uint8_t *kept, size_t len) {
             twice = twice || g->writers[i].from == from;
         }
         if (an_id(from) && !twice) {
-            /* Every count in the window is taken as accepted: which were is not kept. */
+            /* Every count in the window is taken as accepted: which were is not kept. Nor is how
+             * often it was heard, so it is taken as more than once, as the draft allows. */
             g->writers[g->heard] = (struct tern_group_writer){
                 .from = from, .top = get32(kept + at + 4), .had = 0xFFFFFFFFu};
-            g->writers[g->heard].heard = g->heard + 1;
+            g->writers[g->heard].heard = (g->heard + 1) | TERN_GROUP_TWICE;
             g->heard++;
         }
     }

@@ -269,6 +269,50 @@ static void test_kept(void) {
     CHECK(again.heard == 0 && again.writers[0].from == 0);
 }
 
+/* A nonce that repeats the one before, or is eight equal bytes, is refused: what a generator that
+ * has failed gives (draft/groups.md, Sending). */
+static void test_nonces(void) {
+    static const uint8_t a[8] = {1, 2, 3, 4, 5, 6, 7, 8}, b[8] = {1, 2, 3, 4, 5, 6, 7, 9};
+    static const uint8_t zeros[8] = {0}, ones[8] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+    CHECK(tern_group_nonce_ok(NULL, a));
+    CHECK(tern_group_nonce_ok(a, b));
+    CHECK(!tern_group_nonce_ok(a, a));
+    CHECK(!tern_group_nonce_ok(NULL, zeros));
+    CHECK(!tern_group_nonce_ok(a, ones));
+}
+
+/* A burst of made-up writers, each heard from once, forgets one writer heard from more often and
+ * then only each other (draft/groups.md, Receiving, step 6). */
+static void test_burst(void) {
+    static const uint8_t secret[16] = {7};
+    struct tern_group g;
+    uint8_t frame[TERN_GROUP_MAX_FRAME], content[TERN_GROUP_MAX_CONTENT], nonce[8] = {0};
+    uint16_t k = 0;
+    tern_group_init(&g, secret);
+    /* Sixteen real writers, each heard twice. */
+    for (uint32_t w = 1; w <= TERN_GROUP_WRITERS; w++) {
+        for (uint32_t c = 10; c <= 11; c++, k++) {
+            nonce[6] = (uint8_t)(k >> 8);
+            nonce[7] = (uint8_t)k;
+            CHECK(tern_group_seal(&g, nonce, w, c, NULL, 0, frame, sizeof frame) == TERN_OK);
+            CHECK(receive(&g, 99, frame, TERN_GROUP_OVERHEAD, content).verdict ==
+                  TERN_GROUP_ACCEPTED);
+        }
+    }
+    /* Forty made-up ones, once each. */
+    for (uint32_t w = 1000; w < 1040; w++, k++) {
+        nonce[6] = (uint8_t)(k >> 8);
+        nonce[7] = (uint8_t)k;
+        CHECK(tern_group_seal(&g, nonce, w, 1, NULL, 0, frame, sizeof frame) == TERN_OK);
+        CHECK(receive(&g, 99, frame, TERN_GROUP_OVERHEAD, content).verdict == TERN_GROUP_ACCEPTED);
+    }
+    size_t real = 0;
+    for (size_t i = 0; i < TERN_GROUP_WRITERS; i++) {
+        real += g.writers[i].from <= TERN_GROUP_WRITERS;
+    }
+    CHECK_EQ_U64(real, TERN_GROUP_WRITERS - 1);
+}
+
 static void test_invites(void) {
     for (size_t i = 0; i < COUNT(invites); i++) {
         const struct invite_case *c = &invites[i];
@@ -382,6 +426,8 @@ int main(void) {
     RUN(test_members);
     RUN(test_counts);
     RUN(test_kept);
+    RUN(test_nonces);
+    RUN(test_burst);
     RUN(test_invites);
     RUN(test_join_codes);
     RUN(test_arguments);
