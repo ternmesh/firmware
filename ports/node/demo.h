@@ -52,6 +52,8 @@
 #define DEMO_ACKS 2
 #define DEMO_PEERS NODE_SESSIONS /* sessions a board holds */
 #define DEMO_HOLD TERN_S(60)     /* the specification's CONTACT_HOLD */
+#define DEMO_ANSWERS 4           /* its CONTACT_ANSWERS: message_2 frames */
+#define DEMO_SPAN TERN_S(600)    /* in any CONTACT_SPAN */
 /* A session's record in the store: its magic, role, peer and counts, then the session packed. */
 #define DEMO_RECORD (45 + TERN_SESSION_PACKED)
 
@@ -97,6 +99,20 @@ struct demo {
                  only a button sends */
     struct demo_handshake h;
     tern_time accept_until; /* contact from a new peer is accepted before this */
+    /* The board's clock as last told (demo_receive(), demo_contact(), demo_tick()), and when each
+     * slot's session last had its age brought up to date by it: a session's age counts the time
+     * the board has been on, which is what the specification asks of a board without a clock
+     * that runs while it is off. */
+    tern_time now;
+    tern_time aged[DEMO_PEERS];
+    /* When the last DEMO_ANSWERS message_2 frames went, oldest first from answers_next, for the
+     * specification's limit on them (draft/first-contact.md, "How often"). */
+    tern_time answered[DEMO_ANSWERS];
+    uint8_t answers, answers_next;
+    tern_time answer_span; /* DEMO_SPAN, set by demo_start(); tests that are not about it set 0 */
+    /* The session demo_tick() last erased for its age: its slot and its peer. */
+    int ended_slot;
+    uint8_t ended_peer[TERN_ADDRESS_LEN];
     /* Whether an address is one the user trusts to make contact, or NULL (demo_trust()). */
     bool (*trusted)(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]);
     void *trusted_ctx;
@@ -109,7 +125,8 @@ enum demo_result {
     DEMO_BAD_ADDRESS,  /* not a valid address */
     DEMO_NO_RANDOM,    /* the board gave no random bytes, so no handshake was started */
     DEMO_STORE_FAILED, /* the session could not be saved, so nothing was sent */
-    DEMO_SPENT,        /* every counter used; make contact again */
+    DEMO_SPENT,        /* every counter used, or the session is to start again (demo_restart()):
+                          make contact again */
     DEMO_TOO_LONG,     /* more than TERN_UNICAST_MAX_PLAINTEXT bytes */
     DEMO_FULL,         /* DEMO_PEERS sessions already, none of them with this address */
 };
@@ -157,8 +174,17 @@ enum demo_result demo_seal_node(struct demo *d, int slot, const uint8_t *msg, si
                                 uint8_t *frame);
 
 /* Whether a frame is the acknowledgement, by the peer in that slot, of the message this board
- * sent it with that counter. */
-bool demo_acked(const struct demo *d, int slot, uint32_t counter, const uint8_t *frame, size_t len);
+ * sent it with that counter. If it is, the session takes note, and is saved. */
+bool demo_acked(struct demo *d, int slot, uint32_t counter, const uint8_t *frame, size_t len);
+
+/* A message this board sent the peer in that slot was given up: the session counts it, and is
+ * saved (draft/unicast-security.md, "Starting again"). */
+void demo_given_up(struct demo *d, int slot);
+
+/* Whether the session in that slot is to be started again before anything more is sent in it:
+ * its peer may no longer be able to read it, or it is older than TERN_SESSION_LIFE. First contact
+ * with the peer puts a new one in its place. */
+bool demo_restart(const struct demo *d, int slot);
 
 enum demo_heard {
     DEMO_HEARD_MESSAGE,   /* from the peer: msg, msg_len, counter and peer are set */
@@ -210,9 +236,10 @@ bool demo_abandon(struct demo *d);
 enum demo_tick {
     DEMO_TICK_NONE,
     DEMO_TICK_LAPSED, /* a handshake another board began never finished, and is forgotten */
+    DEMO_TICK_ENDED,  /* a session outlived TERN_SESSION_LIFE and its grace, and is erased */
 };
 
-/* Moves time on. Call it often. */
+/* Moves time on. Call it often. A session past its life is erased here, one at a time. */
 enum demo_tick demo_tick(struct demo *d, tern_time now);
 
 #endif

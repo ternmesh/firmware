@@ -115,5 +115,18 @@ order, solicits and answers in the routing part, and the own part at 2% and the 
 7%).
 `airtime_to_c.py` turns it into a header for `tests/airtime.c`.
 
+`unicast-security.json`, `first-contact.json`, `forwarding.json`, `flooding.json` and
+`positions.json` are as of [ternmesh/spec#59](https://github.com/ternmesh/spec/pull/59), the
+unicast hardening: each epoch's own tag key, which changes every destination tag and proof
+(and so positions' frames); copies answered only when they are copies, four times and for ten
+minutes; a receiver's window and a sender's counter across restarts; starting again; a session's
+life; how often a responder answers `message_1`; whether hearing a frame teaches anything; and
+where a writer's flood starts. `unicast_to_c.py` carries `restart`, `at_s`, `then` and
+`lifetimes` to `tests/unicast.c`, and `flooding_to_c.py` the `starts` to `tests/flood.c`.
+first-contact.json's `answers` are checked by `tests/demo.c`'s
+a_board_answers_so_many_handshakes, which plays them between boards, not from the file.
+`cards.json` is not yet: its `verifications` need `tern_address_verify()` to refuse an address
+outside the prime-order subgroup, which comes with the firmware's hardening of it.
+
 When the specification's vectors change, copy the new file here in the same pull request that
 changes the code to match, and update the commit above.

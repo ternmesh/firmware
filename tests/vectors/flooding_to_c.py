@@ -113,6 +113,13 @@ def main():
           for i, c in enumerate(v["allowances"])]
     L.append("};")
 
+    L.append("static const struct start_case start_cases[] = {")
+    for c in v["starts"]:
+        assert len(c["hops"]) <= 2
+        hs = c["hops"] + c["hops"][-1:] * (2 - len(c["hops"]))
+        L.append(f"    {{0x{c['hdr']:02x}, {{{hs[0]}, {hs[1]}}}, {len(c['hops'])}}},")
+    L.append("};")
+
     with open(out, "w", encoding="utf-8") as f:
         f.write("\n".join(L) + "\n")
 

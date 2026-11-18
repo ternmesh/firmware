@@ -112,6 +112,12 @@ struct allowance_case {
     size_t n;
 };
 
+struct start_case {
+    uint8_t hdr;
+    uint8_t hops[2];
+    size_t n; /* how many of hops a frame may start with */
+};
+
 #include "flooding.h"
 
 #define COUNT(a) (sizeof(a) / sizeof(a)[0])
@@ -132,6 +138,7 @@ static void start(struct node *x, bool relay, uint64_t seed) {
     x->lora = tern_region_lora(tern_region(TERN_REGION_US915));
     struct tern_route_config c = tern_route_defaults(&x->lora, FULL, LOWEST, relay);
     struct tern_flood_config fc = tern_flood_defaults();
+    fc.lower = false; /* hops counted here as they start */
     tern_route_init(&x->r, &c, 0x1000, x->nb, NB, x->dest, DESTS, 0, 7, 0);
     tern_flood_init(&x->f, &fc, &x->r, x->slot, SLOTS, x->seen, TERN_FLOOD_SEEN, seed, 0);
 }
@@ -297,6 +304,7 @@ static void test_waits(void) {
             x.lora.bw_hz = c->bw;
             struct tern_route_config rc = tern_route_defaults(&x.lora, FULL, LOWEST, true);
             struct tern_flood_config fc = tern_flood_defaults();
+            fc.lower = false; /* hops counted here as they start */
             tern_route_init(&x.r, &rc, 0x1000, x.nb, NB, x.dest, DESTS, 0, 7, 0);
             tern_flood_init(&x.f, &fc, &x.r, x.slot, SLOTS, x.seen, TERN_FLOOD_SEEN, seed, 0);
             if (seed == 1) {
@@ -474,6 +482,7 @@ static void test_busy(void) {
         struct node x;
         start(&x, true, 11 + i);
         struct tern_flood_config fc = tern_flood_defaults();
+        fc.lower = false; /* hops counted here as they start */
         fc.relay_ppm = 1000000;
         tern_flood_init(&x.f, &fc, &x.r, x.slot, SLOTS, x.seen, TERN_FLOOD_SEEN, 11 + i, 0);
         unsigned sent = 0;
@@ -708,6 +717,46 @@ static void test_reach(void) {
 
 /* A card's hops are read as no more than CARD_HOPS, by the rule and by the flooder; a card of the
  * node's own starts with them; and one its checks refuse is not passed on. */
+/* starts: a node's own frame of each kind starts with the hops its kind says, and a group's, one
+ * of two with even chances, so that over many frames each comes up. */
+static void test_starts(void) {
+    for (size_t i = 0; i < COUNT(start_cases); i++) {
+        const struct start_case *c = &start_cases[i];
+        unsigned seen[2] = {0, 0};
+        for (unsigned k = 0; k < 64; k++) {
+            struct node x;
+            uint8_t frame[TERN_FLOOD_FRAME_MAX], out[TERN_FLOOD_FRAME_MAX];
+            int8_t dbm;
+            enum tern_flood_kind kind;
+            uint8_t h;
+            memset(&x, 0, sizeof x);
+            x.lora = tern_region_lora(tern_region(TERN_REGION_US915));
+            struct tern_route_config rc = tern_route_defaults(&x.lora, FULL, LOWEST, false);
+            struct tern_flood_config fc = tern_flood_defaults();
+            tern_route_init(&x.r, &rc, 0x1000, x.nb, NB, x.dest, DESTS, 0, 7, 0);
+            tern_flood_init(&x.f, &fc, &x.r, x.slot, SLOTS, x.seen, TERN_FLOOD_SEEN, 100 + k, 0);
+            size_t len = make(frame, c->hdr == TERN_HDR_CARD ? 110 : 60, 0, k);
+            frame[0] = c->hdr;
+            CHECK(tern_flood_send(&x.f, 0, frame, len));
+            CHECK(tern_flood_poll(&x.f, 0, out, &dbm, &kind, &h) == len && kind == TERN_FLOOD_OWN);
+            bool known = false;
+            for (size_t j = 0; j < c->n; j++) {
+                if (out[1] == c->hops[j]) {
+                    seen[j]++;
+                    known = true;
+                }
+            }
+            if (!known) {
+                fprintf(stderr, "starts 0x%02x: hops %u\n", c->hdr, out[1]);
+                check_failures++;
+            }
+        }
+        for (size_t j = 0; j < c->n; j++) {
+            CHECK(seen[j] > 0);
+        }
+    }
+}
+
 static void test_cards(void) {
     struct tern_flood_config d = tern_flood_defaults();
     for (size_t i = 0; i < COUNT(card_pass_cases); i++) {
@@ -1014,6 +1063,7 @@ int main(void) {
     RUN(test_cancel);
     RUN(test_power);
     RUN(test_reach);
+    RUN(test_starts);
     RUN(test_cards);
     RUN(test_positions);
     RUN(test_resends);

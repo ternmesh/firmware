@@ -164,7 +164,7 @@ static void handshakes_match(void) {
         CHECK_EQ_I64(tern_unicast_seal(&si.tx, (const uint8_t *)"hello", 5, frame, sizeof frame),
                      TERN_OK);
         CHECK_EQ_I64(
-            tern_unicast_open(&rx, 1, frame, 5 + TERN_UNICAST_OVERHEAD, pt, sizeof pt, &got),
+            tern_unicast_open(&rx, 1, frame, 5 + TERN_UNICAST_OVERHEAD, pt, sizeof pt, 0, &got),
             TERN_OK);
         CHECK_EQ_I64(got.verdict, TERN_UNICAST_ACCEPTED);
         CHECK(got.len == 5 && memcmp(pt, "hello", 5) == 0);

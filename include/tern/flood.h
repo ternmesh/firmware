@@ -123,6 +123,10 @@ struct tern_flood_config {
      * 0 for none. */
     uint8_t resends;
     uint8_t echo;
+    /* A frame of the node's own that would start at `hops` starts one lower half the time, so
+     * that the first relay's copy looks like the writer's (draft/flooding.md, "Sending"). Off only
+     * for tests that count hops. */
+    bool lower;
 };
 
 /* The specification's parameters. */

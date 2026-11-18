@@ -222,9 +222,9 @@ void tern_forward_heard(struct tern_forward *f, tern_time now, const uint8_t *fr
             continue;
         }
         passed = h.hdr == s->frame[0];
-        /* What passed it on was its next hop; so was an acknowledgement's first copy, if its next
-         * hop was where it was going. */
-        if (passed || (s->next == dest_of(s) && h.hops == f->config.hop_max)) {
+        /* What passed it on was its next hop. An acknowledgement ends the hop, but teaches
+         * nothing: no node on the way can check it, and anyone can send one. */
+        if (passed) {
             tern_route_passed(f->route, now, s->next, h.power, snr_q);
         }
         s->unheard = 0;

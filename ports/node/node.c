@@ -1122,8 +1122,15 @@ static void poll_contact(void) {
                hdr - 0x50, forward.config.retries + 1);
         contact_gave_up();
     }
-    if (demo_tick(&demo, board_now()) == DEMO_TICK_LAPSED) {
+    enum demo_tick ticked = demo_tick(&demo, board_now());
+    if (ticked == DEMO_TICK_LAPSED) {
         printf("first contact: the board that began it went quiet; forgotten\n");
+    } else if (ticked == DEMO_TICK_ENDED) {
+        printf("session with ");
+        print_address(demo.ended_peer);
+        printf(" ended: older than a session lives. The next message makes contact again.\n");
+        pending_drop(demo.ended_slot, true);
+        link_session_changed(&companion, demo.ended_peer);
     }
 }
 
@@ -1273,7 +1280,10 @@ static void poll_outgoing(void) {
         send_group(x);
         return;
     }
-    if (demo_peer(&demo, x->address) < 0) {
+    /* No session, or one to start again (draft/unicast-security.md, "Starting again"): first
+     * contact makes one, in the old one's place if there is one. */
+    int has = demo_peer(&demo, x->address);
+    if (has < 0 || demo_restart(&demo, has)) {
         link_state(&companion, x->id, TERN_C_WAITING, TERN_C_WAIT_SESSION, 0);
         bool idle = demo.h.phase == DEMO_IDLE || demo.h.phase == DEMO_ANSWERED;
         if (!idle) {
@@ -1380,6 +1390,7 @@ static void poll_forward(void) {
     while (tern_forward_failed(&forward, tag)) {
         struct pending *p = pending_tagged(tag);
         if (p != NULL) {
+            demo_given_up(&demo, p->slot); /* two in a row, and the session starts again */
             printf("not delivered #%lu: no acknowledgement, having gone %u time%s. Is the other "
                    "board on and in range? 'routes' shows whether there is a route to it.\n",
                    (unsigned long)p->counter, p->goes, p->goes == 1 ? "" : "s");
