@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "tern/lora.h"
+#include "tern/sleep.h"
 
 #define MILLION 1000000
 #define AT_NEXT 3 /* where the head keeps the next hop, and the destination */
@@ -32,6 +33,7 @@ static bool an_id(uint32_t id) { return id != 0 && id != TERN_ROUTE_EVERYONE; }
 bool tern_forward_head_read(struct tern_forward_head *h, const uint8_t *frame, size_t len) {
     if (len < TERN_FORWARD_MIN || len > TERN_FORWARD_FRAME_MAX || !tern_forward_frame(frame, len) ||
         (frame[0] == TERN_HDR_ACK && len != TERN_ACK_LEN) ||
+        (frame[0] == TERN_HDR_HELD && len != TERN_HELD_LEN) ||
         (tern_forward_message(frame[0]) && len < TERN_MESSAGE_MIN) ||
         (tern_forward_contact(frame[0]) && len != TERN_CONTACT_LEN(frame[0]))) {
         return false;
@@ -44,6 +46,14 @@ bool tern_forward_head_read(struct tern_forward_head *h, const uint8_t *frame, s
         .destination = get32(frame + AT_DEST),
     };
     return an_id(h->next) && an_id(h->destination);
+}
+
+size_t tern_forward_held_write(int8_t power, uint32_t next, uint32_t destination,
+                               const uint8_t tag[TERN_FORWARD_TAG], uint8_t frame[TERN_HELD_LEN]) {
+    tern_forward_head_write(&(struct tern_forward_head){TERN_HDR_HELD, 0, power, next, destination},
+                            frame);
+    memcpy(frame + TERN_FORWARD_HEAD, tag, TERN_FORWARD_TAG);
+    return TERN_HELD_LEN;
 }
 
 bool tern_forward_same(const uint8_t *a, size_t a_len, const uint8_t *b, size_t b_len) {
@@ -62,7 +72,7 @@ bool tern_forward_ends(const uint8_t *sent, size_t sent_len, const uint8_t *hear
 }
 
 bool tern_forward_listens(const uint8_t *frame, size_t len) {
-    return len >= TERN_FORWARD_HEAD &&
+    return len >= TERN_FORWARD_HEAD && frame[0] != TERN_HDR_HELD &&
            (tern_forward_message(frame[0]) || get32(frame + AT_NEXT) != get32(frame + AT_DEST));
 }
 
@@ -104,6 +114,44 @@ void tern_forward_init(struct tern_forward *f, const struct tern_forward_config 
 
 void tern_forward_budget(struct tern_forward *f, struct tern_airtime *budget) {
     f->budget = budget;
+}
+
+void tern_forward_keeper(struct tern_forward *f, struct tern_forward_kept *store, size_t cap) {
+    f->kept = store;
+    f->kept_cap = store ? cap : 0;
+    for (size_t i = 0; i < f->kept_cap; i++) {
+        store[i].leaf = 0;
+    }
+}
+
+void tern_forward_wake(struct tern_forward *f, uint32_t destination, uint16_t wake) {
+    struct tern_forward_wake *free_at = NULL;
+    for (size_t i = 0; i < TERN_FORWARD_WAKES; i++) {
+        struct tern_forward_wake *w = &f->wakes[i];
+        if (w->destination == destination) {
+            w->wake = wake;
+            w->destination = wake ? destination : 0;
+            return;
+        }
+        if (!free_at && w->destination == 0) {
+            free_at = w;
+        }
+    }
+    if (wake) {
+        /* With no room, the first place goes: a source told too little waits too short a time,
+         * and its message is still held for the leaf. */
+        free_at = free_at ? free_at : &f->wakes[0];
+        *free_at = (struct tern_forward_wake){destination, wake};
+    }
+}
+
+static uint16_t wake_of(const struct tern_forward *f, uint32_t destination) {
+    for (size_t i = 0; i < TERN_FORWARD_WAKES; i++) {
+        if (f->wakes[i].destination == destination && destination != 0) {
+            return f->wakes[i].wake;
+        }
+    }
+    return 0;
 }
 
 static uint64_t rand_below(struct tern_forward *f, uint64_t n) {
@@ -154,6 +202,90 @@ static void rest(struct tern_forward_slot *s, tern_time now) {
     } else {
         s->state = TERN_FORWARD_FREE;
     }
+}
+
+/* --- A keeper's (the specification's "Leaves that sleep") --- */
+
+/* Whether this node keeps `leaf` with it asleep: a frame for it is held, not sent. */
+static bool asleep(const struct tern_forward *f, uint32_t leaf, tern_time now) {
+    bool answered;
+    uint16_t wake;
+    return f->kept_cap &&
+           tern_route_keeper_of(f->route, leaf, now, &answered, &wake) == TERN_KEEP_ASLEEP;
+}
+
+/* A frame of this node's own for a sleeping leaf it keeps waits in its slot until the leaf polls.
+ */
+static bool deferred(const struct tern_forward *f, const struct tern_forward_slot *s,
+                     tern_time now) {
+    return s->state == TERN_FORWARD_WAITING && s->own && dest_of(s) == s->next &&
+           asleep(f, s->next, now);
+}
+
+/* Tells the router how many frames are held for `leaf`, for its answer to the leaf's next poll. */
+static void recount(struct tern_forward *f, uint32_t leaf, tern_time now) {
+    unsigned n = 0;
+    for (size_t i = 0; i < f->kept_cap; i++) {
+        n += f->kept[i].leaf == leaf;
+    }
+    for (size_t i = 0; i < f->cap; i++) {
+        n += deferred(f, &f->slot[i], now) && f->slot[i].next == leaf;
+    }
+    tern_route_holding(f->route, leaf, (uint8_t)(n > UINT8_MAX ? UINT8_MAX : n));
+}
+
+static struct tern_forward_kept *kept_same(struct tern_forward *f, const uint8_t *frame,
+                                           size_t len) {
+    for (size_t i = 0; i < f->kept_cap; i++) {
+        struct tern_forward_kept *k = &f->kept[i];
+        if (k->leaf && tern_forward_same(k->frame, k->len, frame, len)) {
+            return k;
+        }
+    }
+    return NULL;
+}
+
+/* The held notice for a frame held, to the node it came from, which needs `back` to hear it. The
+ * keeper cannot know that node's routing id, so `next` is the keeper's own: the node before
+ * matches it against the neighbour it sent the frame to. */
+static void notice(struct tern_forward *f, const uint8_t *frame, int8_t back) {
+    struct tern_forward_notice *n;
+    if (f->notice_count == TERN_FORWARD_NOTICES) {
+        return; /* the node before tries again, and hears the next */
+    }
+    n = &f->notices[f->notice_count++];
+    n->power = back == INT8_MIN ? tern_route_power(f->route, TERN_ROUTE_EVERYONE) : back;
+    tern_forward_held_write(n->power, f->route->id, get32(frame + AT_DEST),
+                            frame + TERN_FORWARD_HEAD, n->frame);
+}
+
+/* Holds a frame for `leaf`, with `hops` as it goes to it, first held at `at`. False with no room.
+ */
+static bool hold(struct tern_forward *f, uint32_t leaf, const uint8_t *frame, size_t len,
+                 uint8_t hops, tern_time at, tern_time now) {
+    for (size_t i = 0; i < f->kept_cap; i++) {
+        struct tern_forward_kept *k = &f->kept[i];
+        if (k->leaf == 0) {
+            *k = (struct tern_forward_kept){.leaf = leaf,
+                                            .order = f->kept_order++,
+                                            .at = at,
+                                            .hops = hops,
+                                            .len = (uint8_t)len};
+            memcpy(k->frame, frame, len);
+            f->counts.held++;
+            recount(f, leaf, now);
+            return true;
+        }
+    }
+    f->counts.held_full++;
+    return false;
+}
+
+/* A frame handed over that is not to go now, its leaf asleep again or its hop given up, is held
+ * again; with no room it is dropped. */
+static void hold_again(struct tern_forward *f, struct tern_forward_slot *s, tern_time now) {
+    (void)hold(f, s->kept_for, s->frame, s->len, s->hops, s->held_at, now);
+    s->state = TERN_FORWARD_FREE;
 }
 
 bool tern_forward_send(struct tern_forward *f, tern_time now, uint32_t destination,
@@ -207,6 +339,28 @@ void tern_forward_heard(struct tern_forward *f, tern_time now, const uint8_t *fr
         return;
     }
     ack = h.hdr == TERN_HDR_ACK;
+    if (h.hdr == TERN_HDR_HELD) {
+        /* A keeper holds a frame this node sent it, for its sleeping leaf: the hop is over, as if
+         * the frame had been passed on, and teaches nothing, as an acknowledgement does not. */
+        for (size_t i = 0; i < f->cap; i++) {
+            s = &f->slot[i];
+            bool sent =
+                s->state == TERN_FORWARD_LISTENING ||
+                ((s->state == TERN_FORWARD_WAITING || s->state == TERN_FORWARD_OUT) && s->again);
+            if (!sent || s->next != h.next || dest_of(s) != h.destination ||
+                memcmp(s->frame + TERN_FORWARD_HEAD, frame + TERN_FORWARD_HEAD, TERN_FORWARD_TAG) !=
+                    0) {
+                continue;
+            }
+            s->unheard = 0;
+            if (s->state == TERN_FORWARD_OUT) {
+                s->done = true;
+            } else {
+                rest(s, now);
+            }
+        }
+        return;
+    }
     /* A hop of this node's is over once its next hop is heard sending the frame on, one hop
      * further; or, for a message, once an acknowledgement for it is heard at all. */
     for (size_t i = 0; i < f->cap; i++) {
@@ -236,6 +390,7 @@ void tern_forward_heard(struct tern_forward *f, tern_time now, const uint8_t *fr
     }
     if (ack && h.destination == f->route->id) {
         out->got = TERN_FORWARD_ACK; /* however it was heard */
+        tern_route_held_got(f->route, now);
         return;
     }
     if (h.next != f->route->id) {
@@ -244,6 +399,7 @@ void tern_forward_heard(struct tern_forward *f, tern_time now, const uint8_t *fr
     out->back = tern_route_power_back(f->route, h.power, snr_q);
     if (h.destination == f->route->id) {
         out->got = tern_forward_message(h.hdr) ? TERN_FORWARD_MESSAGE : TERN_FORWARD_CONTACT;
+        tern_route_held_got(f->route, now);
         return;
     }
     if (!f->route->config.relay) {
@@ -260,9 +416,20 @@ void tern_forward_heard(struct tern_forward *f, tern_time now, const uint8_t *fr
             return; /* still passing it on: the hop before will hear that */
         }
     }
+    if (kept_same(f, frame, len)) {
+        notice(f, frame, out->back); /* held already: the node before missed the notice */
+        return;
+    }
     if (!tern_route_next(f->route, h.destination, &next, &metric)) {
         f->counts.no_route++;
         tern_route_want(f->route, now, h.destination);
+        return;
+    }
+    if (next == h.destination && asleep(f, next, now)) {
+        /* For a sleeping leaf this node keeps: held until it polls, and the node before told. */
+        if (hold(f, next, frame, len, (uint8_t)(h.hops - 1), now, now)) {
+            notice(f, frame, out->back);
+        }
         return;
     }
     s = free_slot(f);
@@ -279,6 +446,14 @@ void tern_forward_heard(struct tern_forward *f, tern_time now, const uint8_t *fr
         .at = now + jitter(f, len),
         .deadline = -1,
     };
+    if (next == h.destination && f->kept_cap) {
+        bool answered;
+        uint16_t wake;
+        if (tern_route_keeper_of(f->route, next, now, &answered, &wake) == TERN_KEEP_AWAKE) {
+            s->kept_for = next; /* its leaf awake: held if its hop is given up */
+            s->held_at = now;
+        }
+    }
     memcpy(s->frame, frame, len);
     f->counts.passed_on++;
 }
@@ -332,9 +507,9 @@ bool tern_forward_contact_failed(struct tern_forward *f, uint8_t *hdr,
 }
 
 static enum tern_forward_kind kind_of(const struct tern_forward_slot *s) {
-    return s->frame[0] == TERN_HDR_ACK ? TERN_FORWARD_REPLY
-           : s->own                    ? TERN_FORWARD_OWN
-                                       : TERN_FORWARD_RELAY;
+    return s->frame[0] == TERN_HDR_ACK || s->frame[0] == TERN_HDR_HELD ? TERN_FORWARD_REPLY
+           : s->own                                                    ? TERN_FORWARD_OWN
+                                                                       : TERN_FORWARD_RELAY;
 }
 
 /* The node's own frame first in line, which those of its own behind it wait for: of those waiting,
@@ -344,20 +519,58 @@ static const struct tern_forward_slot *own_first(const struct tern_forward *f) {
     for (size_t i = 0; i < f->cap; i++) {
         const struct tern_forward_slot *s = &f->slot[i];
         if (s->state == TERN_FORWARD_WAITING && kind_of(s) == TERN_FORWARD_OWN &&
-            (first == NULL || s->at < first->at)) {
+            !deferred(f, s, f->route->now) && (first == NULL || s->at < first->at)) {
             first = s;
         }
     }
     return first;
 }
 
+/* When what a keeper holds next needs it: a frame to hand over, pass on or drop. */
+static tern_time kept_due(const struct tern_forward *f) {
+    tern_time t = INT64_MAX, now = f->route->now;
+    bool room = false;
+    for (size_t i = 0; i < f->cap && !room; i++) {
+        room = f->slot[i].state == TERN_FORWARD_FREE;
+    }
+    for (size_t i = 0; i < f->kept_cap; i++) {
+        const struct tern_forward_kept *k = &f->kept[i];
+        bool answered;
+        uint16_t wake;
+        tern_time at;
+        if (!k->leaf) {
+            continue;
+        }
+        switch (tern_route_keeper_of(f->route, k->leaf, now, &answered, &wake)) {
+        case TERN_KEEP_ASLEEP:
+            at = k->at + tern_sleep_hold_for(wake) + 1; /* held longer than HOLD_FOR */
+            break;
+        case TERN_KEEP_AWAKE:
+            /* To hand over once a slot is free: a slot freed is due of itself. */
+            at = answered && room ? now : k->at + tern_sleep_hold_for(wake) + 1;
+            break;
+        case TERN_KEEP_NONE:
+            at = room ? now : INT64_MAX;
+            break;
+        default:
+            at = now; /* dropped */
+            break;
+        }
+        t = at < t ? at : t;
+    }
+    return t;
+}
+
 tern_time tern_forward_due(const struct tern_forward *f) {
-    tern_time t = INT64_MAX;
+    tern_time t = f->notice_count ? f->route->now : INT64_MAX;
     const struct tern_forward_slot *first = own_first(f);
+    tern_time k = kept_due(f);
+    t = k < t ? k : t;
     for (size_t i = 0; i < f->cap; i++) {
         const struct tern_forward_slot *s = &f->slot[i];
-        bool timed = s->state == TERN_FORWARD_LISTENING || s->state == TERN_FORWARD_HELD ||
-                     s->state == TERN_FORWARD_WAITING;
+        bool timed = (s->state == TERN_FORWARD_LISTENING || s->state == TERN_FORWARD_HELD ||
+                      s->state == TERN_FORWARD_WAITING) &&
+                     !deferred(f, s, f->route->now);
         /* The node's own go behind the first of them, which goes once the budget lets it. */
         bool behind = s->state == TERN_FORWARD_WAITING && kind_of(s) == TERN_FORWARD_OWN;
         if (timed && !behind && s->at < t) {
@@ -420,6 +633,10 @@ static void give_up(struct tern_forward *f, struct tern_forward_slot *s, tern_ti
     f->counts.given_up++;
     tern_route_lost(f->route, now, s->next);
     s->unheard = 0;
+    if (s->kept_for && f->kept_cap) {
+        hold_again(f, s, now); /* to its sleeping leaf: held, the once, not sent another way */
+        return;
+    }
     if (s->frame[0] != TERN_HDR_ACK && s->salvages < f->config.salvage) {
         s->gone[s->salvages] = s->next;
         if (tern_route_other(f->route, dest_of(s), s->gone, s->salvages + 1, &other)) {
@@ -471,10 +688,97 @@ static void try_again(struct tern_forward *f, struct tern_forward_slot *s, tern_
     }
 }
 
+/* What a keeper does with what it holds at `now`: drops what has waited longer than HOLD_FOR or
+ * whose leaf it no longer keeps at all; passes on what is for a leaf that names another keeper;
+ * takes back what was handed over to a leaf asleep again; and hands over, to a leaf that has
+ * polled and been answered, what it holds for it: acknowledgements first, then the rest, each in
+ * the order it came, as far as there are slots. */
+static void keep(struct tern_forward *f, tern_time now) {
+    for (size_t i = 0; i < f->cap; i++) {
+        struct tern_forward_slot *s = &f->slot[i];
+        if (s->state == TERN_FORWARD_WAITING && s->kept_for && asleep(f, s->kept_for, now)) {
+            hold_again(f, s, now);
+        }
+    }
+    for (int acks = 1; acks >= 0; acks--) {
+        for (;;) {
+            struct tern_forward_kept *k = NULL;
+            for (size_t i = 0; i < f->kept_cap; i++) {
+                struct tern_forward_kept *x = &f->kept[i];
+                bool answered;
+                uint16_t wake;
+                enum tern_route_keep st;
+                if (!x->leaf) {
+                    continue;
+                }
+                st = tern_route_keeper_of(f->route, x->leaf, now, &answered, &wake);
+                if (st == TERN_KEEP_GONE ||
+                    (st != TERN_KEEP_NONE && now - x->at > tern_sleep_hold_for(wake))) {
+                    uint32_t leaf = x->leaf;
+                    x->leaf = 0;
+                    f->counts.held_late += st != TERN_KEEP_GONE;
+                    recount(f, leaf, now);
+                    continue;
+                }
+                bool go = st == TERN_KEEP_NONE || (st == TERN_KEEP_AWAKE && answered);
+                if (go && (x->frame[0] == TERN_HDR_ACK) == (acks == 1) &&
+                    (!k || x->order < k->order)) {
+                    k = x;
+                }
+            }
+            struct tern_forward_slot *s = k ? free_slot(f) : NULL;
+            if (!s) {
+                break;
+            }
+            uint32_t leaf = k->leaf, next = leaf;
+            uint16_t metric;
+            bool keeps, answered;
+            uint16_t wake;
+            keeps = tern_route_keeper_of(f->route, leaf, now, &answered, &wake) != TERN_KEEP_NONE;
+            k->leaf = 0;
+            if (!keeps && !tern_route_next(f->route, get32(k->frame + AT_DEST), &next, &metric)) {
+                recount(f, leaf, now); /* named another keeper, and no route there: dropped */
+                continue;
+            }
+            *s = (struct tern_forward_slot){
+                .state = TERN_FORWARD_WAITING,
+                .hops = k->hops,
+                .back = INT8_MIN,
+                .len = k->len,
+                .next = next,
+                .at = now,
+                .deadline = -1,
+                .kept_for = keeps ? leaf : 0,
+                .held_at = k->at,
+            };
+            memcpy(s->frame, k->frame, k->len);
+            f->counts.handed += keeps;
+            recount(f, leaf, now);
+        }
+    }
+}
+
 size_t tern_forward_poll(struct tern_forward *f, tern_time now,
                          uint8_t frame[TERN_FORWARD_FRAME_MAX], int8_t *power_dbm,
                          enum tern_forward_kind *kind, uint8_t *handle) {
     struct tern_forward_slot *go = NULL;
+    if (f->kept_cap) {
+        keep(f, now);
+    }
+    if (f->notice_count) {
+        /* A held notice first, as an acknowledgement: paid for as one, and never held. */
+        struct tern_forward_notice n = f->notices[0];
+        memmove(&f->notices[0], &f->notices[1], (f->notice_count - 1) * sizeof f->notices[0]);
+        f->notice_count--;
+        if (f->budget) {
+            tern_airtime_charge(f->budget, now, TERN_HDR_HELD, true, airtime(f, TERN_HELD_LEN));
+        }
+        memcpy(frame, n.frame, TERN_HELD_LEN);
+        *power_dbm = n.power;
+        *kind = TERN_FORWARD_REPLY;
+        *handle = TERN_FORWARD_NOTICE;
+        return TERN_HELD_LEN;
+    }
     for (size_t i = 0; i < f->cap; i++) {
         struct tern_forward_slot *s = &f->slot[i];
         bool late = s->tracked && s->deadline >= 0 && s->deadline <= now;
@@ -504,7 +808,7 @@ size_t tern_forward_poll(struct tern_forward *f, tern_time now,
         go = NULL;
         for (size_t i = 0; i < f->cap; i++) {
             struct tern_forward_slot *s = &f->slot[i];
-            if (s->state == TERN_FORWARD_WAITING && s->at <= now &&
+            if (s->state == TERN_FORWARD_WAITING && s->at <= now && !deferred(f, s, now) &&
                 !(own_held && kind_of(s) == TERN_FORWARD_OWN) &&
                 (!go || kind_of(s) > kind_of(go) ||
                  (kind_of(s) == kind_of(go) && s->at < go->at))) {
@@ -516,8 +820,12 @@ size_t tern_forward_poll(struct tern_forward *f, tern_time now,
         }
         if (f->budget && kind_of(go) == TERN_FORWARD_RELAY &&
             !tern_airtime_pays(f->budget, now, go->frame[0], false, airtime(f, go->len))) {
-            go->state = TERN_FORWARD_FREE;
             f->counts.unpaid++;
+            if (go->kept_for && f->kept_cap) {
+                hold_again(f, go, now); /* held for a sleeping leaf: held still, not dropped */
+            } else {
+                go->state = TERN_FORWARD_FREE;
+            }
             continue;
         }
         break;
@@ -565,8 +873,18 @@ static void start_waiting(struct tern_forward *f, struct tern_forward_slot *s, t
             r->config.default_hops) {
             metric = tern_route_default_metric(r->config.default_hops, r->cost);
         }
+        uint32_t own_wake = 0;
+        uint16_t peer = wake_of(f, dest_of(s));
+        if (tern_route_sleeping(r, NULL)) {
+            /* Asleep, the leaf hears its acknowledgement only at its next poll. */
+            own_wake = tern_sleep_wake_s(r->config.sleep_wake);
+        }
         s->deadline = now + f->config.ack_wait +
                       (tern_time)f->config.ack_factor * (tern_time)metric * TERN_MS(1);
+        if (peer || own_wake) {
+            s->deadline += TERN_S((int64_t)(peer ? tern_sleep_wake_s(peer) : 0) + own_wake +
+                                  TERN_SLEEP_LISTEN_MIN_S);
+        }
     }
 }
 
@@ -606,4 +924,21 @@ void tern_forward_sent(struct tern_forward *f, tern_time now, uint8_t handle) {
     }
     s->state = TERN_FORWARD_LISTENING;
     s->at = now + f->config.hop_wait + 2 * airtime(f, s->len);
+}
+
+bool tern_forward_may_sleep(const struct tern_forward *f, tern_time now, tern_time *wake_at) {
+    tern_time t;
+    if (!tern_route_sleeping(f->route, NULL) || now < tern_route_listen_until(f->route) ||
+        f->notice_count) {
+        return false;
+    }
+    for (size_t i = 0; i < f->cap; i++) {
+        const struct tern_forward_slot *s = &f->slot[i];
+        if (s->state == TERN_FORWARD_LISTENING || s->state == TERN_FORWARD_OUT) {
+            return false;
+        }
+    }
+    t = tern_route_due(f->route);
+    *wake_at = tern_forward_due(f) < t ? tern_forward_due(f) : t;
+    return true;
 }

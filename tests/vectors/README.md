@@ -131,3 +131,8 @@ outside the prime-order subgroup, which comes with the firmware's hardening of i
 
 When the specification's vectors change, copy the new file here in the same pull request that
 changes the code to match, and update the commit above.
+
+`sleeping.json` is a copy of
+[`vectors/sleeping.json`](https://github.com/ternmesh/spec/blob/main/vectors/sleeping.json), as of
+[ternmesh/spec#62](https://github.com/ternmesh/spec/pull/62) (leaves that sleep, with the changes the
+simulator asked for). `sleeping_to_c.py` turns it into a header for `tests/sleep.c`.

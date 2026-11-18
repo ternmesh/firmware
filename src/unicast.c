@@ -1,6 +1,7 @@
 #include "tern/unicast.h"
 
 #include "tern/err.h"
+#include "tern/sleep.h"
 
 /* Secured unicast frames, as draft/unicast-security.md in ternmesh/spec defines them. Section
  * names in comments are that document's. Acknowledgements, and the copies they answer, are
@@ -161,6 +162,16 @@ void tern_session_init(struct tern_session *s, uint8_t secret[TERN_UNICAST_SECRE
 }
 
 void tern_session_wipe(struct tern_session *s) { tern_wipe(s, sizeof *s); }
+
+/* A message is tried RETRIES + 1 times (draft/forwarding.md), each a wake later where it sleeps. */
+#define TRIES 4
+
+void tern_session_sleep(struct tern_session *s, uint16_t own_wake, uint16_t peer_wake) {
+    uint32_t own = tern_sleep_wake_ok(own_wake) ? tern_sleep_wake_s(own_wake) : 0;
+    uint32_t peer = tern_sleep_wake_ok(peer_wake) ? tern_sleep_wake_s(peer_wake) : 0;
+    s->rx.copy_extra = (uint16_t)(TRIES * own);
+    s->tx.wait_extra = peer ? TRIES * (peer + TERN_SLEEP_LISTEN_MIN_S) : 0;
+}
 
 /* --- Sending ---------------------------------------------------------------------------------- */
 
@@ -392,7 +403,7 @@ static unsigned acks_of(const struct tern_unicast_rx *rx, unsigned k) {
  * wraps. */
 static bool late(const struct tern_unicast_rx *rx, unsigned k, tern_time now) {
     return (uint16_t)((uint16_t)seconds(now) - rx->at[k]) >
-           (uint16_t)(TERN_UNICAST_COPY_TIME / TERN_S(1));
+           (uint16_t)(TERN_UNICAST_COPY_TIME / TERN_S(1) + rx->copy_extra);
 }
 
 static bool copy_of(const struct tern_unicast_rx *rx, uint32_t n, const uint8_t *frame, size_t len,
@@ -421,7 +432,8 @@ void tern_unicast_expire(struct tern_session *s, tern_time now) {
         tx->prev_at = seconds(now);
         tx->prev_dated = true;
     } else if (tx->prev_held &&
-               seconds(now) - tx->prev_at > (uint32_t)(TERN_UNICAST_COPY_TIME / TERN_S(1))) {
+               seconds(now) - tx->prev_at >
+                   (uint32_t)(TERN_UNICAST_COPY_TIME / TERN_S(1)) + tx->wait_extra) {
         /* No source waits longer than COPY_TIME for an acknowledgement. */
         tern_wipe(tx->prev_tag_key, sizeof tx->prev_tag_key);
         tx->prev_held = false;

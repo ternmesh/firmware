@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "tern/address.h"
+#include "tern/airtime.h"
 #include "tern/lora.h"
 #include "tern/time.h"
 
@@ -55,6 +56,8 @@
 #define TERN_HDR_REQUEST 0x5A
 #define TERN_HDR_SOLICIT 0x5B
 #define TERN_HDR_ANSWER 0x5C
+#define TERN_HDR_POLL 0x5D        /* a sleeping leaf's poll (tern/sleep.h) */
+#define TERN_HDR_POLL_ANSWER 0x5E /* and its keeper's answer */
 
 #define TERN_ANNOUNCE_HEAD 17
 #define TERN_ANNOUNCE_SIG 64
@@ -67,10 +70,13 @@
 #define TERN_REQUEST_MAX 35 /* requests a frame can hold */
 #define TERN_SOLICIT_LEN 12
 #define TERN_ANSWER_LEN 13
+#define TERN_POLL_LEN 15
+#define TERN_POLL_ANSWER_LEN 14
+#define TERN_ANNOUNCE_KEEPER 4 /* the keeper's id, in the announce of a leaf that sleeps */
 
 /* Whether a frame is one of this layer's, by its first byte. */
 static inline bool tern_route_frame(const uint8_t *frame, size_t len) {
-    return len > 0 && frame[0] >= TERN_HDR_ANNOUNCE && frame[0] <= TERN_HDR_ANSWER;
+    return len > 0 && frame[0] >= TERN_HDR_ANNOUNCE && frame[0] <= TERN_HDR_POLL_ANSWER;
 }
 
 /* --- Rules, each as the specification states it. The router is built from these, and the tests
@@ -118,6 +124,8 @@ struct tern_announce {
     uint8_t named_count;
     uint8_t route_count;
     bool carries_key;
+    bool sleeps;                   /* the sender is a leaf that sleeps (tern/sleep.h) */
+    uint32_t keeper;               /* and the relay that keeps it, if sleeps */
     uint8_t key[TERN_ADDRESS_LEN]; /* the sender's routing key, if carries_key */
     struct tern_announce_named named[TERN_ANNOUNCE_NAMED_MAX];
     struct tern_announce_route routes[TERN_ANNOUNCE_ROUTES_MAX];
@@ -153,11 +161,33 @@ struct tern_answer {
     int8_t power;
 };
 
+/* A sleeping leaf's poll, and its keeper's answer (the specification's "Leaves that sleep"). */
+struct tern_poll {
+    uint32_t sender;
+    uint32_t keeper;
+    uint16_t id;
+    uint16_t wake;  /* w, in a promise's encoding */
+    uint8_t listen; /* l, in seconds */
+    int8_t power;
+};
+
+struct tern_poll_answer {
+    uint32_t sender;
+    uint32_t leaf;
+    uint16_t id;
+    uint8_t margin;
+    uint8_t held; /* frames the keeper holds for the leaf, at most 255 */
+    int8_t power;
+};
+
 /* Writes a frame, returning its length, or 0 if it would not fit in a frame. */
 size_t tern_announce_write(const struct tern_announce *a, uint8_t frame[TERN_ROUTE_FRAME_MAX]);
 size_t tern_request_write(const struct tern_request *q, uint8_t frame[TERN_ROUTE_FRAME_MAX]);
 size_t tern_solicit_write(const struct tern_solicit *s, uint8_t frame[TERN_SOLICIT_LEN]);
 size_t tern_answer_write(const struct tern_answer *a, uint8_t frame[TERN_ANSWER_LEN]);
+size_t tern_poll_write(const struct tern_poll *p, uint8_t frame[TERN_POLL_LEN]);
+size_t tern_poll_answer_write(const struct tern_poll_answer *a,
+                              uint8_t frame[TERN_POLL_ANSWER_LEN]);
 
 /* What an announce's signature is over: the label and the frame up to the signature. Writes it to
  * m and returns its length. */
@@ -171,6 +201,8 @@ bool tern_announce_read(struct tern_announce *a, const uint8_t *frame, size_t le
 bool tern_request_read(struct tern_request *q, const uint8_t *frame, size_t len);
 bool tern_solicit_read(struct tern_solicit *s, const uint8_t *frame, size_t len);
 bool tern_answer_read(struct tern_answer *a, const uint8_t *frame, size_t len);
+bool tern_poll_read(struct tern_poll *p, const uint8_t *frame, size_t len);
+bool tern_poll_answer_read(struct tern_poll_answer *a, const uint8_t *frame, size_t len);
 
 /* A listed route's metric as it goes on the air: whether its destination is a leaf, and the
  * metric; false for a retraction. And what is written for them, a metric of TERN_ROUTE_INF
@@ -286,6 +318,13 @@ struct tern_route_config {
      * it, and re-attaches to one; relays answer, take a leaf heard of elsewhere out of use, and
      * repair routes to leaves patiently. Off is the router as it was before, for measuring. */
     bool reattach;
+    /* Leaves that sleep (the specification's, tern/sleep.h): a leaf with a wake, in a promise's
+     * encoding from WAKE_MIN to WAKE_MAX, turns its radio off between polls to a keeper once it is
+     * done starting and has an anchor, and listens sleep_listen_s after each poll. 0 for a leaf
+     * that listens all the time, as every node did before. A relay ignores it: it never sleeps,
+     * and keeps any leaf that names it. */
+    uint16_t sleep_wake;
+    uint8_t sleep_listen_s;
 };
 
 /* The specification's parameters. */
@@ -314,6 +353,18 @@ struct tern_route_neighbour {
     tern_time promise; /* how soon it said it would announce again */
     bool has_key;
     uint8_t key[TERN_ADDRESS_LEN]; /* its routing key: what its announces are checked with */
+    /* If it is a leaf that sleeps: the keeper its last announce or poll named, and from its last
+     * poll its wake, its listen and when it came, whether this node, its keeper, has answered it,
+     * and how many frames the forwarder holds for it (tern_route_holding()). */
+    bool sleeps;
+    bool polled;   /* a poll has come since it began to sleep */
+    bool answered; /* and this node's answer to the last has gone */
+    uint8_t listen;
+    uint8_t held;
+    uint16_t wake;
+    uint16_t poll_id;
+    uint32_t keeper;
+    tern_time poll_at;
 };
 
 /* Which neighbour of a full table of `n` a node just heard takes the place of, `floor` being what
@@ -419,8 +470,9 @@ struct tern_route_bucket {
     tern_time at;
 };
 
-#define TERN_ROUTE_ASKS 16   /* requests waiting to go */
-#define TERN_ROUTE_ANSWERS 4 /* answers to solicits waiting to go */
+#define TERN_ROUTE_ASKS 16        /* requests waiting to go */
+#define TERN_ROUTE_ANSWERS 4      /* answers to solicits waiting to go */
+#define TERN_ROUTE_POLL_ANSWERS 4 /* and to sleeping leaves' polls */
 #define TERN_ROUTE_FORGOTTEN                                                                       \
     64 /* forgotten neighbours whose last numbers are kept: FORGOTTEN_KEPT */
 
@@ -600,6 +652,33 @@ struct tern_route {
     tern_time pair_since;    /* when the first of a pair went */
     bool loud;               /* its next announce goes at full power, with its key */
 
+    /* A relay's answers to its sleeping leaves' polls, waiting to go. */
+    struct tern_route_poll_waiting {
+        uint32_t leaf;
+        uint16_t id;
+        tern_time at;
+    } polls[TERN_ROUTE_POLL_ANSWERS];
+    size_t poll_count;
+    struct tern_airtime *budget; /* what pays for those answers, or NULL (tern_route_budget()) */
+
+    /* A leaf that sleeps: its keeper (0 for none), when its next poll is due and when it ends its
+     * listen, the poll waiting on its answer, polls in a row unanswered, frames its keeper said it
+     * holds and those since received, and when it last announced asleep. */
+    bool sleeping;
+    bool poll_now;     /* the next frame polled is a poll */
+    bool poll_out;     /* a poll handed over, not yet said to have gone */
+    bool poll_waiting; /* one has gone, its answer not yet come */
+    bool keeper_new;   /* a keeper taken, not yet named in an announce */
+    uint8_t poll_misses;
+    uint8_t poll_held;
+    uint8_t poll_got;
+    uint16_t poll_id;
+    uint32_t keeper;
+    uint32_t keeper_was; /* the last it had, while it has none */
+    tern_time poll_at;
+    tern_time listen_until;
+    tern_time slept_announce; /* -1 for none yet */
+
     bool out;           /* the last frame polled was an announce not yet reported sent */
     tern_time out_at;   /* when it was built */
     tern_time mac_wait; /* the longest its announces have lately waited to go */
@@ -657,6 +736,32 @@ bool tern_route_next(const struct tern_route *r, uint32_t destination, uint32_t 
                      uint16_t *metric);
 
 /* --- For the frames that follow routes (tern/forward.h) --- */
+
+/* Has the router pay for its answers to sleeping leaves' polls out of an airtime budget, the
+ * node's own part, as an acknowledgement is: never held. NULL, as it starts, for none. */
+void tern_route_budget(struct tern_route *r, struct tern_airtime *budget);
+
+/* What this node is to a neighbour as a keeper: not its keeper, or it does not sleep, or it is not
+ * kept at all (TERN_KEEP_NONE: frames go to it as to any node, by its route); its keeper with the
+ * leaf asleep (TERN_KEEP_ASLEEP: frames for it are held) or awake (TERN_KEEP_AWAKE), and in that
+ * case whether the answer to its poll has gone, from which held frames may be handed over; and
+ * `wake` its last wake code. TERN_KEEP_GONE for a neighbour this node no longer keeps at all. */
+enum tern_route_keep { TERN_KEEP_NONE, TERN_KEEP_ASLEEP, TERN_KEEP_AWAKE, TERN_KEEP_GONE };
+enum tern_route_keep tern_route_keeper_of(const struct tern_route *r, uint32_t leaf, tern_time now,
+                                          bool *answered, uint16_t *wake);
+
+/* The forwarder holds `held` frames for `leaf`: what the next answer to its poll says. */
+void tern_route_holding(struct tern_route *r, uint32_t leaf, uint8_t held);
+
+/* Whether this node is a leaf asleep: it may turn its radio off, and its keeper is `keeper`. */
+bool tern_route_sleeping(const struct tern_route *r, uint32_t *keeper);
+
+/* A sleeping leaf must listen until this time, from its last poll; INT64_MIN once it may sleep,
+ * and INT64_MAX for a node that does not sleep. When it next must be on is tern_route_due(). */
+tern_time tern_route_listen_until(const struct tern_route *r);
+
+/* A sleeping leaf received a frame for it, of those its keeper said it held. */
+void tern_route_held_got(struct tern_route *r, tern_time now);
 
 /* What a frame for one neighbour goes at; a frame for one this node does not keep goes as a frame
  * for every neighbour does. */

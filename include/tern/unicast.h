@@ -79,6 +79,9 @@ struct tern_unicast_tx {
     uint8_t prev_tag_key[TERN_AES128_KEY];
     uint32_t prev_at;
     uint32_t sent_from;
+    /* Seconds longer than COPY_TIME that prev's tag key is kept: the other end sleeps, and its
+     * acknowledgements come that much later (tern_session_sleep()). Not packed. */
+    uint32_t wait_extra;
 };
 
 /* One direction, as its receiver holds it. The window is every counter from max(0, high - 31) to
@@ -109,6 +112,9 @@ struct tern_unicast_rx {
     uint16_t at[32];
     uint8_t old_held; /* bit i: old_tag_keys[i], for epoch first_epoch - 2 + i, is held */
     uint8_t old_tag_keys[2][TERN_AES128_KEY];
+    /* Seconds longer than COPY_TIME that copies are answered: this node sleeps, and its sources'
+     * later tries come that much later (tern_session_sleep()). Not packed. */
+    uint16_t copy_extra;
 };
 
 struct tern_session {
@@ -123,6 +129,13 @@ struct tern_session {
  * erases the secret: the caller's copy is all zeros afterwards, as the specification requires. */
 void tern_session_init(struct tern_session *s, uint8_t secret[TERN_UNICAST_SECRET],
                        enum tern_role role);
+
+/* Leaves that sleep (tern/sleep.h): `own_wake` is this node's wake if it sleeps, and `peer_wake`
+ * the other end's, as its sleep content said, each in a promise's encoding, 0 for not sleeping. A
+ * sleeping node answers copies for COPY_TIME plus RETRIES + 1 of its wakes, and a source to a
+ * sleeping node keeps what checks its acknowledgements as much longer. Neither is packed: the
+ * caller says them again after a restart. */
+void tern_session_sleep(struct tern_session *s, uint16_t own_wake, uint16_t peer_wake);
 
 /* Erases every key a session holds. */
 void tern_session_wipe(struct tern_session *s);

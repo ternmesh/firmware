@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "tern/crypto.h"
+#include "tern/sleep.h"
 
 /* The router's counts (tern/route.h), in a build that keeps them. */
 #ifdef TERN_ROUTE_COUNTS
@@ -24,6 +25,7 @@
 #define FLAG_RELAY 0x01
 #define FLAG_STARTING 0x02
 #define FLAG_KEY 0x04
+#define FLAG_SLEEPS 0x08
 #define NS_PER_S 1000000000LL
 #define MILLION 1000000LL
 #define METRIC_MAX TERN_ROUTE_METRIC_MAX
@@ -57,8 +59,9 @@ static bool reserved(uint32_t id) { return id == 0 || id == TERN_ROUTE_EVERYONE;
 
 size_t tern_announce_write(const struct tern_announce *a, uint8_t frame[TERN_ROUTE_FRAME_MAX]) {
     size_t carried = a->carries_key ? TERN_ADDRESS_LEN : 0;
-    size_t len = TERN_ANNOUNCE_LEAST + carried + 5u * a->named_count + 8u * a->route_count;
-    uint8_t *p = frame + TERN_ANNOUNCE_HEAD + carried;
+    size_t keeper = a->sleeps ? TERN_ANNOUNCE_KEEPER : 0;
+    size_t len = TERN_ANNOUNCE_LEAST + keeper + carried + 5u * a->named_count + 8u * a->route_count;
+    uint8_t *p = frame + TERN_ANNOUNCE_HEAD + keeper + carried;
     if (len > TERN_ROUTE_FRAME_MAX || a->named_count > TERN_ANNOUNCE_NAMED_MAX ||
         a->route_count > TERN_ANNOUNCE_ROUTES_MAX) {
         return 0;
@@ -68,14 +71,17 @@ size_t tern_announce_write(const struct tern_announce *a, uint8_t frame[TERN_ROU
     put16(frame + 5, a->number);
     put16(frame + 7, a->seq);
     frame[9] = (uint8_t)((a->relay ? FLAG_RELAY : 0) | (a->starting ? FLAG_STARTING : 0) |
-                         (a->carries_key ? FLAG_KEY : 0));
+                         (a->carries_key ? FLAG_KEY : 0) | (a->sleeps ? FLAG_SLEEPS : 0));
     put16(frame + 10, a->promise);
     put16(frame + 12, a->round);
     frame[14] = (uint8_t)a->power;
     frame[15] = a->named_count;
     frame[16] = a->route_count;
+    if (keeper) {
+        put32(frame + TERN_ANNOUNCE_HEAD, a->keeper);
+    }
     if (carried) {
-        memcpy(frame + TERN_ANNOUNCE_HEAD, a->key, TERN_ADDRESS_LEN);
+        memcpy(frame + TERN_ANNOUNCE_HEAD + keeper, a->key, TERN_ADDRESS_LEN);
     }
     for (int i = 0; i < a->named_count; i++, p += 5) {
         put32(p, a->named[i].id);
@@ -101,12 +107,20 @@ size_t tern_announce_signed(const uint8_t *frame, size_t len,
 
 bool tern_announce_read(struct tern_announce *a, const uint8_t *frame, size_t len) {
     size_t carried = len > 9 && (frame[9] & FLAG_KEY) ? TERN_ADDRESS_LEN : 0;
-    const uint8_t *p = frame + TERN_ANNOUNCE_HEAD + carried;
+    size_t keeper = len > 9 && (frame[9] & FLAG_SLEEPS) ? TERN_ANNOUNCE_KEEPER : 0;
+    const uint8_t *p = frame + TERN_ANNOUNCE_HEAD + keeper + carried;
     if (len < TERN_ANNOUNCE_LEAST || len > TERN_ROUTE_FRAME_MAX || frame[0] != TERN_HDR_ANNOUNCE ||
-        len != TERN_ANNOUNCE_LEAST + carried + 5u * frame[15] + 8u * frame[16] ||
-        (frame[9] & ~(FLAG_RELAY | FLAG_STARTING | FLAG_KEY)) != 0 || reserved(get32(frame + 1))) {
+        len != TERN_ANNOUNCE_LEAST + keeper + carried + 5u * frame[15] + 8u * frame[16] ||
+        (frame[9] & ~(FLAG_RELAY | FLAG_STARTING | FLAG_KEY | FLAG_SLEEPS)) != 0 ||
+        reserved(get32(frame + 1))) {
         return false;
     }
+    /* A relay never sleeps, and a sleeping leaf names a keeper that can be one. */
+    if (keeper && ((frame[9] & FLAG_RELAY) || reserved(get32(frame + TERN_ANNOUNCE_HEAD)))) {
+        return false;
+    }
+    a->sleeps = keeper != 0;
+    a->keeper = keeper ? get32(frame + TERN_ANNOUNCE_HEAD) : 0;
     a->sender = get32(frame + 1);
     a->number = get16(frame + 5);
     a->seq = get16(frame + 7);
@@ -119,7 +133,7 @@ bool tern_announce_read(struct tern_announce *a, const uint8_t *frame, size_t le
     a->route_count = frame[16];
     a->carries_key = carried != 0;
     if (carried) {
-        memcpy(a->key, frame + TERN_ANNOUNCE_HEAD, TERN_ADDRESS_LEN);
+        memcpy(a->key, frame + TERN_ANNOUNCE_HEAD + keeper, TERN_ADDRESS_LEN);
     }
     for (int i = 0; i < a->named_count; i++, p += 5) {
         a->named[i].id = get32(p);
@@ -200,6 +214,50 @@ bool tern_answer_read(struct tern_answer *a, const uint8_t *frame, size_t len) {
     }
     *a = (struct tern_answer){get32(frame + 1), get32(frame + 5), get16(frame + 9), frame[11],
                               (int8_t)frame[12]};
+    return true;
+}
+
+size_t tern_poll_write(const struct tern_poll *q, uint8_t frame[TERN_POLL_LEN]) {
+    frame[0] = TERN_HDR_POLL;
+    put32(frame + 1, q->sender);
+    put32(frame + 5, q->keeper);
+    put16(frame + 9, q->id);
+    put16(frame + 11, q->wake);
+    frame[13] = q->listen;
+    frame[14] = (uint8_t)q->power;
+    return TERN_POLL_LEN;
+}
+
+bool tern_poll_read(struct tern_poll *q, const uint8_t *frame, size_t len) {
+    if (len != TERN_POLL_LEN || frame[0] != TERN_HDR_POLL || reserved(get32(frame + 1)) ||
+        reserved(get32(frame + 5)) || !tern_sleep_wake_ok(get16(frame + 11)) ||
+        frame[13] < TERN_SLEEP_LISTEN_MIN_S) {
+        return false;
+    }
+    *q = (struct tern_poll){get32(frame + 1),  get32(frame + 5), get16(frame + 9),
+                            get16(frame + 11), frame[13],        (int8_t)frame[14]};
+    return true;
+}
+
+size_t tern_poll_answer_write(const struct tern_poll_answer *a,
+                              uint8_t frame[TERN_POLL_ANSWER_LEN]) {
+    frame[0] = TERN_HDR_POLL_ANSWER;
+    put32(frame + 1, a->sender);
+    put32(frame + 5, a->leaf);
+    put16(frame + 9, a->id);
+    frame[11] = a->margin;
+    frame[12] = a->held;
+    frame[13] = (uint8_t)a->power;
+    return TERN_POLL_ANSWER_LEN;
+}
+
+bool tern_poll_answer_read(struct tern_poll_answer *a, const uint8_t *frame, size_t len) {
+    if (len != TERN_POLL_ANSWER_LEN || frame[0] != TERN_HDR_POLL_ANSWER ||
+        reserved(get32(frame + 1)) || reserved(get32(frame + 5))) {
+        return false;
+    }
+    *a = (struct tern_poll_answer){get32(frame + 1), get32(frame + 5), get16(frame + 9),
+                                   frame[11],        frame[12],        (int8_t)frame[13]};
     return true;
 }
 
@@ -521,6 +579,10 @@ static struct tern_route_entry *entry_by(struct tern_route_dest *d, uint8_t s) {
  * destination itself, or a relay once this node is done starting. */
 static bool usable(const struct tern_route *r, uint8_t s, uint32_t id) {
     const struct tern_route_neighbour *n = slot(r, s);
+    /* A leaf that sleeps is used by its keeper alone: the rest reach it through the keeper. */
+    if (n->sleeps && n->keeper != r->id) {
+        return false;
+    }
     return n->used && n->up && !n->out_of_use && (n->id == id || (n->relay && !r->starting));
 }
 
@@ -969,7 +1031,8 @@ static bool carries_key(const struct tern_route *r) {
 
 /* An announce's length before its neighbours and routes. */
 static size_t announce_fixed(const struct tern_route *r) {
-    return TERN_ANNOUNCE_LEAST + (carries_key(r) ? TERN_ADDRESS_LEN : 0);
+    return TERN_ANNOUNCE_LEAST + (carries_key(r) ? TERN_ADDRESS_LEN : 0) +
+           (r->sleeping ? TERN_ANNOUNCE_KEEPER : 0);
 }
 
 static uint8_t named_room(const struct tern_route *r) {
@@ -1050,6 +1113,13 @@ static uint64_t promise(const struct tern_route *r) {
     tern_time waiting = r->out ? r->now - r->out_at : 0;
     tern_time mac = waiting > r->mac_wait ? waiting : r->mac_wait;
     uint64_t s;
+    if (r->sleeping) {
+        /* Asleep, it announces before a poll at least every SLEEP_ANNOUNCE: its next is at most
+         * that far off, and the poll after it at most a wake later, and it listens after that. */
+        s = (uint64_t)TERN_SLEEP_ANNOUNCE_S + tern_sleep_wake_s(r->config.sleep_wake) +
+            r->config.sleep_listen_s + (uint64_t)((mac + NS_PER_S - 1) / NS_PER_S);
+        return s;
+    }
     for (int k = 0; k <= r->config.quiet_max; k++) {
         i = i * 2 > i_max(r) ? i_max(r) : i * 2;
         ns += i;
@@ -1069,6 +1139,8 @@ static size_t build(struct tern_route *r, uint8_t *frame, int8_t *power) {
         .promise = tern_route_promise_code(promise(r)),
         .power = r->loud ? r->config.full_dbm : power_all(r),
         .carries_key = carries_key(r),
+        .sleeps = r->sleeping,
+        .keeper = r->sleeping ? r->keeper : 0,
     };
     size_t room = named_room(r), start = r->nb_cap ? r->named_cursor % r->nb_cap : 0;
     size_t rotation = room ? (neighbours(r) + room - 1) / room : 0, len, owed = 0, changed = 0;
@@ -1179,8 +1251,22 @@ static size_t announce(struct tern_route *r, uint8_t *frame, int8_t *power) {
             return 0;
         }
     }
+    if (r->sleeping) {
+        /* Asleep, every announce raises its seq, since no request can reach it; and names its
+         * keeper before the rest. */
+        uint8_t k = slot_of(r, r->keeper);
+        r->seq++;
+        if (k) {
+            slot(r, k)->owed = true;
+        }
+    }
     len = build(r, frame, power);
     b->have -= airtime(r, len) * MILLION;
+    if (r->sleeping) {
+        r->slept_announce = r->now;
+        r->keeper_new = false;
+        r->announcing = false; /* one, before its poll */
+    }
     COUNT(r->counts.announces++);
     COUNT(r->counts.burst += r->burst > 0);
     COUNT(r->counts.at_max += r->interval >= i_max(r));
@@ -1586,12 +1672,238 @@ static void on_answer(struct tern_route *r, const struct tern_answer *a, int16_t
     heard_from(r, s, a->power, snr_q);
 }
 
+/* --- Leaves that sleep --- */
+
+static bool sleeper(const struct tern_route *r) {
+    return !r->config.relay && r->config.sleep_wake != 0 &&
+           tern_sleep_wake_ok(r->config.sleep_wake);
+}
+
+static uint8_t listen_s(const struct tern_route *r) {
+    return r->config.sleep_listen_s < TERN_SLEEP_LISTEN_MIN_S ? TERN_SLEEP_LISTEN_MIN_S
+                                                              : r->config.sleep_listen_s;
+}
+
+/* A poll from a neighbour this node keeps: a sample for its floor, a sign of life, the keeper it
+ * names and when it listens; and from a relay it names, an answer once, after a random wait. */
+static void on_poll(struct tern_route *r, const struct tern_poll *q, int16_t snr_q) {
+    uint8_t s = q->sender == r->id ? 0 : slot_of(r, q->sender);
+    struct tern_route_neighbour *n;
+    bool kept_before;
+    if (!s) {
+        return;
+    }
+    heard_from(r, s, q->power, snr_q);
+    n = slot(r, s);
+    kept_before = n->sleeps && n->keeper == r->id;
+    n->sleeps = true;
+    n->keeper = q->keeper;
+    if (kept_before != (q->keeper == r->id)) {
+        reselect_through(r, s);
+    }
+    if (q->keeper != r->id || !r->config.relay) {
+        n->polled = false;
+        return;
+    }
+    if (n->polled && n->poll_id == q->id) {
+        return; /* answered once */
+    }
+    n->polled = true;
+    n->answered = false;
+    n->poll_id = q->id;
+    n->poll_at = r->now;
+    n->wake = q->wake;
+    n->listen = q->listen;
+    for (size_t k = 0; k < r->poll_count; k++) {
+        if (r->polls[k].leaf == q->sender) {
+            r->polls[k] = r->polls[--r->poll_count]; /* the leaf has polled again since */
+            break;
+        }
+    }
+    if (r->poll_count == TERN_ROUTE_POLL_ANSWERS) {
+        return;
+    }
+    r->polls[r->poll_count++] = (struct tern_route_poll_waiting){
+        .leaf = q->sender,
+        .id = q->id,
+        .at = r->now +
+              (tern_time)rand_below(
+                  r, (uint64_t)r->config.jitter * (uint64_t)airtime(r, TERN_POLL_ANSWER_LEN) + 1),
+    };
+}
+
+/* Sends the first answer to a poll whose time has come. It is paid for as an acknowledgement is,
+ * and never held. */
+static size_t send_poll_answer(struct tern_route *r, uint8_t *frame, int8_t *power) {
+    size_t k = 0;
+    uint8_t s;
+    for (; k < r->poll_count && r->polls[k].at > r->now; k++) {
+    }
+    if (k == r->poll_count) {
+        return 0;
+    }
+    struct tern_route_poll_waiting w = r->polls[k];
+    r->polls[k] = r->polls[--r->poll_count];
+    s = slot_of(r, w.leaf);
+    if (!s) {
+        return 0;
+    }
+    struct tern_route_neighbour *n = slot(r, s);
+    struct tern_poll_answer a = {r->id,   w.leaf,
+                                 w.id,    tern_route_margin(r->config.full_dbm, n->floor),
+                                 n->held, power_to(r, w.leaf)};
+    n->answered = true;
+    if (r->budget) {
+        tern_airtime_charge(r->budget, r->now, TERN_HDR_POLL_ANSWER, true,
+                            airtime(r, TERN_POLL_ANSWER_LEN));
+    }
+    r->out = false;
+    *power = a.power;
+    return tern_poll_answer_write(&a, frame);
+}
+
+/* An answer to a poll: a sample for its sender, and for the leaf whose keeper sent it, the margin
+ * its keeper gives it and how many frames it holds. */
+static void on_poll_answer(struct tern_route *r, const struct tern_poll_answer *a, int16_t snr_q) {
+    uint8_t s = a->sender == r->id ? 0 : slot_of(r, a->sender);
+    if (!s) {
+        return;
+    }
+    heard_from(r, s, a->power, snr_q);
+    if (a->leaf != r->id || !r->sleeping || a->sender != r->keeper || !r->poll_waiting ||
+        a->id != r->poll_id) {
+        return;
+    }
+    slot(r, s)->theirs = a->margin;
+    slot(r, s)->named = slot(r, s)->number;
+    slot(r, s)->owed = true;
+    r->poll_waiting = false;
+    r->poll_misses = 0;
+    r->poll_held = a->held;
+    r->poll_got = 0;
+    if (a->held == 0) {
+        r->listen_until = r->now; /* nothing to wait for */
+    }
+}
+
+/* A leaf that may sleep gives up its keeper: it listens again, and asks the relays around it. */
+static void lose_keeper(struct tern_route *r) {
+    uint8_t k = slot_of(r, r->keeper);
+    r->sleeping = false;
+    r->keeper_was = r->keeper;
+    r->keeper = 0;
+    r->poll_now = false;
+    r->poll_waiting = false;
+    r->poll_out = false;
+    r->listen_until = INT64_MIN;
+    if (k && soliciting(r)) {
+        take_out_of_use(r, k);
+        want_solicit(r, r->keeper_was, r->keeper_was);
+    }
+    /* Its next announce says it no longer sleeps. */
+    r->interval = r->config.i_min;
+    trickle_begin(r);
+}
+
+/* What a leaf that may sleep does at r->now: begins to sleep once it has a keeper; gives one up
+ * that has gone; and asleep, polls when its poll is due, announcing first when that is due. */
+static void sleep_step(struct tern_route *r) {
+    uint8_t k;
+    if (!sleeper(r)) {
+        return;
+    }
+    if (!r->sleeping) {
+        uint8_t a;
+        bool sparse, asks;
+        if (r->starting || r->solicited >= 0 || r->solicit_out) {
+            return;
+        }
+        a = anchor_slot(r, &sparse, &asks);
+        if (!a) {
+            return;
+        }
+        if (r->keeper_was == 0 && r->slept_announce < 0) {
+            /* Its polls are numbered from a random place, drawn only by a leaf that sleeps, so
+             * that every other node's random times are as they were. */
+            r->poll_id = (uint16_t)rand_below(r, 0x10000);
+        }
+        r->sleeping = true;
+        r->keeper = slot(r, a)->id;
+        if (r->keeper_was && r->keeper_was != r->keeper) {
+            /* A new keeper: routes to it are drawn there by a newer seq, as a leaf that moves. */
+            r->seq++;
+            COUNT(r->counts.reattached++);
+        }
+        r->keeper_new = true;
+        r->poll_misses = 0;
+        r->poll_at = r->now;
+        r->listen_until = INT64_MIN;
+        r->solicit_wanted = false;
+        return;
+    }
+    k = slot_of(r, r->keeper);
+    if (!k || slot(r, k)->out_of_use) {
+        lose_keeper(r);
+        return;
+    }
+    if (r->poll_waiting && r->now >= r->listen_until) {
+        /* No answer in its listen: tried again after POLL_RETRY, or the keeper is given up. */
+        r->poll_waiting = false;
+        if (++r->poll_misses >= TERN_SLEEP_POLL_TRIES) {
+            lose_keeper(r);
+            return;
+        }
+        tern_time again = r->listen_until - TERN_S(listen_s(r)) + TERN_S(TERN_SLEEP_POLL_RETRY_S);
+        r->poll_at = again > r->now ? again : r->now;
+    } else if (!r->poll_waiting && r->listen_until != INT64_MIN && r->now >= r->listen_until) {
+        /* Its listen is over: frames still held, and some came, it asks again at once. */
+        if (r->poll_held > r->poll_got && r->poll_got > 0) {
+            r->poll_at = r->now;
+        }
+        r->listen_until = INT64_MIN;
+    }
+    if (!r->poll_waiting && !r->poll_out && !r->poll_now && r->now >= r->poll_at) {
+        if (r->keeper_new || r->slept_announce < 0 ||
+            r->now - r->slept_announce >= TERN_S(TERN_SLEEP_ANNOUNCE_S)) {
+            r->announcing = true;
+            r->burst = 0;
+            r->announce_at = r->now;
+        }
+        r->poll_now = true;
+    }
+}
+
+/* Sends the poll due, out of the requests' share of the cap; one it cannot pay for waits. */
+static size_t send_poll(struct tern_route *r, uint8_t *frame, int8_t *power) {
+    struct tern_route_bucket *b = &r->requests;
+    tern_time cost = airtime(r, TERN_POLL_LEN) * MILLION;
+    struct tern_poll q = {r->id,
+                          r->keeper,
+                          (uint16_t)(r->poll_id + 1),
+                          r->config.sleep_wake,
+                          listen_s(r),
+                          power_to(r, r->keeper)};
+    refill(b, r->now);
+    if (b->have < cost) {
+        r->poll_now = false;
+        r->poll_at = r->now + (cost - b->have) / b->ppm + 1;
+        return 0;
+    }
+    b->have -= cost;
+    r->poll_id++;
+    r->poll_now = false;
+    r->poll_out = true;
+    r->out = false;
+    *power = q.power;
+    return tern_poll_write(&q, frame);
+}
+
 /* --- Receiving --- */
 
 static void on_announce(struct tern_route *r, const struct tern_announce *a, int16_t snr_q) {
     uint8_t s = slot_of(r, a->sender);
     struct tern_route_neighbour *n;
-    bool fresh = s == 0, was_relay, was_up, was_out, news, named = false;
+    bool fresh = s == 0, was_relay, was_up, was_out, news, named = false, keep_changed = false;
     if (a->sender == r->id) {
         return;
     }
@@ -1640,6 +1952,19 @@ static void on_announce(struct tern_route *r, const struct tern_announce *a, int
     }
     n->promise = tern_route_promise_time(a->promise);
     n->floor = tern_route_floor(fresh, n->floor, a->power, snr_q, r->config.lora.sf);
+    {
+        /* Whether it sleeps, and with which keeper, decides who may use it. */
+        bool kept_before = n->sleeps && n->keeper == r->id;
+        bool sleeps_before = n->sleeps;
+        n->sleeps = a->sleeps;
+        n->keeper = a->sleeps ? a->keeper : 0;
+        if (!a->sleeps) {
+            n->polled = false;
+            n->answered = false;
+        }
+        keep_changed =
+            sleeps_before != n->sleeps || kept_before != (n->sleeps && n->keeper == r->id);
+    }
     for (int k = 0; k < a->named_count; k++) {
         if (a->named[k].id == r->id) {
             n->theirs = a->named[k].margin;
@@ -1655,8 +1980,9 @@ static void on_announce(struct tern_route *r, const struct tern_announce *a, int
     was_out = n->out_of_use;
     n->out_of_use = false;
     n->up = tern_route_link_up(was_up, 16 * (int32_t)r->config.full_dbm - n->floor, n->theirs);
-    if (n->up != was_up || (news && !fresh) || was_out) {
-        r->changed |= n->up != was_up || (news && !fresh) || (was_out && r->config.relay);
+    if (n->up != was_up || (news && !fresh) || was_out || keep_changed) {
+        r->changed |=
+            n->up != was_up || (news && !fresh) || (was_out && r->config.relay) || keep_changed;
         reselect_through(r, s); /* routes through it now usable, or not */
     }
     update(r, a->sender, a->seq, 0, s, !a->relay);
@@ -1795,6 +2121,16 @@ void tern_route_heard(struct tern_route *r, tern_time now, const uint8_t *frame,
         if (tern_answer_read(&a, frame, len)) {
             on_answer(r, &a, snr_q);
         }
+    } else if (len > 0 && frame[0] == TERN_HDR_POLL) {
+        struct tern_poll q;
+        if (tern_poll_read(&q, frame, len)) {
+            on_poll(r, &q, snr_q);
+        }
+    } else if (len > 0 && frame[0] == TERN_HDR_POLL_ANSWER) {
+        struct tern_poll_answer a;
+        if (tern_poll_answer_read(&a, frame, len)) {
+            on_poll_answer(r, &a, snr_q);
+        }
     }
 }
 
@@ -1826,6 +2162,8 @@ void tern_route_init(struct tern_route *r, const struct tern_route_config *confi
         .solicited = -1,
         .solicit_last = -1,
         .after = TERN_ROUTE_EVERYONE,
+        .listen_until = INT64_MIN,
+        .slept_announce = -1,
         .rng = seed ? seed : 1,
         .now = now,
     };
@@ -1855,11 +2193,22 @@ void tern_route_init(struct tern_route *r, const struct tern_route_config *confi
 
 tern_time tern_route_due(const struct tern_route *r) {
     tern_time t = r->fired ? r->interval_end : r->fire_at;
+    if (r->sleeping) {
+        /* Asleep, Trickle and solicits wait: what is due is its poll, and the end of its listen. */
+        t = r->poll_waiting || r->poll_now || r->poll_out ? INT64_MAX : r->poll_at;
+        t = r->poll_now ? r->now : t;
+        t = r->listen_until != INT64_MIN && r->listen_until < t ? r->listen_until : t;
+    } else if (sleeper(r) && !r->starting) {
+        t = r->now + TERN_S(1) < t ? r->now + TERN_S(1) : t; /* looks for a keeper */
+    }
+    for (size_t k = 0; k < r->poll_count; k++) {
+        t = r->polls[k].at < t ? r->polls[k].at : t;
+    }
     t = r->house_at < t ? r->house_at : t;
     t = r->announcing && r->announce_at < t ? r->announce_at : t;
     t = r->ask_at >= 0 && r->ask_at < t ? r->ask_at : t;
     t = r->request_at >= 0 && r->request_at < t ? r->request_at : t;
-    t = soliciting(r) && r->attach_at >= 0 && r->attach_at < t ? r->attach_at : t;
+    t = soliciting(r) && !r->sleeping && r->attach_at >= 0 && r->attach_at < t ? r->attach_at : t;
     for (size_t k = 0; k < r->answer_count; k++) {
         t = r->answers[k].at < t ? r->answers[k].at : t;
     }
@@ -1885,7 +2234,8 @@ size_t tern_route_poll(struct tern_route *r, tern_time now, uint8_t frame[TERN_R
     if (r->request_at >= 0 && now >= r->request_at) {
         ask_again(r);
     }
-    if (!r->fired && now >= r->fire_at) {
+    sleep_step(r);
+    if (!r->sleeping && !r->fired && now >= r->fire_at) {
         r->fired = true;
         COUNT(r->counts.fires++);
         /* Changed routes waiting are an inconsistency of this node's own: never suppressed. */
@@ -1911,7 +2261,7 @@ size_t tern_route_poll(struct tern_route *r, tern_time now, uint8_t frame[TERN_R
             r->quiet++;
         }
     }
-    if (r->fired && now >= r->interval_end) {
+    if (!r->sleeping && r->fired && now >= r->interval_end) {
         /* With changes of its own still waiting it stays where it is rather than doubling, so
          * they go within the next interval. */
         if (r->urgent_count == 0 && !r->asked && !r->starting) {
@@ -1925,10 +2275,18 @@ size_t tern_route_poll(struct tern_route *r, tern_time now, uint8_t frame[TERN_R
         r->solicit_out = false;
         r->solicit_wanted = true;
     }
-    if (r->attach_at >= 0 && now >= r->attach_at && soliciting(r)) {
+    if (r->poll_out) {
+        /* A poll handed over and never said to have gone: it did not, and goes again. */
+        r->poll_out = false;
+        r->poll_now = true;
+    }
+    if (r->attach_at >= 0 && now >= r->attach_at && soliciting(r) && !r->sleeping) {
         attach(r);
     }
-    len = send_answer(r, frame, power_dbm);
+    len = send_poll_answer(r, frame, power_dbm);
+    if (len == 0) {
+        len = send_answer(r, frame, power_dbm);
+    }
     if (len == 0 && r->solicit_now) {
         len = send_solicit(r, frame, power_dbm);
     }
@@ -1938,10 +2296,24 @@ size_t tern_route_poll(struct tern_route *r, tern_time now, uint8_t frame[TERN_R
     if (len == 0 && r->announcing && now >= r->announce_at) {
         len = announce(r, frame, power_dbm);
     }
+    /* Asleep, its poll goes after the announce due before it, or in its place if the cap cannot
+     * pay for the announce yet. */
+    if (len == 0 && r->sleeping && r->poll_now) {
+        r->announcing = false;
+        len = send_poll(r, frame, power_dbm);
+    }
     return len;
 }
 
 void tern_route_sent(struct tern_route *r, tern_time now) {
+    if (r->poll_out) {
+        r->poll_out = false;
+        r->poll_waiting = true;
+        r->poll_held = 0;
+        r->poll_got = 0;
+        r->listen_until = now + TERN_S(listen_s(r));
+        r->poll_at = now + TERN_S(tern_sleep_wake_s(r->config.sleep_wake));
+    }
     if (r->solicit_out) {
         r->solicit_out = false;
         r->solicited = now;
@@ -2007,6 +2379,15 @@ bool tern_route_next(const struct tern_route *r, uint32_t destination, uint32_t 
                      uint16_t *metric) {
     struct tern_route_dest *d = dest_of(r, destination);
     const struct tern_route_entry *e = d ? entry_by(d, d->sel) : NULL;
+    if (r->sleeping) {
+        /* Asleep, a leaf sends everything of its own to its keeper. */
+        *next = r->keeper;
+        *metric = e && usable(r, d->sel, d->id)
+                      ? total(e->metric, r->cost)
+                      : tern_route_default_metric(
+                            r->config.default_hops ? r->config.default_hops : 1, r->cost);
+        return destination != r->keeper || slot_of(r, r->keeper) != 0;
+    }
     if (!e || !usable(r, d->sel, d->id)) {
         uint8_t s = nearest_relay(r, NULL, 0);
         if (!s) {
@@ -2108,10 +2489,73 @@ void tern_route_passed(struct tern_route *r, tern_time now, uint32_t neighbour, 
 void tern_route_want(struct tern_route *r, tern_time now, uint32_t destination) {
     struct tern_route_dest *d;
     r->now = now;
-    if (destination == r->id || !(d = dest_make(r, destination)) || d->sel) {
-        return;
+    if (destination == r->id || r->sleeping || !(d = dest_make(r, destination)) || d->sel) {
+        return; /* asleep, everything goes to its keeper, which asks if it must */
     }
     if (!asked_within(r, d)) {
         ask(r, d);
+    }
+}
+
+/* --- Leaves that sleep, for the forwarder and the node --- */
+
+void tern_route_budget(struct tern_route *r, struct tern_airtime *budget) { r->budget = budget; }
+
+enum tern_route_keep tern_route_keeper_of(const struct tern_route *r, uint32_t leaf, tern_time now,
+                                          bool *answered, uint16_t *wake) {
+    uint8_t s = slot_of(r, leaf);
+    const struct tern_route_neighbour *n;
+    *answered = false;
+    *wake = 0;
+    if (!s) {
+        return TERN_KEEP_GONE;
+    }
+    n = slot(r, s);
+    if (!r->config.relay || !n->sleeps || n->keeper != r->id || n->out_of_use) {
+        return TERN_KEEP_NONE;
+    }
+    if (n->polled) {
+        *wake = n->wake;
+    } else {
+        tern_time p =
+            n->promise >= TERN_ROUTE_NO_PROMISE ? TERN_S(TERN_SLEEP_WAKE_MAX_S) : n->promise;
+        *wake = tern_route_promise_code((uint64_t)(p / TERN_S(1)));
+    }
+    if (n->polled && !tern_sleep_holds(now - n->poll_at, n->listen)) {
+        *answered = n->answered;
+        return TERN_KEEP_AWAKE;
+    }
+    return TERN_KEEP_ASLEEP;
+}
+
+void tern_route_holding(struct tern_route *r, uint32_t leaf, uint8_t held) {
+    uint8_t s = slot_of(r, leaf);
+    if (s) {
+        slot(r, s)->held = held;
+    }
+}
+
+bool tern_route_sleeping(const struct tern_route *r, uint32_t *keeper) {
+    if (keeper) {
+        *keeper = r->keeper;
+    }
+    return r->sleeping;
+}
+
+tern_time tern_route_listen_until(const struct tern_route *r) {
+    if (!r->sleeping) {
+        return INT64_MAX;
+    }
+    return r->poll_out || r->poll_now ? INT64_MAX : r->listen_until;
+}
+
+void tern_route_held_got(struct tern_route *r, tern_time now) {
+    r->now = now;
+    if (!r->sleeping || r->poll_got == UINT8_MAX) {
+        return;
+    }
+    r->poll_got++;
+    if (r->poll_held && r->poll_got >= r->poll_held) {
+        r->listen_until = now;
     }
 }
