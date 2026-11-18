@@ -249,14 +249,14 @@ static void a_group_message_names_the_group_and_its_writer(void) {
     snprintf(n.message.writer, sizeof n.message.writer, "Bob");
     draw(&n, UI_MESSAGES, "message-group");
     CHECK_ROW(1, "New in Hikers  2m ago");
-    CHECK_ROW(2, "From Bob");
+    CHECK_ROW(2, "Claims Bob"); /* a claim: any member can write any routing id */
     CHECK_ROW(3, "On the ridge by six.");
     CHECK_ROW(4, "Bring the long");
     n.message.unread = false;
     snprintf(n.message.writer, sizeof n.message.writer, "node 1A2B3C4D");
     draw(&n, UI_MESSAGES, "x");
     CHECK_ROW(1, "In Hikers      2m ago");
-    CHECK_ROW(2, "From node 1A2B3C4D");
+    CHECK_ROW(2, "Claims node 1A2B3C4D");
     draw(&n, UI_HOME, "home-group");
     CHECK_ROW(6, "Last in Hikers");
 

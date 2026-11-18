@@ -47,16 +47,23 @@ struct tern_group_writer {
     uint32_t from;  /* its routing id, or 0 for a place with no writer in it */
     uint32_t top;   /* H: the highest count accepted */
     uint32_t had;   /* bit k is set if the count top - k has been accepted; bit 0 always is */
-    uint32_t heard; /* the group's `heard` when a frame was last accepted from it */
+    uint32_t heard; /* the group's `heard` when a frame was last accepted from it, in the low 31
+                     * bits; TERN_GROUP_TWICE if more than one frame has been accepted from it */
 };
+#define TERN_GROUP_TWICE 0x80000000u
 
 struct tern_group {
     uint8_t secret[TERN_GROUP_SECRET]; /* G: kept, since a member hands it on in an invite */
     uint8_t key[TERN_AES128_KEY];      /* GK */
     struct tern_aes128 tag_key;        /* GT, expanded */
     struct tern_group_writer writers[TERN_GROUP_WRITERS];
-    uint32_t heard; /* frames accepted: which writer was heard longest ago, when one must go */
+    uint32_t heard; /* frames accepted, in 31 bits: which writer was heard longest ago */
 };
+
+/* When more than TERN_GROUP_WRITERS have written, the writer forgotten for a new one is, of those
+ * heard from once, the one heard longest ago, and only if every one was heard from more than once,
+ * the one heard longest ago of all: so a burst of made-up routing ids, each written under once,
+ * forgets at most one writer that has written more. */
 
 /* Takes a group from its secret, with no writers held. */
 void tern_group_init(struct tern_group *g, const uint8_t secret[TERN_GROUP_SECRET]);
@@ -128,6 +135,15 @@ size_t tern_group_keep(const struct tern_group *g, uint8_t out[TERN_GROUP_KEPT])
  * or past TERN_GROUP_KEPT, are passed over, as is a writer with a reserved id or one named twice.
  */
 void tern_group_restore(struct tern_group *g, const uint8_t *kept, size_t len);
+
+/* --- Nonces --- */
+
+/* Whether a nonce the caller drew may seal a frame, given the one it drew for the frame before
+ * (NULL if none since the node started): not the same eight bytes, and not eight equal bytes.
+ * Either is far likelier from a generator that has failed than from one that works, and two
+ * frames sealed under one nonce and key give away what both say. A caller that draws a bad one
+ * draws again, and if that is bad too sends nothing. */
+bool tern_group_nonce_ok(const uint8_t *last, const uint8_t nonce[TERN_GROUP_NONCE]);
 
 /* --- Invites: the plaintext of a unicast message for the node (tern_unicast_seal_node()) --- */
 

@@ -268,7 +268,7 @@ static void messages(const struct ui_node *n, struct scene *s) {
         /* The group on the line above; who wrote to it on its own. */
         char writer[UI_NAME + 1];
         name(writer, m->writer);
-        scene_add(s, SCENE_SMALL, TONE_DIM, "From %s", writer);
+        scene_add(s, SCENE_SMALL, TONE_DIM, "Claims %s", writer); /* any member can say so */
     }
     size_t len = m->text_len < TERN_COMPANION_TEXT_MAX ? m->text_len : TERN_COMPANION_TEXT_MAX;
     if (len >= sizeof s->text) {

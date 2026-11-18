@@ -1127,6 +1127,33 @@ static void poll_contact(void) {
     }
 }
 
+/* The nonce drawn for the board's last group frame, so that the next is not the same. */
+static uint8_t group_nonce_last[TERN_GROUP_NONCE];
+static bool group_nonce_drawn;
+/* The generator gave two bad nonces running: no more group frames until a restart. */
+static bool group_nonce_failed;
+
+/* Draws a nonce for a group frame (draft/groups.md, Sending, rule 1): one that is not the last
+ * one drawn, nor eight equal bytes, either of which says the generator has failed. A bad one is
+ * drawn again once; if that is bad too, the board writes no group frame until it restarts, which
+ * seeds the generator again. */
+static bool group_nonce(uint8_t nonce[TERN_GROUP_NONCE]) {
+    const uint8_t *last = group_nonce_drawn ? group_nonce_last : NULL;
+    for (int tries = 0; tries < 2 && !group_nonce_failed; tries++) {
+        if (board_random(NULL, nonce, TERN_GROUP_NONCE) && tern_group_nonce_ok(last, nonce)) {
+            memcpy(group_nonce_last, nonce, TERN_GROUP_NONCE);
+            group_nonce_drawn = true;
+            return true;
+        }
+    }
+    if (!group_nonce_failed) {
+        printf("the random number generator gave a bad nonce twice: no group frames until a "
+               "restart\n");
+    }
+    group_nonce_failed = true;
+    return false;
+}
+
 /* Hands the oldest message waiting to the forwarder, or says why it waits. A message to a node
  * this board has no session with starts first contact with it, once no handshake is under way. */
 /* Seals a group message under a nonce drawn for it and hands it to the flooder, which sends it
@@ -1151,7 +1178,7 @@ static void send_group(struct link_message *x) {
     size_t len = x->text_len + TERN_GROUP_OVERHEAD;
     /* A count is spent whether or not the frame goes: the next is higher, which is all it must
      * be. */
-    if (!board_random(NULL, nonce, sizeof nonce) || !link_group_count(&companion, &count) ||
+    if (!group_nonce(nonce) || !link_group_count(&companion, &count) ||
         tern_group_seal(g, nonce, route.id, count, x->text, x->text_len, frame, sizeof frame) !=
             TERN_OK ||
         !tern_flood_send(&flood, board_now(), frame, len)) {
@@ -1179,7 +1206,7 @@ static void send_group_position(const struct link_position_out *out) {
     if (place < 0 || !tern_flood_own_room(&flood, board_now(), len)) {
         return; /* asked again on the next poll: the allowance fills as time goes */
     }
-    if (!board_random(NULL, nonce, sizeof nonce) || !link_group_count(&companion, &count) ||
+    if (!group_nonce(nonce) || !link_group_count(&companion, &count) ||
         tern_group_seal_node(&companion.groups[out->place].g, nonce, route.id, count,
                              out->plaintext, out->len, frame, sizeof frame) != TERN_OK ||
         !tern_flood_send(&flood, board_now(), frame, len)) {
@@ -3324,6 +3351,7 @@ static void fill_ui(struct ui_node *u) {
         m->group = x->kind == LINK_KIND_GROUP;
         with_whom(x, m->who);
         if (m->group && m->received) {
+            /* What the writer claimed, which the screen says (draft/groups.md, Receiving). */
             node_named(x->from, "node ", m->writer);
         }
         m->aged = clock != 0 && x->time != 0 && clock >= x->time;
