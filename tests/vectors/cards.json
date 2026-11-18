@@ -1,5 +1,5 @@
 {
-  "description": "Presence cards, draft 0 (draft/cards.md). For each accepted case, a node given seed, number, name, hops and power MUST produce frame, whose signature is over signed; and a node whose address is self MUST accept frame and read address, number and name from it. Each rejected frame MUST be discarded by a node whose address is self, among them two whose address first-contact.json rejects. Given each of deliveries in order, holding no cards, a node whose address is self MUST keep exactly those whose keep is true. A card's hops and power are not signed: relayed_still_valid is good with them changed, and MUST be accepted.",
+  "description": "Presence cards, draft 0 (draft/cards.md). For each accepted case, a node given seed, number, name, hops and power MUST produce frame, whose signature is over signed; and a node whose address is self MUST accept frame and read address, number and name from it. Each rejected frame MUST be discarded by a node whose address is self, among them two whose address first-contact.json rejects. Given each of deliveries in order, holding no cards, a node whose address is self MUST keep exactly those whose keep is true. A card's hops and power are not signed: relayed_still_valid is good with them changed, and MUST be accepted. For each of verifications, Verify(address, message, signature), as draft/cards.md's Notation has it, MUST be valid: strict, and without the cofactor.",
   "generator": "vectors/tools/cards.py",
   "hdr": 104,
   "label": "tern v0 card",
@@ -131,6 +131,64 @@
     {
       "frame": "680214d6d15fabbc42ce56174a4363e757437a4a7baf421b690caa24676f3f4f17c9960000000141646198e25f6c8dd82d3a0902462fbcd0477b855d7e67432467c57333c17163f3f9bf957196a4896c5bc276844c0f3133777f3eefc6349d5677fc71fbf2ea5ac2f200",
       "keep": false
+    }
+  ],
+  "verifications": [
+    {
+      "name": "valid",
+      "note": "an ordinary signature",
+      "address": "d6d15fabbc42ce56174a4363e757437a4a7baf421b690caa24676f3f4f17c996",
+      "message": "7465726e207630206361726468d6d15fabbc42ce56174a4363e757437a4a7baf421b690caa24676f3f4f17c99600000009416461",
+      "signature": "ce3da737d44887a0d12a06e21acd73a4589b2523be39aa6c7fa591637118ae94e2cde15dbc697a9aca6e131625abc37e1ef09b25dc35542933fd73c7bcc26c09",
+      "valid": true
+    },
+    {
+      "name": "s-not-reduced",
+      "note": "S + L in place of S: [S + L]B is [S]B, so a verifier that does not check that S is below L takes it",
+      "address": "d6d15fabbc42ce56174a4363e757437a4a7baf421b690caa24676f3f4f17c996",
+      "message": "7465726e207630206361726468d6d15fabbc42ce56174a4363e757437a4a7baf421b690caa24676f3f4f17c99600000009416461",
+      "signature": "ce3da737d44887a0d12a06e21acd73a4589b2523be39aa6c7fa591637118ae94cfa1d7bad6cc8cf2a00b0bb903a5a2931ef09b25dc35542933fd73c7bcc26c19",
+      "valid": false
+    },
+    {
+      "name": "r-not-canonical",
+      "note": "R the neutral point, its y written as p + 1; S = k s, so [S]B - [k]A is the neutral point, which a verifier that decodes R and compares points takes",
+      "address": "d6d15fabbc42ce56174a4363e757437a4a7baf421b690caa24676f3f4f17c996",
+      "message": "7465726e207630206361726468d6d15fabbc42ce56174a4363e757437a4a7baf421b690caa24676f3f4f17c99600000009416461",
+      "signature": "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f0f2e4da2f44c506909cd8bac7d73cdc75446ac444af1dc5f520ea8b4ae45540c",
+      "valid": false
+    },
+    {
+      "name": "r-mixed-order",
+      "note": "R with a point of order 8 added, S as for R without it: a verifier that multiplies by the cofactor takes it",
+      "address": "d6d15fabbc42ce56174a4363e757437a4a7baf421b690caa24676f3f4f17c996",
+      "message": "7465726e207630206361726468d6d15fabbc42ce56174a4363e757437a4a7baf421b690caa24676f3f4f17c99600000009416461",
+      "signature": "6b371ebc70355016aaedca8764581fe30746b9560ba44a97d59a20a38939128d9bad42d898447fc3c56ffc36c41a92e86089c6c69c98626a3457d832f1abbc02",
+      "valid": false
+    },
+    {
+      "name": "address-small-order",
+      "note": "an address of order 8, and a message whose k is a multiple of 8: R = [S]B, made with no key, and a verifier that does not check the address takes it",
+      "address": "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05",
+      "message": "7465726e207630206361726468d6d15fabbc42ce56174a4363e757437a4a7baf421b690caa24676f3f4f17c9960000000941646105",
+      "signature": "ce3da737d44887a0d12a06e21acd73a4589b2523be39aa6c7fa591637118ae94c24f5c2c56edf2fc7da5b270ebc7c5508dc66bd2e9b005eae6a70f2c5030c208",
+      "valid": false
+    },
+    {
+      "name": "address-mixed-order",
+      "note": "the address with a point of order 8 added, signed by its key with a k that is a multiple of 8: a verifier that checks only for small order takes it",
+      "address": "a38f33bce1db848db94f41dfe0805a1d7babadacc49ca08425c6c978efa92834",
+      "message": "7465726e207630206361726468d6d15fabbc42ce56174a4363e757437a4a7baf421b690caa24676f3f4f17c996000000094164610c",
+      "signature": "ce3da737d44887a0d12a06e21acd73a4589b2523be39aa6c7fa591637118ae94c1985e0cc6d24eae6971eafa4c360f71631056e11bf76dd6700255417ceb020a",
+      "valid": false
+    },
+    {
+      "name": "another-message",
+      "note": "the ordinary signature, on the message with its last byte changed",
+      "address": "d6d15fabbc42ce56174a4363e757437a4a7baf421b690caa24676f3f4f17c996",
+      "message": "7465726e207630206361726468d6d15fabbc42ce56174a4363e757437a4a7baf421b690caa24676f3f4f17c99600000009416460",
+      "signature": "ce3da737d44887a0d12a06e21acd73a4589b2523be39aa6c7fa591637118ae94e2cde15dbc697a9aca6e131625abc37e1ef09b25dc35542933fd73c7bcc26c09",
+      "valid": false
     }
   ]
 }
