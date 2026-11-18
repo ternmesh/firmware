@@ -48,10 +48,10 @@ bool tern_forward_head_read(struct tern_forward_head *h, const uint8_t *frame, s
     return an_id(h->next) && an_id(h->destination);
 }
 
-size_t tern_forward_held_write(int8_t power, uint32_t next, uint32_t destination,
+size_t tern_forward_held_write(int8_t power, uint32_t keeper, uint32_t destination,
                                const uint8_t tag[TERN_FORWARD_TAG], uint8_t frame[TERN_HELD_LEN]) {
-    tern_forward_head_write(&(struct tern_forward_head){TERN_HDR_HELD, 0, power, next, destination},
-                            frame);
+    tern_forward_head_write(
+        &(struct tern_forward_head){TERN_HDR_HELD, 0, power, keeper, destination}, frame);
     memcpy(frame + TERN_FORWARD_HEAD, tag, TERN_FORWARD_TAG);
     return TERN_HELD_LEN;
 }
@@ -245,9 +245,9 @@ static struct tern_forward_kept *kept_same(struct tern_forward *f, const uint8_t
     return NULL;
 }
 
-/* The held notice for a frame held, to the node it came from, which needs `back` to hear it. The
- * keeper cannot know that node's routing id, so `next` is the keeper's own: the node before
- * matches it against the neighbour it sent the frame to. */
+/* The held notice for a frame held, to the node it came from, which needs `back` to hear it. No
+ * frame says which node that was, so the notice names the keeper, in the place a head has `next`,
+ * and the node before matches it against the neighbour it sent the frame to. */
 static void notice(struct tern_forward *f, const uint8_t *frame, int8_t back) {
     struct tern_forward_notice *n;
     if (f->notice_count == TERN_FORWARD_NOTICES) {

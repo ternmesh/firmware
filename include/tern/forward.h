@@ -90,9 +90,10 @@ void tern_forward_head_write(const struct tern_forward_head *h, uint8_t *frame);
 /* Reads one. False for a frame the specification says to discard. */
 bool tern_forward_head_read(struct tern_forward_head *h, const uint8_t *frame, size_t len);
 
-/* A held notice (the specification's "Leaves that sleep"): `next`, `destination` and `tag` as its
- * frame has them. Writes TERN_HELD_LEN bytes. tern_forward_head_read() reads its head. */
-size_t tern_forward_held_write(int8_t power, uint32_t next, uint32_t destination,
+/* A held notice (the specification's "Leaves that sleep"): `keeper`, the routing id of the keeper
+ * that holds the frame, where a head has `next`, and `destination` and `tag` as the frame held has
+ * them. Writes TERN_HELD_LEN bytes. tern_forward_head_read() reads its head, `keeper` as `next`. */
+size_t tern_forward_held_write(int8_t power, uint32_t keeper, uint32_t destination,
                                const uint8_t tag[TERN_FORWARD_TAG], uint8_t frame[TERN_HELD_LEN]);
 
 /* --- Rules, each as the specification states it, checked against its vectors. --- */

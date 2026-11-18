@@ -65,17 +65,17 @@
   "held_notices": [
     {
       "power": 14,
-      "next": 3436257972,
+      "keeper": 2922406531,
       "destination": 3019831007,
       "tag": 16909060,
-      "frame": "55000eccd122b4b3fef6df01020304"
+      "frame": "55000eae306283b3fef6df01020304"
     },
     {
       "power": -9,
-      "next": 3436257972,
+      "keeper": 2922406531,
       "destination": 3019831007,
       "tag": 4294967295,
-      "frame": "5500f7ccd122b4b3fef6dfffffffff"
+      "frame": "5500f7ae306283b3fef6dfffffffff"
     }
   ],
   "rejected": [
@@ -117,7 +117,7 @@
     },
     {
       "why": "held notice too long",
-      "frame": "55000eccd122b4b3fef6df0102030400"
+      "frame": "55000eae306283b3fef6df0102030400"
     }
   ],
   "announces": [
@@ -261,6 +261,43 @@
       "at_ms": 600000,
       "listen": 255,
       "holds": true
+    }
+  ],
+  "poll_ids": [
+    {
+      "last": null,
+      "id": 4660,
+      "answers": true
+    },
+    {
+      "last": 4660,
+      "id": 4661,
+      "answers": true
+    },
+    {
+      "last": 4660,
+      "id": 4660,
+      "answers": false
+    },
+    {
+      "last": 4660,
+      "id": 4659,
+      "answers": false
+    },
+    {
+      "last": 65535,
+      "id": 0,
+      "answers": true
+    },
+    {
+      "last": 0,
+      "id": 32767,
+      "answers": true
+    },
+    {
+      "last": 0,
+      "id": 32768,
+      "answers": false
     }
   ],
   "hold_for": [
