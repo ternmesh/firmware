@@ -146,7 +146,29 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # A release carries over a thousand files with their signatures. Uploaded at once they
+          # trip GitHub's secondary rate limit (0.7.0-alpha.1's first run), so the release is made
+          # as a draft, filled fifty files at a time with a pause and retries, and published only
+          # once every file is on it. A rerun reuses a draft left by a failed one.
           case "$GITHUB_REF_NAME" in *-*) pre=--prerelease ;; *) pre= ;; esac
-          gh release create "$GITHUB_REF_NAME" $pre --verify-tag --title "$GITHUB_REF_NAME" \
-            --notes-file "docs/releases/$GITHUB_REF_NAME.md" \
-            images/*.bin images/*.uf2 images/*.zip images/SHA256SUMS images/*.sig
+          if ! gh release view "$GITHUB_REF_NAME" --json isDraft -q .isDraft | grep -qx true; then
+            gh release create "$GITHUB_REF_NAME" $pre --draft --verify-tag --title "$GITHUB_REF_NAME" \
+              --notes-file "docs/releases/$GITHUB_REF_NAME.md"
+          fi
+          ls images/*.bin images/*.uf2 images/*.zip images/SHA256SUMS images/*.sig >files
+          split -l 50 files batch.
+          for b in batch.*; do
+            for try in 1 2 3 4 5 6; do
+              if xargs gh release upload "$GITHUB_REF_NAME" --clobber <"$b"; then break; fi
+              if [ "$try" = 6 ]; then echo "::error::Uploading $b failed six times"; exit 1; fi
+              sleep $((try * 60))
+            done
+            sleep 10
+          done
+          want=$(wc -l <files)
+          have=$(gh release view "$GITHUB_REF_NAME" --json assets -q '.assets | length')
+          if [ "$have" != "$want" ]; then
+            echo "::error::The draft has $have files, not $want"
+            exit 1
+          fi
+          gh release edit "$GITHUB_REF_NAME" --draft=false
