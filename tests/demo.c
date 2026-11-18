@@ -332,8 +332,8 @@ static void responder_forgets_a_handshake_never_finished(void) {
     CHECK(deliver(b, HOLD, &g, &r) == DEMO_HEARD_CONTACT && g.len == 60);
 }
 
-/* A board that begins again is answered again: it is not made to wait for the handshake it
- * left, and the new one is the one that completes. */
+/* A board that begins again waits for the handshake it left to lapse, as any other board does:
+ * a message_1 proves nothing of who sent it, so it takes the place of no handshake under way. */
 static void the_board_that_began_may_begin_again(void) {
     struct board *a = new_board(), *b = new_board();
     struct frame f, old;
@@ -343,11 +343,34 @@ static void the_board_that_began_may_begin_again(void) {
     f = old;
     CHECK(deliver(b, 0, &f, &r) == DEMO_HEARD_CONTACT);
     CHECK(demo_abandon(&a->ram));
-    CHECK(contact(a, b, 5) == DEMO_HEARD_PAIRED);
+    CHECK(demo_contact(&a->ram, b->ram.id.address, 5, f.data, &f.len) == DEMO_OK);
+    CHECK(deliver(b, 5, &f, &r) == DEMO_HEARD_OTHER && f.len == 0);
+    CHECK(demo_tick(&b->ram, HOLD) == DEMO_TICK_LAPSED);
+    CHECK(demo_abandon(&a->ram));
+    CHECK(contact(a, b, HOLD) == DEMO_HEARD_PAIRED);
     CHECK(say(a, b, "second time lucky", &n) == DEMO_HEARD_MESSAGE && n == 0);
     /* The handshake it left is nothing to the other board now. */
     f = old;
-    CHECK(deliver(b, 6, &f, &r) == DEMO_HEARD_CONTACT && f.len == 60);
+    CHECK(deliver(b, HOLD + 1, &f, &r) == DEMO_HEARD_CONTACT && f.len == 60);
+}
+
+/* Someone who heard a board's message_1 can send one of their own that says it comes from the
+ * same place. It is not answered, and the handshake it would have cut off completes. */
+static void a_message_1_from_the_same_place_cuts_nothing_off(void) {
+    struct board *a = new_board(), *b = new_board(), *c = new_board();
+    struct frame f, m1, g;
+    struct demo_received r;
+    uint32_t n;
+    CHECK(demo_contact(&a->ram, b->ram.id.address, 0, f.data, &f.len) == DEMO_OK);
+    m1 = f;
+    CHECK(deliver(b, 0, &f, &r) == DEMO_HEARD_CONTACT && f.len == 60);
+    CHECK(demo_contact(&c->ram, b->ram.id.address, 1, g.data, &g.len) == DEMO_OK);
+    memcpy(g.data + 15, m1.data + 15, 4); /* the source a's message_1 named */
+    CHECK(deliver(b, 1, &g, &r) == DEMO_HEARD_OTHER && g.len == 0);
+    CHECK(deliver(a, 2, &f, &r) == DEMO_HEARD_CONTACT && f.len == 80);
+    CHECK(deliver(b, 2, &f, &r) == DEMO_HEARD_PAIRED && f.len == 24);
+    CHECK(deliver(a, 2, &f, &r) == DEMO_HEARD_PAIRED);
+    CHECK(say(a, b, "not cut off", &n) == DEMO_HEARD_MESSAGE && n == 0);
 }
 
 /* A board with a session is not taken over by whoever asks. */
@@ -629,6 +652,22 @@ static void failed_save_sends_nothing(void) {
     CHECK(say(a, b, "found", &n) == DEMO_HEARD_MESSAGE && n == 0);
 }
 
+/* A seal that fails is not a message: nothing is counted as sent, saved, or handed back to send.
+ * A spent session is the one failure a board can meet; any other is treated the same. */
+static void failed_seal_is_not_sent(void) {
+    struct board *a = new_board(), *b = new_board();
+    uint8_t frame[32], before[sizeof a->flash.data[0]];
+    CHECK(contact(a, b, 0) == DEMO_HEARD_PAIRED);
+    int i = find(&a->flash, "session");
+    CHECK(i >= 0);
+    memcpy(before, a->flash.data[i], sizeof before);
+    uint32_t sent = a->ram.s[0].sent;
+    a->ram.s[0].session.tx.spent = true;
+    CHECK(demo_seal(&a->ram, 0, (const uint8_t *)"never", 5, frame) == DEMO_SPENT);
+    CHECK_EQ_U64(a->ram.s[0].sent, sent);
+    CHECK(memcmp(before, a->flash.data[i], sizeof before) == 0);
+}
+
 /* A responder that cannot save the new session does not send message_4, so the initiator never
  * takes it up either, and both are left with the session they had. */
 static void session_that_cannot_be_saved_is_not_started(void) {
@@ -878,6 +917,7 @@ int main(void) {
     RUN(initiator_gives_up_and_keeps_what_it_had);
     RUN(responder_forgets_a_handshake_never_finished);
     RUN(the_board_that_began_may_begin_again);
+    RUN(a_message_1_from_the_same_place_cuts_nothing_off);
     RUN(stranger_is_refused_until_accepted);
     RUN(a_trusted_stranger_is_accepted);
     RUN(peer_may_make_contact_again);
@@ -893,6 +933,7 @@ int main(void) {
     RUN(a_session_lives_seven_days);
     RUN(a_board_answers_so_many_handshakes);
     RUN(failed_save_sends_nothing);
+    RUN(failed_seal_is_not_sent);
     RUN(session_that_cannot_be_saved_is_not_started);
     RUN(record_from_another_build_is_not_used);
     RUN(a_session_saved_whole_is_kept_and_packed);

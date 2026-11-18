@@ -48,10 +48,33 @@ void tern_identity_sign(const struct tern_identity *id, const uint8_t *m, size_t
 
 /* Whether sig is the signature of the address's key over len bytes of m: RFC 8032, section
  * 5.1.7, with [S]B = R + [k]A checked as it stands, not multiplied by 8, and S required below L.
- * It does not check that the address is valid: an address of small order passes for messages it
- * never signed, so a caller checks tern_address_valid() first. Not constant time: a signature is
- * public. */
+ * False for an address that is not valid (tern_address_valid()): one of small order would pass
+ * for messages it never signed. Not constant time: an address and a signature are public. */
 bool tern_address_verify(const uint8_t address[TERN_ADDRESS_LEN], const uint8_t *m, size_t len,
                          const uint8_t sig[TERN_SIGNATURE_LEN]);
+
+/* As tern_address_verify(), without checking again that the address is valid, which is about
+ * half its work: only for an address that tern_address_valid() has already accepted. Given one
+ * it has not, it can accept a forgery. */
+bool tern_address_verify_valid(const uint8_t address[TERN_ADDRESS_LEN], const uint8_t *m,
+                               size_t len, const uint8_t sig[TERN_SIGNATURE_LEN]);
+
+/* The addresses found valid most recently, for a node that checks signatures from the same few
+ * neighbours again and again: tern_address_verify_cached() checks each address once while it is
+ * held here. Zeroed, it holds none. */
+#ifndef TERN_ADDRESS_CACHED
+#define TERN_ADDRESS_CACHED 16
+#endif
+struct tern_address_cache {
+    uint8_t address[TERN_ADDRESS_CACHED][TERN_ADDRESS_LEN];
+    uint8_t used; /* how many of them hold an address */
+    uint8_t next; /* the one the next address found valid takes, once all are used */
+};
+
+/* As tern_address_verify(), but an address the cache holds is not checked again, and one found
+ * valid is put in it, in place of the one put in longest ago. */
+bool tern_address_verify_cached(struct tern_address_cache *c,
+                                const uint8_t address[TERN_ADDRESS_LEN], const uint8_t *m,
+                                size_t len, const uint8_t sig[TERN_SIGNATURE_LEN]);
 
 #endif

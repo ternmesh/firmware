@@ -376,7 +376,9 @@ uint32_t plat_random32(void) {
 
 void plat_entropy_start(void) {}
 
-void plat_bluetooth_starting(bool starting) { (void)starting; }
+void plat_bluetooth_starting(void) {}
+
+void plat_bluetooth_started(bool started) { (void)started; }
 
 size_t plat_heap_free(void) { return 0; } /* its table is static (prj.conf) */
 

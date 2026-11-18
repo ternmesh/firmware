@@ -45,6 +45,51 @@ static void ge_add(ge *r, const ge *p, const ge *q) {
     fe_mul(&r->z, &b, &d);
 }
 
+/* r = p - q: the addition with q's negation, (-X, Y, Z, -T), which swaps the sums and differences
+ * of q's coordinates in A and B and the sign of C. r may be p or q. */
+static void ge_sub(ge *r, const ge *p, const ge *q) {
+    fe a, b, c, d, t;
+    fe_sub(&a, &p->y, &p->x);
+    fe_add(&t, &q->y, &q->x);
+    fe_mul(&a, &a, &t); /* A */
+    fe_add(&b, &p->y, &p->x);
+    fe_sub(&t, &q->y, &q->x);
+    fe_mul(&b, &b, &t); /* B */
+    fe_mul(&c, &p->t, &q->t);
+    fe_mul(&c, &c, &fe_d2); /* -C */
+    fe_mul(&d, &p->z, &q->z);
+    fe_add(&d, &d, &d); /* D */
+    fe_sub(&t, &b, &a); /* E */
+    fe_add(&a, &b, &a); /* H */
+    fe_add(&b, &d, &c); /* F */
+    fe_sub(&d, &d, &c); /* G */
+    fe_mul(&r->x, &t, &b);
+    fe_mul(&r->y, &d, &a);
+    fe_mul(&r->t, &t, &a);
+    fe_mul(&r->z, &b, &d);
+}
+
+/* r = 2p, by RFC 8032's doubling formula (section 5.1.4): four squarings and four products, where
+ * the addition takes nine products. p's T is not read. r may be p: nothing is written to r until
+ * p has been read. */
+static void ge_dbl(ge *r, const ge *p) {
+    fe a, b, c, h, t;
+    fe_sq(&a, &p->x); /* A */
+    fe_sq(&b, &p->y); /* B */
+    fe_sq(&c, &p->z);
+    fe_add(&c, &c, &c); /* C */
+    fe_add(&h, &a, &b); /* H */
+    fe_add(&t, &p->x, &p->y);
+    fe_sq(&t, &t);
+    fe_sub(&t, &h, &t); /* E */
+    fe_sub(&a, &a, &b); /* G */
+    fe_add(&b, &c, &a); /* F */
+    fe_mul(&r->x, &t, &b);
+    fe_mul(&r->y, &a, &h);
+    fe_mul(&r->t, &t, &h);
+    fe_mul(&r->z, &b, &a);
+}
+
 static void ge_cswap(ge *p, ge *q, uint64_t bit) {
     fe_cswap(&p->x, &q->x, bit);
     fe_cswap(&p->y, &q->y, bit);
@@ -153,6 +198,132 @@ static const uint8_t order[32] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10,
 };
 
+/* --- Public points, in variable time --- */
+
+/* Everything a node checks, an address and a signature, is public, so it is checked by
+ * multiplications whose time depends on the scalars: each scalar in width-3 non-adjacent form,
+ * digits 0, ±1 and ±3 with at least two zeros after any that is not, so that about a quarter of
+ * them cost an addition, from a table of the point and three times it. Signing and the keys keep
+ * the ladder above. */
+
+/* k, below 2^253, as naf[0] + 2 naf[1] + 4 naf[2] + ...: returns how many digits up to the last
+ * that is not zero. Each step takes the lowest digit, odd k's residue mod 8 brought to -3..3,
+ * subtracts it, which leaves k a multiple of 8, and halves k. */
+static int wnaf(int8_t naf[256], const uint8_t k[32]) {
+    uint32_t x[9] = {0};
+    int n = 0;
+    for (int i = 0; i < 32; i++) {
+        x[i / 4] |= (uint32_t)k[i] << (8 * (i % 4));
+    }
+    for (int i = 0; i < 256; i++) {
+        int d = 0;
+        if (x[0] & 1) {
+            d = (int)(x[0] & 7);
+            if (d > 4) {
+                d -= 8;
+            }
+            if (d > 0) {
+                x[0] -= (uint32_t)d; /* its low bits are d: nothing borrowed */
+            } else {
+                uint32_t carry = (uint32_t)-d;
+                for (int j = 0; j < 9 && carry != 0; j++) {
+                    x[j] += carry;
+                    carry = x[j] < carry;
+                }
+            }
+            n = i + 1;
+        }
+        naf[i] = (int8_t)d;
+        for (int j = 0; j < 8; j++) {
+            x[j] = x[j] >> 1 | x[j + 1] << 31;
+        }
+        x[8] >>= 1;
+    }
+    return n;
+}
+
+/* B's x, little-endian (RFC 8032, section 5.1), so that B is had without the square root
+ * ge_frombytes() takes to find it. */
+static const uint8_t base_x[32] = {
+    0x1a, 0xd5, 0x25, 0x8f, 0x60, 0x2d, 0x56, 0xc9, 0xb2, 0xa7, 0x25, 0x95, 0x60, 0xc7, 0x2c, 0x69,
+    0x5c, 0xdc, 0xd6, 0xfd, 0x31, 0xe2, 0xa4, 0xc0, 0xfe, 0x53, 0x6e, 0xcd, 0xd3, 0x36, 0x69, 0x21,
+};
+
+static void ge_base(ge *b) {
+    fe_frombytes(&b->x, base_x);
+    fe_frombytes(&b->y, base_bytes);
+    fe_1(&b->z);
+    fe_mul(&b->t, &b->x, &b->y);
+}
+
+/* A point's table: p and 3p. */
+static void ge_table(ge t[2], const ge *p) {
+    t[0] = *p;
+    ge_dbl(&t[1], p);
+    ge_add(&t[1], &t[1], p);
+}
+
+/* r += [d]p, for a digit d, from p's table. */
+static void ge_digit(ge *r, int d, const ge t[2]) {
+    if (d > 0) {
+        ge_add(r, r, &t[d / 2]);
+    } else if (d < 0) {
+        ge_sub(r, r, &t[-d / 2]);
+    }
+}
+
+/* r = [a]P + [b]B, P given by its table and a and b below 2^253, or only [a]P if b is NULL: both
+ * scalars' digits at once (Straus), one doubling each, about 253 doublings and 130 additions with
+ * b, where the ladder takes 512 additions for each. Vartime. */
+static void ge_mul_vartime(ge *r, const uint8_t a[32], const ge p[2], const uint8_t *b) {
+    int8_t na[256], nb[256] = {0};
+    ge base[2];
+    int n = wnaf(na, a);
+    if (b != NULL) {
+        int nb_len = wnaf(nb, b);
+        n = nb_len > n ? nb_len : n;
+        ge_base(&base[0]);
+        ge_table(base, &base[0]);
+    }
+    ge_neutral(r);
+    for (int i = n - 1; i >= 0; i--) {
+        ge_dbl(r, r);
+        ge_digit(r, na[i], p);
+        if (b != NULL) {
+            ge_digit(r, nb[i], base);
+        }
+    }
+}
+
+/* The table of an address's point, negated if `negate`: false if the address does not decode, or,
+ * if `check`, if its point is the neutral element or is not of order L. */
+static bool address_table(ge t[2], const uint8_t address[TERN_ADDRESS_LEN], bool negate,
+                          bool check) {
+    ge a;
+    if (!ge_frombytes(&a, address)) {
+        return false;
+    }
+    if (negate) {
+        fe zero;
+        fe_0(&zero);
+        fe_sub(&a.x, &zero, &a.x);
+        fe_sub(&a.t, &zero, &a.t);
+    }
+    ge_table(t, &a);
+    if (check) {
+        /* [L]A is the neutral element exactly when A is in the prime-order subgroup, and so is
+         * [L](-A). */
+        if (ge_is_neutral(&a)) {
+            return false;
+        }
+        ge_mul_vartime(&a, order, t, NULL);
+        if (!ge_is_neutral(&a)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static void secret_scalar(const uint8_t seed[TERN_SEED_LEN], uint8_t h[TERN_SHA512_LEN]) {
     struct tern_sha512 c;
     tern_sha512_init(&c);
@@ -192,12 +363,8 @@ void tern_identity_x25519(const struct tern_identity *id, uint8_t k[32]) {
 }
 
 bool tern_address_valid(const uint8_t address[TERN_ADDRESS_LEN]) {
-    ge a;
-    if (!ge_frombytes(&a, address) || ge_is_neutral(&a)) {
-        return false;
-    }
-    ge_scalarmult(&a, order, &a);
-    return ge_is_neutral(&a);
+    ge t[2];
+    return address_table(t, address, false, true);
 }
 
 bool tern_address_x25519(uint8_t u[32], const uint8_t address[TERN_ADDRESS_LEN]) {
@@ -336,30 +503,68 @@ void tern_identity_sign(const struct tern_identity *id, const uint8_t *m, size_t
     tern_wipe(&p, sizeof p);
 }
 
-bool tern_address_verify(const uint8_t address[TERN_ADDRESS_LEN], const uint8_t *m, size_t len,
-                         const uint8_t sig[TERN_SIGNATURE_LEN]) {
-    uint8_t k[32], check[32];
-    ge a, sb;
+/* [S]B - [k]A, which is R for a signature made with A's key: one multiplication of both, from the
+ * table of -A. Whether the address was refused (only if `check`), or the signature, or neither. */
+enum checked { ADDRESS_REFUSED, SIGNATURE_REFUSED, SIGNATURE_GOOD };
 
-    if (!sc_canonical(sig + 32) || !ge_frombytes(&a, address)) {
-        return false;
+static enum checked verify(const uint8_t address[TERN_ADDRESS_LEN], const uint8_t *m, size_t len,
+                           const uint8_t sig[TERN_SIGNATURE_LEN], bool check) {
+    uint8_t k[32], check_r[32];
+    ge t[2], r;
+
+    if (!address_table(t, address, true, check)) {
+        return ADDRESS_REFUSED;
+    }
+    if (!sc_canonical(sig + 32)) {
+        return SIGNATURE_REFUSED;
     }
     challenge(k, sig, address, m, len);
-
-    /* [S]B - [k]A, which is R for a signature made with A's key. */
-    fe zero;
-    fe_0(&zero);
-    fe_sub(&a.x, &zero, &a.x);
-    fe_sub(&a.t, &zero, &a.t);
-    ge_scalarmult(&a, k, &a);
-    (void)ge_frombytes(&sb, base_bytes);
-    ge_scalarmult(&sb, sig + 32, &sb);
-    ge_add(&sb, &sb, &a);
-    ge_tobytes(check, &sb);
+    ge_mul_vartime(&r, k, t, sig + 32);
+    ge_tobytes(check_r, &r);
 
     uint8_t differ = 0;
     for (int i = 0; i < 32; i++) {
-        differ |= (uint8_t)(check[i] ^ sig[i]);
+        differ |= (uint8_t)(check_r[i] ^ sig[i]);
     }
-    return differ == 0;
+    return differ == 0 ? SIGNATURE_GOOD : SIGNATURE_REFUSED;
+}
+
+bool tern_address_verify(const uint8_t address[TERN_ADDRESS_LEN], const uint8_t *m, size_t len,
+                         const uint8_t sig[TERN_SIGNATURE_LEN]) {
+    return verify(address, m, len, sig, true) == SIGNATURE_GOOD;
+}
+
+bool tern_address_verify_valid(const uint8_t address[TERN_ADDRESS_LEN], const uint8_t *m,
+                               size_t len, const uint8_t sig[TERN_SIGNATURE_LEN]) {
+    return verify(address, m, len, sig, false) == SIGNATURE_GOOD;
+}
+
+bool tern_address_verify_cached(struct tern_address_cache *c,
+                                const uint8_t address[TERN_ADDRESS_LEN], const uint8_t *m,
+                                size_t len, const uint8_t sig[TERN_SIGNATURE_LEN]) {
+    for (size_t i = 0; i < c->used && i < TERN_ADDRESS_CACHED; i++) {
+        bool held = true;
+        for (size_t j = 0; j < TERN_ADDRESS_LEN && held; j++) {
+            held = c->address[i][j] == address[j]; /* vartime: addresses are public */
+        }
+        if (held) {
+            return verify(address, m, len, sig, false) == SIGNATURE_GOOD;
+        }
+    }
+    enum checked v = verify(address, m, len, sig, true);
+    if (v == ADDRESS_REFUSED) {
+        return false;
+    }
+    /* Valid, whatever became of the signature: kept. */
+    size_t at;
+    if (c->used < TERN_ADDRESS_CACHED) {
+        at = c->used++;
+    } else {
+        at = c->next % TERN_ADDRESS_CACHED;
+        c->next = (uint8_t)((at + 1) % TERN_ADDRESS_CACHED);
+    }
+    for (size_t j = 0; j < TERN_ADDRESS_LEN; j++) {
+        c->address[at][j] = address[j];
+    }
+    return v == SIGNATURE_GOOD;
 }

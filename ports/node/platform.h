@@ -85,10 +85,12 @@ uint32_t plat_random32(void);
  * Bluetooth is off, which shares the ADC the battery is read through; elsewhere it does nothing. */
 void plat_entropy_start(void);
 
-/* Bluetooth is starting (true) or did not (false). On a chip whose generator draws on its radio
- * while Bluetooth is on, and on a noise source otherwise, as the ESP32's does, the noise source is
- * turned off and on again here; elsewhere this does nothing. */
-void plat_bluetooth_starting(bool starting);
+/* Bluetooth is about to start, and then did or did not (`started`). On a chip whose generator
+ * draws on its radio while Bluetooth is on, and on a noise source otherwise, as the ESP32's does,
+ * the noise source is turned off before and on again if Bluetooth did not start, and
+ * plat_random() gives nothing between the two; elsewhere these do nothing. */
+void plat_bluetooth_starting(void);
+void plat_bluetooth_started(bool started);
 
 /* Bytes the heap has free, for a table that takes what it can and leaves the rest; 0 where nothing
  * is taken from the heap that way. */

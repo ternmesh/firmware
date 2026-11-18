@@ -112,15 +112,12 @@ static const struct ble_gatt_svc_def services[] = {
 
 static void advertise(void);
 
-/* A passkey from 0 to 999999, uniform: the chip's generator gives true random numbers while
- * Bluetooth is on (main.c, start_bluetooth()). */
-static uint32_t random_passkey(void) {
-    const uint32_t keys = 1000000, limit = UINT32_MAX - UINT32_MAX % keys;
-    uint32_t r;
-    do {
-        r = esp_random();
-    } while (r >= limit);
-    return r % keys;
+/* 32 bits from the chip's generator, which gives true random numbers while Bluetooth is on, as it
+ * is whenever there is a pairing (node.c, start_bluetooth()). */
+static bool random32(void *ctx, uint32_t *r) {
+    (void)ctx;
+    *r = esp_random();
+    return true;
 }
 
 static int on_gap(struct ble_gap_event *event, void *arg) {
@@ -166,8 +163,10 @@ static int on_gap(struct ble_gap_event *event, void *arg) {
             ble_gap_terminate(event->passkey.conn_handle, BLE_ERR_AUTH_FAIL);
             return 0;
         }
-        if (shown) {
-            key = random_passkey();
+        if (shown && !ble_passkey_draw(random32, NULL, &key)) {
+            printf("bluetooth: no random numbers for a passkey: not pairing\n");
+            ble_gap_terminate(event->passkey.conn_handle, BLE_ERR_AUTH_FAIL);
+            return 0;
         }
         struct ble_sm_io io = {.action = BLE_SM_IOACT_DISP, .passkey = key};
         ble_sm_inject_io(event->passkey.conn_handle, &io);

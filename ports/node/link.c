@@ -411,11 +411,14 @@ bool link_group_count(struct link *l, uint32_t *count) {
     return true;
 }
 
-void link_group_heard(struct link *l) { l->writers_changed = true; }
+bool link_group_heard(struct link *l) {
+    l->writers_changed = true;
+    return link_keep_writers(l);
+}
 
 bool link_keep_writers(struct link *l) {
     if (!l->writers_changed) {
-        return false;
+        return true;
     }
     uint8_t kept[LINK_WRITERS_MAX];
     size_t len = 0;
@@ -431,7 +434,7 @@ bool link_keep_writers(struct link *l) {
     if (l->host.save_writers(l->host.ctx, kept, len)) {
         l->writers_changed = false;
     }
-    return true;
+    return !l->writers_changed;
 }
 
 /* Gives each group held the writers flash kept for it. What is not as link_keep_writers() wrote

@@ -465,14 +465,15 @@ void link_groups(struct link *l, struct tern_group *out[LINK_GROUPS]);
  * frame is then not sealed, since a count given twice has members refuse the second. */
 bool link_group_count(struct link *l, uint32_t *count);
 
-/* The board accepted a group frame, of words or not: the group's writers are no longer as flash
- * has them. */
-void link_group_heard(struct link *l);
+/* The board accepted a group frame, of words or not: the groups' writers are saved at once,
+ * before anything is done with the frame, so that no restart, however sudden, can have the same
+ * frame accepted a second time. False if flash did not take them: the board then drops the frame
+ * as if it had not come, and they are tried again with the next, or by link_keep_writers(). */
+bool link_group_heard(struct link *l);
 
-/* Saves the groups' writers if they have changed since they last were saved. The board calls this
- * no more often than it will write to flash; the link calls it when a group is left. True if
- * there was something to write, whether or not flash took it: one it did not take is tried again
- * at the next call. */
+/* Saves the groups' writers if they have changed since they last were saved: the link calls it
+ * when a group is left, and the board, no more often than it will write to flash, to try again
+ * what flash did not take. True if flash has them as they are, false if it did not take them. */
 bool link_keep_writers(struct link *l);
 
 /* The keys to seal a waiting group message with, or NULL if its group has been left since. */

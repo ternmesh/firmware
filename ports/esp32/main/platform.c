@@ -271,27 +271,40 @@ bool plat_erase_asked(void) {
  * turns on is on; that the noise source must be turned off before Bluetooth is used; and that it
  * shares the SAR ADC, which nothing else may use while it is on. So it is turned on once the node's
  * first readings of the battery are done (plat_entropy_start()), before the identity and the
- * router's seed are made from it, and off as Bluetooth starts; nothing is made from the generator
- * between the two, and it is on again if Bluetooth does not start. Either way, every key made after
- * this, a first contact's included, draws on a true source. */
+ * router's seed are made from it, and off as Bluetooth starts; it is on again if Bluetooth does not
+ * start. Otherwise the generator's numbers are only pseudo-random, and none are given: before the
+ * noise source is first on, and between its going off and Bluetooth being on. */
+static bool noise_on, bluetooth_on;
+
 bool plat_random(uint8_t *buf, size_t len) {
+    if (!noise_on && !bluetooth_on) {
+        return false;
+    }
     esp_fill_random(buf, len);
     return true;
 }
 
 uint32_t plat_random32(void) {
-    uint32_t r;
+    uint32_t r = 0;
     (void)plat_random((uint8_t *)&r, sizeof r);
     return r;
 }
 
-void plat_entropy_start(void) { bootloader_random_enable(); }
+void plat_entropy_start(void) {
+    bootloader_random_enable();
+    noise_on = true;
+}
 
-void plat_bluetooth_starting(bool starting) {
-    if (starting) {
-        bootloader_random_disable();
-    } else {
+void plat_bluetooth_starting(void) {
+    bootloader_random_disable();
+    noise_on = false;
+}
+
+void plat_bluetooth_started(bool started) {
+    bluetooth_on = started;
+    if (!started) {
         bootloader_random_enable();
+        noise_on = true;
     }
 }
 

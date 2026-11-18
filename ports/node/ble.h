@@ -19,6 +19,24 @@
 
 #define BLE_PASSKEY_RANDOM 0xFFFFFFFFu /* a new passkey for each pairing, shown on the screen */
 
+/* A passkey drawn for one pairing: 0 to 999999, uniform, from 32 bits at a time of a generator
+ * that says whether it gave any. A draw at or past the last whole million is drawn again, and so
+ * is one the generator failed to give, up to BLE_PASSKEY_TRIES draws in all; then false, and the
+ * port refuses the pairing rather than show a passkey it did not draw. */
+#define BLE_PASSKEY_TRIES 8
+static inline bool ble_passkey_draw(bool (*draw)(void *ctx, uint32_t *r), void *ctx,
+                                    uint32_t *key) {
+    const uint32_t keys = 1000000, limit = UINT32_MAX - UINT32_MAX % keys;
+    for (int i = 0; i < BLE_PASSKEY_TRIES; i++) {
+        uint32_t r = 0;
+        if (draw(ctx, &r) && r < limit) {
+            *key = r % keys;
+            return true;
+        }
+    }
+    return false;
+}
+
 /* The name the node advertises, so that a user with several nodes can tell them apart
  * (draft/companion.md, "Bluetooth LE"): the name its cards carry while it sends them, which is on
  * the air already, or else "Tern", a space and a tag of BLE_TAG_LEN characters drawn at random.

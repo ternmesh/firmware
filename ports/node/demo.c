@@ -307,8 +307,10 @@ static enum demo_result seal(struct demo *d, int slot, bool node, const uint8_t 
     }
     int err = (node ? tern_unicast_seal_node : tern_unicast_seal)(&s->session.tx, msg, len, frame,
                                                                   len + TERN_UNICAST_OVERHEAD);
-    if (err == TERN_ESPENT) {
-        return DEMO_SPENT;
+    if (err != TERN_OK) {
+        /* Nothing sealed, and nothing to send: only the length can be wrong besides, and the
+         * frame's room is the length's. */
+        return err == TERN_ESPENT ? DEMO_SPENT : DEMO_TOO_LONG;
     }
     s->sent++;
     d->last = slot;
@@ -538,13 +540,12 @@ static enum demo_heard contact_frame(struct demo *d, tern_time now, const uint8_
 
     if (frame[0] == 0x51) {
         uint8_t ephemeral[TERN_CONTACT_EPHEMERAL], c_r;
-        /* One handshake at a time; but a board that begins again, having given up or been told
-         * to, is not kept waiting for the handshake it left. Where a frame says it came from is
-         * only its word, which is enough to take the place of a handshake that has proved no
-         * more. */
-        bool again = h->phase == DEMO_RESPONDING && len > AT_SOURCE + 4 &&
-                     same(frame + AT_SOURCE, h->in + AT_SOURCE, 4);
-        if (h->phase == DEMO_INITIATING || (h->phase == DEMO_RESPONDING && !again)) {
+        /* One handshake at a time, and one under way is not given up for a message_1. Nothing in
+         * one proves who sent it, and where it says it came from is in clear in the first: anyone
+         * who heard that could say the same, and cut off every handshake this board answers. So
+         * a board that begins again, having given up or been told to, waits as any other does
+         * for the handshake it left to lapse (demo_tick()). */
+        if (h->phase == DEMO_INITIATING || h->phase == DEMO_RESPONDING) {
             return DEMO_HEARD_OTHER;
         }
         /* Discarded before anything is computed for it. */
