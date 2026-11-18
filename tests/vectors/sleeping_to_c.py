@@ -47,7 +47,7 @@ def main():
     L.append("static const struct held_case helds[] = {")
     for c in v["held_notices"]:
         L.append(
-            f"    {{{c['power']}, {c['next']}u, {c['destination']}u, {c['tag']}u, "
+            f"    {{{c['power']}, {c['keeper']}u, {c['destination']}u, {c['tag']}u, "
             f"{hexbytes(c['frame'])}}},"
         )
     L.append("};")
@@ -85,6 +85,12 @@ def main():
 
     L.append("static const struct holds_case holds[] = {")
     L += [f"    {{{c['at_ms']}, {c['listen']}, {b(c['holds'])}}}," for c in v["holds"]]
+    L.append("};")
+    L.append("static const struct poll_id_case poll_ids[] = {")
+    L += [
+        f"    {{{b(c['last'] is not None)}, {c['last'] or 0}, {c['id']}, {b(c['answers'])}}},"
+        for c in v["poll_ids"]
+    ]
     L.append("};")
     L.append("static const struct hold_for_case hold_fors[] = {")
     L += [f"    {{{c['wake']}, {c['hold_for']}}}," for c in v["hold_for"]]

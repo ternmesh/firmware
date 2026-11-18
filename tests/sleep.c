@@ -21,7 +21,7 @@ struct answer_case {
 };
 struct held_case {
     int8_t power;
-    uint32_t next, destination, tag;
+    uint32_t keeper, destination, tag;
     uint8_t frame[TERN_HELD_LEN];
 };
 struct rejected_case {
@@ -47,6 +47,11 @@ struct holds_case {
     int64_t at_ms;
     uint8_t listen;
     bool holds;
+};
+struct poll_id_case {
+    bool polled;
+    uint16_t last, id;
+    bool answers;
 };
 struct hold_for_case {
     uint16_t wake;
@@ -101,12 +106,12 @@ static void held_notices_are_written_and_read(void) {
         uint8_t frame[TERN_HELD_LEN], tag[4] = {(uint8_t)(c->tag >> 24), (uint8_t)(c->tag >> 16),
                                                 (uint8_t)(c->tag >> 8), (uint8_t)c->tag};
         struct tern_forward_head h;
-        CHECK_EQ_I64(tern_forward_held_write(c->power, c->next, c->destination, tag, frame),
+        CHECK_EQ_I64(tern_forward_held_write(c->power, c->keeper, c->destination, tag, frame),
                      TERN_HELD_LEN);
         CHECK(memcmp(frame, c->frame, TERN_HELD_LEN) == 0);
         CHECK(tern_forward_frame(c->frame, TERN_HELD_LEN) && !tern_route_frame(c->frame, 1));
         CHECK(tern_forward_head_read(&h, c->frame, TERN_HELD_LEN));
-        CHECK(h.hdr == TERN_HDR_HELD && h.hops == 0 && h.power == c->power && h.next == c->next &&
+        CHECK(h.hdr == TERN_HDR_HELD && h.hops == 0 && h.power == c->power && h.next == c->keeper &&
               h.destination == c->destination);
         CHECK(!tern_forward_listens(c->frame, TERN_HELD_LEN)); /* sent once */
     }
@@ -171,6 +176,10 @@ static void sleep_content_is_written_and_read(void) {
 static void keepers_and_sources_reckon_time_as_the_specification_does(void) {
     for (size_t i = 0; i < COUNT(holds); i++) {
         CHECK(tern_sleep_holds(TERN_MS(holds[i].at_ms), holds[i].listen) == holds[i].holds);
+    }
+    for (size_t i = 0; i < COUNT(poll_ids); i++) {
+        CHECK(tern_sleep_answers_poll(poll_ids[i].polled, poll_ids[i].last, poll_ids[i].id) ==
+              poll_ids[i].answers);
     }
     for (size_t i = 0; i < COUNT(hold_fors); i++) {
         CHECK_EQ_I64(tern_sleep_hold_for(hold_fors[i].wake), TERN_S(hold_fors[i].hold_for));

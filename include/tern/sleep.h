@@ -76,6 +76,14 @@ static inline bool tern_sleep_holds(tern_time since, uint8_t listen_s) {
     return since >= TERN_S(listen_s);
 }
 
+/* Whether a keeper answers a poll with `id` from a leaf whose last poll it answered had `last`
+ * (`polled` false for none): only a newer one, so a copy, or a poll delayed past a later one, is
+ * not answered. Sequence numbers wrap, as Routes' do. */
+static inline bool tern_sleep_answers_poll(bool polled, uint16_t last, uint16_t id) {
+    uint16_t d = (uint16_t)(id - last);
+    return !polled || (d >= 1 && d <= 0x7FFF);
+}
+
 /* How long a keeper holds a frame for a leaf whose wake is `wake`: 2 × w + HOLD_EXTRA. */
 static inline tern_time tern_sleep_hold_for(uint16_t wake) {
     return TERN_S(2 * (int64_t)tern_sleep_wake_s(wake) + TERN_SLEEP_HOLD_EXTRA_S);

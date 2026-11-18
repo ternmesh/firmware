@@ -1735,8 +1735,8 @@ static void on_poll(struct tern_route *r, const struct tern_poll *q, int16_t snr
     if (q->keeper != r->id || !r->config.relay || !(e = kept_make(r, q->sender))) {
         return;
     }
-    if (e->polled && e->poll_id == q->id) {
-        return; /* answered once */
+    if (!tern_sleep_answers_poll(e->polled, e->poll_id, q->id)) {
+        return; /* answered once, or older than one answered */
     }
     e->polled = true;
     e->answered = false;
