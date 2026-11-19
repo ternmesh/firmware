@@ -6,6 +6,7 @@
     python3 tools/companion.py --port /dev/ttyUSB0 contact <address> <name>
     python3 tools/companion.py --port /dev/ttyUSB0 end <address>
     python3 tools/companion.py --port /dev/ttyUSB0 forget <address>
+    python3 tools/companion.py --port /dev/ttyUSB0 clear <address> --yes
     python3 tools/companion.py --port /dev/ttyUSB0 set power 10
     python3 tools/companion.py --port /dev/ttyUSB0 set power most
     python3 tools/companion.py --port /dev/ttyUSB0 set passkey default
@@ -15,6 +16,7 @@
     python3 tools/companion.py --port /dev/ttyUSB0 group join <invite or join code>
     python3 tools/companion.py --port /dev/ttyUSB0 group code <group>
     python3 tools/companion.py --port /dev/ttyUSB0 group send <group> <text>
+    python3 tools/companion.py --port /dev/ttyUSB0 group clear <group> --yes
     python3 tools/companion.py --port /dev/ttyUSB0 position <lat> <lon>
     python3 tools/companion.py --port /dev/ttyUSB0 share <address or group> <precision>
     python3 tools/companion.py --port /dev/ttyUSB0 update tern-heltec-v3-eu868-0.2.0-app.bin
@@ -25,10 +27,13 @@
 
 `contact` saves an address under a name, which also lets that node make first contact; `end` ends
 the session with one, and `forget` removes one as a contact, keeping its messages and any session.
+`clear --yes` erases the conversation with an address from the node and from every client of it,
+for good, as far as the last message `state` would list in it, and gives up any of it still to go;
+`group clear --yes` does the same for a group's. The contact, the session and the group stay.
 `state` says hello, sets the node's clock from this computer's, and prints everything the node
 holds. `send` sends a message and prints what becomes of it. `watch` prints news as it comes.
 `group` makes a group, invites a contact to one, takes the group an invite or a join code was to,
-prints a group's join code, writes to one or leaves it; a group is named by the sixteen digits
+prints a group's join code, writes to one, clears its conversation or leaves it; a group is named by the sixteen digits
 `state` lists it with. A join code is the group: anyone who has it can read every frame of it, so
 `group code` prints it only for the group asked for, and nothing here keeps it. `position` tells the
 node where it is, in degrees, and `share` has the node send that to a contact or a group, as a
@@ -80,7 +85,7 @@ MAX_FRAME, MAGIC = 180, b"\xf5\x54"
 # version brought; `--speak` says another, so that `watch` is told of groups, positions or cards.
 VERSION = 1
 # The latest version the frames below are, which selftest reads the vectors by.
-LATEST = 15
+LATEST = 16
 # SET 4's value for the node's default passkey: a new one on its screen each time, or 123456 on a
 # node without one.
 PASSKEY_DEFAULT = 0xFFFFFFFF
@@ -103,6 +108,7 @@ FRAMES = {
     0x06: ("OFF", []),
     0x10: ("SEND", [("ref", "I"), ("to", "addr"), ("text", "str")]),
     0x11: ("READ", [("through", "I")]),
+    0x12: ("FORGET", [("contact", "addr"), ("through", "I")]),
     0x18: ("SAVE_CONTACT", [("address", "addr"), ("name", "str")]),
     0x19: ("REMOVE_CONTACT", [("address", "addr")]),
     0x1A: ("END_SESSION", [("address", "addr")]),
@@ -114,6 +120,7 @@ FRAMES = {
     0x25: ("JOIN", [("id", "I")]),
     0x26: ("GROUP_LINK", [("group", "gid")]),
     0x27: ("JOIN_LINK", [("link", "str")]),
+    0x28: ("FORGET_GROUP", [("group", "gid"), ("through", "I")]),
     0x30: ("UPDATE_BEGIN", [("size", "I"), ("digest", "digest"), ("signature", "raw")]),
     0x31: ("UPDATE_DATA", [("offset", "I"), ("data", "raw")]),
     0x32: ("UPDATE_END", []),
@@ -170,6 +177,8 @@ FRAMES = {
                    ("altitude", "h"), ("accuracy", "H"), ("age", "I"), ("satellites", "B")]),
     0x95: ("SLEEP", [("wake", "H"), ("listen", "B"), ("state", "B"), ("keeper", "I"),
                      ("retry", "H")]),
+    0x96: ("FORGOTTEN", [("contact", "addr"), ("through", "I")]),
+    0x97: ("GROUP_FORGOTTEN", [("group", "gid"), ("through", "I")]),
 }
 # Fields a later version added at the end of a frame: an earlier version's frame stops before them.
 LATER = {(0x43, "news"): 3, (0x42, "board"): 4, (0x42, "release"): 4, (0x80, "cards"): 6,
@@ -491,6 +500,11 @@ def describe(m, names):
         return f"group {m['name']!r}: {m['group'].hex()}"
     if t == "GROUP_GONE":
         return f"group left: {m['group'].hex()}"
+    if t == "FORGOTTEN":
+        who = names.get(m["contact"], m["contact"].hex()[:16])
+        return f"conversation with {who} cleared, as far as #{m['through']}"
+    if t == "GROUP_FORGOTTEN":
+        return f"conversation in {group_name(m['group'])} cleared, as far as #{m['through']}"
     if t == "GROUP_MESSAGE":
         way = "from" if m["state"] == 4 else "to"
         who = f" by {m['from']:08x}" if m["state"] == 4 else ""
@@ -716,13 +730,32 @@ def update(node, info, path, args):
     print("the node has the image, and restarts into it")
 
 
+def clear(node, info, args, kind, field, key, types):
+    """FORGET or FORGET_GROUP, as far as the greatest id the node holds in that conversation: what
+    `state` would show of it, so that a message that comes meanwhile is not erased unseen."""
+    if info["version"] < 16:
+        raise SystemExit("this node's firmware is too old to clear a conversation from here")
+    if not args.yes:
+        raise SystemExit("clear erases the conversation from the node and from every client of it, "
+                         "for good, and gives up any of it still to go. Run it again with --yes to "
+                         "do it.")
+    node.request("SYNC", after=0)
+    ids = [m["id"] for m in node.pending if m["type"] in types and m.get(field) == key]
+    node.pending.clear()
+    if not ids:
+        print("the node holds nothing of that conversation")
+        return
+    node.request(kind, **{field: key, "through": max(ids)})
+    print(f"cleared, as far as #{max(ids)}")
+
+
 def joins_codes(info):
     if info["version"] < 7:
         raise SystemExit("this node's firmware is too old for join codes")
 
 
 def run(args):
-    latest = ("state", "update", "group", "position", "share", "off", "wipe")
+    latest = ("state", "update", "group", "position", "share", "off", "wipe", "clear")
     speak = LATEST if args.command in latest else VERSION
     if args.command == "set":
         speak = max(speak, SINCE.get(args.setting, VERSION))
@@ -782,6 +815,8 @@ def run(args):
     elif args.command == "forget":
         node.request("REMOVE_CONTACT", address=address(args.address))
         print("removed")
+    elif args.command == "clear":
+        clear(node, info, args, "FORGET", "contact", address(args.address), ("MESSAGE", "INVITE"))
     elif args.command == "group":
         node.request("SYNC", after=0)  # for the names of contacts and groups
         for m in node.pending:
@@ -814,6 +849,9 @@ def run(args):
                              text=args.text)
             print(f"queued as group message #{q['id']}")
             watch_message(node, q, names, args.wait, (1, 2, 3))
+        elif args.what == "clear":
+            gid = group_id(args.group)
+            clear(node, info, args, "FORGET_GROUP", "group", gid, ("GROUP_MESSAGE",))
     elif args.command == "position":
         node.request("SET_POSITION", lat=degrees(args.lat, 90), lon=degrees(args.lon, 180),
                      altitude=args.altitude, accuracy=args.accuracy, age=args.age)
@@ -863,7 +901,7 @@ def selftest(path):
         ok = ok and got is not None and got["type"] == f["type"]
         failed += not ok
     # Each connection read by the version its client speaks: an older one's SYNCED is two bytes.
-    runs = [v["exchange"], *v["update"], v["refusals"], v["wipe"]]
+    runs = [v["exchange"], *v["update"], v["refusals"], v["wipe"], *v["forget"]]
     for c in [{"version": LATEST, "frames": f} for f in runs] + v["older"]:
         for f in c["frames"]:
             got = decode(bytes.fromhex(f["frame"]), c["version"])
@@ -899,6 +937,9 @@ def main():
     e.add_argument("address")
     f = sub.add_parser("forget")
     f.add_argument("address")
+    cl = sub.add_parser("clear", help="erase the conversation with an address, for good")
+    cl.add_argument("address")
+    cl.add_argument("--yes", action="store_true", help="yes, erase it")
     t = sub.add_parser("set")
     t.add_argument("setting", choices=list(SETTING))
     t.add_argument("value")
@@ -916,6 +957,9 @@ def main():
     gw = gs.add_parser("send")
     gw.add_argument("group")
     gw.add_argument("text")
+    gc = gs.add_parser("clear", help="erase a group's conversation, for good")
+    gc.add_argument("group")
+    gc.add_argument("--yes", action="store_true", help="yes, erase it")
     for x in (gi, gw):
         x.add_argument("--wait", type=float, default=30, help="seconds to watch it for")
     pos = sub.add_parser("position", help="tell the node where it is")

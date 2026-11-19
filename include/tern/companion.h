@@ -8,7 +8,7 @@
 #include "tern/address.h"
 #include "tern/time.h"
 
-/* The companion protocol: version 15 of draft/companion.md in ternmesh/spec.
+/* The companion protocol: version 16 of draft/companion.md in ternmesh/spec.
  *
  * The link between a node and the client driving it, a phone or a computer, over USB serial, TCP
  * or Bluetooth LE. It never goes over LoRa. This is the part every node and every client needs:
@@ -16,8 +16,10 @@
  * text console. What a node answers and when is the node's business, not the core's (in the node
  * every port shares, ports/node/link.c). */
 
-#define TERN_COMPANION_VERSION 15
+#define TERN_COMPANION_VERSION 16
 #define TERN_COMPANION_MAX_FRAME 180
+/* The fewest FORGOTTEN and GROUP_FORGOTTEN records a node keeps (version 16). */
+#define TERN_C_FORGOTTEN_KEPT 16
 /* SET 3's power that is the most the node may send at, which it works out (version 10). */
 #define TERN_C_POWER_MOST INT8_MIN
 /* SET 4's passkey that is the node's default: a new one on the screen for each pairing, or, on a
@@ -58,6 +60,7 @@ enum tern_companion_type {
     TERN_C_OFF = 0x06, /* version 9 */
     TERN_C_SEND = 0x10,
     TERN_C_READ = 0x11,
+    TERN_C_FORGET = 0x12, /* version 16, as are FORGET_GROUP, FORGOTTEN and GROUP_FORGOTTEN */
     TERN_C_SAVE_CONTACT = 0x18,
     TERN_C_REMOVE_CONTACT = 0x19,
     TERN_C_END_SESSION = 0x1A, /* version 1 */
@@ -69,6 +72,7 @@ enum tern_companion_type {
     TERN_C_JOIN = 0x25,
     TERN_C_GROUP_LINK = 0x26, /* version 7, as are the one after it and LINK */
     TERN_C_JOIN_LINK = 0x27,
+    TERN_C_FORGET_GROUP = 0x28,
     TERN_C_UPDATE_BEGIN = 0x30, /* version 4, as are the two after it */
     TERN_C_UPDATE_DATA = 0x31,
     TERN_C_UPDATE_END = 0x32,
@@ -109,6 +113,8 @@ enum tern_companion_type {
     TERN_C_CARD_GONE = 0x93,
     TERN_C_FIX = 0x94,   /* version 8 */
     TERN_C_SLEEP = 0x95, /* version 15 */
+    TERN_C_FORGOTTEN = 0x96,
+    TERN_C_GROUP_FORGOTTEN = 0x97,
 };
 
 /* The first version of the protocol that defines a type: a node sends a client no frame its

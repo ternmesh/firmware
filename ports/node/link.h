@@ -85,6 +85,12 @@
  * since 1970 or 0 if the node did not know, its address and its name. */
 #define LINK_CARD_SAVED_HEAD (1 + 1 + 4 + 4 + TERN_ADDRESS_LEN)
 #define LINK_CARD_SAVED_MAX (LINK_CARD_SAVED_HEAD + TERN_CARD_NAME_MAX)
+/* How much of each conversation the user has forgotten (FORGET, FORGET_GROUP): records for
+ * addresses and groups together, saved as one: a version, then for each its kind, `through` and
+ * the address or the group's id. */
+#define LINK_FORGOTTEN TERN_C_FORGOTTEN_KEPT
+#define LINK_FORGOTTEN_SAVED_EACH (1 + 4 + TERN_ADDRESS_LEN)
+#define LINK_FORGOTTEN_SAVED_MAX (1 + LINK_FORGOTTEN * LINK_FORGOTTEN_SAVED_EACH)
 
 /* The connections: where a frame came from, and where one goes. The third is the board's own:
  * what is typed at its console is asked of the link as a client would ask it, so that a group
@@ -191,6 +197,11 @@ struct link_host {
      * length, or 0 with nothing kept; saving a length of 0 forgets them. */
     size_t (*load_writers)(void *ctx, uint8_t *buf, size_t cap);
     bool (*save_writers)(void *ctx, const uint8_t *buf, size_t len);
+    /* The forgotten records (struct link_forgotten), saved whole, up to LINK_FORGOTTEN_SAVED_MAX
+     * bytes, each time one grows: what the board must always be able to save, as contacts are.
+     * Loading gives the length, or 0 with nothing kept. */
+    size_t (*load_forgotten)(void *ctx, uint8_t *buf, size_t cap);
+    bool (*save_forgotten)(void *ctx, const uint8_t *buf, size_t len);
     /* The messages, each saved alone by its place among LINK_MESSAGES, in two parts: what is
      * written once, up to LINK_SAVED_MAX bytes, and a word for what changes after. Loading gives
      * the length, or 0 with nothing kept there; saving a length of 0 forgets what the place
@@ -277,6 +288,16 @@ struct link_message {
     uint16_t wait;
     uint8_t text_len; /* an invite's is the group's name */
     uint8_t text[TERN_COMPANION_TEXT_MAX];
+};
+
+/* How much of a conversation the user has forgotten: every message and invite with an address,
+ * or every message to a group, whose id is `through` or less (draft/companion.md, "Forgotten").
+ * A group's record has its id at the start of `key`, and the rest zero. */
+struct link_forgotten {
+    bool used;
+    bool group;
+    uint32_t through;
+    uint8_t key[TERN_ADDRESS_LEN];
 };
 
 struct link_ref {
@@ -388,6 +409,7 @@ struct link {
     uint32_t contact_ids[LINK_CONTACTS];
     struct link_group groups[LINK_GROUPS];
     struct link_message messages[LINK_MESSAGES];
+    struct link_forgotten forgotten[LINK_FORGOTTEN];
     uint32_t next_id;
     uint32_t ids_saved;    /* ids below this are set aside in flash: no restart gives them again */
     uint32_t next_count;   /* the count of the next group frame this node seals, for any group */

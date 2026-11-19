@@ -2792,6 +2792,16 @@ static bool link_save_writers(void *ctx, const uint8_t *buf, size_t len) {
     return plat_store_save_if_room("writers", buf, len);
 }
 
+/* What the user has forgotten: what the board must always be able to save, as contacts are. */
+static size_t link_load_forgotten(void *ctx, uint8_t *buf, size_t cap) {
+    (void)ctx;
+    return plat_store_read("forgot", buf, cap);
+}
+
+static bool link_save_forgotten(void *ctx, const uint8_t *buf, size_t len) {
+    return store_save(ctx, "forgot", buf, len);
+}
+
 /* The groups' writers are written as each group frame is accepted (heard_flood()); what flash did
  * not take then, the frame dropped, is tried again this often and no more, for the flash's sake. */
 #define WRITERS_EVERY_S 60
@@ -4770,6 +4780,8 @@ void node_main(void) {
         .save_count = link_save_count,
         .load_writers = link_load_writers,
         .save_writers = link_save_writers,
+        .load_forgotten = link_load_forgotten,
+        .save_forgotten = link_save_forgotten,
         .load_card = link_load_card,
         .save_card = link_save_card,
         .load_message = link_load_message,
