@@ -16,6 +16,7 @@
 #include "esp_adc/adc_cali_scheme.h"
 #include "esp_adc/adc_oneshot.h"
 #include "esp_heap_caps.h"
+#include "esp_intr_alloc.h"
 #include "esp_rom_sys.h"
 #include "esp_sleep.h"
 #include "esp_timer.h"
@@ -1213,7 +1214,16 @@ void board_console_flush(uint32_t ms) {
 
 #define CONSOLE UART_NUM_0
 
-bool board_console_init(void) { return uart_driver_install(CONSOLE, 512, 0, 0, NULL, 0) == ESP_OK; }
+/* What a client sends, kept until the main loop reads it. A board that writes its flash, as it
+ * does for each message a client queues, stalls whatever runs from flash, the main loop and, unless
+ * it is in IRAM (CONFIG_UART_ISR_IN_IRAM), the UART's interrupt: the UART's 128-byte FIFO fills in
+ * 11 ms at 115200 baud, and the rest of a frame is lost. With the interrupt in IRAM the bytes reach
+ * this buffer, which holds 180 ms of them. */
+#define CONSOLE_RX 2048
+
+bool board_console_init(void) {
+    return uart_driver_install(CONSOLE, CONSOLE_RX, 0, 0, NULL, ESP_INTR_FLAG_IRAM) == ESP_OK;
+}
 
 bool board_console_read(uint8_t *c) { return uart_read_bytes(CONSOLE, c, 1, 0) == 1; }
 
