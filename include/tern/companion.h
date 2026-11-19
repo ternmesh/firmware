@@ -8,7 +8,7 @@
 #include "tern/address.h"
 #include "tern/time.h"
 
-/* The companion protocol: version 13 of draft/companion.md in ternmesh/spec.
+/* The companion protocol: version 15 of draft/companion.md in ternmesh/spec.
  *
  * The link between a node and the client driving it, a phone or a computer, over USB serial, TCP
  * or Bluetooth LE. It never goes over LoRa. This is the part every node and every client needs:
@@ -16,7 +16,7 @@
  * text console. What a node answers and when is the node's business, not the core's (in the node
  * every port shares, ports/node/link.c). */
 
-#define TERN_COMPANION_VERSION 14
+#define TERN_COMPANION_VERSION 15
 #define TERN_COMPANION_MAX_FRAME 180
 /* SET 3's power that is the most the node may send at, which it works out (version 10). */
 #define TERN_C_POWER_MOST INT8_MIN
@@ -107,7 +107,8 @@ enum tern_companion_type {
     TERN_C_GROUP_SHARING = 0x91,
     TERN_C_CARD = 0x92, /* version 6, as is the one after it */
     TERN_C_CARD_GONE = 0x93,
-    TERN_C_FIX = 0x94, /* version 8 */
+    TERN_C_FIX = 0x94,   /* version 8 */
+    TERN_C_SLEEP = 0x95, /* version 15 */
 };
 
 /* The first version of the protocol that defines a type: a node sends a client no frame its
@@ -126,6 +127,8 @@ enum tern_companion_setting {
     TERN_C_SET_CARDS = 5,     /* cards: version 6, as is the one after it */
     TERN_C_SET_CARD_NAME = 6, /* text */
     TERN_C_SET_RECEIVER = 7,  /* receiver: version 8 */
+    TERN_C_SET_WAKE = 8,      /* wake: version 15, as is the one after it */
+    TERN_C_SET_LISTEN = 9,    /* listen */
 };
 
 /* The first version of the protocol that defines a setting of SET's. */
@@ -184,6 +187,14 @@ enum tern_companion_receiver {
     TERN_C_RECEIVER_FIXED = 3,
 };
 
+/* SLEEP's state (version 15): what the node, as a leaf that may sleep, does now. */
+enum tern_companion_sleep {
+    TERN_C_SLEEP_AWAKE = 0,   /* listens all the time: not set to sleep, or a relay */
+    TERN_C_SLEEP_ASLEEP = 1,  /* sleeps; keeper is its keeper */
+    TERN_C_SLEEP_WAITING = 2, /* set to sleep, listening until it has a relay it can take */
+    TERN_C_SLEEP_RESTING = 3, /* relays did not answer its polls; keeper is tried in retry s */
+};
+
 /* FIX's source: whose fix the node uses. */
 enum tern_companion_source {
     TERN_C_SOURCE_NONE = 0,
@@ -199,8 +210,9 @@ enum tern_companion_source {
  * UPDATE_DATA's data, have members of their own; UPDATE_BEGIN's signature (version 13) is `data`
  * too, which that request has no other use for, so that no message is the bigger for it. A
  * position's `accuracy` and `age` are one member each, though SET_POSITION's are wider than the
- * news'. SET's value is `text`, `role`, `power`, `passkey`, `cards` or `receiver` as `setting`
- * says. Members a type does not use are ignored when writing and left as they were when reading. */
+ * news'. SET's value is `text`, `role`, `power`, `passkey`, `cards`, `receiver`, `wake` or
+ * `listen` as `setting` says. CONTACT's and SLEEP's wake is `wake` (version 15). Members a type
+ * does not use are ignored when writing and left as they were when reading. */
 struct tern_companion_msg {
     uint8_t type, seq;
     uint8_t version, setting, code, role, session, flags, state, reason, percent, why, news, cards;
@@ -208,6 +220,10 @@ struct tern_companion_msg {
     uint8_t most;    /* SELF's: 1 if `power` is the most the node may send at, which it works out */
     uint8_t pairing; /* SELF's: a TERN_C_PAIRING_ */
     uint8_t update;  /* INFO's: a TERN_C_UPDATES_ */
+    uint8_t listen;  /* SLEEP's, and SET 9's value: seconds */
+    uint16_t wake;   /* CONTACT's, SLEEP's, and SET 8's value: seconds, 0 for not sleeping */
+    uint16_t retry;  /* SLEEP's: seconds */
+    uint32_t keeper; /* SLEEP's: a routing id */
     int8_t power, snr;
     uint16_t millivolts;
     uint32_t heard;

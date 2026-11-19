@@ -922,8 +922,12 @@ static void heard_for_node(const uint8_t *plain, size_t len, const uint8_t peer[
         if (slot < 0 || !tern_sleep_content_read(plain, len, &wake)) {
             return; /* ignored, as the specification says */
         }
+        bool changed = peer_wake[slot] != wake;
         peer_wake[slot] = wake;
         tern_forward_wake(&forward, demo_peer_id(&demo, slot), wake);
+        if (changed) {
+            link_wake_changed(&companion, peer);
+        }
         sleep_sessions_at = 0; /* its session's waits, at once */
         print_address(peer);
         if (wake != 0) {
@@ -1953,6 +1957,8 @@ static void sleep_command(const char *rest) {
     } else if (strcmp(rest, " off") != 0) {
         printf("sleep, sleep on <seconds> [listen], sleep off\n");
         return;
+    } else {
+        listen = route.config.sleep_listen_s; /* kept for when it sleeps again */
     }
     next.sleep = doze_setting(wake, listen);
     if (!store_save(NULL, "settings", &next, sizeof next)) {
@@ -1963,6 +1969,7 @@ static void sleep_command(const char *rest) {
     tern_route_sleep_set(&route, wake, listen);
     sleep_tell_retry = 0;
     sleep_sessions_at = 0;
+    link_sleep_news(&companion);
     sleep_status();
 }
 
@@ -2372,6 +2379,25 @@ static void link_view(void *ctx, struct link_view *v) {
     v->millivolts = battery_mv;
     v->percent = power_percent(battery_mv); /* 255, unknown, when there is no battery */
     v->receiver = receiver;
+    /* Sleeping (draft/companion.md, SLEEP), as 'sleep' tells it at the console. */
+    v->wake = (uint16_t)tern_sleep_wake_s(route.config.sleep_wake);
+    v->listen = route.config.sleep_listen_s < TERN_SLEEP_LISTEN_MIN_S ? TERN_SLEEP_LISTEN_MIN_S
+                                                                      : route.config.sleep_listen_s;
+    uint32_t keeper = 0;
+    tern_time until = 0;
+    if (route.config.relay || route.config.sleep_wake == 0) {
+        v->sleep_state = TERN_C_SLEEP_AWAKE;
+    } else if (tern_route_sleeping(&route, &keeper)) {
+        v->sleep_state = TERN_C_SLEEP_ASLEEP;
+        v->keeper = keeper;
+    } else if (!route.starting && tern_route_resting(&route, now, &keeper, &until)) {
+        tern_time s = until > now ? (until - now) / 1000000000LL : 0;
+        v->sleep_state = TERN_C_SLEEP_RESTING;
+        v->keeper = keeper;
+        v->retry = (uint16_t)(s > 0xFFFF ? 0xFFFF : s);
+    } else {
+        v->sleep_state = TERN_C_SLEEP_WAITING;
+    }
 }
 
 static const struct tern_region *region_named(const uint8_t *name, size_t len) {
@@ -2520,6 +2546,29 @@ static uint8_t link_set(void *ctx, const struct tern_companion_msg *m) {
         next.card_name_len = m->text_len;
         restart = false;
         break;
+    case TERN_C_SET_WAKE:
+    case TERN_C_SET_LISTEN: {
+        /* Sleeping, kept as the console's 'sleep' keeps it: a relay keeps it too, and sleeps by
+         * it only as a leaf. */
+        uint16_t wake = route.config.sleep_wake;
+        uint8_t listen = route.config.sleep_listen_s < TERN_SLEEP_LISTEN_MIN_S
+                             ? TERN_SLEEP_LISTEN_MIN_S
+                             : route.config.sleep_listen_s;
+        if (m->setting == TERN_C_SET_WAKE) {
+            if (m->wake != 0 && !tern_sleep_wake_ok(m->wake)) {
+                return TERN_C_ERR_REFUSED;
+            }
+            wake = m->wake; /* seconds, which a promise's encoding is up to 32767 */
+        } else {
+            if (m->listen < TERN_SLEEP_LISTEN_MIN_S) {
+                return TERN_C_ERR_REFUSED;
+            }
+            listen = m->listen;
+        }
+        next.sleep = doze_setting(wake, listen);
+        restart = false;
+        break;
+    }
     case TERN_C_SET_RECEIVER:
         /* A board without one may turn it off, and has nothing to turn on. */
         if (m->receiver > 1 || (m->receiver == 1 && !board_gnss())) {
@@ -2553,6 +2602,14 @@ static uint8_t link_set(void *ctx, const struct tern_companion_msg *m) {
     if (m->setting == TERN_C_SET_RECEIVER) {
         receiver_power(!settings.receiver_off);
     }
+    if (m->setting == TERN_C_SET_WAKE || m->setting == TERN_C_SET_LISTEN) {
+        uint16_t wake;
+        uint8_t listen;
+        doze_setting_read(settings.sleep, &wake, &listen);
+        tern_route_sleep_set(&route, wake, listen);
+        sleep_tell_retry = 0;
+        sleep_sessions_at = 0;
+    }
     return 0;
 }
 
@@ -2565,6 +2622,13 @@ static void link_set_time(void *ctx, uint32_t time) {
 static bool link_session(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]) {
     (void)ctx;
     return demo_peer(&demo, address) >= 0;
+}
+
+/* CONTACT's wake: what the session's other end last said of its sleeping, in seconds. */
+static uint16_t link_wake(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]) {
+    (void)ctx;
+    int slot = demo_peer(&demo, address);
+    return slot < 0 ? 0 : (uint16_t)tern_sleep_wake_s(peer_wake[slot]);
 }
 
 static uint8_t link_end_session(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]) {
@@ -4612,6 +4676,7 @@ void node_main(void) {
         .set = link_set,
         .set_time = link_set_time,
         .session = link_session,
+        .wake = link_wake,
         .why = link_why,
         .end_session = link_end_session,
         .load = link_load,

@@ -150,6 +150,25 @@ static uint8_t board_set(void *ctx, const struct tern_companion_msg *m) {
         memcpy(b->view.card_name, m->text, m->text_len);
         b->view.card_name_len = m->text_len;
     }
+    if (b->set_answer == 0 && m->setting == TERN_C_SET_ROLE) {
+        b->view.role = m->role;
+    }
+    /* Sleeping, as the board takes it: a wake of 0 or from WAKE_MIN to WAKE_MAX, a listen of
+     * LISTEN_MIN or more. A leaf set to sleep waits for a keeper. */
+    if (b->set_answer == 0 && m->setting == TERN_C_SET_WAKE) {
+        if (m->wake != 0 && (m->wake < 300 || m->wake > 3600)) {
+            return TERN_C_ERR_REFUSED;
+        }
+        b->view.wake = m->wake;
+        b->view.sleep_state =
+            m->wake != 0 && b->view.role == 0 ? TERN_C_SLEEP_WAITING : TERN_C_SLEEP_AWAKE;
+    }
+    if (b->set_answer == 0 && m->setting == TERN_C_SET_LISTEN) {
+        if (m->listen < 2) {
+            return TERN_C_ERR_REFUSED;
+        }
+        b->view.listen = m->listen;
+    }
     /* The receiver too, on a board that has one: on, it searches until it has a fix. */
     if (b->set_answer == 0 && m->setting == TERN_C_SET_RECEIVER) {
         if (m->receiver > 1 || (m->receiver == 1 && b->view.receiver == TERN_C_RECEIVER_NONE)) {
@@ -411,6 +430,7 @@ static void start(void) {
     board.view.millivolts = 3987;
     board.view.percent = 81;
     board.view.power_flags = 1;
+    board.view.listen = 2; /* LISTEN_MIN, as a node never told listens for */
     board.session_with_bob = true;
     board.why = TERN_C_WAIT_ROUTE;
     struct link_host host = {
@@ -612,6 +632,12 @@ static void follow(const char *name, const struct step *steps, size_t n, size_t 
                 board.view.receiver = m.receiver;
                 link_receiver_fix(&companion, TERN_S(100) - TERN_S(m.age), m.lat, m.lon, m.altitude,
                                   m.accuracy, m.satellites);
+            } else if (m.type == TERN_C_SLEEP) {
+                /* The node takes its neighbour as keeper. */
+                board.view.sleep_state = m.state;
+                board.view.keeper = m.keeper;
+                board.view.retry = m.retry;
+                link_sleep_news(&companion);
             } else if (m.type == TERN_C_CARD) {
                 CHECK(dave_card(2, TERN_S(100)) == TERN_CARD_ACCEPTED);
             } else if (m.type == TERN_C_CARD_GONE) {
@@ -663,6 +689,14 @@ static void the_exchange_is_followed_frame_for_frame(void) {
 static void an_older_client_has_no_join_codes(void) {
     begin();
     follow("older 6", older_6, COUNT(older_6), COUNT(older_6), NULL);
+}
+
+/* A client of version 14 is told nothing of sleeping: its sync has no SLEEP and its CONTACT no
+ * wake, and the node answers SET 8 as a setting it does not know from that client. */
+static void an_older_client_is_told_nothing_of_sleeping(void) {
+    begin();
+    follow("older 14", older_14, COUNT(older_14), COUNT(older_14), NULL);
+    CHECK_EQ_U64(board.view.wake, 0);
 }
 
 /* A client of version 8 may not turn the node off: the node answers OFF as a request it does not
@@ -2923,6 +2957,7 @@ static void the_receivers_fix_is_shared(void) {
 
 int main(void) {
     RUN(the_exchange_is_followed_frame_for_frame);
+    RUN(an_older_client_is_told_nothing_of_sleeping);
     RUN(an_older_client_is_told_no_cards);
     RUN(an_older_client_has_no_join_codes);
     RUN(an_older_client_is_told_no_fix);

@@ -117,6 +117,14 @@ struct link_view {
     uint16_t millivolts;
     uint8_t percent, power_flags;
     uint8_t receiver; /* a TERN_C_RECEIVER_ state: none, off, searching or fixed */
+    /* Sleeping, as SLEEP says it (version 15): the wake and listen set, in seconds, what the node
+     * does now (a TERN_C_SLEEP_), its keeper or the relay it rests, and the seconds until it tries
+     * that relay again. */
+    uint16_t wake;
+    uint8_t listen;
+    uint8_t sleep_state;
+    uint32_t keeper;
+    uint16_t retry;
 };
 
 /* What became of saving a message: saved, refused for want of room, or not written for any other
@@ -150,6 +158,9 @@ struct link_host {
     void (*set_time)(void *ctx, uint32_t time);
     /* Whether the node shares a session with an address. */
     bool (*session)(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]);
+    /* How long an address said it sleeps between wakes, in seconds, in the session the node
+     * shares with it: 0 for not, or with no session. CONTACT's wake (version 15). May be NULL. */
+    uint16_t (*wake)(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]);
     /* Why a new message to an address would wait: a TERN_C_WAIT_ reason. */
     uint8_t (*why)(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]);
     /* END_SESSION: ends the session with an address, if there is one, and lets go of whatever the
@@ -358,7 +369,7 @@ struct link_conn {
     uint8_t self_cards;
     uint8_t self_card_name_len;
     uint8_t self_card_name[TERN_COMPANION_NAME_MAX];
-    struct tern_companion_msg air, power, fix;
+    struct tern_companion_msg air, power, fix, sleep;
     tern_time air_at, power_at, fix_at, look_at;
 };
 
@@ -518,6 +529,14 @@ void link_unreachable(struct link *l, const uint8_t address[TERN_ADDRESS_LEN]);
 
 /* A session started or ended with an address: news, if it is a contact. */
 void link_session_changed(struct link *l, const uint8_t address[TERN_ADDRESS_LEN]);
+
+/* An address told the node a new wake (draft/sleeping.md, "Telling the source"): news, if it is a
+ * contact. */
+void link_wake_changed(struct link *l, const uint8_t address[TERN_ADDRESS_LEN]);
+
+/* What sleeping does may have changed: SLEEP to every client told one, at once, if anything in it
+ * but its retry did. link_tick() looks too, every LINK_LOOK. */
+void link_sleep_news(struct link *l);
 
 /* Whether the user has saved an address as a contact: one the board takes first contact from
  * (draft/companion.md, "Who may make first contact"). */

@@ -36,6 +36,8 @@ cell of a grid as coarse as `precision` says, 1 to 24, until `share ... 0` stops
 speaks version 1 and is told of messages only: `--speak 8 watch` is told of all of it.
 `set receiver 0` turns off the node's satellite receiver, if it has one, and `set receiver 1` turns
 it on again; `state` prints the node's fix, whether its receiver's or the last a client gave.
+`set wake 600` has a leaf sleep, polling its keeper at least every 600 s (300 to 3600), and
+`set wake 0` stops it; `set listen 4` has it listen 4 s after each poll; `state` prints what it does.
 `update` gives the node a new image of its firmware, going on from where the node's bytes end if
 it was given part of the same image before, and the node restarts into it. A node whose bootloader
 takes its updates, as an nRF52840 board's does, is asked to restart into it, and the release's
@@ -78,7 +80,7 @@ MAX_FRAME, MAGIC = 180, b"\xf5\x54"
 # version brought; `--speak` says another, so that `watch` is told of groups, positions or cards.
 VERSION = 1
 # The latest version the frames below are, which selftest reads the vectors by.
-LATEST = 13
+LATEST = 15
 # SET 4's value for the node's default passkey: a new one on its screen each time, or 123456 on a
 # node without one.
 PASSKEY_DEFAULT = 0xFFFFFFFF
@@ -135,7 +137,7 @@ FRAMES = {
     0x80: ("SELF", [("address", "addr"), ("role", "B"), ("region", "str"), ("power", "b"),
                     ("time", "I"), ("cards", "B"), ("card_name", "str"), ("most", "B"),
                     ("pairing", "B")]),
-    0x81: ("CONTACT", [("address", "addr"), ("session", "B"), ("name", "str")]),
+    0x81: ("CONTACT", [("address", "addr"), ("session", "B"), ("name", "str"), ("wake", "H")]),
     0x82: ("CONTACT_GONE", [("address", "addr")]),
     0x83: ("MESSAGE", [("id", "I"), ("contact", "addr"), ("time", "I"), ("flags", "B"),
                        ("state", "B"), ("reason", "B"), ("wait", "H"), ("text", "str")]),
@@ -166,19 +168,22 @@ FRAMES = {
     0x93: ("CARD_GONE", [("address", "addr")]),
     0x94: ("FIX", [("receiver", "B"), ("source", "B"), ("lat", "i"), ("lon", "i"),
                    ("altitude", "h"), ("accuracy", "H"), ("age", "I"), ("satellites", "B")]),
+    0x95: ("SLEEP", [("wake", "H"), ("listen", "B"), ("state", "B"), ("keeper", "I"),
+                     ("retry", "H")]),
 }
 # Fields a later version added at the end of a frame: an earlier version's frame stops before them.
 LATER = {(0x43, "news"): 3, (0x42, "board"): 4, (0x42, "release"): 4, (0x80, "cards"): 6,
          (0x80, "card_name"): 6, (0x80, "most"): 10, (0x80, "pairing"): 11, (0x42, "update"): 12,
-         (0x30, "signature"): 13}
+         (0x30, "signature"): 13, (0x81, "wake"): 15}
 BYTES = {"addr": 32, "gid": 8, "digest": 32}
 TYPE = {name: t for t, (name, _) in FRAMES.items()}
 SETTINGS = {1: ("region", "str"), 2: ("role", "B"), 3: ("power", "b"), 4: ("passkey", "I"),
-            5: ("cards", "B"), 6: ("card_name", "str"), 7: ("receiver", "B")}
+            5: ("cards", "B"), 6: ("card_name", "str"), 7: ("receiver", "B"), 8: ("wake", "H"),
+            9: ("listen", "B")}
 SETTING = {name: (n, kind) for n, (name, kind) in SETTINGS.items()}
 # The version a setting came with, where it was not there from the first: a node refuses it of a
 # client that speaks an earlier one.
-SINCE = {"cards": 6, "card_name": 6, "receiver": 8}
+SINCE = {"cards": 6, "card_name": 6, "receiver": 8, "wake": 15, "listen": 15}
 # What a node holds with an id and a state, which a sync sends again: one id space for the three.
 HELD = ("MESSAGE", "GROUP_MESSAGE", "INVITE")
 STATES = ["waiting", "sent", "delivered", "not delivered", "received"]
@@ -450,8 +455,9 @@ def describe(m, names):
                 f"{', the most it may' if m.get('most') else ''}{cards}")
     if t == "CONTACT":
         names[m["address"]] = m["name"]
+        sleeps = f", sleeps up to {m['wake']} s between wakes" if m.get("wake") else ""
         return (f"contact {m['name']!r}: {m['address'].hex()}"
-                f"{', with a session' if m['session'] else ''}")
+                f"{', with a session' if m['session'] else ''}{sleeps}")
     if t == "CONTACT_GONE":
         return f"contact removed: {m['address'].hex()}"
     if t == "MESSAGE":
@@ -534,6 +540,16 @@ def describe(m, names):
         more += f", from {m['satellites']} satellites" if m["satellites"] else ""
         return (f"fix: {m['lat'] / 1e7:.7f}, {m['lon'] / 1e7:.7f}{more}, {m['age']} s old, "
                 f"{whose} ({receiver})")
+    if t == "SLEEP":
+        if not m["wake"]:
+            return "sleep: off, listening all the time"
+        head = f"sleep: on, polling at least every {m['wake']} s, listening {m['listen']} s after"
+        now = {0: "awake: a relay never sleeps",
+               1: f"asleep, kept by {m['keeper']:08x}",
+               2: "awake, waiting for a relay to keep it",
+               3: f"awake: no relay answers polls; trying {m['keeper']:08x} again in "
+                  f"{m['retry']} s"}.get(m["state"], f"state {m['state']}")
+        return f"{head}\n  {now}"
     return str(m)
 
 

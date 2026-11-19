@@ -333,7 +333,7 @@ static void later_frames_are_unknown_to_older_versions(void) {
 }
 
 static void nothing_is_written_that_cannot_be_read(void) {
-    struct tern_companion_msg m = {.type = TERN_C_SET, .seq = 1, .setting = 9};
+    struct tern_companion_msg m = {.type = TERN_C_SET, .seq = 1, .setting = 0x7F};
     uint8_t out[TERN_COMPANION_MAX_FRAME];
     CHECK_EQ_U64(tern_companion_write(&m, out), 0);
     m = (struct tern_companion_msg){.type = 0x2f};

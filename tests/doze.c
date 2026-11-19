@@ -98,7 +98,10 @@ static void the_setting_keeps_both_and_reads_nonsense_as_off(void) {
     doze_setting_read(doze_setting(600, 4), &w, &l);
     CHECK_EQ_I64(w, 600);
     CHECK_EQ_I64(l, 4);
-    CHECK_EQ_I64(doze_setting(0, 9), 0);
+    /* A listen is kept while it does not sleep, for when it does again (SET 9, version 15). */
+    doze_setting_read(doze_setting(0, 9), &w, &l);
+    CHECK_EQ_I64(w, 0);
+    CHECK_EQ_I64(l, 9);
     doze_setting_read(0, &w, &l);
     CHECK_EQ_I64(w, 0);
     doze_setting_read(0xFFFFFFFFu, &w, &l); /* flash never written */

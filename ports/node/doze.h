@@ -61,7 +61,8 @@ uint32_t doze_slice_ms(const struct doze *d, tern_time now);
 bool doze_parse(const char *args, uint16_t *wake, uint8_t *listen);
 
 /* The settings' word for sleeping (node.c): the wake's code in the low 16 bits, 0 for not sleeping,
- * and the listen in the next 8. */
+ * and the listen in the next 8, kept while it does not sleep. Read back, a wake or a listen the
+ * specification does not allow is 0: not sleeping, and the least listen. */
 uint32_t doze_setting(uint16_t wake, uint8_t listen);
 void doze_setting_read(uint32_t word, uint16_t *wake, uint8_t *listen);
 
