@@ -340,6 +340,9 @@ struct tern_route_config {
     bool retire;
     tern_time retire_for;
     uint8_t retire_repeats; /* times each retirement goes; 0 for RETRACTS */
+    /* After tern_route_epoch(), how long until every neighbour last heard before it is forgotten:
+     * every id has changed, so none of them will be heard again. 0 for never. */
+    tern_time epoch_grace;
 };
 
 /* The specification's parameters. */
@@ -724,8 +727,10 @@ struct tern_route {
      * taken. A place is free again once both are done. */
     struct tern_route_retired *retired;
     size_t retired_cap;
-    uint32_t retiring;  /* those with times still to go */
-    uint32_t old_count; /* places marked old by tern_route_epoch() and not yet given up */
+    uint32_t retiring;         /* those with times still to go */
+    uint32_t old_count;        /* places marked old by tern_route_epoch() and not yet given up */
+    tern_time epoch_at;        /* the last tern_route_epoch() */
+    tern_time epoch_forget_at; /* when neighbours heard only before it go, or -1 */
     size_t retired_cursor;
 };
 
@@ -849,6 +854,8 @@ void tern_route_retire(struct tern_route *r, tern_time now, uint32_t id);
  * TERN_ROUTE_RETIRED). Nothing is sent: every place the router holds is marked as made before it,
  * and with the table full a new destination takes one of those, the least worth keeping first,
  * rather than finding none. Without config.retire it does nothing. */
+/* And with config.epoch_grace, epoch_grace on it forgets every neighbour last heard before it, and
+ * every route through one: they too have new ids. */
 void tern_route_epoch(struct tern_route *r, tern_time now);
 
 /* A neighbour was heard passing on a frame sent to it, which it sent at `power` dBm and was heard

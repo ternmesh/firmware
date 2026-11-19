@@ -2401,6 +2401,7 @@ void tern_route_init(struct tern_route *r, const struct tern_route_config *confi
         .after = TERN_ROUTE_EVERYONE,
         .listen_until = INT64_MIN,
         .slept_announce = -1,
+        .epoch_forget_at = -1,
         .rng = seed ? seed : 1,
         .now = now,
     };
@@ -2444,6 +2445,7 @@ tern_time tern_route_due(const struct tern_route *r) {
         }
     }
     t = r->house_at < t ? r->house_at : t;
+    t = r->epoch_forget_at >= 0 && r->epoch_forget_at < t ? r->epoch_forget_at : t;
     t = r->announcing && r->announce_at < t ? r->announce_at : t;
     t = r->ask_at >= 0 && r->ask_at < t ? r->ask_at : t;
     t = r->request_at >= 0 && r->request_at < t ? r->request_at : t;
@@ -2469,6 +2471,16 @@ size_t tern_route_poll(struct tern_route *r, tern_time now, uint8_t frame[TERN_R
             }
         }
         r->house_at = now + house_period(r);
+    }
+    if (r->epoch_forget_at >= 0 && now >= r->epoch_forget_at) {
+        /* Retired destinations (an experiment): every id changed at the epoch, so a neighbour not
+         * heard since will not be heard again under the id it had. */
+        r->epoch_forget_at = -1;
+        for (size_t i = 0; i < r->nb_cap; i++) {
+            if (r->nb[i].used && r->nb[i].heard < r->epoch_at) {
+                forget(r, (uint8_t)(i + 1));
+            }
+        }
     }
     if (r->request_at >= 0 && now >= r->request_at) {
         ask_again(r);
@@ -2734,6 +2746,9 @@ void tern_route_retire(struct tern_route *r, tern_time now, uint32_t id) {
 void tern_route_epoch(struct tern_route *r, tern_time now) {
     r->now = now;
     r->old_count = 0;
+    r->epoch_at = now;
+    r->epoch_forget_at =
+        r->config.retire && r->config.epoch_grace ? now + r->config.epoch_grace : -1;
     for (size_t i = 0; r->config.retire && i < r->dest_cap; i++) {
         r->dest[i].old = r->dest[i].used;
         r->old_count += r->dest[i].used;

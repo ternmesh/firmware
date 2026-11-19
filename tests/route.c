@@ -1388,6 +1388,41 @@ static void a_new_epoch_takes_the_places_of_the_old(void) {
     CHECK_EQ_U64(r.selected, selected);
 }
 
+/* Retired destinations, an experiment: epoch_grace after an epoch starts, every neighbour last
+ * heard before it is forgotten, and the routes through it; one heard since is kept. */
+static void neighbours_unheard_since_the_epoch_are_forgotten(void) {
+    struct tern_lora lora = tern_region_lora(tern_region(TERN_REGION_US915));
+    struct tern_route_config config = tern_route_defaults(&lora, 22, -9, true);
+    struct tern_route_neighbour nb[2];
+    struct tern_route_dest dest[4];
+    struct tern_route r;
+    uint8_t frame[TERN_ROUTE_FRAME_MAX];
+    int8_t dbm;
+    config.retire = true;
+    config.epoch_grace = TERN_S(300);
+    tern_route_init(&r, &config, VECTOR_OWN_ID, nb, 2, dest, 4, 0, 1, 0);
+    struct tern_announce a = {
+        .sender = 0x100, .number = 2, .seq = 1, .relay = true, .promise = 60, .round = 1};
+    struct tern_announce b = {
+        .sender = 0x101, .number = 2, .seq = 1, .relay = true, .promise = 60, .round = 1};
+    tern_route_heard(&r, TERN_S(1), frame, tern_announce_write(&a, frame), 40);
+    tern_route_heard(&r, TERN_S(1), frame, tern_announce_write(&b, frame), 40);
+    CHECK(nb[0].used && nb[1].used);
+    tern_route_epoch(&r, TERN_S(10));
+    b.number = 3;
+    tern_route_heard(&r, TERN_S(20), frame, tern_announce_write(&b, frame), 40);
+    CHECK(tern_route_due(&r) <= TERN_S(310));
+    while (tern_route_poll(&r, TERN_S(299), frame, &dbm) != 0) {
+        tern_route_sent(&r, TERN_S(299));
+    }
+    CHECK(nb[0].used && nb[1].used); /* not yet */
+    while (tern_route_poll(&r, TERN_S(310), frame, &dbm) != 0) {
+        tern_route_sent(&r, TERN_S(310));
+    }
+    CHECK(!(nb[0].used && nb[0].id == 0x100) && !(nb[1].used && nb[1].id == 0x100));
+    CHECK((nb[0].used && nb[0].id == 0x101) || (nb[1].used && nb[1].id == 0x101));
+}
+
 int main(void) {
     RUN(the_routers_counts_add_up);
     RUN(ids_come_from_blinded_keys);
@@ -1428,5 +1463,6 @@ int main(void) {
     RUN(a_request_the_cap_cannot_pay_for_is_not_counted_as_sent);
     RUN(a_retired_destination_frees_its_place_and_goes_on);
     RUN(a_new_epoch_takes_the_places_of_the_old);
+    RUN(neighbours_unheard_since_the_epoch_are_forgotten);
     return CHECK_DONE();
 }
