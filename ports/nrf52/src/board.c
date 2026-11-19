@@ -1,5 +1,7 @@
 #include "board.h"
 
+#include <errno.h>
+#include <stdio.h>
 #include <string.h>
 
 #include <hal/nrf_power.h>
@@ -579,7 +581,9 @@ bool board_battery_init(void) {
 /* The battery's millivolts with the switch's line at `level` (its level on the pin, whatever its
  * flags say), or 0 if the ADC would not say. */
 static uint16_t battery_at(int level) {
-    int16_t raw;
+    /* Static: a conversion that timed out may still finish, and the SAADC's DMA writes it here
+     * after battery_at() has returned, which on the stack would be someone else's memory. */
+    static int16_t raw;
     struct adc_sequence seq = {.buffer = &raw, .buffer_size = sizeof raw};
     if (adc_sequence_init_dt(&battery, &seq) != 0) {
         return 0;
@@ -590,7 +594,16 @@ static uint16_t battery_at(int level) {
     k_busy_wait(BATTERY_SETTLE_US);
     int32_t sum = 0;
     for (int i = 0; i < BATTERY_SAMPLES; i++) {
-        if (adc_read_dt(&battery, &seq) != 0) {
+        int err = adc_read_dt(&battery, &seq);
+        if (err == -EAGAIN) {
+            /* The SAADC never said it was done (CMakeLists.txt): it is left alone until the
+             * board restarts, and the battery is reported as unknown, which turns nothing off. */
+            have_adc = false;
+            printf("the battery's ADC stopped answering: the battery is reported as unknown "
+                   "until a restart\n");
+            return 0;
+        }
+        if (err != 0) {
             return 0;
         }
         int32_t mv = raw < 0 ? 0 : raw;
