@@ -109,6 +109,10 @@ builds what a release carries, for each board an image for each region, into `re
   Bluetooth, Nordic's legacy DFU, as the boards ship; everything the board has saved is kept.
   `python3 tools/companion.py --port <port> update tern-<board>-<region>-<version>.zip` does it
   from a computer (it needs `bleak`), in five or six minutes. See [below](#updating-over-bluetooth).
+* **Sleeping leaves** (`sleep on <seconds>`, as the ESP32 port's
+  [Leaves that sleep](../esp32/README.md#leaves-that-sleep)): between polls the radio is in its
+  deepest sleep and the antenna switch off, and the processor idles in Zephyr's idle thread. A
+  relay holds up to 32 frames for the leaves it keeps, in static RAM.
 * **Erasing.** The Erase page, or `WIPE` from a client, wipes the flash's storage and restarts. The time on the air is
   carried across that restart in RAM; if the bootloader clears it on the way, the region's count
   starts again.

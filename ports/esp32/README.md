@@ -162,6 +162,8 @@ Type commands into the serial terminal:
 | `forget` | Forget every Bluetooth client that has paired ([the companion link](#over-bluetooth)). |
 | `screen sleep <seconds>` | How long the [screen](#the-screen) stays on; `0` keeps it on. `screen` alone says. |
 | `screen bench on`, `screen bench off` | Add the [bench pages](#the-bench-pages) to the screen, after the others, or take them away. The board keeps the choice. |
+| `sleep` | Whether this leaf [sleeps](#leaves-that-sleep): its keeper, when it next polls, and how much of the time its radio has been on. On a relay, what it holds for the leaves it keeps. |
+| `sleep on <seconds> [listen]`, `sleep off` | Make this leaf sleep, polling its keeper at least every 300 to 3600 seconds and listening 2 (or `listen`) seconds after each poll, or listen all the time again. The board keeps the choice. A relay never sleeps. |
 
 A short press of **PRG** shows the [screen](#the-screen)'s next page, and holding it for a second
 acts on the page shown, as [The screen](#the-screen) says. On a [bench page](#the-bench-pages),
@@ -379,6 +381,31 @@ Every announce is signed with the board's identity key, and a board takes nothin
 cannot check: no other radio can speak as it. Its address goes on the air to its neighbours while
 one may not have it, so anyone near can learn it. Every number in the draft is the simulator's
 default, not one measured on radios.
+
+### Leaves that sleep
+
+A leaf can [sleep](https://github.com/ternmesh/spec/blob/main/draft/sleeping.md): `sleep on 300`
+turns its radio off between polls to a relay, its **keeper**, which holds what is sent to it
+meanwhile and hands it over at the next poll. A message to a sleeping leaf takes up to that long to
+arrive. The leaf tells each board it has a session with that it sleeps, so their messages to it
+wait for it, and announces every ten minutes at most. It needs a relay running this firmware or
+later in range: a relay on earlier firmware does not keep it, and drops its announces. A leaf
+gives up a relay that leaves six polls in a row unanswered, takes no relay it gave up for an hour
+unless that relay answers it, and with none to take listens all the time, as a leaf that does not
+sleep; `sleep` then says `not asleep: no relay answers polls; trying 482fa614 again in 3540 s`.
+
+```
+sleep: on, polling its keeper at least every 300 s and listening 2 s after each poll
+asleep, kept by 482fa614: next poll in 212 s, 0 polls in a row unanswered (6 gives it up)
+radio: asleep now; on 1.4% of the 3605 s since it started, asleep 3554 s in 13 sleeps
+peer 1: told how this board sleeps; it listens, as far as it has said
+```
+
+Asleep, the radio is in its deepest sleep and the V4's amplifier unpowered; it is reset and set up
+again a little before each poll. The processor is not put to sleep: the loop turns ten times a
+second instead of a thousand, and the console, the button and Bluetooth go on working, so a board
+on USB can be driven as usual. Typing a command wakes the radio for it. A relay holds up to 32
+frames for the leaves it keeps, from its heap.
 
 ## Radio settings
 

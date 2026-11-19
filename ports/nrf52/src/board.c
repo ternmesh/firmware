@@ -294,6 +294,21 @@ void board_radio_sleep(void) {
     set(&lora_ant, 0);
 }
 
+void board_radio_doze(void) {
+    if (radio_started) {
+#if LR11XX
+        (void)tern_lr11xx_sleep(&lr);
+#else
+        (void)tern_sx126x_sleep(&sx);
+#endif
+    }
+    switch_to(false, false);
+    set(&lora_ant, 0);
+}
+
+/* Its pins set up again, harmlessly, the chip reset and its driver started again. */
+int board_radio_wake(void) { return board_init(); }
+
 /* --- The button and the LED ------------------------------------------------------------------ */
 
 const char *board_button_name(void) { return button.port != NULL ? CONFIG_TERN_BUTTON_NAME : NULL; }

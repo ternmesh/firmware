@@ -5,6 +5,7 @@
     "WAKE_MAX": 3600,
     "LISTEN_MIN": 2,
     "HOLD_EXTRA": 60,
+    "KEEPER_REST": 3600,
     "ACK_WAIT_ms": 5000,
     "ACK_FACTOR": 4
   },
@@ -298,6 +299,33 @@
       "last": 0,
       "id": 32768,
       "answers": false
+    }
+  ],
+  "keeper_rest": [
+    {
+      "given_up": null,
+      "answered": false,
+      "may_take": true
+    },
+    {
+      "given_up": 0,
+      "answered": false,
+      "may_take": false
+    },
+    {
+      "given_up": 3599,
+      "answered": false,
+      "may_take": false
+    },
+    {
+      "given_up": 3600,
+      "answered": false,
+      "may_take": true
+    },
+    {
+      "given_up": 60,
+      "answered": true,
+      "may_take": true
     }
   ],
   "hold_for": [

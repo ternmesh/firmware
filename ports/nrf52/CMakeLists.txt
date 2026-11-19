@@ -30,6 +30,7 @@ target_sources(app PRIVATE
     ${node}/qr.c
     ${node}/power.c
     ${node}/crumb.c
+    ${node}/doze.c
     ${core})
 target_include_directories(app PRIVATE src ${node} ${root}/include)
 # The T114's colour panel is drawn by the node itself (../node/colour.h).

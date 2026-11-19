@@ -15,15 +15,16 @@
  * what a keeper holds and the held notice it answers with. This header has the rules both use, and
  * the frame for the node that tells a leaf's contacts how long it sleeps. */
 
-#define TERN_SLEEP_WAKE_MIN_S 300   /* WAKE_MIN: the shortest wake */
-#define TERN_SLEEP_WAKE_MAX_S 3600  /* WAKE_MAX: the longest */
-#define TERN_SLEEP_LISTEN_MIN_S 2   /* LISTEN_MIN: the shortest listen */
-#define TERN_SLEEP_HOLD_LEAF 16     /* HOLD_LEAF: frames a keeper holds for each leaf, at least */
-#define TERN_SLEEP_HOLD_EXTRA_S 60  /* HOLD_EXTRA */
-#define TERN_SLEEP_ANNOUNCE_S 600   /* SLEEP_ANNOUNCE: the longest between a sleeping leaf's */
-#define TERN_SLEEP_POLL_TRIES 6     /* POLL_TRIES: unanswered in a row before it changes keeper */
-#define TERN_SLEEP_POLL_RETRY_S 10  /* POLL_RETRY: after a poll unanswered */
-#define TERN_SLEEP_KEEPER_BAND_DB 6 /* KEEPER_BAND */
+#define TERN_SLEEP_WAKE_MIN_S 300     /* WAKE_MIN: the shortest wake */
+#define TERN_SLEEP_WAKE_MAX_S 3600    /* WAKE_MAX: the longest */
+#define TERN_SLEEP_LISTEN_MIN_S 2     /* LISTEN_MIN: the shortest listen */
+#define TERN_SLEEP_HOLD_LEAF 16       /* HOLD_LEAF: frames a keeper holds for each leaf, at least */
+#define TERN_SLEEP_HOLD_EXTRA_S 60    /* HOLD_EXTRA */
+#define TERN_SLEEP_ANNOUNCE_S 600     /* SLEEP_ANNOUNCE: the longest between a sleeping leaf's */
+#define TERN_SLEEP_POLL_TRIES 6       /* POLL_TRIES: unanswered in a row before it changes keeper */
+#define TERN_SLEEP_POLL_RETRY_S 10    /* POLL_RETRY: after a poll unanswered */
+#define TERN_SLEEP_KEEPER_BAND_DB 6   /* KEEPER_BAND */
+#define TERN_SLEEP_KEEPER_REST_S 3600 /* KEEPER_REST: a relay given up rests this long */
 
 #define TERN_SLEEP_KIND 0x04 /* the first byte of a message for the node that says it sleeps */
 #define TERN_SLEEP_CONTENT_LEN 3
@@ -82,6 +83,13 @@ static inline bool tern_sleep_holds(tern_time since, uint8_t listen_s) {
 static inline bool tern_sleep_answers_poll(bool polled, uint16_t last, uint16_t id) {
     uint16_t d = (uint16_t)(id - last);
     return !polled || (d >= 1 && d <= 0x7FFF);
+}
+
+/* Whether a leaf may take a relay as its keeper: one it has never given up as keeper (`given_up`
+ * false), one it gave up KEEPER_REST or more ago (`since`), or one that has answered a poll of
+ * the leaf's since (`answered`). */
+static inline bool tern_sleep_may_take(bool given_up, tern_time since, bool answered) {
+    return !given_up || answered || since >= TERN_S(TERN_SLEEP_KEEPER_REST_S);
 }
 
 /* How long a keeper holds a frame for a leaf whose wake is `wake`: 2 × w + HOLD_EXTRA. */

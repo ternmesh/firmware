@@ -21,6 +21,7 @@ idf_component_register(
         ${node}/power.c
         ${node}/axp.c
         ${node}/crumb.c
+        ${node}/doze.c
         ${root}/src/address.c
         ${root}/src/airtime.c
         ${root}/src/aes.c

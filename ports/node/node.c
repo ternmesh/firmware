@@ -61,6 +61,7 @@
 #include "crumb.h"
 #include "demo.h"
 #include "display.h"
+#include "doze.h"
 #include "link.h"
 #include "platform.h"
 #include "power.h"
@@ -81,6 +82,7 @@
 #include "tern/region.h"
 #include "tern/route.h"
 #include "tern/share.h"
+#include "tern/sleep.h"
 #include "ui.h"
 #if TERN_COLOUR
 #include "colour.h"
@@ -230,16 +232,35 @@ static tern_time forward_quiet; /* how long to listen once the frame on the air 
 /* A position's place among the pending: it has no message id, and what becomes of it is the
  * link's to know (link_position_done()), not news. */
 #define PENDING_POSITION UINT32_MAX
+/* And a sleep notice's (draft/sleeping.md, "Telling the source"): the wake it told, in `wake`. */
+#define PENDING_SLEEP (UINT32_MAX - 1)
 
 static struct pending {
-    uint32_t id; /* the link's, PENDING_POSITION, or 0 for a free place */
+    uint32_t id; /* the link's, PENDING_POSITION, PENDING_SLEEP, or 0 for a free place */
     uint32_t counter;
     int slot; /* the session it was sealed in (demo.s) */
     uint8_t tag[TERN_FORWARD_TAG];
     uint8_t goes;                 /* times it has gone on the air */
     tern_time at;                 /* when it was handed over */
     uint8_t to[TERN_ADDRESS_LEN]; /* a position's: whose it is, though its session be replaced */
+    uint16_t wake;                /* a sleep notice's: the wake it told */
 } pending[PENDING];
+
+/* Leaves that sleep (draft/sleeping.md, doze.h). The radio asleep between polls, and how long it
+ * has been; for each session, the wake its peer said it sleeps for (0 for not) and the wake this
+ * board last had acknowledged as its own (0 for not sleeping, which a peer takes until told). Not
+ * kept across a restart: a peer says it again, and this board tells each peer again. And what a
+ * relay holds for the sleeping leaves that keep it, from the heap or static, or none. */
+static struct doze doze;
+static uint16_t peer_wake[DEMO_PEERS];
+static uint16_t wake_told[DEMO_PEERS];
+static tern_time sleep_tell_retry;
+static tern_time sleep_sessions_at;
+#define KEEPER_FRAMES                                                                              \
+    (2 * TERN_SLEEP_HOLD_LEAF) /* two sleeping leaves, as the specification asks */
+#if defined(__ZEPHYR__)
+static struct tern_forward_kept keeper_store[KEEPER_FRAMES];
+#endif
 /* The handshake frame of this board's that the forwarder keeps, and sends again until its answer
  * comes: message_1 or message_3 of a handshake this board began. */
 static struct {
@@ -383,6 +404,8 @@ struct settings {
     /* And the satellite receiver (draft/companion.md, SET 7), on on a board that saved none. Four
      * bytes, for the reason screen_flags is. */
     uint32_t receiver_off; /* 1 if a client turned it off */
+    /* And sleeping, as a leaf (doze.h's doze_setting()): off on a board that saved none. */
+    uint32_t sleep;
 };
 #define SCREEN_BENCH 0x01u /* screen_flags: the bench screen's pages follow the user's */
 #if CONFIG_TERN_SCREEN_BENCH
@@ -400,6 +423,7 @@ static struct settings settings = {SETTINGS_MAGIC,
                                    0,
                                    0,
                                    {0},
+                                   0,
                                    0};
 
 /* The bench: test frames sent on a timer, and counts of what was received. */
@@ -718,6 +742,9 @@ static bool hand_over(const struct link_message *x, struct pending *p, bool *gon
 /* A session was replaced or dropped: what was sent in it can no longer be acknowledged, so the
  * forwarder lets go of it, and the client is told. Other sessions' messages go on. */
 static void pending_drop(int slot, bool tell) {
+    /* What either end said of sleeping was said in the old session. */
+    peer_wake[slot] = 0;
+    wake_told[slot] = 0;
     if (sealed_id != 0 && sealed_slot == slot) {
         sealed_id = 0; /* a frame sealed in the old session is no use in the new */
     }
@@ -727,6 +754,8 @@ static void pending_drop(int slot, bool tell) {
             (void)tern_forward_acked(&forward, pending[i].tag);
             if (pending[i].id == PENDING_POSITION) {
                 link_position_done(&companion, pending[i].to);
+            } else if (pending[i].id == PENDING_SLEEP) {
+                /* Told again in the new session, if there is one. */
             } else if (tell) {
                 link_state(&companion, pending[i].id, TERN_C_NOT_DELIVERED, 0, 0);
             }
@@ -817,6 +846,8 @@ static void heard_ack(const struct tern_radio_event *ev) {
            p->goes == 1 ? "" : "s");
     if (p->id == PENDING_POSITION) {
         link_position_done(&companion, p->to);
+    } else if (p->id == PENDING_SLEEP) {
+        wake_told[p->slot] = p->wake;
     } else {
         link_state(&companion, p->id, TERN_C_DELIVERED, 0, 0);
     }
@@ -883,6 +914,24 @@ static void heard_for_node(const uint8_t *plain, size_t len, const uint8_t peer[
     size_t name_len;
     if (len > 0 && plain[0] == TERN_POSITION_KIND) {
         link_position_received(&companion, board_now(), peer, counter, plain, len);
+        return;
+    }
+    if (len > 0 && plain[0] == TERN_SLEEP_KIND) {
+        uint16_t wake;
+        int slot = demo_peer(&demo, peer);
+        if (slot < 0 || !tern_sleep_content_read(plain, len, &wake)) {
+            return; /* ignored, as the specification says */
+        }
+        peer_wake[slot] = wake;
+        tern_forward_wake(&forward, demo_peer_id(&demo, slot), wake);
+        sleep_sessions_at = 0; /* its session's waits, at once */
+        print_address(peer);
+        if (wake != 0) {
+            printf(" sleeps: up to %lu s between wakes. Messages to it wait for it.\n",
+                   (unsigned long)tern_sleep_wake_s(wake));
+        } else {
+            printf(" no longer sleeps\n");
+        }
         return;
     }
     if (!tern_group_invite_read(plain, len, secret, name, &name_len)) {
@@ -1423,6 +1472,8 @@ static void poll_forward(void) {
                    (unsigned long)p->counter, p->goes, p->goes == 1 ? "" : "s");
             if (p->id == PENDING_POSITION) {
                 link_position_done(&companion, p->to);
+            } else if (p->id == PENDING_SLEEP) {
+                sleep_tell_retry = now + TERN_S(60); /* and then told again */
             } else {
                 link_state(&companion, p->id, TERN_C_NOT_DELIVERED, 0, 0);
             }
@@ -1431,7 +1482,7 @@ static void poll_forward(void) {
     }
     budget_waits(now);
     for (int i = 0; i < PENDING; i++) {
-        if (pending[i].id == PENDING_POSITION) {
+        if (pending[i].id == PENDING_POSITION || pending[i].id == PENDING_SLEEP) {
             continue; /* not a message: nothing to tell of it */
         }
         if (pending[i].id != 0 && !link_wanted(&companion, pending[i].id)) {
@@ -1698,6 +1749,221 @@ static void poll_route(void) {
     } else {
         route_retry = now + 1000000000LL; /* the radio, or the flash: not every turn of the loop */
     }
+}
+
+/* --- Sleeping (draft/sleeping.md, doze.h) ----------------------------------------------------- */
+
+/* The wake this board sleeps for, as a leaf, in a promise's code: 0 if it listens all the time. */
+static uint16_t own_wake(void) { return route.config.relay ? 0 : route.config.sleep_wake; }
+
+/* A frame on the air, or one about to be: the radio is needed now. */
+static bool radio_busy(void) {
+    return transmitting || route_out || flood_out || forward_out || route_len != 0 || bench ||
+           beacon_running;
+}
+
+/* The soonest the router, the forwarder or the flooder wants the radio. */
+static tern_time radio_due(void) {
+    tern_time t = tern_route_due(&route), f = tern_forward_due(&forward);
+    t = f < t ? f : t;
+    f = tern_flood_due(&flood);
+    return f < t ? f : t;
+}
+
+static void radio_doze(tern_time now, tern_time until) {
+    board_radio_doze();
+    power_now = POWER_UNSET; /* its settings are lost asleep */
+    doze_begin(&doze, now, until);
+}
+
+/* Wakes the radio: reset, set up again and listening. One that will not is left awake, and after
+ * DOZE_FAILURES of those is never put to sleep again until the board restarts. */
+static void radio_wake(void) {
+    tern_time now = board_now();
+    int err = board_radio_wake();
+    doze_end(&doze, now);
+    if (err == TERN_OK) {
+        err = tern_radio_configure(&radio, &cfg);
+    }
+    if (err == TERN_OK) {
+        err = tern_radio_receive(&radio);
+    }
+    if (err == TERN_OK) {
+        power_now = cfg.tx_power_dbm;
+        return;
+    }
+    doze.failures++;
+    printf("the radio did not wake from its sleep (error %d)%s\n", err,
+           doze.failures >= DOZE_FAILURES ? ": it is left on from now" : "");
+}
+
+/* A sleeping leaf's radio: put to sleep when the core says nothing is listened for and the gap
+ * is worth it, and woken in time for what is next, or at once when there is something to send or
+ * the board no longer sleeps. */
+static void poll_doze(void) {
+    tern_time now = board_now(), until, wake_at = INT64_MAX;
+    bool sleeping = tern_route_sleeping(&route, NULL) && !bench;
+    if (doze.dozing) {
+        if (doze_wake_now(&doze, now, radio_due(), sleeping)) {
+            radio_wake();
+        }
+        return;
+    }
+    if (!sleeping) {
+        return;
+    }
+    bool may = tern_forward_may_sleep(&forward, now, &wake_at);
+    if (doze_should(&doze, now, may, wake_at, tern_flood_due(&flood), radio_busy(), &until)) {
+        radio_doze(now, until);
+    }
+}
+
+/* Tells each peer how long this board sleeps (draft/sleeping.md, "Telling the source"), one at a
+ * time, whenever what it last had acknowledged is not what it is now: when it begins to sleep,
+ * changes its wake, or stops. Its sessions answer copies and keep proofs as long as it and each
+ * peer sleep, said again each second for a session made since. */
+static void poll_sleep_tell(void) {
+    static uint8_t frame[TERN_UNICAST_OVERHEAD + TERN_SLEEP_CONTENT_LEN];
+    tern_time now = board_now();
+    uint16_t wake = own_wake();
+    if (sleep_sessions_at == 0 || now - sleep_sessions_at >= TERN_S(1)) {
+        sleep_sessions_at = now;
+        for (int i = 0; i < DEMO_PEERS; i++) {
+            if (demo.s[i].role != 0) {
+                tern_session_sleep(&demo.s[i].session, wake, peer_wake[i]);
+            }
+        }
+    }
+    if (now < sleep_tell_retry || now < outgoing_retry) {
+        return;
+    }
+    for (int i = 0; i < PENDING; i++) {
+        if (pending[i].id == PENDING_SLEEP) {
+            return; /* one on its way */
+        }
+    }
+    int slot = -1;
+    for (int i = 0; i < DEMO_PEERS && slot < 0; i++) {
+        slot = demo.s[i].role != 0 && wake_told[i] != wake ? i : -1;
+    }
+    struct pending *p = pending_free();
+    if (slot < 0 || p == NULL) {
+        return;
+    }
+    uint8_t content[TERN_SLEEP_CONTENT_LEN];
+    uint32_t counter = demo.s[slot].session.tx.next;
+    (void)tern_sleep_content_write(wake, content);
+    if (demo_seal_node(&demo, slot, content, sizeof content, frame) != DEMO_OK ||
+        pending_tagged(&frame[TERN_FORWARD_HEAD]) != NULL ||
+        !tern_forward_send(&forward, now, demo_peer_id(&demo, slot), frame, sizeof frame, true,
+                           INT8_MIN)) {
+        sleep_tell_retry = now + TERN_S(5);
+        return;
+    }
+    *p = (struct pending){
+        .id = PENDING_SLEEP, .counter = counter, .slot = slot, .at = now, .wake = wake};
+    memcpy(p->tag, &frame[TERN_FORWARD_HEAD], TERN_FORWARD_TAG);
+    memcpy(p->to, demo.s[slot].peer, TERN_ADDRESS_LEN);
+    printf("telling peer %d that this board %s\n", slot + 1,
+           wake != 0 ? "sleeps" : "no longer sleeps");
+}
+
+/* 'sleep': what sleeping is set to, and what the radio has done. */
+static void sleep_status(void) {
+    tern_time now = board_now();
+    uint32_t keeper = 0;
+    bool asleep = tern_route_sleeping(&route, &keeper);
+    uint16_t wake = route.config.sleep_wake;
+    const struct tern_forward_counts *fc = &forward.counts;
+    if (route.config.relay) {
+        printf("sleep: a relay, which never sleeps. It keeps the sleeping leaves that name it: "
+               "%s; held %lu frames for them, handed %lu over, dropped %lu for want of room and "
+               "%lu held too long\n",
+               forward.kept_cap != 0 ? "it has room for their frames" : "IT HAS NO ROOM for them",
+               (unsigned long)fc->held, (unsigned long)fc->handed, (unsigned long)fc->held_full,
+               (unsigned long)fc->held_late);
+    } else if (wake == 0) {
+        printf("sleep: off: this leaf listens all the time. 'sleep on <seconds> [listen]' turns it "
+               "on, waking at least every %u to %u s\n",
+               TERN_SLEEP_WAKE_MIN_S, TERN_SLEEP_WAKE_MAX_S);
+    } else {
+        printf("sleep: on, polling its keeper at least every %lu s and listening %u s after each "
+               "poll\n",
+               (unsigned long)tern_sleep_wake_s(wake), (unsigned)route.config.sleep_listen_s);
+        if (asleep) {
+            printf("asleep, kept by %08lx: next poll in %lld s, %u poll%s in a row unanswered "
+                   "(%u gives it up)\n",
+                   (unsigned long)keeper,
+                   (long long)(route.poll_at > now ? (route.poll_at - now) / 1000000000LL : 0),
+                   (unsigned)route.poll_misses, route.poll_misses == 1 ? "" : "s",
+                   (unsigned)TERN_SLEEP_POLL_TRIES);
+        } else if (route.starting) {
+            printf("not asleep: it is still starting\n");
+        } else {
+            uint32_t relay = 0;
+            tern_time until = 0;
+            if (tern_route_resting(&route, now, &relay, &until)) {
+                /* Relays on firmware before sleeping leaves do not answer polls (draft/sleeping.md,
+                 * "A relay that does not keep"): it listens meanwhile. */
+                printf("not asleep: no relay answers polls; trying %08lx again in %lld s\n",
+                       (unsigned long)relay, (long long)((until - now) / 1000000000LL));
+            } else {
+                printf("not asleep: it waits for a keeper, a relay it hears with the link up both "
+                       "ways\n");
+            }
+        }
+    }
+    uint32_t on = doze_on_permille(&doze, now);
+    printf("radio: %s; on %lu.%lu%% of the %lld s since it started, asleep %lld s in %lu "
+           "sleeps\n",
+           doze.dozing ? "asleep now" : "on now", (unsigned long)(on / 10),
+           (unsigned long)(on % 10), (long long)((now - doze.started) / 1000000000LL),
+           (long long)(doze_off(&doze, now) / 1000000000LL), (unsigned long)doze.dozes);
+    for (int i = 0; i < DEMO_PEERS; i++) {
+        if (demo.s[i].role == 0) {
+            continue;
+        }
+        printf("peer %d: %s; it %s\n", i + 1,
+               wake_told[i] == own_wake() ? "told how this board sleeps" : "not yet told",
+               peer_wake[i] != 0 ? "sleeps" : "listens, as far as it has said");
+    }
+}
+
+/* 'sleep', 'sleep on <seconds> [listen]' and 'sleep off'. Kept with the settings. */
+static void sleep_command(const char *rest) {
+    struct settings next = settings;
+    uint16_t wake = 0;
+    uint8_t listen = 0;
+    if (rest[0] == '\0') {
+        sleep_status();
+        return;
+    }
+    if (strncmp(rest, " on ", 4) == 0) {
+        if (route.config.relay) {
+            printf("not on: this board is a relay, and a relay never sleeps\n");
+            return;
+        }
+        if (!doze_parse(&rest[4], &wake, &listen)) {
+            printf("sleep on <seconds> [listen]: a wake from %u to %u s, and a listen after each "
+                   "poll from %u to 255 s, %u if not given\n",
+                   TERN_SLEEP_WAKE_MIN_S, TERN_SLEEP_WAKE_MAX_S, TERN_SLEEP_LISTEN_MIN_S,
+                   TERN_SLEEP_LISTEN_MIN_S);
+            return;
+        }
+    } else if (strcmp(rest, " off") != 0) {
+        printf("sleep, sleep on <seconds> [listen], sleep off\n");
+        return;
+    }
+    next.sleep = doze_setting(wake, listen);
+    if (!store_save(NULL, "settings", &next, sizeof next)) {
+        printf("not saved: the flash refused it\n");
+        return;
+    }
+    settings = next;
+    tern_route_sleep_set(&route, wake, listen);
+    sleep_tell_retry = 0;
+    sleep_sessions_at = 0;
+    sleep_status();
 }
 
 /* --- The bench -------------------------------------------------------------------------------- */
@@ -2652,6 +2918,17 @@ static void status(void) {
            "route, %lu with no room; waited %lu times for a frame being received\n",
            (unsigned long)fc->passed_on, (unsigned long)fc->sent_again, (unsigned long)fc->given_up,
            (unsigned long)fc->no_route, (unsigned long)fc->no_room, (unsigned long)held_back);
+    if (own_wake() != 0) {
+        uint32_t keeper = 0, on = doze_on_permille(&doze, board_now());
+        bool asleep = tern_route_sleeping(&route, &keeper);
+        printf("sleep: on, every %lu s; %s; radio on %lu.%lu%% of the time. 'sleep' says more.\n",
+               (unsigned long)tern_sleep_wake_s(own_wake()),
+               asleep ? "asleep"
+               : tern_route_resting(&route, board_now(), &keeper, &(tern_time){0})
+                   ? "not asleep: no relay answers polls"
+                   : "waiting for a keeper",
+               (unsigned long)(on / 10), (unsigned long)(on % 10));
+    }
     if (demo.h.phase == DEMO_INITIATING || demo.h.phase == DEMO_RESPONDING) {
         printf("first contact: under way, as the %s\n",
                demo.h.phase == DEMO_INITIATING ? "initiator" : "responder");
@@ -2848,6 +3125,9 @@ static void screen_command(const char *rest) {
 }
 
 static void command(char *line) {
+    if (doze.dozing && line[0] != '\0') {
+        radio_wake(); /* a command may set the radio up: it is awake for it */
+    }
     if (bench_command(line)) {
         return;
     }
@@ -2921,6 +3201,8 @@ static void command(char *line) {
         selftest();
     } else if (strncmp(line, "screen", 6) == 0) {
         screen_command(&line[6]);
+    } else if (strcmp(line, "sleep") == 0 || strncmp(line, "sleep ", 6) == 0) {
+        sleep_command(&line[5]);
     } else if (strcmp(line, "forget") == 0) {
         if (have_ble) {
             ble_forget();
@@ -2931,13 +3213,15 @@ static void command(char *line) {
         }
     } else if (line[0] != '\0') {
         const char *key = board_button_name();
-        printf("commands: contact <address>, accept, peers, to <number>, send <text>, drop "
-               "<number>, groups, group ..., status, routes, selftest, forget "
-               "(Bluetooth clients), screen sleep <seconds>, screen bench on|off.%s%s%s For the "
-               "bench: bench on|off, sync <hex>, power <dBm>, freq <Hz>, "
-               "sf <n>, bw <Hz>, beacon <count> <ms>, counts [reset].\n",
-               key != NULL ? " Holding " : "", key != NULL ? key : "",
-               key != NULL ? " on a bench page sends a ping." : "");
+        printf(
+            "commands: contact <address>, accept, peers, to <number>, send <text>, drop "
+            "<number>, groups, group ..., status, routes, selftest, forget "
+            "(Bluetooth clients), screen sleep <seconds>, screen bench on|off, sleep [on <seconds> "
+            "[listen] | off].%s%s%s For the "
+            "bench: bench on|off, sync <hex>, power <dBm>, freq <Hz>, "
+            "sf <n>, bw <Hz>, beacon <count> <ms>, counts [reset].\n",
+            key != NULL ? " Holding " : "", key != NULL ? key : "",
+            key != NULL ? " on a bench page sends a ping." : "");
     }
 }
 
@@ -4135,7 +4419,9 @@ void node_main(void) {
     saved.cards = 0;
     saved.card_name_len = 0;
     saved.receiver_off = 0;
+    saved.sleep = 0;
     if ((store_load(NULL, "settings", &saved, sizeof saved) ||
+         store_load(NULL, "settings", &saved, offsetof(struct settings, sleep)) ||
          store_load(NULL, "settings", &saved, offsetof(struct settings, receiver_off)) ||
          store_load(NULL, "settings", &saved, offsetof(struct settings, cards)) ||
          store_load(NULL, "settings", &saved, offsetof(struct settings, screen_flags)) ||
@@ -4236,6 +4522,8 @@ void node_main(void) {
     struct tern_route_config rc = tern_route_defaults(
         &cfg.mod, cfg.tx_power_dbm,
         tern_region_lowest_dbm(region, TX_MIN_DBM, CONFIG_TERN_ANTENNA_DBI), relay);
+    /* A leaf that sleeps, as it was set to. A relay never does: the router ignores it. */
+    doze_setting_read(settings.sleep, &rc.sleep_wake, &rc.sleep_listen_s);
     uint64_t seed;
     if (!board_random(NULL, (uint8_t *)&seed, sizeof seed)) {
         printf("no random numbers. Not starting.\n");
@@ -4281,6 +4569,27 @@ void node_main(void) {
     tern_airtime_init(&budget, &ac, &cfg.mod, relay, board_now());
     tern_forward_budget(&forward, &budget);
     tern_flood_budget(&flood, &budget);
+    /* A relay keeps the sleeping leaves that name it (draft/sleeping.md): their frames are held
+     * here while they sleep, and its answers to their polls paid for as acknowledgements are. */
+    tern_route_budget(&route, &budget);
+    if (relay) {
+        struct tern_forward_kept *kept = NULL;
+#if defined(__ZEPHYR__)
+        kept = keeper_store;
+#else
+        /* From the heap, so that a chip whose static RAM is full builds as before, and only if it
+         * leaves what Bluetooth and the rest need. */
+        if (plat_heap_free() >= KEEPER_FRAMES * sizeof *kept + 64u * 1024u) {
+            kept = calloc(KEEPER_FRAMES, sizeof *kept);
+        }
+#endif
+        if (kept != NULL) {
+            tern_forward_keeper(&forward, kept, KEEPER_FRAMES);
+        } else {
+            printf("no room to keep sleeping leaves: frames for one go to it as to any leaf\n");
+        }
+    }
+    doze_init(&doze, board_now());
 
     int err = board_init();
     radio = board_radio();
@@ -4389,7 +4698,10 @@ void node_main(void) {
         plat_watchdog_feed();
         crumb_pass(cr);
         crumb_at(cr, CRUMB_RADIO);
-        poll_radio();
+        poll_doze();
+        if (!doze.dozing) {
+            poll_radio();
+        }
         if (bench) {
             crumb_at(cr, CRUMB_BEACON);
             poll_beacon();
@@ -4398,14 +4710,22 @@ void node_main(void) {
             poll_contact();
             crumb_at(cr, CRUMB_OUTGOING);
             poll_outgoing();
+            poll_sleep_tell();
             crumb_at(cr, CRUMB_FORWARD);
-            poll_forward();
+            /* What sends waits while the radio sleeps: poll_doze() wakes it first. */
+            if (!doze.dozing) {
+                poll_forward();
+            }
             crumb_at(cr, CRUMB_CARD);
             poll_card();
             crumb_at(cr, CRUMB_FLOOD);
-            poll_flood();
+            if (!doze.dozing) {
+                poll_flood();
+            }
             crumb_at(cr, CRUMB_ROUTE);
-            poll_route();
+            if (!doze.dozing) {
+                poll_route();
+            }
             crumb_at(cr, CRUMB_WRITERS);
             poll_writers();
         }
@@ -4450,6 +4770,12 @@ void node_main(void) {
         }
         crumb_at(cr, CRUMB_YIELD);
         poll_led();
-        plat_yield();
+        if (doze.dozing) {
+            /* The radio asleep, the loop turns less often: the console, the button and Bluetooth
+             * are looked at each turn still, and the radio is woken in time (poll_doze()). */
+            plat_sleep_ms(doze_slice_ms(&doze, board_now()));
+        } else {
+            plat_yield();
+        }
     }
 }

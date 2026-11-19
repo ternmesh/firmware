@@ -1674,6 +1674,8 @@ static void on_answer(struct tern_route *r, const struct tern_answer *a, int16_t
 
 /* --- Leaves that sleep --- */
 
+static int rested_at(const struct tern_route *r, uint32_t relay);
+
 static bool sleeper(const struct tern_route *r) {
     return !r->config.relay && r->config.sleep_wake != 0 &&
            tern_sleep_wake_ok(r->config.sleep_wake);
@@ -1789,6 +1791,10 @@ static void on_poll_answer(struct tern_route *r, const struct tern_poll_answer *
         return;
     }
     heard_from(r, s, a->power, snr_q);
+    int rested = a->leaf == r->id ? rested_at(r, a->sender) : -1;
+    if (rested >= 0) {
+        r->rested[rested].relay = 0; /* it answers: it keeps */
+    }
     if (a->leaf != r->id || !r->sleeping || a->sender != r->keeper || !r->poll_waiting ||
         a->id != r->poll_id) {
         return;
@@ -1805,9 +1811,88 @@ static void on_poll_answer(struct tern_route *r, const struct tern_poll_answer *
     }
 }
 
-/* A leaf that may sleep gives up its keeper: it listens again, and asks the relays around it. */
+/* Relays a leaf gave up as keeper (KEEPER_REST): where one is remembered, or -1. */
+static int rested_at(const struct tern_route *r, uint32_t relay) {
+    for (int i = 0; relay && i < TERN_ROUTE_RESTED; i++) {
+        if (r->rested[i].relay == relay) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static void rest(struct tern_route *r, uint32_t relay) {
+    int found = rested_at(r, relay);
+    size_t at = 0;
+    if (relay == 0) {
+        return;
+    }
+    if (found >= 0) {
+        at = (size_t)found;
+    } else {
+        /* A free place, or else the one given up longest ago. */
+        for (size_t i = 0; i < TERN_ROUTE_RESTED; i++) {
+            if (r->rested[i].relay == 0) {
+                at = i;
+                break;
+            }
+            at = r->rested[i].at_s < r->rested[at].at_s ? i : at;
+        }
+    }
+    r->rested[at].relay = relay;
+    r->rested[at].at_s = (uint32_t)(r->now / NS_PER_S);
+}
+
+/* Whether the leaf may take `relay` as its keeper now; a rest that has ended is forgotten. */
+static bool may_take(struct tern_route *r, uint32_t relay) {
+    int at = rested_at(r, relay);
+    if (at < 0) {
+        return true;
+    }
+    if (!tern_sleep_may_take(true, r->now - (tern_time)r->rested[at].at_s * NS_PER_S, false)) {
+        return false;
+    }
+    r->rested[at].relay = 0;
+    return true;
+}
+
+/* The keeper a leaf takes as it begins to sleep: its anchor, the relay it may use whose link has
+ * the most margin, but of those it may take as keeper; 0 for none. */
+static uint8_t keeper_slot(struct tern_route *r) {
+    int best = -1;
+    for (size_t i = 0; i < r->nb_cap; i++) {
+        const struct tern_route_neighbour *n = &r->nb[i];
+        if (!n->used || !n->relay || !n->up || n->out_of_use || !may_take(r, n->id)) {
+            continue;
+        }
+        if (best < 0 ||
+            link_margin(n, r->config.full_dbm) > link_margin(&r->nb[best], r->config.full_dbm)) {
+            best = (int)i;
+        }
+    }
+    return best < 0 ? 0 : (uint8_t)(best + 1);
+}
+
+bool tern_route_resting(const struct tern_route *r, tern_time now, uint32_t *relay,
+                        tern_time *until) {
+    bool any = false;
+    for (int i = 0; i < TERN_ROUTE_RESTED; i++) {
+        tern_time end = (tern_time)r->rested[i].at_s * NS_PER_S + TERN_S(TERN_SLEEP_KEEPER_REST_S);
+        if (r->rested[i].relay == 0 || end <= now || (any && end >= *until)) {
+            continue;
+        }
+        any = true;
+        *relay = r->rested[i].relay;
+        *until = end;
+    }
+    return any;
+}
+
+/* A leaf that may sleep gives up its keeper: it listens again, and asks the relays around it. The
+ * keeper rests: it is not taken again for KEEPER_REST unless it answers a poll. */
 static void lose_keeper(struct tern_route *r) {
     uint8_t k = slot_of(r, r->keeper);
+    rest(r, r->keeper);
     r->sleeping = false;
     r->keeper_was = r->keeper;
     r->keeper = 0;
@@ -1824,6 +1909,24 @@ static void lose_keeper(struct tern_route *r) {
     trickle_begin(r);
 }
 
+void tern_route_sleep_set(struct tern_route *r, uint16_t wake, uint8_t listen_s) {
+    r->config.sleep_wake = wake;
+    r->config.sleep_listen_s = listen_s;
+    if (!r->sleeping || sleeper(r)) {
+        return;
+    }
+    /* It stops: its keeper is let go, not taken out of use, since nothing is wrong with it. A
+     * poll already handed to the radio is still said to have gone (tern_route_sent()). */
+    r->sleeping = false;
+    r->keeper_was = r->keeper;
+    r->keeper = 0;
+    r->poll_now = false;
+    r->poll_waiting = false;
+    r->listen_until = INT64_MIN;
+    r->interval = r->config.i_min;
+    trickle_begin(r);
+}
+
 /* What a leaf that may sleep does at r->now: begins to sleep once it has a keeper; gives one up
  * that has gone; and asleep, polls when its poll is due, announcing first when that is due. */
 static void sleep_step(struct tern_route *r) {
@@ -1833,11 +1936,11 @@ static void sleep_step(struct tern_route *r) {
     }
     if (!r->sleeping) {
         uint8_t a;
-        bool sparse, asks;
         if (r->starting || r->solicited >= 0 || r->solicit_out) {
             return;
         }
-        a = anchor_slot(r, &sparse, &asks);
+        /* With no relay it may take, it does not sleep: it listens, and begins once it has one. */
+        a = keeper_slot(r);
         if (!a) {
             return;
         }
@@ -2321,6 +2424,9 @@ size_t tern_route_poll(struct tern_route *r, tern_time now, uint8_t frame[TERN_R
 }
 
 void tern_route_sent(struct tern_route *r, tern_time now) {
+    if (r->poll_out && !r->sleeping) {
+        r->poll_out = false; /* it stopped sleeping while its poll went */
+    }
     if (r->poll_out) {
         r->poll_out = false;
         r->poll_waiting = true;

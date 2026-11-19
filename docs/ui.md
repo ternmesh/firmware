@@ -226,7 +226,7 @@ the link between the node and the phone: what the node offers, and in what form.
 | Question | Depends on |
 |---|---|
 | How what is left of a node's airtime budget is shown, and what a user can do about it | what a client is given of the budget, which [draft/airtime.md](https://github.com/ternmesh/spec/blob/main/draft/airtime.md#not-yet-specified) leaves open |
-| What a leaf that sleeps on a schedule shows, and when | sleeping leaves, not drafted ([draft/companion.md](https://github.com/ternmesh/spec/blob/main/draft/companion.md#not-yet-specified), [draft/airtime.md](https://github.com/ternmesh/spec/blob/main/draft/airtime.md#not-yet-specified)) |
+| What a leaf that sleeps on a schedule shows, and when | sleeping leaves are [drafted](https://github.com/ternmesh/spec/blob/main/draft/sleeping.md) and turned on from the console (`sleep`); what a client is told of them is not ([draft/companion.md](https://github.com/ternmesh/spec/blob/main/draft/companion.md#not-yet-specified)) |
 | Withdrawing a message that waits for the budget | [draft/airtime.md](https://github.com/ternmesh/spec/blob/main/draft/airtime.md#not-yet-specified), which leaves it open |
 
 Settled since this page was a proposal, and kept here so an old link finds its answer: the short
