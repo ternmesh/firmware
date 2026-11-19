@@ -500,6 +500,7 @@ struct tern_route_config tern_route_defaults(const struct tern_lora *lora, int8_
         .default_hops = 6,
         .default_busy_ppm = 500000,
         .reattach = true,
+        .retire_for = TERN_S(3600),
     };
 }
 
@@ -540,6 +541,8 @@ static struct tern_route_dest *dest_of(const struct tern_route *r, uint32_t id) 
     return NULL;
 }
 
+static void release(struct tern_route *r, struct tern_route_dest *d);
+
 /* A place for a destination new to the node. With the table full it takes one the node holds
  * nothing for but a feasibility distance: as Babel does when it collects its source table, and at
  * the same price, that a route the node once announced may be selected again. */
@@ -559,7 +562,18 @@ static struct tern_route_dest *dest_make(struct tern_route *r, uint32_t id) {
             idle = x;
         }
     }
+    /* Retired destinations (an experiment): with none idle, one made before the epoch began, the
+     * least worth keeping first: one with no route selected over one with. */
+    for (size_t i = 0; !d && !idle && r->old_count && i < r->dest_cap; i++) {
+        struct tern_route_dest *x = &r->dest[i];
+        if (x->used && x->old && (!idle || (idle->sel && !x->sel))) {
+            idle = x;
+        }
+    }
     if (!d && idle) {
+        if (idle->used && idle->old) {
+            release(r, idle);
+        }
         d = idle;
         *d = (struct tern_route_dest){.id = id, .used = true};
     }
@@ -830,6 +844,96 @@ static void reselect(struct tern_route *r, struct tern_route_dest *d) {
 }
 
 static void take_out_of_use(struct tern_route *r, uint8_t s);
+static void forget(struct tern_route *r, uint8_t s);
+
+/* --- Retired destinations (an experiment; config.retire) --- */
+
+/* Frees a destination's place, whatever it held, keeping the router's counts. */
+static void release(struct tern_route *r, struct tern_route_dest *d) {
+    if (d->old) {
+        r->old_count--;
+    }
+    if (d->urgent) {
+        r->urgent_count--;
+    }
+    if (d->retracts) {
+        r->retracting--;
+    }
+    if (d->tries) {
+        r->starving--;
+    }
+    if (r->config.relay && d->sel) {
+        r->selected--;
+    }
+    *d = (struct tern_route_dest){0};
+}
+
+/* Whether `id` retired lately: no route to it is taken. */
+static bool retired(const struct tern_route *r, uint32_t id) {
+    for (size_t i = 0; r->config.retire && i < r->retired_cap; i++) {
+        const struct tern_route_retired *t = &r->retired[i];
+        if (t->id == id && (t->left || r->now < t->until)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void update(struct tern_route *r, uint32_t id, uint16_t seq, uint16_t metric, uint8_t s,
+                   bool leaf);
+
+/* `id` has retired: said by its owner (`s` 0) or listed by the neighbour in slot `s`. Its place is
+ * freed now, whatever it held, and the retirement goes on RETRACTS times if this node had
+ * announced a route to it, so that its neighbours free theirs too. With no table, or a full one, it
+ * is a retraction. */
+static void retire(struct tern_route *r, uint32_t id, uint16_t seq, uint8_t s) {
+    struct tern_route_retired *t = NULL;
+    struct tern_route_dest *d;
+    bool tell;
+    if (id == r->id || reserved(id)) {
+        return;
+    }
+    {
+        /* As a neighbour, it is gone: it will not be heard under this id again. */
+        uint8_t own = slot_of(r, id);
+        if (own && own != s) {
+            forget(r, own);
+        }
+    }
+    if (retired(r, id)) {
+        return;
+    }
+    for (size_t i = 0; r->config.retire && i < r->retired_cap; i++) {
+        struct tern_route_retired *x = &r->retired[i];
+        if (x->id == 0 || (x->left == 0 && r->now >= x->until)) {
+            t = x;
+            break;
+        }
+    }
+    if (!t) {
+        if (s) {
+            update(r, id, seq, INF, s, false);
+        }
+        return;
+    }
+    d = dest_of(r, id);
+    tell = r->config.relay && d && (d->advertised || d->retracts);
+    *t = (struct tern_route_retired){
+        .id = id,
+        .seq = d && d->advertised ? d->adv_seq : seq,
+        .left =
+            (uint8_t)(tell ? (r->config.retire_repeats ? r->config.retire_repeats : RETRACTS) : 0),
+        .until = r->now + r->config.retire_for};
+    r->retiring += tell;
+    if (d) {
+        release(r, d);
+    }
+    if (tell) {
+        r->changed = true;
+        trickle_reset(r, TERN_ROUTE_RESET_RETRACT);
+        r->changed = false;
+    }
+}
 
 /* What the neighbour in slot `s` announces about a destination, and whether it is a leaf. */
 static void update(struct tern_route *r, uint32_t id, uint16_t seq, uint16_t metric, uint8_t s,
@@ -837,7 +941,7 @@ static void update(struct tern_route *r, uint32_t id, uint16_t seq, uint16_t met
     struct tern_route_dest *d;
     struct tern_route_entry *e;
     uint8_t direct;
-    if (id == r->id || reserved(id)) {
+    if (id == r->id || reserved(id) || retired(r, id)) {
         return;
     }
     d = metric == INF ? dest_of(r, id) : dest_make(r, id);
@@ -1053,7 +1157,7 @@ static size_t planned(const struct tern_route *r) {
     size_t named = neighbours(r), room = named_room(r);
     size_t len = announce_fixed(r) + 5 * (named < room ? named : room);
     if (r->config.relay && !r->starting) {
-        size_t routes = (size_t)r->urgent_count + r->selected + r->retracting;
+        size_t routes = (size_t)r->urgent_count + r->selected + r->retracting + r->retiring;
         room = (TERN_ROUTE_FRAME_MAX - len) / 8;
         len += 8 * (routes < room ? routes : room);
     }
@@ -1168,6 +1272,19 @@ static size_t build(struct tern_route *r, uint8_t *frame, int8_t *power) {
 
     if (r->config.relay && !r->starting) {
         size_t most = (TERN_ROUTE_FRAME_MAX - announce_fixed(r) - 5u * a.named_count) / 8;
+        /* Retirements first: each frees a place at every neighbour that hears it. */
+        for (size_t k = 0; k < r->retired_cap && r->retiring && a.route_count < most; k++) {
+            struct tern_route_retired *t = &r->retired[r->retired_cursor];
+            r->retired_cursor = (r->retired_cursor + 1) % r->retired_cap;
+            if (!t->id || !t->left) {
+                continue;
+            }
+            a.routes[a.route_count++] =
+                (struct tern_announce_route){t->id, t->seq, TERN_ROUTE_RETIRED};
+            if (--t->left == 0) {
+                r->retiring--;
+            }
+        }
         /* Changed routes first. */
         for (size_t k = 0; k < r->dest_cap && r->urgent_count && a.route_count < most; k++) {
             struct tern_route_dest *d = &r->dest[r->urgent_cursor];
@@ -1221,7 +1338,7 @@ static size_t announce(struct tern_route *r, uint8_t *frame, int8_t *power) {
     struct tern_route_bucket *b = &r->announces;
     tern_time cost = airtime(r, planned(r)) * MILLION;
     size_t len;
-    if (r->burst > 0 && (r->urgent_count == 0 || r->starting)) {
+    if (r->burst > 0 && ((r->urgent_count == 0 && r->retiring == 0) || r->starting)) {
         r->announcing = false; /* a burst lasts only while changed routes remain, and can go */
         return 0;
     }
@@ -1236,7 +1353,7 @@ static size_t announce(struct tern_route *r, uint8_t *frame, int8_t *power) {
         struct tern_route_bucket *l = &r->learning;
         tern_time at = r->now + (cost - b->have) / b->ppm + 1;
         bool learning = r->config.learn_ppm && r->now < r->learn_until && r->config.relay &&
-                        !r->starting && r->urgent_count;
+                        !r->starting && (r->urgent_count || r->retiring);
         if (learning) {
             refill(l, r->now);
             if (l->have >= cost) {
@@ -2105,6 +2222,10 @@ static void on_announce(struct tern_route *r, const struct tern_announce *a, int
     for (int k = 0; n->relay && !a->starting && k < a->route_count; k++) {
         bool leaf = false;
         uint16_t metric = INF;
+        if (r->config.retire && a->routes[k].metric == TERN_ROUTE_RETIRED) {
+            retire(r, a->routes[k].destination, a->routes[k].seq, s);
+            continue;
+        }
         if (!tern_route_listed(a->routes[k].metric, &leaf, &metric)) {
             metric = INF;
         }
@@ -2358,7 +2479,8 @@ size_t tern_route_poll(struct tern_route *r, tern_time now, uint8_t frame[TERN_R
         COUNT(r->counts.fires++);
         /* Changed routes waiting are an inconsistency of this node's own: never suppressed. */
         if (r->config.redundancy == 0 || r->heard < r->config.redundancy ||
-            r->quiet >= r->config.quiet_max || r->urgent_count > 0 || r->asked || r->starting) {
+            r->quiet >= r->config.quiet_max || r->urgent_count > 0 || r->retiring > 0 || r->asked ||
+            r->starting) {
 #ifdef TERN_ROUTE_COUNTS
             r->counts.fired[r->starting           ? TERN_ROUTE_FIRE_STARTING
                             : r->asked && r->loud ? TERN_ROUTE_FIRE_MOVED
@@ -2382,7 +2504,7 @@ size_t tern_route_poll(struct tern_route *r, tern_time now, uint8_t frame[TERN_R
     if (!r->sleeping && r->fired && now >= r->interval_end) {
         /* With changes of its own still waiting it stays where it is rather than doubling, so
          * they go within the next interval. */
-        if (r->urgent_count == 0 && !r->asked && !r->starting) {
+        if (r->urgent_count == 0 && r->retiring == 0 && !r->asked && !r->starting) {
             r->interval = r->interval * 2 > i_max(r) ? i_max(r) : r->interval * 2;
         }
         trickle_begin(r);
@@ -2591,6 +2713,30 @@ void tern_route_lost(struct tern_route *r, tern_time now, uint32_t neighbour) {
     }
     if (r->config.dead_hops && n->lost >= r->config.dead_hops) {
         forget(r, s);
+    }
+}
+
+void tern_route_retired_table(struct tern_route *r, struct tern_route_retired *table, size_t cap) {
+    r->retired = table;
+    r->retired_cap = cap;
+    r->retiring = 0;
+    r->retired_cursor = 0;
+    for (size_t i = 0; i < cap; i++) {
+        table[i] = (struct tern_route_retired){0};
+    }
+}
+
+void tern_route_retire(struct tern_route *r, tern_time now, uint32_t id) {
+    r->now = now;
+    retire(r, id, 0, 0);
+}
+
+void tern_route_epoch(struct tern_route *r, tern_time now) {
+    r->now = now;
+    r->old_count = 0;
+    for (size_t i = 0; r->config.retire && i < r->dest_cap; i++) {
+        r->dest[i].old = r->dest[i].used;
+        r->old_count += r->dest[i].used;
     }
 }
 

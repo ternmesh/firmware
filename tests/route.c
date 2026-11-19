@@ -1255,6 +1255,139 @@ static void the_routers_counts_add_up(void) {
     CHECK_EQ_U64(resets, c->resets[TERN_ROUTE_RESET_STARTED]);
 }
 
+/* Retired destinations, an experiment (config.retire; not the specification's). A relay that hears
+ * a destination listed as retired frees its place at once, passes the retirement on RETRACTS
+ * times, and takes no route to it again while it remembers it. Without the experiment the same
+ * listing is a retraction. */
+static void a_retired_destination_frees_its_place_and_goes_on(void) {
+    struct tern_lora lora = tern_region_lora(tern_region(TERN_REGION_US915));
+    for (int on = 0; on < 2; on++) {
+        struct tern_route_config config = tern_route_defaults(&lora, 22, -9, true);
+        struct tern_route_neighbour nb[2];
+        struct tern_route_dest dest[2];
+        struct tern_route_retired kept[4];
+        struct tern_route r;
+        uint8_t frame[TERN_ROUTE_FRAME_MAX];
+        int8_t dbm;
+        int told = 0;
+        config.retire = on;
+        tern_route_init(&r, &config, VECTOR_OWN_ID, nb, 2, dest, 2, 0, 1, 0);
+        tern_route_retired_table(&r, kept, 4);
+        r.starting = 0;
+        nb[0] = (struct tern_route_neighbour){.id = 0x100,
+                                              .used = true,
+                                              .relay = true,
+                                              .up = true,
+                                              .theirs = 200,
+                                              .floor = -320,
+                                              .number = 1,
+                                              .promise = TERN_ROUTE_NO_PROMISE};
+        dest[0] = (struct tern_route_dest){.id = 0x200,
+                                           .used = true,
+                                           .advertised = true,
+                                           .sel = 1,
+                                           .adv_seq = 4,
+                                           .adv_metric = 140,
+                                           .fd = {true, 4, 140}};
+        dest[0].e[0] = (struct tern_route_entry){.slot = 1, .seq = 4, .metric = 70};
+        r.selected = 1;
+        struct tern_announce a = {.sender = 0x100,
+                                  .number = 2,
+                                  .seq = 1,
+                                  .relay = true,
+                                  .promise = 60,
+                                  .round = 1,
+                                  .route_count = 1};
+        a.routes[0] = (struct tern_announce_route){0x200, 4, TERN_ROUTE_RETIRED};
+        tern_route_heard(&r, TERN_S(1), frame, tern_announce_write(&a, frame), 40);
+        if (!on) {
+            CHECK(dest[0].used && dest[0].e[0].slot == 0 && dest[0].sel == 0);
+            CHECK_EQ_U64(r.retiring, 0);
+            continue;
+        }
+        CHECK(!dest[0].used);
+        CHECK_EQ_U64(r.retiring, 1);
+        /* What it selects is the route to the neighbour itself, and nothing to 0x200. */
+        CHECK(dest[1].used && dest[1].id == 0x100);
+        CHECK_EQ_U64(r.selected, dest[1].sel != 0);
+        for (int64_t t = 2; t < 600; t++) {
+            size_t len;
+            r.announces.have = r.announces.most;
+            while ((len = tern_route_poll(&r, TERN_S(t), frame, &dbm)) != 0) {
+                struct tern_announce b;
+                tern_route_sent(&r, TERN_S(t));
+                if (frame[0] != TERN_HDR_ANNOUNCE || !tern_announce_read(&b, frame, len)) {
+                    continue;
+                }
+                for (int k = 0; k < b.route_count; k++) {
+                    told += b.routes[k].destination == 0x200 &&
+                            b.routes[k].metric == TERN_ROUTE_RETIRED && b.routes[k].seq == 4;
+                }
+            }
+        }
+        CHECK_EQ_I64(told, 3);
+        CHECK_EQ_U64(r.retiring, 0);
+        /* A neighbour not yet told lists a route to it: not taken. */
+        a.number = 3;
+        a.routes[0] = (struct tern_announce_route){0x200, 4, 70};
+        tern_route_heard(&r, TERN_S(700), frame, tern_announce_write(&a, frame), 40);
+        CHECK(!(dest[0].used && dest[0].id == 0x200) && !(dest[1].used && dest[1].id == 0x200));
+        /* Once it is forgotten, it may be. */
+        a.number = 4;
+        tern_route_heard(&r, TERN_S(700) + config.retire_for, frame, tern_announce_write(&a, frame),
+                         40);
+        CHECK((dest[0].used && dest[0].id == 0x200) || (dest[1].used && dest[1].id == 0x200));
+    }
+}
+
+/* Retired destinations, an experiment: once every routing id has changed at an epoch's start, a
+ * full table gives a new destination a place made before it, one with no route selected first,
+ * where it would otherwise find none. */
+static void a_new_epoch_takes_the_places_of_the_old(void) {
+    struct tern_lora lora = tern_region_lora(tern_region(TERN_REGION_US915));
+    struct tern_route_config config = tern_route_defaults(&lora, 22, -9, true);
+    struct tern_route_neighbour nb[2];
+    struct tern_route_dest dest[3];
+    struct tern_route r;
+    uint8_t frame[TERN_ROUTE_FRAME_MAX];
+    config.retire = true;
+    tern_route_init(&r, &config, VECTOR_OWN_ID, nb, 2, dest, 3, 0, 1, 0);
+    r.starting = 0;
+    struct tern_announce a = {.sender = 0x100,
+                              .number = 2,
+                              .seq = 1,
+                              .relay = true,
+                              .promise = 60,
+                              .round = 1,
+                              .route_count = 2};
+    a.routes[0] = (struct tern_announce_route){0x200, 4, 70};
+    a.routes[1] = (struct tern_announce_route){0x300, 4, 70};
+    tern_route_heard(&r, TERN_S(1), frame, tern_announce_write(&a, frame), 40);
+    CHECK(dest[0].used && dest[1].used && dest[2].used); /* 0x100, 0x200, 0x300: full */
+    a.number = 3;
+    a.route_count = 1;
+    a.routes[0] = (struct tern_announce_route){0x400, 1, 70};
+    tern_route_heard(&r, TERN_S(2), frame, tern_announce_write(&a, frame), 40);
+    for (int i = 0; i < 3; i++) {
+        CHECK(dest[i].id != 0x400); /* no place, as without the experiment */
+    }
+    tern_route_epoch(&r, TERN_S(3));
+    CHECK_EQ_U64(r.old_count, 3);
+    a.number = 4;
+    tern_route_heard(&r, TERN_S(4), frame, tern_announce_write(&a, frame), 40);
+    int found = 0;
+    for (int i = 0; i < 3; i++) {
+        found += dest[i].used && dest[i].id == 0x400 && !dest[i].old;
+    }
+    CHECK_EQ_I64(found, 1);
+    CHECK_EQ_U64(r.old_count, 2);
+    uint32_t selected = 0;
+    for (int i = 0; i < 3; i++) {
+        selected += dest[i].used && dest[i].sel != 0;
+    }
+    CHECK_EQ_U64(r.selected, selected);
+}
+
 int main(void) {
     RUN(the_routers_counts_add_up);
     RUN(ids_come_from_blinded_keys);
@@ -1293,5 +1426,7 @@ int main(void) {
     RUN(anything_heard_brings_a_neighbour_back_into_use);
     RUN(a_route_that_cannot_be_selected_gives_way_to_one_that_can);
     RUN(a_request_the_cap_cannot_pay_for_is_not_counted_as_sent);
+    RUN(a_retired_destination_frees_its_place_and_goes_on);
+    RUN(a_new_epoch_takes_the_places_of_the_old);
     return CHECK_DONE();
 }
