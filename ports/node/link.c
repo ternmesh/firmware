@@ -611,9 +611,9 @@ static void save_message(struct link *l, struct link_message *x) {
  *
  * A record for an address or a group says how much of that conversation is forgotten
  * (draft/companion.md, "Forgotten"): every message and invite with the address, or every message to
- * the group, whose id is its `through` or less. The node holds none of them, in RAM or in flash, and
- * a message loaded from flash that one covers, which a write that failed may have left there, is
- * erased rather than held. */
+ * the group, whose id is its `through` or less. The node holds none of them, in RAM or in flash,
+ * and a message loaded from flash that one covers, which a write that failed may have left there,
+ * is erased rather than held. */
 
 #define FORGOTTEN_SAVED_VERSION 1
 #define FORGOTTEN_ADDRESS 1
@@ -713,8 +713,8 @@ static void load_forgotten(struct link *l) {
         if (kind != FORGOTTEN_ADDRESS && kind != FORGOTTEN_GROUP) {
             continue;
         }
-        struct link_forgotten f = {.used = true, .group = kind == FORGOTTEN_GROUP,
-                                   .through = get32(b + at + 1)};
+        struct link_forgotten f = {
+            .used = true, .group = kind == FORGOTTEN_GROUP, .through = get32(b + at + 1)};
         memcpy(f.key, b + at + 5, TERN_ADDRESS_LEN);
         if (f.through != 0 && find_forgotten(l, f.group, f.key) == NULL) {
             l->forgotten[n++] = f;

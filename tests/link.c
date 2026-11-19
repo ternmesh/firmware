@@ -2843,7 +2843,7 @@ static void the_newest_messages_are_the_ones_in_flash(void) {
     CHECK(!held(waits)->saved && held(next)->saved);
 }
 
-/* --- Forgetting (version 16) ------------------------------------------------------------------- */
+/* --- Forgetting (version 16) ----------------------------------------------------------------- */
 
 /* A message the node holds, as a step tells of it. */
 static void hold_step(const struct step *s) {
@@ -2944,8 +2944,8 @@ static void forget_bob(uint8_t seq, uint32_t through) {
 static void what_is_forgotten_is_erased_and_stays_forgotten(void) {
     begin();
     hello();
-    struct tern_companion_msg q = {.type = TERN_C_SEND, .seq = 2, .ref = 7, .text_len = 2,
-                                   .text = "hi"};
+    struct tern_companion_msg q = {
+        .type = TERN_C_SEND, .seq = 2, .ref = 7, .text_len = 2, .text = "hi"};
     memcpy(q.address, bob, TERN_ADDRESS_LEN);
     request(&q);
     uint32_t sent_id = sent(0).id;
