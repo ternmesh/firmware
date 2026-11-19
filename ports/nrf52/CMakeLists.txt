@@ -35,5 +35,9 @@ target_sources(app PRIVATE
 target_include_directories(app PRIVATE src ${node} ${root}/include)
 # The T114's colour panel is drawn by the node itself (../node/colour.h).
 target_compile_definitions(app PRIVATE TERN_COLOUR=1)
+# Zephyr's adc_read() waits for the SAADC's interrupt with no limit, so one that never comes stops
+# the node's loop: a T1000-E's did, overnight, in poll_battery (the watchdog brought it back). A
+# reading takes well under a millisecond; this lets it fail after 100 ms instead (board.c).
+zephyr_compile_definitions("ADC_CONTEXT_WAIT_FOR_COMPLETION_TIMEOUT=K_MSEC(100)")
 # Warnings as the rest of the repository has them, on what is ours (not Zephyr's headers' doing).
 target_compile_options(app PRIVATE -Wextra -Wshadow -Wno-unused-parameter -Werror)
