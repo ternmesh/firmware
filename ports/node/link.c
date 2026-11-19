@@ -607,6 +607,137 @@ static void save_message(struct link *l, struct link_message *x) {
     tern_wipe(b, sizeof b);
 }
 
+/* --- What the user has forgotten ---------------------------------------------------------------
+ *
+ * A record for an address or a group says how much of that conversation is forgotten
+ * (draft/companion.md, "Forgotten"): every message and invite with the address, or every message to
+ * the group, whose id is its `through` or less. The node holds none of them, in RAM or in flash, and
+ * a message loaded from flash that one covers, which a write that failed may have left there, is
+ * erased rather than held. */
+
+#define FORGOTTEN_SAVED_VERSION 1
+#define FORGOTTEN_ADDRESS 1
+#define FORGOTTEN_GROUP 2
+
+static void key_of(bool group, const uint8_t *address_or_group, uint8_t key[TERN_ADDRESS_LEN]) {
+    memset(key, 0, TERN_ADDRESS_LEN);
+    memcpy(key, address_or_group, group ? TERN_COMPANION_GROUP : TERN_ADDRESS_LEN);
+}
+
+static struct link_forgotten *find_forgotten(struct link *l, bool group,
+                                             const uint8_t key[TERN_ADDRESS_LEN]) {
+    for (size_t i = 0; i < LINK_FORGOTTEN; i++) {
+        struct link_forgotten *f = &l->forgotten[i];
+        if (f->used && f->group == group && memcmp(f->key, key, TERN_ADDRESS_LEN) == 0) {
+            return f;
+        }
+    }
+    return NULL;
+}
+
+/* Whether a record covers a message: an address's covers its messages and invites, a group's the
+ * messages to it. */
+static bool covers(const struct link_forgotten *f, const struct link_message *x) {
+    if (!f->used || x->id > f->through) {
+        return false;
+    }
+    if (f->group) {
+        return x->kind == LINK_KIND_GROUP && memcmp(x->group, f->key, TERN_COMPANION_GROUP) == 0;
+    }
+    return x->kind != LINK_KIND_GROUP && memcmp(x->address, f->key, TERN_ADDRESS_LEN) == 0;
+}
+
+static bool forgotten(const struct link *l, const struct link_message *x) {
+    for (size_t i = 0; i < LINK_FORGOTTEN; i++) {
+        if (covers(&l->forgotten[i], x)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* A place for a new record: an empty one, or else the one that forgot the least, if it forgot
+ * less than `through`. NULL if the new one would be the least: with no room for another, that is
+ * the one that goes, and the node has forgotten its conversation all the same. */
+static struct link_forgotten *forgotten_room(struct link *l, uint32_t through) {
+    struct link_forgotten *least = NULL;
+    for (size_t i = 0; i < LINK_FORGOTTEN; i++) {
+        struct link_forgotten *f = &l->forgotten[i];
+        if (!f->used) {
+            return f;
+        }
+        least = least == NULL || f->through < least->through ? f : least;
+    }
+    return least != NULL && least->through < through ? least : NULL;
+}
+
+static void news_forgotten(struct link *l, struct link_conn *to, const struct link_forgotten *f) {
+    struct tern_companion_msg m = {.type = f->group ? TERN_C_GROUP_FORGOTTEN : TERN_C_FORGOTTEN,
+                                   .through = f->through};
+    if (f->group) {
+        memcpy(m.group, f->key, sizeof m.group);
+    } else {
+        memcpy(m.address, f->key, TERN_ADDRESS_LEN);
+    }
+    news(l, to, &m);
+}
+
+static bool save_forgotten(struct link *l) {
+    uint8_t b[LINK_FORGOTTEN_SAVED_MAX];
+    size_t n = 0;
+    b[n++] = FORGOTTEN_SAVED_VERSION;
+    for (size_t i = 0; i < LINK_FORGOTTEN; i++) {
+        const struct link_forgotten *f = &l->forgotten[i];
+        if (f->used) {
+            b[n] = f->group ? FORGOTTEN_GROUP : FORGOTTEN_ADDRESS;
+            put32(b + n + 1, f->through);
+            memcpy(b + n + 5, f->key, TERN_ADDRESS_LEN);
+            n += LINK_FORGOTTEN_SAVED_EACH;
+        }
+    }
+    return l->host.save_forgotten(l->host.ctx, b, n);
+}
+
+/* What was saved, as many records as there is room for: a build that keeps fewer than the one that
+ * saved them keeps those that forgot the most. */
+static void load_forgotten(struct link *l) {
+    uint8_t b[LINK_FORGOTTEN_SAVED_MAX];
+    size_t len = l->host.load_forgotten(l->host.ctx, b, sizeof b);
+    if (len < 1 || len > sizeof b || b[0] != FORGOTTEN_SAVED_VERSION ||
+        (len - 1) % LINK_FORGOTTEN_SAVED_EACH != 0) {
+        return;
+    }
+    size_t n = 0;
+    for (size_t at = 1; at < len && n < LINK_FORGOTTEN; at += LINK_FORGOTTEN_SAVED_EACH) {
+        uint8_t kind = b[at];
+        if (kind != FORGOTTEN_ADDRESS && kind != FORGOTTEN_GROUP) {
+            continue;
+        }
+        struct link_forgotten f = {.used = true, .group = kind == FORGOTTEN_GROUP,
+                                   .through = get32(b + at + 1)};
+        memcpy(f.key, b + at + 5, TERN_ADDRESS_LEN);
+        if (f.through != 0 && find_forgotten(l, f.group, f.key) == NULL) {
+            l->forgotten[n++] = f;
+        }
+    }
+}
+
+/* Erases a message: its place in flash, whatever that holds, and everything the node held of it,
+ * a received invite's secret among it. A SEND remembered for it goes too, digest and all. */
+static void erase_message(struct link *l, struct link_message *x) {
+    size_t place = (size_t)(x - l->messages);
+    (void)l->host.save_message(l->host.ctx, place, (const uint8_t *)"", 0);
+    if (x->saved) {
+        (void)l->host.save_state(l->host.ctx, place, 0);
+    }
+    for (size_t i = 0; i < LINK_REFS; i++) {
+        if (l->refs[i].used && l->refs[i].id == x->id) {
+            tern_wipe(&l->refs[i], sizeof l->refs[i]);
+        }
+    }
+    tern_wipe(x, sizeof *x);
+}
+
 /* What the place held when the node last ran, as it stands now that it has restarted. */
 static void load_message(struct link *l, size_t place) {
     uint8_t b[LINK_SAVED_MAX];
@@ -650,6 +781,10 @@ static void load_message(struct link *l, size_t place) {
     }
     if (x->id >= l->next_id) {
         l->next_id = x->id + 1;
+    }
+    if (forgotten(l, x)) {
+        erase_message(l, x); /* its id is given all the same */
+        return;
     }
     if (x->state != TERN_C_WAITING && x->state != TERN_C_SENT) {
         return;
@@ -806,6 +941,7 @@ void link_init(struct link *l, const struct link_host *host) {
         l->next_count = saved;
         l->counts_saved = saved;
     }
+    load_forgotten(l);
     for (size_t i = 0; i < LINK_MESSAGES; i++) {
         load_message(l, i);
     }
@@ -1021,6 +1157,15 @@ static void sync(struct link *l, const struct tern_companion_msg *q, tern_time n
         }
         news_message(l, c, next);
         after = next->id;
+    }
+    /* And how much of each conversation is forgotten, whatever `after`: a client that was away
+     * learns it so. Addresses first, then groups. */
+    for (int group = 0; group < 2; group++) {
+        for (size_t i = 0; i < LINK_FORGOTTEN; i++) {
+            if (l->forgotten[i].used && l->forgotten[i].group == (group == 1)) {
+                news_forgotten(l, c, &l->forgotten[i]);
+            }
+        }
     }
     c->n_told = 0;
     for (size_t i = 0; i < l->view.n_neighbours && i < LINK_NEIGHBOURS; i++) {
@@ -1248,6 +1393,49 @@ static void end_session(struct link *l, const struct tern_companion_msg *q) {
         }
     }
     link_session_changed(l, q->address);
+}
+
+/* FORGET and FORGET_GROUP: the conversation with an address, or a group's, forgotten through an id
+ * no greater than the greatest given, so that a message that comes later is not forgotten before
+ * it is written. Each message it covers is erased; one that was waiting or sent is given up with
+ * it, without a word, since the board asks whether each it holds is still wanted (link_wanted())
+ * and lets go of the frame of one that is not. The record is the one news tells of: none if it
+ * did not grow. */
+static void forget(struct link *l, const struct tern_companion_msg *q) {
+    bool group = q->type == TERN_C_FORGET_GROUP;
+    if (!group) {
+        l->host.view(l->host.ctx, &l->view);
+        if (!usable_address(l, q->address)) {
+            error(l, q->seq, TERN_C_ERR_ADDRESS);
+            return;
+        }
+    }
+    uint8_t key[TERN_ADDRESS_LEN];
+    key_of(group, group ? q->group : q->address, key);
+    uint32_t through = q->through < l->next_id ? q->through : l->next_id - 1;
+    struct link_forgotten *f = find_forgotten(l, group, key);
+    answer(l, TERN_C_OK, q->seq);
+    if (through <= (f != NULL ? f->through : 0)) {
+        return;
+    }
+    struct link_forgotten now = {.used = true, .group = group, .through = through};
+    memcpy(now.key, key, TERN_ADDRESS_LEN);
+    for (size_t i = 0; i < LINK_MESSAGES; i++) {
+        struct link_message *x = &l->messages[i];
+        if (covers(&now, x)) {
+            erase_message(l, x);
+        }
+    }
+    if (f == NULL) {
+        f = forgotten_room(l, through);
+    }
+    if (f != NULL) {
+        *f = now;
+        /* Kept or not, the messages are gone: a record not saved is one a client that is away is
+         * not told of after a restart, and keeps its copy. */
+        (void)save_forgotten(l);
+    }
+    news_forgotten(l, NULL, &now);
 }
 
 static void made(struct link *l, uint8_t seq, const struct link_group *g) {
@@ -2024,6 +2212,10 @@ static void receive(struct link *l, unsigned conn, tern_time now, const uint8_t 
         break;
     case TERN_C_END_SESSION:
         end_session(l, q);
+        break;
+    case TERN_C_FORGET:
+    case TERN_C_FORGET_GROUP:
+        forget(l, q);
         break;
     case TERN_C_UPDATE_BEGIN:
         update_begin(l, q);

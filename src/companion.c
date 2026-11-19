@@ -94,6 +94,8 @@ static const struct layout layouts[] = {
     {TERN_C_OFF, {END}},
     {TERN_C_SEND, {REF, ADDRESS, TEXT}},
     {TERN_C_READ, {THROUGH}},
+    {TERN_C_FORGET, {ADDRESS, THROUGH}},
+    {TERN_C_FORGET_GROUP, {GROUP, THROUGH}},
     {TERN_C_SAVE_CONTACT, {ADDRESS, NAME}},
     {TERN_C_REMOVE_CONTACT, {ADDRESS}},
     {TERN_C_END_SESSION, {ADDRESS}},
@@ -143,6 +145,8 @@ static const struct layout layouts[] = {
     {TERN_C_CARD_GONE, {ADDRESS}},
     {TERN_C_FIX, {RECEIVER, SOURCE, LAT, LON, ALTITUDE, ACC16, AGE32, SATS}},
     {TERN_C_SLEEP, {WAKE, LISTEN, STATE, KEEPER, RETRY}},
+    {TERN_C_FORGOTTEN, {ADDRESS, THROUGH}},
+    {TERN_C_GROUP_FORGOTTEN, {GROUP, THROUGH}},
 };
 
 /* A later version adds fields only at the end of a frame: from field `from` on, a type's fields
@@ -214,6 +218,10 @@ static const struct layout *layout_of(uint8_t type) {
 }
 
 uint8_t tern_companion_since(uint8_t type) {
+    if (type == TERN_C_FORGET || type == TERN_C_FORGET_GROUP || type == TERN_C_FORGOTTEN ||
+        type == TERN_C_GROUP_FORGOTTEN) {
+        return 16;
+    }
     if (type == TERN_C_SLEEP) {
         return 15;
     }

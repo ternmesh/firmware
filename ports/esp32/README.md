@@ -667,6 +667,13 @@ What the board offers is what the demo is:
   a contact does not end its session; `END_SESSION`, or `drop` on the console, does, and gives up
   the messages to that node not yet delivered, on the air or not. The other board is not told, and keeps its half
   until one of them makes first contact again.
+* **Forgetting a conversation.** `FORGET` (or `FORGET_GROUP`) erases every message and invite
+  with an address (or every message to a group) up to an id, from RAM and from flash, and gives
+  up any of them still to go. The contact, its session and the group stay. The board keeps a
+  record of how far each conversation was forgotten, up to 16 of them, saved to flash, and tells
+  every client of version 16, at once and in every sync, so that each erases its own copy. Flash
+  is a log here: an erased record is let go of, and its bytes are reclaimed when the store next
+  collects its pages, not overwritten at once.
 * **Groups**, up to four, with their secrets, saved to flash: see [Groups](#groups).
 * **Letting a board in.** Saving an address as a contact lets that board make first contact
   whenever it tries. One that is refused, for not being a contact or for want of room, is news

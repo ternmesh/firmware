@@ -87,6 +87,10 @@ struct board {
     uint8_t writers[LINK_WRITERS_MAX];
     size_t writers_len;
     unsigned writer_saves;
+    /* What the user has forgotten, as flash has it. */
+    uint8_t forgotten[LINK_FORGOTTEN_SAVED_MAX];
+    size_t forgotten_len;
+    unsigned forgotten_saves;
     /* The cards held, as flash has them, by place: 0 bytes where there is none. */
     uint8_t cards[LINK_CARDS][LINK_CARD_SAVED_MAX];
     size_t card_len[LINK_CARDS];
@@ -281,6 +285,26 @@ static bool board_save_count(void *ctx, uint32_t next) {
     return true;
 }
 
+static size_t board_load_forgotten(void *ctx, uint8_t *buf, size_t cap) {
+    struct board *b = ctx;
+    if (b->forgotten_len > cap) {
+        return 0;
+    }
+    memcpy(buf, b->forgotten, b->forgotten_len);
+    return b->forgotten_len;
+}
+
+static bool board_save_forgotten(void *ctx, const uint8_t *buf, size_t len) {
+    struct board *b = ctx;
+    if (b->save_fails || len > sizeof b->forgotten) {
+        return false;
+    }
+    memcpy(b->forgotten, buf, len);
+    b->forgotten_len = len;
+    b->forgotten_saves++;
+    return true;
+}
+
 static size_t board_load_writers(void *ctx, uint8_t *buf, size_t cap) {
     struct board *b = ctx;
     if (b->writers_len > cap) {
@@ -458,6 +482,8 @@ static void start(void) {
         .save_count = board_save_count,
         .load_writers = board_load_writers,
         .save_writers = board_save_writers,
+        .load_forgotten = board_load_forgotten,
+        .save_forgotten = board_save_forgotten,
         .load_card = board_load_card,
         .save_card = board_save_card,
         .load_message = board_load_message,
@@ -2817,6 +2843,219 @@ static void the_newest_messages_are_the_ones_in_flash(void) {
     CHECK(!held(waits)->saved && held(next)->saved);
 }
 
+/* --- Forgetting (version 16) ------------------------------------------------------------------- */
+
+/* A message the node holds, as a step tells of it. */
+static void hold_step(const struct step *s) {
+    struct tern_companion_msg m = read_step(s);
+    struct link_message *x = &companion.messages[m.id - 17];
+    *x = (struct link_message){
+        .used = true,
+        .kind = m.type == TERN_C_GROUP_MESSAGE ? LINK_KIND_GROUP
+                : m.type == TERN_C_INVITE      ? LINK_KIND_INVITE
+                                               : LINK_KIND_MESSAGE,
+        .id = m.id,
+        .from = m.from,
+        .time = m.time,
+        .flags = m.flags,
+        .state = m.state,
+        .reason = m.reason,
+        .wait = (uint16_t)m.wait,
+        .text_len = m.text_len,
+    };
+    memcpy(x->address, m.address, TERN_ADDRESS_LEN);
+    memcpy(x->group, m.group, sizeof x->group);
+    memcpy(x->text, m.text, m.text_len);
+}
+
+/* What the node holds when forgetting's connections begin: Bob, the group it made, and the
+ * messages and invite the first connection's sync sends, each where its id puts it. Its receiver
+ * is on, and has no fix yet. */
+static void holding_what_forget_shows(void) {
+    start();
+    board.view.receiver = TERN_C_RECEIVER_SEARCHING;
+    hello();
+    request(&(struct tern_companion_msg){
+        .type = TERN_C_MAKE_GROUP, .seq = 2, .text_len = 3, .text = "Hut"});
+    CHECK_EQ_I64(sent(0).type, TERN_C_MADE);
+    link_close(&companion, LINK_SERIAL);
+    link_open(&companion, LINK_SERIAL, 0, 0);
+    companion.contacts[0] = (struct link_contact){.used = true, .name_len = 3, .name = "Bob"};
+    memcpy(companion.contacts[0].address, bob, TERN_ADDRESS_LEN);
+    for (size_t i = 0; i < COUNT(forget_0) && forget_0[i].frame[0] != TERN_C_SYNCED; i++) {
+        uint8_t t = forget_0[i].frame[0];
+        if (!forget_0[i].from_client &&
+            (t == TERN_C_MESSAGE || t == TERN_C_GROUP_MESSAGE || t == TERN_C_INVITE)) {
+            hold_step(&forget_0[i]);
+        }
+    }
+    companion.next_id = 22;
+    board.clock = 1790000000;
+    board.why = TERN_C_WAIT_ROUTE;
+}
+
+/* Bob writes again, after the client forgot what he had said. */
+static void bob_writes_again(void) {
+    static const char now[] = "Where now?";
+    CHECK_EQ_U64(link_add(&companion, bob, 1790000360, TERN_C_RECEIVED, 0, (const uint8_t *)now,
+                          sizeof now - 1),
+                 23);
+}
+
+/* The specification's forgetting: a client forgets Bob's conversation while a message to him
+ * waits, and the group's past every id given, and the node then holds only what came after; a
+ * client that was away is told what was forgotten, whatever it gave as `after`. */
+static void a_forgotten_conversation_is_gone_from_the_node(void) {
+    holding_what_forget_shows();
+    size_t last = COUNT(forget_0) - 1;
+    follow("forget 0", forget_0, COUNT(forget_0), last, bob_writes_again);
+    for (size_t i = 0; i < LINK_MESSAGES; i++) {
+        const struct link_message *x = &companion.messages[i];
+        CHECK(!x->used || x->id == 23);
+        if (!x->used) {
+            CHECK_EQ_U64(board.message_len[i], 0); /* erased from flash */
+        }
+    }
+    /* The message that waited is not wanted: the board lets go of its frame. */
+    CHECK(!link_wanted(&companion, 22));
+    link_close(&companion, LINK_SERIAL);
+    link_open(&companion, LINK_SERIAL, 0, 0);
+    board.clock = read_step(&forget_1[first_of(forget_1, COUNT(forget_1), TERN_C_SELF)]).time;
+    follow("forget 1", forget_1, COUNT(forget_1), COUNT(forget_1), NULL);
+}
+
+/* A client of version 15 may not forget: the node answers FORGET as a request it does not know
+ * from that client. */
+static void an_older_client_cannot_forget(void) {
+    begin();
+    follow("older 15", older_15, COUNT(older_15), COUNT(older_15), NULL);
+    CHECK(companion.messages[0].used);
+}
+
+static void forget_bob(uint8_t seq, uint32_t through) {
+    struct tern_companion_msg q = {.type = TERN_C_FORGET, .seq = seq, .through = through};
+    memcpy(q.address, bob, TERN_ADDRESS_LEN);
+    request(&q);
+}
+
+/* What is forgotten is erased from flash, a sent message to it is given up without news, a SEND
+ * remembered for it is forgotten too, and the record is kept across a restart, where it erases
+ * what a failed write may have left in flash. */
+static void what_is_forgotten_is_erased_and_stays_forgotten(void) {
+    begin();
+    hello();
+    struct tern_companion_msg q = {.type = TERN_C_SEND, .seq = 2, .ref = 7, .text_len = 2,
+                                   .text = "hi"};
+    memcpy(q.address, bob, TERN_ADDRESS_LEN);
+    request(&q);
+    uint32_t sent_id = sent(0).id;
+    link_taken(&companion, sent_id);
+    link_state(&companion, sent_id, TERN_C_SENT, 0, 0);
+    size_t place = 0;
+    while (companion.messages[place].id != sent_id) {
+        place++;
+    }
+    CHECK(board.message_len[place] != 0);
+    uint8_t left[LINK_SAVED_MAX];
+    size_t left_len = board.message_len[0]; /* Bob's first, id 17, as flash holds it */
+    memcpy(left, board.messages[0], left_len);
+
+    forget_bob(3, sent_id);
+    CHECK_EQ_U64(board.n_out, 2);
+    CHECK_EQ_I64(sent(0).type, TERN_C_OK);
+    CHECK_EQ_I64(sent(1).type, TERN_C_FORGOTTEN);
+    CHECK_EQ_U64(sent(1).through, sent_id);
+    CHECK_EQ_U64(board.message_len[0], 0);
+    CHECK_EQ_U64(board.message_len[place], 0);
+    CHECK(!link_wanted(&companion, sent_id));
+    /* Sent again with the same ref, it is a new message: the one it named is gone. */
+    q.seq = 4;
+    request(&q);
+    CHECK_EQ_I64(sent(0).type, TERN_C_QUEUED);
+    CHECK(sent(0).id > sent_id);
+
+    /* A write that failed left Bob's first in flash: a restart erases it, and remembers. */
+    memcpy(board.messages[0], left, left_len);
+    board.message_len[0] = left_len;
+    restart();
+    CHECK_EQ_U64(board.message_len[0], 0);
+    CHECK(!companion.messages[0].used);
+    hello();
+    request(&(struct tern_companion_msg){.type = TERN_C_SYNC, .seq = 2, .after = 0});
+    size_t told = 0;
+    for (size_t i = 0; i < board.n_out; i++) {
+        struct tern_companion_msg m = sent(i);
+        told += m.type == TERN_C_FORGOTTEN && m.through == sent_id &&
+                memcmp(m.address, bob, TERN_ADDRESS_LEN) == 0;
+        CHECK(m.type != TERN_C_MESSAGE || m.id > sent_id);
+    }
+    CHECK_EQ_U64(told, 1);
+}
+
+/* An invalid address is refused; one never heard of has a record all the same, with no messages
+ * to erase; a through of 0, or one no greater than the record's, changes nothing. */
+static void forgetting_refuses_and_changes_nothing_as_it_should(void) {
+    begin();
+    hello();
+    struct tern_companion_msg q = {.type = TERN_C_FORGET, .seq = 2, .through = 5};
+    request(&q); /* all zeros: not an address */
+    CHECK_EQ_U64(sent(0).code, TERN_C_ERR_ADDRESS);
+    memcpy(q.address, carol, TERN_ADDRESS_LEN);
+    q.seq = 3;
+    request(&q);
+    CHECK_EQ_U64(board.n_out, 2);
+    CHECK_EQ_I64(sent(1).type, TERN_C_FORGOTTEN);
+    CHECK(companion.messages[0].used); /* Bob's */
+    request(&q);
+    CHECK_EQ_U64(board.n_out, 1); /* OK, and no news */
+    q.through = 0;
+    memcpy(q.address, bob, TERN_ADDRESS_LEN);
+    request(&q);
+    CHECK_EQ_U64(board.n_out, 1);
+    CHECK(companion.messages[0].used);
+}
+
+/* With no room for another record, the one that forgot the least goes: the new one, if it is
+ * that. */
+static void the_record_that_forgot_least_makes_room(void) {
+    start();
+    hello();
+    companion.next_id = 1000;
+    struct tern_companion_msg q = {.type = TERN_C_FORGET_GROUP};
+    for (uint8_t i = 0; i < LINK_FORGOTTEN; i++) {
+        q.seq = (uint8_t)(2 + i);
+        q.group[0] = (uint8_t)(i + 1);
+        q.through = 100u + i;
+        request(&q);
+    }
+    q.seq = 40;
+    q.group[0] = 0xEE;
+    q.through = 50; /* less than any: forgotten, told, and not kept */
+    request(&q);
+    CHECK_EQ_U64(board.n_out, 2);
+    CHECK_EQ_I64(sent(1).type, TERN_C_GROUP_FORGOTTEN);
+    q.seq = 41;
+    q.through = 500; /* the one through 100 goes */
+    request(&q);
+    size_t kept = 0;
+    bool least = false, newest = false, dropped = false;
+    for (size_t i = 0; i < LINK_FORGOTTEN; i++) {
+        const struct link_forgotten *f = &companion.forgotten[i];
+        kept += f->used;
+        least = least || (f->used && f->key[0] == 1);
+        newest = newest || (f->used && f->key[0] == 0xEE && f->through == 500);
+        dropped = dropped || (f->used && f->through == 50);
+    }
+    CHECK_EQ_U64(kept, LINK_FORGOTTEN);
+    CHECK(!least && newest && !dropped);
+    restart();
+    kept = 0;
+    for (size_t i = 0; i < LINK_FORGOTTEN; i++) {
+        kept += companion.forgotten[i].used;
+    }
+    CHECK_EQ_U64(kept, LINK_FORGOTTEN);
+}
+
 static void what_flash_holds_that_is_no_message_is_not_loaded(void) {
     start();
     uint32_t id = add();
@@ -2958,6 +3197,11 @@ static void the_receivers_fix_is_shared(void) {
 int main(void) {
     RUN(the_exchange_is_followed_frame_for_frame);
     RUN(an_older_client_is_told_nothing_of_sleeping);
+    RUN(a_forgotten_conversation_is_gone_from_the_node);
+    RUN(an_older_client_cannot_forget);
+    RUN(what_is_forgotten_is_erased_and_stays_forgotten);
+    RUN(forgetting_refuses_and_changes_nothing_as_it_should);
+    RUN(the_record_that_forgot_least_makes_room);
     RUN(an_older_client_is_told_no_cards);
     RUN(an_older_client_has_no_join_codes);
     RUN(an_older_client_is_told_no_fix);

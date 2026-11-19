@@ -193,6 +193,20 @@ static bool save_writers(void *ctx, const uint8_t *buf, size_t len) {
     return true;
 }
 
+static size_t load_forgotten(void *ctx, uint8_t *buf, size_t cap) {
+    (void)ctx;
+    (void)buf;
+    (void)cap;
+    return 0;
+}
+
+static bool save_forgotten(void *ctx, const uint8_t *buf, size_t len) {
+    (void)ctx;
+    (void)buf;
+    (void)len;
+    return true;
+}
+
 /* This node saves no messages: it is the one whose flash had no room for them. */
 static size_t load_card(void *ctx, size_t place, uint8_t *buf, size_t cap) {
     (void)ctx;
@@ -322,6 +336,8 @@ int main(int argc, char **argv) {
                              .save_count = save_count,
                              .load_writers = load_writers,
                              .save_writers = save_writers,
+                             .load_forgotten = load_forgotten,
+                             .save_forgotten = save_forgotten,
                              .load_card = load_card,
                              .save_card = save_card,
                              .load_message = load_message,
