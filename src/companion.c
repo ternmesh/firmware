@@ -33,6 +33,7 @@ enum field {
     MOST,      /* u8 */
     PAIRING,   /* u8 */
     UPDATE,    /* u8 */
+    LISTEN,    /* u8 */
     POWER,     /* i8 */
     SNR,       /* i8 */
     HEARD,     /* u16, into heard */
@@ -43,6 +44,8 @@ enum field {
     AGE16,     /* u16, into age */
     INTERVAL,  /* u16 */
     MINUTES,   /* u16 */
+    WAKE,      /* u16 */
+    RETRY,     /* u16 */
     AFTER,     /* u32 */
     TIME,      /* u32 */
     REF,       /* u32 */
@@ -57,6 +60,7 @@ enum field {
     FROM,      /* u32 */
     SIZE,      /* u32 */
     OFFSET,    /* u32 */
+    KEEPER,    /* u32 */
     LAT,       /* i32 */
     LON,       /* i32 */
     AGE32,     /* u32, into age */
@@ -118,7 +122,7 @@ static const struct layout layouts[] = {
     {TERN_C_UPDATING, {OFFSET}},
     {TERN_C_LINK, {LINK}},
     {TERN_C_SELF, {ADDRESS, ROLE, REGION, POWER, TIME, CARDS, CARD_NAME, MOST, PAIRING}},
-    {TERN_C_CONTACT, {ADDRESS, SESSION, NAME}},
+    {TERN_C_CONTACT, {ADDRESS, SESSION, NAME, WAKE}},
     {TERN_C_CONTACT_GONE, {ADDRESS}},
     {TERN_C_MESSAGE, {ID, ADDRESS, TIME, FLAGS, STATE, REASON, WAIT16, TEXT}},
     {TERN_C_STATE, {ID, STATE, REASON, WAIT16}},
@@ -138,6 +142,7 @@ static const struct layout layouts[] = {
     {TERN_C_CARD, {ADDRESS, HEARD32, NAME}},
     {TERN_C_CARD_GONE, {ADDRESS}},
     {TERN_C_FIX, {RECEIVER, SOURCE, LAT, LON, ALTITUDE, ACC16, AGE32, SATS}},
+    {TERN_C_SLEEP, {WAKE, LISTEN, STATE, KEEPER, RETRY}},
 };
 
 /* A later version adds fields only at the end of a frame: from field `from` on, a type's fields
@@ -145,8 +150,9 @@ static const struct layout layouts[] = {
 static const struct {
     uint8_t type, from, since;
 } later_fields[] = {
-    {TERN_C_SYNCED, 0, 3}, {TERN_C_INFO, 2, 4},  {TERN_C_SELF, 5, 6},          {TERN_C_SELF, 7, 10},
-    {TERN_C_SELF, 8, 11},  {TERN_C_INFO, 4, 12}, {TERN_C_UPDATE_BEGIN, 2, 13},
+    {TERN_C_SYNCED, 0, 3},        {TERN_C_INFO, 2, 4},     {TERN_C_SELF, 5, 6},
+    {TERN_C_SELF, 7, 10},         {TERN_C_SELF, 8, 11},    {TERN_C_INFO, 4, 12},
+    {TERN_C_UPDATE_BEGIN, 2, 13}, {TERN_C_CONTACT, 3, 15},
 };
 
 static bool added_later(uint8_t type, size_t i, uint8_t version) {
@@ -160,6 +166,9 @@ static bool added_later(uint8_t type, size_t i, uint8_t version) {
 }
 
 uint8_t tern_companion_setting_since(uint8_t setting) {
+    if (setting == TERN_C_SET_WAKE || setting == TERN_C_SET_LISTEN) {
+        return 15;
+    }
     if (setting == TERN_C_SET_RECEIVER) {
         return 8;
     }
@@ -186,6 +195,10 @@ static enum field setting_value(uint8_t setting, uint8_t version) {
         return NAME;
     case TERN_C_SET_RECEIVER:
         return RECEIVER;
+    case TERN_C_SET_WAKE:
+        return WAKE;
+    case TERN_C_SET_LISTEN:
+        return LISTEN;
     default:
         return END;
     }
@@ -201,6 +214,9 @@ static const struct layout *layout_of(uint8_t type) {
 }
 
 uint8_t tern_companion_since(uint8_t type) {
+    if (type == TERN_C_SLEEP) {
+        return 15;
+    }
     if (type == TERN_C_WIPE) {
         return 13;
     }
@@ -312,6 +328,14 @@ static void *member(struct tern_companion_msg *m, enum field f) {
         return &m->pairing;
     case UPDATE:
         return &m->update;
+    case LISTEN:
+        return &m->listen;
+    case WAKE:
+        return &m->wake;
+    case RETRY:
+        return &m->retry;
+    case KEEPER:
+        return &m->keeper;
     case RECEIVER:
         return &m->receiver;
     case SOURCE:

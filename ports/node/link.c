@@ -114,6 +114,7 @@ static void news_contact(struct link *l, struct link_conn *to, const struct link
     struct tern_companion_msg m = {.type = TERN_C_CONTACT};
     memcpy(m.address, c->address, TERN_ADDRESS_LEN);
     m.session = l->host.session(l->host.ctx, c->address) ? 1 : 0;
+    m.wake = m.session != 0 && l->host.wake != NULL ? l->host.wake(l->host.ctx, c->address) : 0;
     put_text(&m, c->name, c->name_len);
     news(l, to, &m);
 }
@@ -172,6 +173,44 @@ static struct tern_companion_msg power_of(const struct link_view *v) {
                                        .millivolts = v->millivolts,
                                        .percent = v->percent,
                                        .flags = v->power_flags};
+}
+
+/* Sleeping, as a SLEEP record. */
+static struct tern_companion_msg sleep_of(const struct link_view *v) {
+    return (struct tern_companion_msg){.type = TERN_C_SLEEP,
+                                       .wake = v->wake,
+                                       .listen = v->listen,
+                                       .state = v->sleep_state,
+                                       .keeper = v->keeper,
+                                       .retry = v->retry};
+}
+
+/* Tells a client of sleeping when anything but its retry changed since it was last told: a retry
+ * that only counts down is not news (draft/companion.md, "When news is sent"). */
+static void tell_sleep(struct link *l, struct link_conn *c) {
+    struct tern_companion_msg s = sleep_of(&l->view);
+    c->sleep_wake = s.wake;
+    c->sleep_listen = s.listen;
+    c->sleep_state = s.state;
+    c->sleep_keeper = s.keeper;
+    tell(l, c, &s);
+}
+
+static void look_at_sleep(struct link *l, struct link_conn *c) {
+    const struct link_view *v = &l->view;
+    if (v->wake != c->sleep_wake || v->listen != c->sleep_listen ||
+        v->sleep_state != c->sleep_state || v->keeper != c->sleep_keeper) {
+        tell_sleep(l, c);
+    }
+}
+
+void link_sleep_news(struct link *l) {
+    l->host.view(l->host.ctx, &l->view);
+    for (size_t i = 0; i < LINK_CONNS; i++) {
+        if (l->conns[i].synced) {
+            look_at_sleep(l, &l->conns[i]);
+        }
+    }
 }
 
 /* The node's own fix, as a FIX record: the receiver's state from the view, and the fix the node
@@ -915,6 +954,13 @@ void link_session_changed(struct link *l, const uint8_t address[TERN_ADDRESS_LEN
     }
 }
 
+void link_wake_changed(struct link *l, const uint8_t address[TERN_ADDRESS_LEN]) {
+    const struct link_contact *c = find_contact(l, address);
+    if (c != NULL) {
+        news_contact(l, NULL, c);
+    }
+}
+
 void link_asked(struct link *l, tern_time now, const uint8_t address[TERN_ADDRESS_LEN],
                 uint8_t why) {
     struct link_asked *a = NULL;
@@ -1014,6 +1060,7 @@ static void sync(struct link *l, const struct tern_companion_msg *q, tern_time n
     tell(l, c, &c->power);
     c->fix = fix_of(l, now);
     tell(l, c, &c->fix);
+    tell_sleep(l, c);
     c->look_at = c->air_at = c->power_at = c->fix_at = now;
     c->synced = true;
     /* With the count as it stands, so that a client that missed the last of the news knows. */
@@ -1934,6 +1981,11 @@ static void receive(struct link *l, unsigned conn, tern_time now, const uint8_t 
             }
         }
         fix_news(l, now);
+        for (size_t i = 0; i < LINK_CONNS; i++) {
+            if (l->conns[i].synced) {
+                look_at_sleep(l, &l->conns[i]);
+            }
+        }
         break;
     }
     case TERN_C_SEND:
@@ -2100,6 +2152,7 @@ static void look(struct link *l, struct link_conn *c, tern_time now) {
         tell(l, c, &c->power);
     }
     look_at_fix(l, c, now);
+    look_at_sleep(l, c);
 }
 
 tern_time link_answered_at(const struct link *l) {

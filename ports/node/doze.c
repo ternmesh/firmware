@@ -99,17 +99,17 @@ bool doze_parse(const char *args, uint16_t *wake, uint8_t *listen) {
 }
 
 uint32_t doze_setting(uint16_t wake, uint8_t listen) {
-    return wake == 0 ? 0 : (uint32_t)wake | (uint32_t)listen << 16;
+    return (uint32_t)wake | (uint32_t)listen << 16;
 }
 
 void doze_setting_read(uint32_t word, uint16_t *wake, uint8_t *listen) {
     uint16_t w = (uint16_t)word;
     uint8_t l = (uint8_t)(word >> 16);
-    if (w == 0 || !tern_sleep_wake_ok(w) || l < TERN_SLEEP_LISTEN_MIN_S) {
-        *wake = 0;
-        *listen = 0;
-        return;
+    /* Flash never written reads as all ones: neither a wake nor anything after it. */
+    if (word == 0xFFFFFFFFu) {
+        w = 0;
+        l = 0;
     }
-    *wake = w;
-    *listen = l;
+    *wake = w != 0 && tern_sleep_wake_ok(w) ? w : 0;
+    *listen = l >= TERN_SLEEP_LISTEN_MIN_S ? l : 0;
 }
