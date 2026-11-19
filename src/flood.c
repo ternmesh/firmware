@@ -100,6 +100,12 @@ void tern_flood_init(struct tern_flood *f, const struct tern_flood_config *confi
     tern_airtime_bucket_init(&f->relay, config->relay_ppm, config->relay_window, longest, now);
 }
 
+/* Whether `a` goes before `b`: the one that has waited longest, and of two given at once, the one
+ * given first. Frames passed on are all of order 0, and go by when they were heard. */
+static bool before(const struct tern_flood_slot *a, const struct tern_flood_slot *b) {
+    return a->at < b->at || (a->at == b->at && a->order < b->order);
+}
+
 static uint64_t rand_below(struct tern_flood *f, uint64_t n) {
     f->rng ^= f->rng >> 12;
     f->rng ^= f->rng << 25;
@@ -202,8 +208,11 @@ bool tern_flood_send(struct tern_flood *f, tern_time now, const uint8_t *frame, 
     if (!tern_flood_frame(frame, len) || (s = free_slot(f)) == NULL) {
         return false;
     }
-    *s = (struct tern_flood_slot){
-        .state = TERN_FLOOD_WAITING, .own = true, .len = (uint8_t)len, .at = now};
+    *s = (struct tern_flood_slot){.state = TERN_FLOOD_WAITING,
+                                  .own = true,
+                                  .len = (uint8_t)len,
+                                  .at = now,
+                                  .order = f->own_order++};
     memcpy(s->frame, frame, len);
     s->frame[1] = tern_flood_starts(frame[0], f->config.hops);
     /* A frame that would start at the most starts one lower half the time, so that the first
@@ -353,11 +362,27 @@ void tern_flood_radio(struct tern_flood *f, tern_time now, tern_time on_air) {
 
 tern_time tern_flood_due(const struct tern_flood *f) {
     tern_time due = INT64_MAX;
+    const struct tern_flood_slot *first = NULL; /* of the node's own waiting */
     for (size_t i = 0; i < f->cap; i++) {
         const struct tern_flood_slot *s = &f->slot[i];
-        if ((s->state == TERN_FLOOD_WAITING || s->state == TERN_FLOOD_ECHO) && s->at < due) {
+        if (s->state == TERN_FLOOD_WAITING && s->own) {
+            first = first == NULL || before(s, first) ? s : first;
+        } else if ((s->state == TERN_FLOOD_WAITING || s->state == TERN_FLOOD_ECHO) && s->at < due) {
             due = s->at;
         }
+    }
+    if (first != NULL) {
+        /* The first of its own goes once it is due and its allowance and budget pay for it. */
+        tern_time air = airtime(f, first->len);
+        tern_time at = first->at > f->own_after ? first->at : f->own_after;
+        at = at > f->own.at ? at : f->own.at; /* the bucket is known no earlier than that */
+        at += tern_airtime_bucket_wait(&f->own, at, air);
+        if (f->budget != NULL) {
+            at = at > f->budget->own.at ? at : f->budget->own.at;
+            tern_time part_at = tern_airtime_pays_at(f->budget, at, first->frame[0], true, air);
+            at = part_at > at ? part_at : at;
+        }
+        due = at < due ? at : due;
     }
     return due;
 }
@@ -365,10 +390,9 @@ tern_time tern_flood_due(const struct tern_flood *f) {
 size_t tern_flood_own_waiting(const struct tern_flood *f, struct tern_airtime_waiting *waiting,
                               uint8_t *handles, size_t n) {
     size_t count = 0;
-    tern_time after = INT64_MIN;
-    size_t after_i = 0;
+    const struct tern_flood_slot *after = NULL;
     /* In the order tern_flood_poll() takes them: the one that has waited longest first, and of two
-     * that have waited as long, the one in the earlier slot. */
+     * given at once, the one given first. */
     while (count < n) {
         const struct tern_flood_slot *next = NULL;
         size_t next_i = 0;
@@ -377,8 +401,7 @@ size_t tern_flood_own_waiting(const struct tern_flood *f, struct tern_airtime_wa
             if (s->state != TERN_FLOOD_WAITING || !s->own) {
                 continue;
             }
-            bool later = count == 0 || s->at > after || (s->at == after && i > after_i);
-            if (later && (next == NULL || s->at < next->at)) {
+            if ((after == NULL || before(after, s)) && (next == NULL || before(s, next))) {
                 next = s;
                 next_i = i;
             }
@@ -389,8 +412,7 @@ size_t tern_flood_own_waiting(const struct tern_flood *f, struct tern_airtime_wa
         waiting[count] = (struct tern_airtime_waiting){next->frame[0], airtime(f, next->len)};
         handles[count] = (uint8_t)next_i;
         count++;
-        after = next->at;
-        after_i = next_i;
+        after = next;
     }
     return count;
 }
@@ -422,12 +444,15 @@ size_t tern_flood_poll(struct tern_flood *f, tern_time now, uint8_t frame[TERN_F
     /* Frames passed on go before the node's own, as for frames that follow routes; of each, the
      * one that has waited longest. */
     for (int own = 0; own <= 1; own++) {
+        if (own && now < f->own_after) {
+            break; /* the first of its own is not yet paid for, and the rest wait behind it */
+        }
         for (;;) {
             struct tern_flood_slot *s = NULL;
             for (size_t i = 0; i < f->cap; i++) {
                 struct tern_flood_slot *c = &f->slot[i];
                 if (c->state == TERN_FLOOD_WAITING && c->own == (bool)own && c->at <= now &&
-                    (s == NULL || c->at < s->at)) {
+                    (s == NULL || before(c, s))) {
                     s = c;
                 }
             }
@@ -447,13 +472,14 @@ size_t tern_flood_poll(struct tern_flood *f, tern_time now, uint8_t frame[TERN_F
                 f->budget == NULL || tern_airtime_pays(f->budget, now, s->frame[0], (bool)own, air);
             if (!part || !tern_airtime_bucket_holds(b, now, air)) {
                 if (own) {
-                    /* It waits for both, and those behind it wait their turn. */
+                    /* It waits for both, and those behind it wait their turn: it keeps its place,
+                     * and all of them wait until it is paid for. */
                     tern_time at = now + tern_airtime_bucket_wait(b, now, air);
                     tern_time part_at =
                         f->budget ? tern_airtime_pays_at(f->budget, now, s->frame[0], true, air)
                                   : now;
-                    s->at = part_at > at ? part_at : at;
-                    s->at = s->at > now ? s->at : now + 1;
+                    f->own_after = part_at > at ? part_at : at;
+                    f->own_after = f->own_after > now ? f->own_after : now + 1;
                     break;
                 }
                 s->state = TERN_FLOOD_FREE;
