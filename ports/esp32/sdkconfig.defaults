@@ -1,6 +1,9 @@
 CONFIG_IDF_TARGET="esp32s3"
 CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
 CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+# The console UART's interrupt runs from IRAM, so that a flash write does not stall it while a
+# client's frame arrives: its FIFO would fill and the frame's bytes be lost (main/board.c).
+CONFIG_UART_ISR_IN_IRAM=y
 CONFIG_FREERTOS_HZ=1000
 # A handshake's elliptic-curve arithmetic needs more stack than the main task's default 3.5 KB
 # (tern/contact.h). The demo's 'selftest' command reports how much is left.
