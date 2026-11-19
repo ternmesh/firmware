@@ -388,6 +388,48 @@ static void a_message_waits_for_its_leaf(void) {
     CHECK(net.awake * 100 < (net.now - from) * 5);
 }
 
+/* What the keeper's next answer to the leaf's poll says it holds. */
+static int held_for_leaf(void) {
+    const struct tern_route *r = &net.node[KEEPER].r;
+    for (size_t i = 0; i < TERN_ROUTE_KEPT_LEAVES; i++) {
+        if (r->keeps[i].leaf == id_of(LEAF)) {
+            return r->keeps[i].held;
+        }
+    }
+    return -1;
+}
+
+/* A message from the keeper itself waits for the leaf too, and is counted in the answer to its
+ * poll, so the leaf listens for it: found on two boards, where the answer said nothing was held and
+ * the leaf went back to sleep before the keeper's own message went. And no more polls than it
+ * needs. */
+static void the_keepers_own_message_waits_for_its_leaf(void) {
+    net_init();
+    tern_forward_wake(&net.node[KEEPER].f, id_of(LEAF), WAKE);
+    unsigned before = net.polls;
+    message(KEEPER, LEAF, 0xD4);
+    run(net.now + TERN_S(20));
+    CHECK_EQ_I64(net.node[LEAF].got, 0);
+    CHECK_EQ_I64(held_for_leaf(), 1); /* what the answer to its next poll says */
+    run(net.now + TERN_S(WAKE + 30));
+    CHECK_EQ_I64(net.node[LEAF].got, 1);
+    CHECK_EQ_I64(net.node[KEEPER].acked, 1);
+    CHECK_EQ_I64(net.node[KEEPER].failed, 0);
+    CHECK(net.polls - before <= 3);
+}
+
+/* The leaf's own message to its keeper: the keeper's acknowledgement, its own frame, is held for
+ * the leaf's next poll, and the leaf's wait for it is long enough. */
+static void the_keepers_acknowledgement_waits_for_its_leaf(void) {
+    net_init();
+    message(LEAF, KEEPER, 0xE5);
+    run(net.now + TERN_S(2 * WAKE + 60));
+    CHECK(net.node[KEEPER].got >= 1);
+    CHECK_EQ_I64(net.node[LEAF].acked, 1);
+    CHECK_EQ_I64(net.node[LEAF].failed, 0);
+    CHECK_EQ_I64(net.node[KEEPER].got, 1); /* one try: its wait was long enough */
+}
+
 /* An hour asleep, with nothing for it, the leaf's radio is on a few percent of the time. */
 static void a_leaf_with_nothing_for_it_is_nearly_always_off(void) {
     net_init();
@@ -509,6 +551,8 @@ int main(void) {
     RUN(a_leaf_that_does_not_sleep_never_may);
     RUN(a_leaf_sleeps_and_only_its_keeper_uses_it);
     RUN(a_message_waits_for_its_leaf);
+    RUN(the_keepers_own_message_waits_for_its_leaf);
+    RUN(the_keepers_acknowledgement_waits_for_its_leaf);
     RUN(a_leaf_with_nothing_for_it_is_nearly_always_off);
     RUN(a_leaf_whose_keeper_goes_takes_another);
     RUN(a_frame_held_too_long_is_dropped);
