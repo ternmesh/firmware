@@ -369,7 +369,11 @@ struct link_conn {
     uint8_t self_cards;
     uint8_t self_card_name_len;
     uint8_t self_card_name[TERN_COMPANION_NAME_MAX];
-    struct tern_companion_msg air, power, fix, sleep;
+    struct tern_companion_msg air, power, fix;
+    /* What SLEEP last told, of what makes it news: not a whole message, for the room. */
+    uint16_t sleep_wake;
+    uint8_t sleep_listen, sleep_state;
+    uint32_t sleep_keeper;
     tern_time air_at, power_at, fix_at, look_at;
 };
 

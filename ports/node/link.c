@@ -187,13 +187,20 @@ static struct tern_companion_msg sleep_of(const struct link_view *v) {
 
 /* Tells a client of sleeping when anything but its retry changed since it was last told: a retry
  * that only counts down is not news (draft/companion.md, "When news is sent"). */
-static void look_at_sleep(struct link *l, struct link_conn *c) {
+static void tell_sleep(struct link *l, struct link_conn *c) {
     struct tern_companion_msg s = sleep_of(&l->view);
-    const struct tern_companion_msg *t = &c->sleep;
-    if (s.wake != t->wake || s.listen != t->listen || s.state != t->state ||
-        s.keeper != t->keeper) {
-        c->sleep = s;
-        tell(l, c, &c->sleep);
+    c->sleep_wake = s.wake;
+    c->sleep_listen = s.listen;
+    c->sleep_state = s.state;
+    c->sleep_keeper = s.keeper;
+    tell(l, c, &s);
+}
+
+static void look_at_sleep(struct link *l, struct link_conn *c) {
+    const struct link_view *v = &l->view;
+    if (v->wake != c->sleep_wake || v->listen != c->sleep_listen ||
+        v->sleep_state != c->sleep_state || v->keeper != c->sleep_keeper) {
+        tell_sleep(l, c);
     }
 }
 
@@ -1053,8 +1060,7 @@ static void sync(struct link *l, const struct tern_companion_msg *q, tern_time n
     tell(l, c, &c->power);
     c->fix = fix_of(l, now);
     tell(l, c, &c->fix);
-    c->sleep = sleep_of(&l->view);
-    tell(l, c, &c->sleep);
+    tell_sleep(l, c);
     c->look_at = c->air_at = c->power_at = c->fix_at = now;
     c->synced = true;
     /* With the count as it stands, so that a client that missed the last of the news knows. */
