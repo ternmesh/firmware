@@ -384,6 +384,46 @@ static void test_own(void) {
     CHECK_EQ_U64(x.f.counts.heard, 0);
 }
 
+/* A node's own frames go in the order it gave them, however long the allowance holds them: one
+ * given while others wait goes after them, even in the slot the first to go has freed. On a board,
+ * a stream of group messages faster than the allowance once held the three behind the first until
+ * the stream stopped. */
+static void test_own_order(void) {
+    struct node x;
+    uint8_t frame[TERN_FLOOD_FRAME_MAX], out[TERN_FLOOD_FRAME_MAX];
+    int8_t dbm;
+    enum tern_flood_kind kind;
+    uint8_t h;
+    start(&x, false, 10);
+    x.f.config.resends = 0; /* the allowance alone */
+    /* Nine 255-byte frames spend it. */
+    for (unsigned k = 0; k < 9; k++) {
+        CHECK(tern_flood_send(&x.f, 0, frame, make(frame, 255, 0, k)));
+        CHECK(tern_flood_poll(&x.f, 0, out, &dbm, &kind, &h) == 255);
+        tern_flood_sent(&x.f, 0, h);
+    }
+    /* Three more, a millisecond apart, each asked for as it is given: none goes. */
+    for (unsigned k = 9; k < 12; k++) {
+        tern_time t = TERN_MS(k - 8);
+        CHECK(tern_flood_send(&x.f, t, frame, make(frame, 255, 0, k)));
+        CHECK(tern_flood_poll(&x.f, t, out, &dbm, &kind, &h) == 0);
+    }
+    /* Each goes when the allowance next holds a frame, the oldest first; one given as each goes
+     * goes after those already waiting. */
+    unsigned next = 12;
+    for (unsigned want = 9; want < 16; want++) {
+        tern_time due = tern_flood_due(&x.f);
+        CHECK(due > 0 && due < INT64_MAX);
+        CHECK(tern_flood_poll(&x.f, due, out, &dbm, &kind, &h) == 255);
+        CHECK_EQ_U64(out[4], want);
+        tern_flood_sent(&x.f, due, h);
+        if (next < 16) {
+            CHECK(tern_flood_send(&x.f, due, frame, make(frame, 255, 0, next++)));
+            CHECK(tern_flood_poll(&x.f, due, out, &dbm, &kind, &h) == 0);
+        }
+    }
+}
+
 /* A position to a group must leave the allowance room for a 255-byte frame of words, counting
  * what of the node's own still waits. Asking spends nothing. */
 static void test_own_room(void) {
@@ -1054,6 +1094,7 @@ int main(void) {
     RUN(test_waits);
     RUN(test_seen);
     RUN(test_own);
+    RUN(test_own_order);
     RUN(test_own_room);
     RUN(test_unpaid);
     RUN(test_busy);

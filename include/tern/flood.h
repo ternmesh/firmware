@@ -148,6 +148,7 @@ struct tern_flood_slot {
     uint8_t len;
     int8_t power;
     tern_time at;
+    uint32_t order; /* of a node's own, the order it was given in: of two due at once, the first */
     uint8_t id[TERN_FLOOD_ID];
     uint8_t frame[TERN_FLOOD_FRAME_MAX];
 };
@@ -178,6 +179,10 @@ struct tern_flood {
     struct tern_airtime_bucket own; /* the allowances: buckets of the budget's kind */
     struct tern_airtime_bucket relay;
     struct tern_airtime *budget; /* or NULL, for none */
+    /* The node's own frames wait until then, all of them, for the allowance and the budget to pay
+     * for the first: each keeps its place, and none behind it goes first. */
+    tern_time own_after;
+    uint32_t own_order; /* the order the next frame of its own is given */
     uint64_t rng;
     /* The radio's time sending and receiving as it was told at two times past, the older of them
      * busy_span to twice that ago, and the share that makes of the time since. */
