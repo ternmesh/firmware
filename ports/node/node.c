@@ -248,9 +248,10 @@ static struct pending {
 
 /* Leaves that sleep (draft/sleeping.md, doze.h). The radio asleep between polls, and how long it
  * has been; for each session, the wake its peer said it sleeps for (0 for not) and the wake this
- * board last had acknowledged as its own (0 for not sleeping, which a peer takes until told). Not
- * kept across a restart: a peer says it again, and this board tells each peer again. And what a
- * relay holds for the sleeping leaves that keep it, from the heap or static, or none. */
+ * board last had acknowledged as its own (0 for not sleeping, which a peer takes until told). Both
+ * kept across a restart (wake_save()): a peer tells a wake once, and does not know this board
+ * restarted. And what a relay holds for the sleeping leaves that keep it, from the heap or static,
+ * or none. */
 static struct doze doze;
 static uint16_t peer_wake[DEMO_PEERS];
 static uint16_t wake_told[DEMO_PEERS];
@@ -739,12 +740,55 @@ static bool hand_over(const struct link_message *x, struct pending *p, bool *gon
     return true;
 }
 
+/* What a session's two ends said of sleeping, kept under the session's place with its peer's
+ * address, which a restart checks: the place may hold another session by then. */
+struct wake_saved {
+    uint8_t peer[TERN_ADDRESS_LEN];
+    uint16_t peer_wake, told;
+};
+
+static void wake_key(char out[8], int slot) { snprintf(out, 8, "wake%02d", slot); }
+
+static void wake_save(int slot) {
+    struct wake_saved w = {.peer_wake = peer_wake[slot], .told = wake_told[slot]};
+    char key[8];
+    memcpy(w.peer, demo.s[slot].peer, TERN_ADDRESS_LEN);
+    wake_key(key, slot);
+    if (!store_save(NULL, key, &w, sizeof w)) {
+        printf("(could not save what peer %d said of sleeping: told again after a restart)\n",
+               slot + 1);
+    }
+}
+
+/* At start, once the forwarder runs: what each session's ends said of sleeping, as kept. */
+static void wakes_load(void) {
+    for (int i = 0; i < DEMO_PEERS; i++) {
+        struct wake_saved w;
+        char key[8];
+        wake_key(key, i);
+        if (demo.s[i].role == 0 || !store_load(NULL, key, &w, sizeof w) ||
+            memcmp(w.peer, demo.s[i].peer, TERN_ADDRESS_LEN) != 0) {
+            continue;
+        }
+        if (w.peer_wake != 0 && tern_sleep_wake_ok(w.peer_wake)) {
+            peer_wake[i] = w.peer_wake;
+            tern_forward_wake(&forward, demo_peer_id(&demo, i), w.peer_wake);
+        }
+        if (w.told == 0 || tern_sleep_wake_ok(w.told)) {
+            wake_told[i] = w.told;
+        }
+    }
+}
+
 /* A session was replaced or dropped: what was sent in it can no longer be acknowledged, so the
  * forwarder lets go of it, and the client is told. Other sessions' messages go on. */
 static void pending_drop(int slot, bool tell) {
     /* What either end said of sleeping was said in the old session. */
-    peer_wake[slot] = 0;
-    wake_told[slot] = 0;
+    if (peer_wake[slot] != 0 || wake_told[slot] != 0) {
+        peer_wake[slot] = 0;
+        wake_told[slot] = 0;
+        wake_save(slot);
+    }
     if (sealed_id != 0 && sealed_slot == slot) {
         sealed_id = 0; /* a frame sealed in the old session is no use in the new */
     }
@@ -848,6 +892,7 @@ static void heard_ack(const struct tern_radio_event *ev) {
         link_position_done(&companion, p->to);
     } else if (p->id == PENDING_SLEEP) {
         wake_told[p->slot] = p->wake;
+        wake_save(p->slot);
     } else {
         link_state(&companion, p->id, TERN_C_DELIVERED, 0, 0);
     }
@@ -926,6 +971,7 @@ static void heard_for_node(const uint8_t *plain, size_t len, const uint8_t peer[
         peer_wake[slot] = wake;
         tern_forward_wake(&forward, demo_peer_id(&demo, slot), wake);
         if (changed) {
+            wake_save(slot);
             link_wake_changed(&companion, peer);
         }
         sleep_sessions_at = 0; /* its session's waits, at once */
@@ -1819,6 +1865,39 @@ static void poll_doze(void) {
     bool may = tern_forward_may_sleep(&forward, now, &wake_at);
     if (doze_should(&doze, now, may, wake_at, tern_flood_due(&flood), radio_busy(), &until)) {
         radio_doze(now, until);
+    }
+}
+
+/* A sleeping leaf's polls, said on the console as they go: whether its keeper answered, how many
+ * frames the answer said it holds, and how many came while it listened. One line or two each wake,
+ * so that a frame the keeper handed over and the leaf missed can be told from one never sent. */
+static void poll_watch(void) {
+    static bool waiting, listening;
+    static uint8_t misses, held;
+    if (!route.sleeping) {
+        waiting = listening = false;
+        return;
+    }
+    if (route.poll_waiting && !waiting) {
+        misses = route.poll_misses;
+    }
+    if (waiting && !route.poll_waiting) {
+        if (route.poll_misses > misses) {
+            printf("poll %u: no answer from %08lx (%u in a row)\n", (unsigned)route.poll_id,
+                   (unsigned long)route.keeper, (unsigned)route.poll_misses);
+        } else {
+            held = route.poll_held;
+            printf("poll %u: answered by %08lx, %u frame%s held\n", (unsigned)route.poll_id,
+                   (unsigned long)route.keeper, (unsigned)held, held == 1 ? "" : "s");
+            listening = held != 0;
+        }
+    }
+    waiting = route.poll_waiting;
+    if (listening && route.listen_until != INT64_MAX && board_now() >= route.listen_until) {
+        listening = false;
+        printf("poll %u: listened, %u of %u held frame%s came%s\n", (unsigned)route.poll_id,
+               (unsigned)route.poll_got, (unsigned)held, held == 1 ? "" : "s",
+               route.poll_got < held ? ": the rest at the next poll" : "");
     }
 }
 
@@ -4654,6 +4733,7 @@ void node_main(void) {
         }
     }
     doze_init(&doze, board_now());
+    wakes_load();
 
     int err = board_init();
     radio = board_radio();
@@ -4767,6 +4847,7 @@ void node_main(void) {
         if (!doze.dozing) {
             poll_radio();
         }
+        poll_watch();
         if (bench) {
             crumb_at(cr, CRUMB_BEACON);
             poll_beacon();
