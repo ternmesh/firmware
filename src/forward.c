@@ -214,22 +214,40 @@ static bool asleep(const struct tern_forward *f, uint32_t leaf, tern_time now) {
            tern_route_keeper_of(f->route, leaf, now, &answered, &wake) == TERN_KEEP_ASLEEP;
 }
 
-/* A frame of this node's own for a sleeping leaf it keeps waits in its slot until the leaf polls.
- */
-static bool deferred(const struct tern_forward *f, const struct tern_forward_slot *s,
-                     tern_time now) {
-    return s->state == TERN_FORWARD_WAITING && s->own && dest_of(s) == s->next &&
-           asleep(f, s->next, now);
+/* A frame of this node's own for a sleeping leaf it keeps, not yet sent: one it holds, as it holds
+ * any other for the leaf, but in its slot. All but an acknowledgement of a frame just heard from
+ * the leaf, which ends the hop the leaf listens for, and so goes at once. */
+static bool own_held(const struct tern_forward *f, const struct tern_forward_slot *s, tern_time now,
+                     bool *answered) {
+    uint16_t wake;
+    enum tern_route_keep st;
+    *answered = false;
+    if (s->state != TERN_FORWARD_WAITING || !s->own || dest_of(s) != s->next || !f->kept_cap ||
+        (s->frame[0] == TERN_HDR_ACK && !s->tracked && s->back != INT8_MIN)) {
+        return false;
+    }
+    st = tern_route_keeper_of(f->route, s->next, now, answered, &wake);
+    return st == TERN_KEEP_ASLEEP || st == TERN_KEEP_AWAKE;
 }
 
-/* Tells the router how many frames are held for `leaf`, for its answer to the leaf's next poll. */
+/* Such a frame waits in its slot until the leaf has polled and been answered, as what a keeper
+ * holds for it does (keep()). */
+static bool deferred(const struct tern_forward *f, const struct tern_forward_slot *s,
+                     tern_time now) {
+    bool answered;
+    return own_held(f, s, now, &answered) && !answered;
+}
+
+/* Tells the router how many frames are held for `leaf`, for its answer to the leaf's next poll:
+ * those a keeper holds for it, and its own not yet sent, so that the leaf listens for them. */
 static void recount(struct tern_forward *f, uint32_t leaf, tern_time now) {
     unsigned n = 0;
+    bool answered;
     for (size_t i = 0; i < f->kept_cap; i++) {
         n += f->kept[i].leaf == leaf;
     }
     for (size_t i = 0; i < f->cap; i++) {
-        n += deferred(f, &f->slot[i], now) && f->slot[i].next == leaf;
+        n += f->slot[i].next == leaf && own_held(f, &f->slot[i], now, &answered);
     }
     tern_route_holding(f->route, leaf, (uint8_t)(n > UINT8_MAX ? UINT8_MAX : n));
 }
@@ -754,6 +772,13 @@ static void keep(struct tern_forward *f, tern_time now) {
             memcpy(s->frame, k->frame, k->len);
             f->counts.handed += keeps;
             recount(f, leaf, now);
+        }
+    }
+    /* This node's own frames for its leaves come and go in their slots: counted afresh for each
+     * leaf it keeps, so an answer to a poll says how many are waiting. */
+    for (size_t i = 0; i < TERN_ROUTE_KEPT_LEAVES; i++) {
+        if (f->route->keeps[i].leaf) {
+            recount(f, f->route->keeps[i].leaf, now);
         }
     }
 }
