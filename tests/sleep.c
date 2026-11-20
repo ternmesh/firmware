@@ -523,6 +523,73 @@ static void relays_that_do_not_keep_are_rested(void) {
     CHECK(keeper == id_of(KEEPER));
 }
 
+/* Restarts node `k` as a board does: its routes, and what its forwarder held, gone. A keeper given
+ * what it kept, as a board keeps it in flash, takes back its sleeping leaves. */
+static void restart(int k, const struct tern_route_kept_saved *saved, size_t n) {
+    struct node *x = &net.node[k];
+    struct tern_forward_config fc = tern_forward_defaults();
+    struct tern_route_config c = tern_route_defaults(&net.lora, FULL, -9, k != LEAF);
+    tern_route_init(&x->r, &c, id_of(k), x->nb, NB, x->dest, DESTS, 0,
+                    0x5851F42D4C957F2DULL * (uint64_t)(k + 3), net.now);
+    tern_forward_init(&x->f, &fc, &x->r, x->slot, SLOTS, (uint64_t)(k + 17));
+    tern_forward_keeper(&x->f, x->kept, KEPT);
+    tern_route_kept_restore(&x->r, net.now, saved, n);
+    x->got = x->acked = x->failed = 0;
+}
+
+/* A keeper that restarts takes back the leaf it kept: what it then has for the leaf, here a first
+ * contact's frame, for which nothing tells it the leaf sleeps, is held until the leaf polls, and
+ * the leaf, its polls answered, keeps it as its keeper. Found on two boards: the keeper had no
+ * route to the leaf, gave its frame up in four tries, and answered none of its polls. */
+static void a_keeper_that_restarts_still_keeps_its_leaf(void) {
+    struct tern_route_kept_saved saved[TERN_ROUTE_KEPT_LEAVES];
+    uint32_t sum = 0, keeper = 0;
+    net_init();
+    size_t n = tern_route_kept_list(&net.node[KEEPER].r, saved, COUNT(saved), &sum);
+    CHECK_EQ_I64(n, 1);
+    CHECK(saved[0].leaf == id_of(LEAF));
+    CHECK(tern_sleep_wake_s(saved[0].wake) == WAKE);
+    restart(KEEPER, saved, n);
+    message(KEEPER, LEAF, 0xF1);
+    run(net.now + TERN_S(20));
+    CHECK_EQ_I64(net.node[LEAF].got, 0);
+    CHECK_EQ_I64(net.node[KEEPER].failed, 0);
+    run(net.now + TERN_S(WAKE + 30));
+    CHECK_EQ_I64(net.node[LEAF].got, 1);
+    CHECK_EQ_I64(net.node[KEEPER].acked, 1);
+    CHECK_EQ_I64(net.node[KEEPER].failed, 0);
+    CHECK(tern_route_sleeping(&net.node[LEAF].r, &keeper));
+    CHECK(keeper == id_of(KEEPER));
+    /* What it lists again sums as before: nothing to save. */
+    uint32_t again = 0;
+    CHECK_EQ_I64(tern_route_kept_list(&net.node[KEEPER].r, saved, COUNT(saved), &again), 1);
+    CHECK(again == sum);
+}
+
+/* The same with nothing kept, as before: the frame is given up. */
+static void a_keeper_that_restarts_with_nothing_kept_gives_up(void) {
+    net_init();
+    restart(KEEPER, NULL, 0);
+    message(KEEPER, LEAF, 0xF2);
+    run(net.now + TERN_S(60));
+    CHECK_EQ_I64(net.node[KEEPER].failed, 1);
+    CHECK_EQ_I64(net.node[LEAF].got, 0);
+}
+
+/* A source told nothing of the leaf's sleep, as one making first contact is: the keeper's held
+ * notice tells it the frame waits for the leaf, and it waits for the answer, not giving the frame
+ * up in its four tries. */
+static void a_source_told_it_is_held_waits(void) {
+    net_init();
+    message(SRC, LEAF, 0xA7);
+    run(net.now + TERN_S(20));
+    CHECK_EQ_I64(net.node[KEEPER].f.counts.held, 1);
+    run(net.now + TERN_S(WAKE + 30));
+    CHECK_EQ_I64(net.node[LEAF].got, 1);
+    CHECK_EQ_I64(net.node[SRC].acked, 1);
+    CHECK_EQ_I64(net.node[SRC].failed, 0);
+}
+
 /* A leaf that does not sleep is a leaf as before: never off. */
 static void a_leaf_that_does_not_sleep_never_may(void) {
     struct tern_route r;
@@ -558,5 +625,8 @@ int main(void) {
     RUN(a_frame_held_too_long_is_dropped);
     RUN(a_leaf_told_to_stop_listens_and_can_sleep_again);
     RUN(relays_that_do_not_keep_are_rested);
+    RUN(a_keeper_that_restarts_still_keeps_its_leaf);
+    RUN(a_keeper_that_restarts_with_nothing_kept_gives_up);
+    RUN(a_source_told_it_is_held_waits);
     return CHECK_DONE();
 }

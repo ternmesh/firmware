@@ -159,6 +159,9 @@ struct tern_forward_slot {
     int8_t power;
     int8_t back; /* the least it may go at, for the node it came from; INT8_MIN for none */
     uint8_t len;
+    /* A keeper said it holds this frame of the node's own for a sleeping leaf: with no wake told
+     * for the destination, each wait for its answer is as long as a leaf may sleep. */
+    bool held_long;
     uint32_t next;
     uint32_t gone[TERN_FORWARD_SALVAGE_MAX];
     tern_time at;

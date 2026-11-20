@@ -306,6 +306,26 @@ static void hold_again(struct tern_forward *f, struct tern_forward_slot *s, tern
     s->state = TERN_FORWARD_FREE;
 }
 
+/* How long past ACK_WAIT and the route's time a source waits for a frame's answer, in seconds, for
+ * a destination that sleeps: its wake, as it said, or for a frame a keeper said it holds, with none
+ * said, the longest any leaf sleeps; and the shortest listen. 0 for one not known to sleep. */
+static uint32_t sleep_wait_s(const struct tern_forward *f, const struct tern_forward_slot *s) {
+    uint16_t peer = wake_of(f, dest_of(s));
+    uint32_t w = peer ? tern_sleep_wake_s(peer) : s->held_long ? TERN_SLEEP_WAKE_MAX_S : 0;
+    return w ? w + TERN_SLEEP_LISTEN_MIN_S : 0;
+}
+
+/* A keeper holds a frame of this node's for its sleeping leaf (draft/sleeping.md, "Telling the
+ * source"): its answer comes once the leaf has polled, so this wait, and each after it, is a
+ * sleeping destination's. */
+static void held_wait(struct tern_forward *f, struct tern_forward_slot *s, tern_time now) {
+    s->held_long = true;
+    tern_time until = now + f->config.ack_wait + TERN_S((int64_t)sleep_wait_s(f, s));
+    if (s->deadline >= 0 && s->deadline < until) {
+        s->deadline = until;
+    }
+}
+
 bool tern_forward_send(struct tern_forward *f, tern_time now, uint32_t destination,
                        const uint8_t *frame, size_t len, bool tracked, int8_t back) {
     struct tern_forward_slot *s = free_slot(f);
@@ -371,6 +391,9 @@ void tern_forward_heard(struct tern_forward *f, tern_time now, const uint8_t *fr
                 continue;
             }
             s->unheard = 0;
+            if (s->own && s->tracked) {
+                held_wait(f, s, now);
+            }
             if (s->state == TERN_FORWARD_OUT) {
                 s->done = true;
             } else {
@@ -898,17 +921,16 @@ static void start_waiting(struct tern_forward *f, struct tern_forward_slot *s, t
             r->config.default_hops) {
             metric = tern_route_default_metric(r->config.default_hops, r->cost);
         }
-        uint32_t own_wake = 0;
-        uint16_t peer = wake_of(f, dest_of(s));
+        uint32_t own_wake = 0, peer_s = sleep_wait_s(f, s);
         if (tern_route_sleeping(r, NULL)) {
             /* Asleep, the leaf hears its acknowledgement only at its next poll. */
             own_wake = tern_sleep_wake_s(r->config.sleep_wake);
         }
         s->deadline = now + f->config.ack_wait +
                       (tern_time)f->config.ack_factor * (tern_time)metric * TERN_MS(1);
-        if (peer || own_wake) {
-            s->deadline += TERN_S((int64_t)(peer ? tern_sleep_wake_s(peer) : 0) + own_wake +
-                                  TERN_SLEEP_LISTEN_MIN_S);
+        if (peer_s || own_wake) {
+            /* The shortest listen once, though both sleep. */
+            s->deadline += TERN_S((int64_t)(peer_s ? peer_s : TERN_SLEEP_LISTEN_MIN_S) + own_wake);
         }
     }
 }

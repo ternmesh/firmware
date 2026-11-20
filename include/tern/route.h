@@ -763,6 +763,31 @@ enum tern_route_keep tern_route_keeper_of(const struct tern_route *r, uint32_t l
 /* The forwarder holds `held` frames for `leaf`: what the next answer to its poll says. */
 void tern_route_holding(struct tern_route *r, uint32_t leaf, uint8_t held);
 
+/* A sleeping leaf a relay keeps, as the relay keeps it across a restart: without it, a keeper
+ * that restarts knows nothing of the leaf until the leaf announces, up to SLEEP_ANNOUNCE later.
+ * It answers none of its polls meanwhile, and sends what it has for the leaf into the air, or
+ * gives it up for want of a route, while the leaf sleeps. */
+struct tern_route_kept_saved {
+    uint32_t leaf;
+    int32_t floor; /* the neighbour's, sixteenths of a dBm */
+    uint16_t wake; /* its wake code, from its last poll or announce */
+    uint8_t listen;
+    uint8_t has_key;
+    uint8_t key[TERN_ADDRESS_LEN];
+};
+
+/* The sleeping leaves this relay keeps, up to `cap` of them, into `out`; how many. `changes`, if
+ * not NULL, gets a sum over what says which leaves and how they sleep, and not over what changes
+ * with each frame heard (the floor): a caller that keeps them saves them when it changes. */
+size_t tern_route_kept_list(const struct tern_route *r, struct tern_route_kept_saved *out,
+                            size_t cap, uint32_t *changes);
+
+/* After a restart, the leaves a relay kept: each a neighbour again, asleep, kept by this node,
+ * until it polls, announces, or is forgotten as any neighbour is. One already known is left as it
+ * is. */
+void tern_route_kept_restore(struct tern_route *r, tern_time now,
+                             const struct tern_route_kept_saved *in, size_t n);
+
 /* Sets, or changes, what config's sleep_wake and sleep_listen_s say, while the router runs: a wake
  * of 0 for a leaf that listens all the time. A leaf asleep that is told not to sleep stops at once:
  * it listens again, and its next announce, soon, says so. One told a new wake gives it in its next
