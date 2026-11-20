@@ -93,7 +93,8 @@ the air it may use. CI builds an image of each that you can flash from a browser
 | Heltec Wireless Stick Lite V3, Wireless Tracker, Vision Master E290 and E213, Wireless Paper (ESP32-S3, SX1262) | [`ports/esp32/`](ports/esp32/) | Built from Heltec's schematics; not yet run on a board. The E290's e-paper is driven; the others' screens are not yet. |
 | Heltec WiFi LoRa 32 V2 and V2.1, LilyGo LoRa32 T3 V1.6.1 and T-Beam V1.0 to V1.2 (ESP32, SX1276); LilyGo T3-S3 (ESP32-S3, SX1276) | [`ports/esp32/`](ports/esp32/) | Built from their makers' schematics; not yet run on a board. |
 | Heltec Mesh Node T114 V2 (nRF52840, SX1262) | [`ports/nrf52/`](ports/nrf52/) | Built on Zephyr; on a board, makes contact with a T1000-E and exchanges messages, acknowledged. |
-| RAKwireless RAK4631, Seeed Wio Tracker L1 (nRF52840, SX1262) | [`ports/nrf52/`](ports/nrf52/) | Built on Zephyr from their makers' documents; not yet run on a board. |
+| RAKwireless RAK4631 (nRF52840, SX1262) | [`ports/nrf52/`](ports/nrf52/) | Built on Zephyr from RAK's documents; on a board, makes contact with a T1000-E and exchanges messages, acknowledged. |
+| Seeed Wio Tracker L1 (nRF52840, SX1262) | [`ports/nrf52/`](ports/nrf52/) | Built on Zephyr from Seeed's documents; not yet run on a board. |
 | Seeed SenseCAP T1000-E (nRF52840, LR1110) | [`ports/nrf52/`](ports/nrf52/) | Built on Zephyr from Seeed's SDK and Arduino core; on a board, makes contact with a T114 and exchanges messages, acknowledged. |
 
 A board on a family the firmware has is a row in a table or an overlay; [docs/boards.md](docs/boards.md)
