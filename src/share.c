@@ -24,6 +24,16 @@ void tern_address_link(const uint8_t address[TERN_ADDRESS_LEN],
     out[TERN_ADDRESS_LINK_LEN] = '\0';
 }
 
+void tern_link_tappable(char *text) {
+    /* The scheme, host and path letter: "HTTPS://TERNMESH.ORG/A/", as long as a join code's
+     * "HTTPS://TERNMESH.ORG/G#". */
+    for (size_t i = 0; i < sizeof link - 1 && text[i] != '\0'; i++) {
+        if (text[i] >= 'A' && text[i] <= 'Z') {
+            text[i] = (char)(text[i] - 'A' + 'a');
+        }
+    }
+}
+
 void tern_short_code(const uint8_t address[TERN_ADDRESS_LEN], char out[TERN_SHORT_CODE_LEN + 1]) {
     static const char label[] = "tern short code";
     struct tern_sha256 c;

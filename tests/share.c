@@ -75,6 +75,25 @@ static void rejected_addresses_read_but_are_not_contacts(void) {
     }
 }
 
+static void a_link_to_tap_is_lower_case_up_to_the_base32_and_reads_back(void) {
+    for (size_t i = 0; i < COUNT(cases); i++) {
+        char link[TERN_ADDRESS_LINK_LEN + 1];
+        uint8_t got[TERN_ADDRESS_LEN] = {0};
+        tern_address_link(cases[i].address, link);
+        tern_link_tappable(link);
+        CHECK(strncmp(link, "https://ternmesh.org/a/", 23) == 0);
+        CHECK(strcmp(link + 23, cases[i].base32) == 0);
+        CHECK(tern_address_read(link, got));
+        CHECK(memcmp(got, cases[i].address, TERN_ADDRESS_LEN) == 0);
+    }
+    char join[] = "HTTPS://TERNMESH.ORG/G#ABC";
+    tern_link_tappable(join);
+    CHECK(strcmp(join, "https://ternmesh.org/g#ABC") == 0);
+    char short_one[] = "HTTPS";
+    tern_link_tappable(short_one);
+    CHECK(strcmp(short_one, "https") == 0);
+}
+
 static void a_code_keeps_its_leading_zeros(void) {
     for (size_t i = 0; i < COUNT(forms); i++) {
         char code[TERN_SHORT_CODE_LEN + 1];
@@ -88,6 +107,7 @@ int main(void) {
     RUN(every_spelling_reads_back);
     RUN(anything_else_is_refused);
     RUN(rejected_addresses_read_but_are_not_contacts);
+    RUN(a_link_to_tap_is_lower_case_up_to_the_base32_and_reads_back);
     RUN(a_code_keeps_its_leading_zeros);
     return CHECK_DONE();
 }
