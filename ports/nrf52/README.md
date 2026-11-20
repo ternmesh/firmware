@@ -9,7 +9,7 @@ except where this one says otherwise.
 | Board | Name | Status |
 |---|---|---|
 | Heltec Mesh Node T114 V2 | `heltec-t114` | Built; on a board, makes contact and its messages are acknowledged |
-| RAKwireless RAK4631, on a RAK19007 or RAK19003 | `rak4631` | Built, not yet run on a board |
+| RAKwireless RAK4631, on a RAK19007 or RAK19003 | `rak4631` | Built; on a board, makes contact and its messages are acknowledged |
 | Seeed Wio Tracker L1, and the L1 Lite | `wio-tracker-l1` | Built, not yet run on a board |
 | Seeed SenseCAP T1000-E | `t1000-e` | Built; on a board, makes contact and its messages are acknowledged |
 
@@ -136,7 +136,8 @@ which it found. OTAFIX erases the old firmware as the new arrives, and if a tran
 waits for another over Bluetooth. Heltec ship it on the T114. The bootloader a T1000-E came with
 (Seeed's 0.9.1) took the first step and never answered it, and once reset came back in USB only:
 a board with such a bootloader tells a client it cannot be updated, and is updated by copying the
-`.uf2` on, as above.
+`.uf2` on, as above. So is a RAK4631 with the bootloader RAK ship (`0.4.3` on the one run so far),
+which is not OTAFIX.
 
 **While the bootloader waits, anyone in range can install an image.** The bootloader is not Tern
 and checks no signature: it takes any DFU package whose CRC is right, from whichever phone or
