@@ -74,6 +74,7 @@ static bool store_random(void *ctx, uint8_t *buf, size_t len) {
 struct node {
     struct store flash;
     struct demo demo;
+    struct demo_slots slots;
     struct tern_route r;
     struct tern_forward f;
     struct tern_route_neighbour nb[NB];
@@ -114,7 +115,7 @@ static void net_init(const bool relay[NODES]) {
         struct tern_route_config c = tern_route_defaults(&net.lora, FULL, -9, relay[a]);
         struct tern_forward_config fc = tern_forward_defaults();
         x->flash.rng = 0x72656c6179u + (uint64_t)a;
-        CHECK(demo_start(&x->demo, &st, DEMO_HOLD));
+        CHECK(demo_start(&x->demo, demo_slots_room(&x->slots), &st, DEMO_HOLD));
         x->id = tern_route_id(x->demo.id.address);
         tern_route_init(&x->r, &c, x->id, x->nb, NB, x->dest, DESTS, 0,
                         0x9E3779B97F4A7C15ULL * (uint64_t)(a + 1), 0);

@@ -137,7 +137,7 @@ static bool load_state(struct demo *d, int slot) {
 }
 
 int demo_peer(const struct demo *d, const uint8_t address[TERN_ADDRESS_LEN]) {
-    for (int i = 0; i < DEMO_PEERS; i++) {
+    for (int i = 0; i < d->peers; i++) {
         if (d->s[i].role != 0 && same(d->s[i].peer, address, TERN_ADDRESS_LEN)) {
             return i;
         }
@@ -154,14 +154,14 @@ uint32_t demo_peer_id(struct demo *d, int slot) {
 
 size_t demo_peers(const struct demo *d) {
     size_t n = 0;
-    for (int i = 0; i < DEMO_PEERS; i++) {
+    for (int i = 0; i < d->peers; i++) {
         n += d->s[i].role != 0;
     }
     return n;
 }
 
 static int free_slot(const struct demo *d) {
-    for (int i = 0; i < DEMO_PEERS; i++) {
+    for (int i = 0; i < d->peers; i++) {
         if (d->s[i].role == 0) {
             return i;
         }
@@ -170,12 +170,12 @@ static int free_slot(const struct demo *d) {
 }
 
 static bool held(const struct demo *d, int slot) {
-    return slot >= 0 && slot < DEMO_PEERS && d->s[slot].role != 0;
+    return slot >= 0 && slot < d->peers && d->s[slot].role != 0;
 }
 
 /* Some session, for a board that has lost the one it last used. */
 static int any_slot(const struct demo *d) {
-    for (int i = 0; i < DEMO_PEERS; i++) {
+    for (int i = 0; i < d->peers; i++) {
         if (d->s[i].role != 0) {
             return i;
         }
@@ -205,8 +205,18 @@ bool demo_forget(struct demo *d, int slot) {
 
 static void forget_handshake(struct demo *d) { tern_wipe(&d->h, sizeof d->h); }
 
-bool demo_start(struct demo *d, const struct demo_store *store, tern_time hold) {
+bool demo_start(struct demo *d, struct demo_room room, const struct demo_store *store,
+                tern_time hold) {
     struct identity_record rec;
+    d->peers = 0; /* until it has room: no slot is looked at */
+    d->last = -1;
+    if (room.peers < 1 || room.peers > DEMO_PEERS) {
+        return false;
+    }
+    d->peers = room.peers;
+    d->s = room.s;
+    d->ids = room.ids;
+    d->aged = room.aged;
     d->store = *store;
     d->hold = hold;
     d->accept_until = 0;
@@ -214,8 +224,9 @@ bool demo_start(struct demo *d, const struct demo_store *store, tern_time hold) 
     d->trusted_ctx = NULL;
     /* The ports' clock starts at boot, and so does the time each session's age counts on from. */
     d->now = 0;
-    for (int i = 0; i < DEMO_PEERS; i++) {
+    for (int i = 0; i < d->peers; i++) {
         d->aged[i] = 0;
+        d->ids[i] = 0; /* worked out again when asked for */
     }
     d->answers = 0;
     d->answers_next = 0;
@@ -237,7 +248,7 @@ bool demo_start(struct demo *d, const struct demo_store *store, tern_time hold) 
     }
     tern_wipe(&rec, sizeof rec);
 
-    for (int i = 0; i < DEMO_PEERS; i++) {
+    for (int i = 0; i < d->peers; i++) {
         (void)load_state(d, i);
     }
     d->last = any_slot(d);
@@ -367,7 +378,7 @@ static enum demo_heard unicast_frame(struct demo *d, tern_time now, const uint8_
     struct tern_unicast_rx *rx[DEMO_PEERS];
     int slot[DEMO_PEERS];
     size_t n = 0;
-    for (int i = 0; i < DEMO_PEERS; i++) {
+    for (int i = 0; i < d->peers; i++) {
         if (d->s[i].role != 0) {
             rx[n] = &d->s[i].session.rx;
             slot[n++] = i;
@@ -644,14 +655,14 @@ enum demo_tick demo_tick(struct demo *d, tern_time now) {
         return unfinished ? DEMO_TICK_LAPSED : DEMO_TICK_NONE;
     }
     /* What a session keeps only a while, it lets go of. */
-    for (int i = 0; i < DEMO_PEERS; i++) {
+    for (int i = 0; i < d->peers; i++) {
         if (held(d, i)) {
             tern_unicast_expire(&d->s[i].session, now);
         }
     }
     /* A session past its life and its grace is erased (draft/unicast-security.md, "A session's
      * life"). One the store will not forget is tried again at the next tick. */
-    for (int i = 0; i < DEMO_PEERS; i++) {
+    for (int i = 0; i < d->peers; i++) {
         if (held(d, i) && age_of(d, i) > TERN_SESSION_LIFE + TERN_SESSION_GRACE) {
             uint8_t peer[TERN_ADDRESS_LEN];
             copy(peer, d->s[i].peer, TERN_ADDRESS_LEN);
