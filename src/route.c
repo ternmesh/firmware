@@ -1772,6 +1772,8 @@ static size_t send_poll_answer(struct tern_route *r, uint8_t *frame, int8_t *pow
             e->poll_id, tern_route_margin(r->config.full_dbm, slot(r, s)->floor),
             e->held,    power_to(r, e->leaf)};
         e->answered = true;
+        e->told = e->held;
+        e->handed = 0;
         if (r->budget) {
             tern_airtime_charge(r->budget, r->now, TERN_HDR_POLL_ANSWER, true,
                                 airtime(r, TERN_POLL_ANSWER_LEN));
@@ -2496,6 +2498,13 @@ static uint8_t nearest_relay(const struct tern_route *r, const uint32_t *tried, 
 
 void tern_route_busy(struct tern_route *r, uint32_t busy_ppm) { r->busy = busy_ppm; }
 
+/* Whether slot `s` is a sleeping leaf this relay keeps. */
+static bool keeps_slot(const struct tern_route *r, uint8_t s) {
+    const struct tern_route_neighbour *n = s ? slot(r, s) : NULL;
+    return r->config.relay && n && n->used && !n->out_of_use &&
+           n->sleep == (TERN_ROUTE_SLEEPS | TERN_ROUTE_KEPT_BY_ME);
+}
+
 bool tern_route_next(const struct tern_route *r, uint32_t destination, uint32_t *next,
                      uint16_t *metric) {
     struct tern_route_dest *d = dest_of(r, destination);
@@ -2510,7 +2519,15 @@ bool tern_route_next(const struct tern_route *r, uint32_t destination, uint32_t 
         return destination != r->keeper || slot_of(r, r->keeper) != 0;
     }
     if (!e || !usable(r, d->sel, d->id)) {
-        uint8_t s = nearest_relay(r, NULL, 0);
+        uint8_t s = slot_of(r, destination);
+        if (keeps_slot(r, s)) {
+            /* A sleeping leaf this relay keeps, its link not yet up, as after a restart: what is
+             * for it goes to it, and is held until it polls. */
+            *next = destination;
+            *metric = tern_route_default_metric(1, r->cost);
+            return true;
+        }
+        s = nearest_relay(r, NULL, 0);
         if (!s) {
             return false;
         }
@@ -2645,16 +2662,100 @@ enum tern_route_keep tern_route_keeper_of(const struct tern_route *r, uint32_t l
         *wake = tern_route_promise_code((uint64_t)(p / TERN_S(1)));
     }
     if (e && e->polled && !tern_sleep_holds(now - e->poll_at, e->listen)) {
-        *answered = e->answered;
+        /* Answered, the leaf listens only for the frames it was told of (draft/sleeping.md, "What
+         * the leaf does"): once they have gone, anything more waits for its next poll. */
+        *answered = e->answered && e->handed < e->told;
         return TERN_KEEP_AWAKE;
     }
     return TERN_KEEP_ASLEEP;
+}
+
+void tern_route_handed(struct tern_route *r, uint32_t leaf) {
+    struct tern_route_kept_leaf *e = kept_leaf(r, leaf);
+    if (e && e->answered && e->handed < UINT8_MAX) {
+        e->handed++;
+    }
 }
 
 void tern_route_holding(struct tern_route *r, uint32_t leaf, uint8_t held) {
     struct tern_route_kept_leaf *e = held ? kept_make(r, leaf) : kept_leaf(r, leaf);
     if (e) {
         e->held = held;
+    }
+}
+
+size_t tern_route_kept_list(const struct tern_route *r, struct tern_route_kept_saved *out,
+                            size_t cap, uint32_t *changes) {
+    size_t n = 0;
+    uint32_t sum = 2166136261u; /* FNV-1a, over what does not change with each frame */
+    for (size_t i = 0; i < r->nb_cap && n < cap; i++) {
+        const struct tern_route_neighbour *x = &r->nb[i];
+        if (!keeps_slot(r, (uint8_t)(i + 1))) {
+            continue;
+        }
+        const struct tern_route_kept_leaf *e = kept_leaf(r, x->id);
+        struct tern_route_kept_saved *k = &out[n++];
+        *k = (struct tern_route_kept_saved){
+            .leaf = x->id, .floor = x->floor, .has_key = x->has_key ? 1 : 0};
+        if (e && e->polled) {
+            k->wake = e->wake;
+            k->listen = e->listen;
+        } else {
+            tern_time p =
+                x->promise >= TERN_ROUTE_NO_PROMISE ? TERN_S(TERN_SLEEP_WAKE_MAX_S) : x->promise;
+            k->wake = tern_route_promise_code((uint64_t)(p / TERN_S(1)));
+            k->listen = TERN_SLEEP_LISTEN_MIN_S;
+        }
+        if (x->has_key) {
+            memcpy(k->key, x->key, TERN_ADDRESS_LEN);
+        }
+        uint8_t said[8] = {(uint8_t)k->leaf,
+                           (uint8_t)(k->leaf >> 8),
+                           (uint8_t)(k->leaf >> 16),
+                           (uint8_t)(k->leaf >> 24),
+                           (uint8_t)k->wake,
+                           (uint8_t)(k->wake >> 8),
+                           k->listen,
+                           k->has_key};
+        for (size_t b = 0; b < sizeof said; b++) {
+            sum = (sum ^ said[b]) * 16777619u;
+        }
+    }
+    if (changes) {
+        *changes = sum ^ (uint32_t)n;
+    }
+    return n;
+}
+
+void tern_route_kept_restore(struct tern_route *r, tern_time now,
+                             const struct tern_route_kept_saved *in, size_t n) {
+    r->now = now;
+    for (size_t i = 0; r->config.relay && i < n; i++) {
+        const struct tern_route_kept_saved *k = &in[i];
+        uint32_t wake_s = tern_sleep_wake_s(k->wake);
+        struct tern_route_neighbour *x;
+        struct tern_route_kept_leaf *e;
+        uint8_t s;
+        if (reserved(k->leaf) || k->leaf == r->id || slot_of(r, k->leaf) ||
+            !tern_sleep_wake_ok(k->wake) || !(s = neighbour_make(r, k->leaf, k->floor))) {
+            continue;
+        }
+        x = slot(r, s);
+        x->owed = false;
+        x->floor = k->floor;
+        x->heard = now;
+        /* Kept until it is heard again, or for as long as one unheard is kept. */
+        x->promise =
+            TERN_S((int64_t)(wake_s > TERN_SLEEP_ANNOUNCE_S ? wake_s : TERN_SLEEP_ANNOUNCE_S));
+        x->sleep = TERN_ROUTE_SLEEPS | TERN_ROUTE_KEPT_BY_ME;
+        x->has_key = k->has_key != 0;
+        if (x->has_key) {
+            memcpy(x->key, k->key, TERN_ADDRESS_LEN);
+        }
+        if ((e = kept_make(r, k->leaf)) != NULL) {
+            e->wake = k->wake;
+            e->listen = k->listen;
+        }
     }
 }
 

@@ -214,6 +214,19 @@ static bool asleep(const struct tern_forward *f, uint32_t leaf, tern_time now) {
            tern_route_keeper_of(f->route, leaf, now, &answered, &wake) == TERN_KEEP_ASLEEP;
 }
 
+/* Whether a frame that comes now for `leaf` is held rather than sent: the leaf asleep, or awake
+ * but not listening for it, its poll not yet answered or the frames it was told of all gone. */
+static bool holds_new(const struct tern_forward *f, uint32_t leaf, tern_time now) {
+    bool answered;
+    uint16_t wake;
+    enum tern_route_keep st;
+    if (!f->kept_cap) {
+        return false;
+    }
+    st = tern_route_keeper_of(f->route, leaf, now, &answered, &wake);
+    return st == TERN_KEEP_ASLEEP || (st == TERN_KEEP_AWAKE && !answered);
+}
+
 /* A frame of this node's own for a sleeping leaf it keeps, not yet sent: one it holds, as it holds
  * any other for the leaf, but in its slot. All but an acknowledgement of a frame just heard from
  * the leaf, which ends the hop the leaf listens for, and so goes at once. */
@@ -306,6 +319,26 @@ static void hold_again(struct tern_forward *f, struct tern_forward_slot *s, tern
     s->state = TERN_FORWARD_FREE;
 }
 
+/* How long past ACK_WAIT and the route's time a source waits for a frame's answer, in seconds, for
+ * a destination that sleeps: its wake, as it said, or for a frame a keeper said it holds, with none
+ * said, the longest any leaf sleeps; and the shortest listen. 0 for one not known to sleep. */
+static uint32_t sleep_wait_s(const struct tern_forward *f, const struct tern_forward_slot *s) {
+    uint16_t peer = wake_of(f, dest_of(s));
+    uint32_t w = peer ? tern_sleep_wake_s(peer) : s->held_long ? TERN_SLEEP_WAKE_MAX_S : 0;
+    return w ? w + TERN_SLEEP_LISTEN_MIN_S : 0;
+}
+
+/* A keeper holds a frame of this node's for its sleeping leaf (draft/sleeping.md, "Telling the
+ * source"): its answer comes once the leaf has polled, so this wait, and each after it, is a
+ * sleeping destination's. */
+static void held_wait(struct tern_forward *f, struct tern_forward_slot *s, tern_time now) {
+    s->held_long = true;
+    tern_time until = now + f->config.ack_wait + TERN_S((int64_t)sleep_wait_s(f, s));
+    if (s->deadline >= 0 && s->deadline < until) {
+        s->deadline = until;
+    }
+}
+
 bool tern_forward_send(struct tern_forward *f, tern_time now, uint32_t destination,
                        const uint8_t *frame, size_t len, bool tracked, int8_t back) {
     struct tern_forward_slot *s = free_slot(f);
@@ -335,8 +368,12 @@ bool tern_forward_send(struct tern_forward *f, tern_time now, uint32_t destinati
     memcpy(s->frame, frame, len);
     put32(s->frame + AT_DEST, destination);
     if (routed) {
+        bool answered;
         s->state = TERN_FORWARD_WAITING;
         s->at = now + (back == INT8_MIN ? 0 : jitter(f, len));
+        if (own_held(f, s, now, &answered)) {
+            recount(f, s->next, now); /* the leaf's next poll is told of it */
+        }
     } else {
         /* Asking counts as a try, and is waited on as one. */
         s->state = TERN_FORWARD_HELD;
@@ -371,6 +408,9 @@ void tern_forward_heard(struct tern_forward *f, tern_time now, const uint8_t *fr
                 continue;
             }
             s->unheard = 0;
+            if (s->own && s->tracked) {
+                held_wait(f, s, now);
+            }
             if (s->state == TERN_FORWARD_OUT) {
                 s->done = true;
             } else {
@@ -443,7 +483,7 @@ void tern_forward_heard(struct tern_forward *f, tern_time now, const uint8_t *fr
         tern_route_want(f->route, now, h.destination);
         return;
     }
-    if (next == h.destination && asleep(f, next, now)) {
+    if (next == h.destination && holds_new(f, next, now)) {
         /* For a sleeping leaf this node keeps: held until it polls, and the node before told. */
         if (hold(f, next, frame, len, (uint8_t)(h.hops - 1), now, now)) {
             notice(f, frame, out->back);
@@ -550,6 +590,14 @@ static tern_time kept_due(const struct tern_forward *f) {
     bool room = false;
     for (size_t i = 0; i < f->cap && !room; i++) {
         room = f->slot[i].state == TERN_FORWARD_FREE;
+    }
+    /* A poll to be answered: what is held for its leaf, this node's own frames among it, is
+     * counted afresh first (keep()), as the node polls the forwarder before the router. */
+    for (size_t i = 0; f->kept_cap && i < TERN_ROUTE_KEPT_LEAVES; i++) {
+        const struct tern_route_kept_leaf *e = &f->route->keeps[i];
+        if (e->leaf && e->answer_due && e->answer_at < t) {
+            t = e->answer_at;
+        }
     }
     for (size_t i = 0; i < f->kept_cap; i++) {
         const struct tern_forward_kept *k = &f->kept[i];
@@ -826,7 +874,7 @@ size_t tern_forward_poll(struct tern_forward *f, tern_time now,
     /* With a budget, the node's own wait while the first of them is not paid for; and a frame
      * passed on that is not paid for is dropped, and the next looked for. */
     const struct tern_forward_slot *first = own_first(f);
-    bool own_held =
+    bool own_unpaid =
         f->budget && first && first->at <= now &&
         !tern_airtime_pays(f->budget, now, first->frame[0], true, airtime(f, first->len));
     for (;;) {
@@ -834,7 +882,7 @@ size_t tern_forward_poll(struct tern_forward *f, tern_time now,
         for (size_t i = 0; i < f->cap; i++) {
             struct tern_forward_slot *s = &f->slot[i];
             if (s->state == TERN_FORWARD_WAITING && s->at <= now && !deferred(f, s, now) &&
-                !(own_held && kind_of(s) == TERN_FORWARD_OWN) &&
+                !(own_unpaid && kind_of(s) == TERN_FORWARD_OWN) &&
                 (!go || kind_of(s) > kind_of(go) ||
                  (kind_of(s) == kind_of(go) && s->at < go->at))) {
                 go = s;
@@ -854,6 +902,15 @@ size_t tern_forward_poll(struct tern_forward *f, tern_time now,
             continue;
         }
         break;
+    }
+    {
+        /* One the answer to its sleeping leaf's poll counted, going the first time: the leaf
+         * listens for as many as it was told of, and once they have gone the rest wait. */
+        bool answered;
+        if (!go->again && f->kept_cap && go->next == dest_of(go) &&
+            (go->kept_for || own_held(f, go, now, &answered))) {
+            tern_route_handed(f->route, go->next);
+        }
     }
     /* Loud enough for the next hop, and for the node the frame came from, which listens for it;
      * and louder each time it is sent again. */
@@ -898,17 +955,16 @@ static void start_waiting(struct tern_forward *f, struct tern_forward_slot *s, t
             r->config.default_hops) {
             metric = tern_route_default_metric(r->config.default_hops, r->cost);
         }
-        uint32_t own_wake = 0;
-        uint16_t peer = wake_of(f, dest_of(s));
+        uint32_t own_wake = 0, peer_s = sleep_wait_s(f, s);
         if (tern_route_sleeping(r, NULL)) {
             /* Asleep, the leaf hears its acknowledgement only at its next poll. */
             own_wake = tern_sleep_wake_s(r->config.sleep_wake);
         }
         s->deadline = now + f->config.ack_wait +
                       (tern_time)f->config.ack_factor * (tern_time)metric * TERN_MS(1);
-        if (peer || own_wake) {
-            s->deadline += TERN_S((int64_t)(peer ? tern_sleep_wake_s(peer) : 0) + own_wake +
-                                  TERN_SLEEP_LISTEN_MIN_S);
+        if (peer_s || own_wake) {
+            /* The shortest listen once, though both sleep. */
+            s->deadline += TERN_S((int64_t)(peer_s ? peer_s : TERN_SLEEP_LISTEN_MIN_S) + own_wake);
         }
     }
 }

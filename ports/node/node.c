@@ -801,6 +801,47 @@ static bool hand_over(const struct link_message *x, struct pending *p, bool *gon
     return true;
 }
 
+/* The sleeping leaves a relay keeps, kept across a restart (tern_route_kept_list()): without them,
+ * a keeper that restarts answers none of a leaf's polls, and sends what it has for the leaf into
+ * the air while it sleeps, until the leaf next announces. Saved when which leaves it keeps, or how
+ * they sleep, changes, which is looked at every KEEPS_CHECK_S: not with each poll. */
+#define KEEPS_KEY "keeps"
+#define KEEPS_CHECK_S 10
+struct keeps_saved {
+    uint8_t count;
+    struct tern_route_kept_saved k[TERN_ROUTE_KEPT_LEAVES];
+};
+static uint32_t keeps_sum;
+static tern_time keeps_check_at;
+
+static void keeps_load(void) {
+    struct keeps_saved s;
+    if (forward.kept_cap == 0) {
+        return;
+    }
+    if (store_load(NULL, KEEPS_KEY, &s, sizeof s) && s.count <= TERN_ROUTE_KEPT_LEAVES) {
+        tern_route_kept_restore(&route, board_now(), s.k, s.count);
+        if (s.count != 0) {
+            printf("sleeping leaves: keeping %u again, as before the restart\n", (unsigned)s.count);
+        }
+    }
+    (void)tern_route_kept_list(&route, s.k, TERN_ROUTE_KEPT_LEAVES, &keeps_sum);
+}
+
+static void poll_keeps(void) {
+    struct keeps_saved s;
+    uint32_t sum;
+    if (forward.kept_cap == 0 || board_now() < keeps_check_at) {
+        return;
+    }
+    keeps_check_at = board_now() + TERN_S(KEEPS_CHECK_S);
+    memset(&s, 0, sizeof s);
+    s.count = (uint8_t)tern_route_kept_list(&route, s.k, TERN_ROUTE_KEPT_LEAVES, &sum);
+    if (sum != keeps_sum && store_save(NULL, KEEPS_KEY, &s, sizeof s)) {
+        keeps_sum = sum;
+    }
+}
+
 /* What a session's two ends said of sleeping, kept under the session's place with its peer's
  * address, which a restart checks: the place may hold another session by then. */
 struct wake_saved {
@@ -4931,6 +4972,7 @@ void node_main(void) {
     }
     doze_init(&doze, board_now());
     wakes_load();
+    keeps_load();
 
     int err = board_init();
     radio = board_radio();
@@ -5058,6 +5100,7 @@ void node_main(void) {
             poll_radio();
         }
         poll_watch();
+        poll_keeps();
         poll_trial();
         if (bench) {
             crumb_at(cr, CRUMB_BEACON);

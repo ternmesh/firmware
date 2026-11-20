@@ -658,6 +658,8 @@ struct tern_route {
         uint16_t poll_id;
         uint8_t listen;
         uint8_t held;
+        uint8_t told;   /* what the answer to its last poll said was held */
+        uint8_t handed; /* of those, how many have gone to it since */
         bool polled;
         bool answer_due;
         bool answered;
@@ -754,14 +756,44 @@ void tern_route_budget(struct tern_route *r, struct tern_airtime *budget);
 /* What this node is to a neighbour as a keeper: not its keeper, or it does not sleep, or it is not
  * kept at all (TERN_KEEP_NONE: frames go to it as to any node, by its route); its keeper with the
  * leaf asleep (TERN_KEEP_ASLEEP: frames for it are held) or awake (TERN_KEEP_AWAKE), and in that
- * case whether the answer to its poll has gone, from which held frames may be handed over; and
- * `wake` its last wake code. TERN_KEEP_GONE for a neighbour this node no longer keeps at all. */
+ * case whether the answer to its poll has gone and the leaf still listens for a frame it was told
+ * of, from which held frames may be handed over, as many as the answer said; and `wake` its last
+ * wake code. TERN_KEEP_GONE for a neighbour this node no longer keeps at all. */
 enum tern_route_keep { TERN_KEEP_NONE, TERN_KEEP_ASLEEP, TERN_KEEP_AWAKE, TERN_KEEP_GONE };
+/* A frame the answer to the leaf's last poll counted has gone to it (the forwarder, as it hands one
+ * over the first time): the leaf listens only for as many as it was told of. */
+void tern_route_handed(struct tern_route *r, uint32_t leaf);
+
 enum tern_route_keep tern_route_keeper_of(const struct tern_route *r, uint32_t leaf, tern_time now,
                                           bool *answered, uint16_t *wake);
 
 /* The forwarder holds `held` frames for `leaf`: what the next answer to its poll says. */
 void tern_route_holding(struct tern_route *r, uint32_t leaf, uint8_t held);
+
+/* A sleeping leaf a relay keeps, as the relay keeps it across a restart: without it, a keeper
+ * that restarts knows nothing of the leaf until the leaf announces, up to SLEEP_ANNOUNCE later.
+ * It answers none of its polls meanwhile, and sends what it has for the leaf into the air, or
+ * gives it up for want of a route, while the leaf sleeps. */
+struct tern_route_kept_saved {
+    uint32_t leaf;
+    int32_t floor; /* the neighbour's, sixteenths of a dBm */
+    uint16_t wake; /* its wake code, from its last poll or announce */
+    uint8_t listen;
+    uint8_t has_key;
+    uint8_t key[TERN_ADDRESS_LEN];
+};
+
+/* The sleeping leaves this relay keeps, up to `cap` of them, into `out`; how many. `changes`, if
+ * not NULL, gets a sum over what says which leaves and how they sleep, and not over what changes
+ * with each frame heard (the floor): a caller that keeps them saves them when it changes. */
+size_t tern_route_kept_list(const struct tern_route *r, struct tern_route_kept_saved *out,
+                            size_t cap, uint32_t *changes);
+
+/* After a restart, the leaves a relay kept: each a neighbour again, asleep, kept by this node,
+ * until it polls, announces, or is forgotten as any neighbour is. One already known is left as it
+ * is. */
+void tern_route_kept_restore(struct tern_route *r, tern_time now,
+                             const struct tern_route_kept_saved *in, size_t n);
 
 /* Sets, or changes, what config's sleep_wake and sleep_listen_s say, while the router runs: a wake
  * of 0 for a leaf that listens all the time. A leaf asleep that is told not to sleep stops at once:

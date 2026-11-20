@@ -232,9 +232,10 @@ static struct {
     int16_t snr[NODES][NODES];
     struct tern_lora lora;
     tern_time now;
-    tern_time awake;  /* the leaf's time with its radio on */
-    bool deaf[NODES]; /* a relay on firmware before sleeping leaves: it takes no poll */
-    unsigned polls;   /* the leaf's, sent */
+    tern_time awake;          /* the leaf's time with its radio on */
+    bool deaf[NODES];         /* a relay on firmware before sleeping leaves: it takes no poll */
+    unsigned polls;           /* the leaf's, sent */
+    unsigned keeper_messages; /* messages the keeper put on the air */
 } net;
 
 static uint32_t id_of(int i) { return 0x2000u + (uint32_t)i; }
@@ -246,6 +247,7 @@ static bool off(int k) {
 
 static void on_air(int from, const uint8_t *frame, size_t len, int8_t dbm) {
     net.polls += from == LEAF && frame[0] == TERN_HDR_POLL;
+    net.keeper_messages += from == KEEPER && frame[0] == TERN_HDR_MESSAGE;
     for (int k = 0; k < NODES; k++) {
         struct node *y = &net.node[k];
         int snr = net.snr[from][k] == NONE ? NONE : net.snr[from][k] + 4 * (dbm - FULL);
@@ -290,20 +292,24 @@ static void run(tern_time until) {
         if (!off(LEAF)) {
             net.awake += (t > net.now ? t : net.now) - net.now;
         }
-        net.now = t > net.now ? t : net.now;
+        /* Time moves on, as a board's clock does, however soon something says it is due. */
+        net.now = t > net.now ? t : net.now + TERN_MS(1);
         for (int i = 0; i < NODES; i++) {
             struct node *x = &net.node[i];
             uint8_t frame[TERN_ROUTE_FRAME_MAX], tag[TERN_FORWARD_TAG], handle;
             enum tern_forward_kind kind;
             int8_t dbm = 0;
             size_t len;
+            /* As the node drives them (ports/node/node.c): the forwarder first, and only when it
+             * says it is due, then the router. */
+            while (tern_forward_due(&x->f) <= net.now &&
+                   (len = tern_forward_poll(&x->f, net.now, frame, &dbm, &kind, &handle)) != 0) {
+                tern_forward_sent(&x->f, net.now, handle);
+                on_air(i, frame, len, dbm);
+            }
             while (tern_route_due(&x->r) <= net.now &&
                    (len = tern_route_poll(&x->r, net.now, frame, &dbm)) != 0) {
                 tern_route_sent(&x->r, net.now);
-                on_air(i, frame, len, dbm);
-            }
-            while ((len = tern_forward_poll(&x->f, net.now, frame, &dbm, &kind, &handle)) != 0) {
-                tern_forward_sent(&x->f, net.now, handle);
                 on_air(i, frame, len, dbm);
             }
             while (tern_forward_failed(&x->f, tag)) {
@@ -523,6 +529,128 @@ static void relays_that_do_not_keep_are_rested(void) {
     CHECK(keeper == id_of(KEEPER));
 }
 
+/* Restarts node `k` as a board does: its routes, and what its forwarder held, gone. A keeper given
+ * what it kept, as a board keeps it in flash, takes back its sleeping leaves. */
+static void restart(int k, const struct tern_route_kept_saved *saved, size_t n) {
+    struct node *x = &net.node[k];
+    struct tern_forward_config fc = tern_forward_defaults();
+    struct tern_route_config c = tern_route_defaults(&net.lora, FULL, -9, k != LEAF);
+    if (k == LEAF) {
+        c.sleep_wake = WAKE;
+        c.sleep_listen_s = 2;
+    }
+    tern_route_init(&x->r, &c, id_of(k), x->nb, NB, x->dest, DESTS, 0,
+                    0x5851F42D4C957F2DULL * (uint64_t)(k + 3), net.now);
+    tern_forward_init(&x->f, &fc, &x->r, x->slot, SLOTS, (uint64_t)(k + 17));
+    if (k != LEAF) {
+        tern_forward_keeper(&x->f, x->kept, KEPT);
+    }
+    tern_route_kept_restore(&x->r, net.now, saved, n);
+    x->got = x->acked = x->failed = 0;
+}
+
+/* A keeper that restarts takes back the leaf it kept: what it then has for the leaf, here a first
+ * contact's frame, for which nothing tells it the leaf sleeps, is held until the leaf polls, and
+ * the leaf, its polls answered, keeps it as its keeper. Found on two boards: the keeper had no
+ * route to the leaf, gave its frame up in four tries, and answered none of its polls. */
+static void a_keeper_that_restarts_still_keeps_its_leaf(void) {
+    struct tern_route_kept_saved saved[TERN_ROUTE_KEPT_LEAVES];
+    uint32_t sum = 0, keeper = 0;
+    net_init();
+    size_t n = tern_route_kept_list(&net.node[KEEPER].r, saved, COUNT(saved), &sum);
+    CHECK_EQ_I64(n, 1);
+    CHECK(saved[0].leaf == id_of(LEAF));
+    CHECK(tern_sleep_wake_s(saved[0].wake) == WAKE);
+    restart(KEEPER, saved, n);
+    message(KEEPER, LEAF, 0xF1);
+    run(net.now + TERN_S(20));
+    CHECK_EQ_I64(net.node[LEAF].got, 0);
+    CHECK_EQ_I64(net.node[KEEPER].failed, 0);
+    run(net.now + TERN_S(WAKE + 30));
+    CHECK_EQ_I64(net.node[LEAF].got, 1);
+    CHECK_EQ_I64(net.node[KEEPER].acked, 1);
+    CHECK_EQ_I64(net.node[KEEPER].failed, 0);
+    CHECK(tern_route_sleeping(&net.node[LEAF].r, &keeper));
+    CHECK(keeper == id_of(KEEPER));
+    /* What it lists again sums as before: nothing to save. */
+    uint32_t again = 0;
+    CHECK_EQ_I64(tern_route_kept_list(&net.node[KEEPER].r, saved, COUNT(saved), &again), 1);
+    CHECK(again == sum);
+}
+
+/* Both restart, as two boards flashed together do: the keeper takes back the leaf it kept, the
+ * leaf starts over and takes the keeper again, and only then does the keeper have a frame of its
+ * own for it. The answer to the leaf's next poll says it is held, and the leaf listens for it. On
+ * two boards the answer said none was held, the leaf slept, and the frame went to no one: the
+ * forwarder, polled only when due, had not counted it. */
+static void both_restart_and_the_keepers_own_frame_waits_for_the_next_poll(void) {
+    struct tern_route_kept_saved saved[TERN_ROUTE_KEPT_LEAVES];
+    uint32_t sum = 0, keeper = 0;
+    net_init();
+    size_t n = tern_route_kept_list(&net.node[KEEPER].r, saved, COUNT(saved), &sum);
+    restart(KEEPER, saved, n);
+    restart(LEAF, NULL, 0);
+    for (tern_time limit = net.now + TERN_S(600);
+         !tern_route_sleeping(&net.node[LEAF].r, &keeper) && net.now < limit;) {
+        run(net.now + TERN_S(1));
+    }
+    CHECK(keeper == id_of(KEEPER));
+    run(net.now + TERN_S(5)); /* asleep now, between polls */
+    message(KEEPER, LEAF, 0xF3);
+    run(net.now + TERN_S(WAKE + 30));
+    CHECK_EQ_I64(net.node[LEAF].got, 1);
+    CHECK_EQ_I64(net.node[KEEPER].acked, 1);
+    CHECK_EQ_I64(net.node[KEEPER].failed, 0);
+}
+
+/* A frame of the keeper's own that comes just after it answered the leaf's poll saying nothing is
+ * held: the leaf, told nothing, sleeps again at once, so the frame waits for its next poll and goes
+ * once, then. On two boards it went at once, and twice more, to a leaf that was not listening. */
+static void a_frame_after_the_answer_waits_for_the_next_poll(void) {
+    net_init();
+    tern_forward_wake(&net.node[KEEPER].f, id_of(LEAF), WAKE);
+    unsigned polled = net.polls;
+    while (net.polls == polled) {
+        run(net.now + TERN_MS(10));
+    }
+    run(net.now + TERN_MS(300)); /* answered, saying nothing is held; the leaf asleep again */
+    CHECK_EQ_I64(held_for_leaf(), 0);
+    unsigned before = net.keeper_messages;
+    message(KEEPER, LEAF, 0xF5);
+    run(net.now + TERN_S(10));
+    CHECK_EQ_I64(net.keeper_messages, before); /* not to a leaf that is not listening */
+    CHECK_EQ_I64(held_for_leaf(), 1);
+    run(net.now + TERN_S(WAKE + 30));
+    CHECK_EQ_I64(net.node[LEAF].got, 1);
+    CHECK_EQ_I64(net.keeper_messages, before + 1);
+    CHECK_EQ_I64(net.node[KEEPER].acked, 1);
+    CHECK_EQ_I64(net.node[KEEPER].failed, 0);
+}
+
+/* The same with nothing kept, as before: the frame is given up. */
+static void a_keeper_that_restarts_with_nothing_kept_gives_up(void) {
+    net_init();
+    restart(KEEPER, NULL, 0);
+    message(KEEPER, LEAF, 0xF2);
+    run(net.now + TERN_S(60));
+    CHECK_EQ_I64(net.node[KEEPER].failed, 1);
+    CHECK_EQ_I64(net.node[LEAF].got, 0);
+}
+
+/* A source told nothing of the leaf's sleep, as one making first contact is: the keeper's held
+ * notice tells it the frame waits for the leaf, and it waits for the answer, not giving the frame
+ * up in its four tries. */
+static void a_source_told_it_is_held_waits(void) {
+    net_init();
+    message(SRC, LEAF, 0xA7);
+    run(net.now + TERN_S(20));
+    CHECK_EQ_I64(net.node[KEEPER].f.counts.held, 1);
+    run(net.now + TERN_S(WAKE + 30));
+    CHECK_EQ_I64(net.node[LEAF].got, 1);
+    CHECK_EQ_I64(net.node[SRC].acked, 1);
+    CHECK_EQ_I64(net.node[SRC].failed, 0);
+}
+
 /* A leaf that does not sleep is a leaf as before: never off. */
 static void a_leaf_that_does_not_sleep_never_may(void) {
     struct tern_route r;
@@ -558,5 +686,10 @@ int main(void) {
     RUN(a_frame_held_too_long_is_dropped);
     RUN(a_leaf_told_to_stop_listens_and_can_sleep_again);
     RUN(relays_that_do_not_keep_are_rested);
+    RUN(a_keeper_that_restarts_still_keeps_its_leaf);
+    RUN(both_restart_and_the_keepers_own_frame_waits_for_the_next_poll);
+    RUN(a_frame_after_the_answer_waits_for_the_next_poll);
+    RUN(a_keeper_that_restarts_with_nothing_kept_gives_up);
+    RUN(a_source_told_it_is_held_waits);
     return CHECK_DONE();
 }
