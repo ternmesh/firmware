@@ -212,6 +212,9 @@ struct tern_forward {
     struct tern_forward_kept *kept;
     size_t kept_cap;
     uint32_t kept_order;
+    /* The last time it was polled at: what it holds is due by it, or by the router's time if that
+     * is later, so that a leaf's listen that ended since the router last ran is seen as ended. */
+    tern_time polled_at;
     struct tern_forward_notice {
         int8_t power;
         uint8_t frame[TERN_HELD_LEN];

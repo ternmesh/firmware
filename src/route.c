@@ -1909,6 +1909,27 @@ static void lose_keeper(struct tern_route *r) {
     trickle_begin(r);
 }
 
+void tern_route_poll_fast(struct tern_route *r, tern_time now, uint16_t every_s, uint16_t for_s) {
+    tern_time soon;
+    if (!r->sleeping || every_s == 0) {
+        return;
+    }
+    r->poll_fast_s = every_s;
+    r->poll_fast_until = now + TERN_S(for_s);
+    soon = now + TERN_S(every_s);
+    if (!r->poll_waiting && !r->poll_out && !r->poll_now && soon < r->poll_at) {
+        r->poll_at = soon;
+    }
+}
+
+bool tern_route_polling_fast(const struct tern_route *r, tern_time now, tern_time *until) {
+    if (!r->sleeping || r->poll_fast_s == 0 || now >= r->poll_fast_until) {
+        return false;
+    }
+    *until = r->poll_fast_until;
+    return true;
+}
+
 void tern_route_sleep_set(struct tern_route *r, uint16_t wake, uint8_t listen_s) {
     r->config.sleep_wake = wake;
     r->config.sleep_listen_s = listen_s;
@@ -2434,6 +2455,9 @@ void tern_route_sent(struct tern_route *r, tern_time now) {
         r->poll_got = 0;
         r->listen_until = now + TERN_S(listen_s(r));
         r->poll_at = now + TERN_S(tern_sleep_wake_s(r->config.sleep_wake));
+        if (r->poll_fast_s && now < r->poll_fast_until) {
+            r->poll_at = now + TERN_S(r->poll_fast_s); /* told to: see tern_route_poll_fast() */
+        }
     }
     if (r->solicit_out) {
         r->solicit_out = false;

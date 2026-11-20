@@ -6,7 +6,9 @@
     "REQUEST_MAX": 128,
     "ANSWER_MAX": 128,
     "MESH_ANSWER_WAIT": 120,
-    "TRIAL": 900
+    "TRIAL": 900,
+    "MANAGED_POLL": 5,
+    "MANAGED_AWAKE": 120
   },
   "requests": [
     {

@@ -569,7 +569,7 @@ static const struct tern_forward_slot *own_first(const struct tern_forward *f) {
 
 /* When what a keeper holds next needs it: a frame to hand over, pass on or drop. */
 static tern_time kept_due(const struct tern_forward *f) {
-    tern_time t = INT64_MAX, now = f->route->now;
+    tern_time t = INT64_MAX, now = f->route->now > f->polled_at ? f->route->now : f->polled_at;
     bool room = false;
     for (size_t i = 0; i < f->cap && !room; i++) {
         room = f->slot[i].state == TERN_FORWARD_FREE;
@@ -810,6 +810,7 @@ size_t tern_forward_poll(struct tern_forward *f, tern_time now,
                          uint8_t frame[TERN_FORWARD_FRAME_MAX], int8_t *power_dbm,
                          enum tern_forward_kind *kind, uint8_t *handle) {
     struct tern_forward_slot *go = NULL;
+    f->polled_at = now > f->polled_at ? now : f->polled_at;
     if (f->kept_cap) {
         keep(f, now);
     }

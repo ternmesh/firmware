@@ -4,6 +4,7 @@
 #include "tern/address.h"
 #include "tern/crypto.h"
 #include "tern/forward.h"
+#include "tern/manage.h"
 #include "tern/region.h"
 #include "tern/route.h"
 #include "tern/sleep.h"
@@ -591,6 +592,42 @@ static void a_source_told_it_is_held_waits(void) {
 }
 
 /* A leaf that does not sleep is a leaf as before: never off. */
+/* A leaf an owner manages (draft/managing.md#a-node-that-sleeps): after the first request, which
+ * waits for its wake, each answer and the next request take seconds, as the leaf polls fast; and
+ * MANAGED_AWAKE after the last, it polls by its wake again. Without it, four requests took four
+ * wakes, twenty minutes, on two boards. */
+static void a_managed_leaf_answers_in_seconds_not_wakes(void) {
+    net_init();
+    tern_forward_wake(&net.node[SRC].f, id_of(LEAF), WAKE);
+    tern_time from = net.now, until;
+    for (int i = 0; i < 4; i++) {
+        int leaf_got = net.node[LEAF].got, src_got = net.node[SRC].got;
+        tern_time limit = net.now + TERN_S(WAKE + 60);
+        message(SRC, LEAF, (uint8_t)(0x30 + i));
+        while (net.node[LEAF].got == leaf_got && net.now < limit) {
+            run(net.now + TERN_S(1));
+        }
+        CHECK_EQ_I64(net.node[LEAF].got, leaf_got + 1);
+        tern_route_poll_fast(&net.node[LEAF].r, net.now, TERN_MANAGE_POLL_S, TERN_MANAGE_AWAKE_S);
+        CHECK(tern_route_polling_fast(&net.node[LEAF].r, net.now, &until));
+        message(LEAF, SRC, (uint8_t)(0x40 + i)); /* its answer */
+        while (net.node[SRC].got == src_got && net.now < limit) {
+            run(net.now + TERN_S(1));
+        }
+        CHECK_EQ_I64(net.node[SRC].got, src_got + 1);
+    }
+    /* One wake for the first, then seconds: well inside a second wake. */
+    CHECK(net.now - from < TERN_S(WAKE + 90));
+    CHECK_EQ_I64(net.node[SRC].failed, 0);
+    CHECK_EQ_I64(net.node[LEAF].failed, 0);
+    /* And then back to its wake: a poll or so each wake, once the time is up. */
+    run(net.now + TERN_S(TERN_MANAGE_AWAKE_S + 10));
+    CHECK(!tern_route_polling_fast(&net.node[LEAF].r, net.now, &until));
+    unsigned before = net.polls;
+    run(net.now + TERN_S(2 * WAKE));
+    CHECK(net.polls - before <= 3);
+}
+
 static void a_leaf_that_does_not_sleep_never_may(void) {
     struct tern_route r;
     struct tern_forward f;
@@ -628,5 +665,6 @@ int main(void) {
     RUN(a_keeper_that_restarts_still_keeps_its_leaf);
     RUN(a_keeper_that_restarts_with_nothing_kept_gives_up);
     RUN(a_source_told_it_is_held_waits);
+    RUN(a_managed_leaf_answers_in_seconds_not_wakes);
     return CHECK_DONE();
 }

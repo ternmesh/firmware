@@ -35,6 +35,8 @@ static void the_limits_are_the_specifications(void) {
     CHECK_EQ_U64(TERN_MANAGE_ANSWER_MAX, V_ANSWER_MAX);
     CHECK_EQ_U64(TERN_C_OWNERS, V_OWNERS);
     CHECK_EQ_U64(TERN_MANAGE_TRIAL, TERN_S(V_TRIAL_S));
+    CHECK_EQ_U64(TERN_MANAGE_POLL_S, V_MANAGED_POLL_S);
+    CHECK_EQ_U64(TERN_MANAGE_AWAKE_S, V_MANAGED_AWAKE_S);
 }
 
 static void requests_and_answers_are_read(void) {

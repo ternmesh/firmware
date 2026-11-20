@@ -22,6 +22,10 @@
 #define TERN_MANAGE_BY_MESH 1     /* by one of the node's owners, over the mesh */
 #define TERN_MANAGE_REQUEST_MAX TERN_COMPANION_MANAGE_MAX
 #define TERN_MANAGE_ANSWER_MAX TERN_COMPANION_MANAGED_MAX
+/* A sleeping node an owner manages polls its keeper every MANAGED_POLL for MANAGED_AWAKE after the
+ * owner's last request (draft/managing.md#a-node-that-sleeps). */
+#define TERN_MANAGE_POLL_S 5
+#define TERN_MANAGE_AWAKE_S 120
 #define TERN_MANAGE_TRIAL TERN_S(900) /* a SET over the mesh goes back unless confirmed in this */
 
 /* Whether a request's content, after its kind, is one to act on: one frame, at most

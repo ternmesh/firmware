@@ -1077,6 +1077,17 @@ static void manage_heard(const uint8_t *request, size_t len, const uint8_t peer[
     printf("managed by ");
     print_address(peer);
     printf(": request 0x%02x answered\n", len > 0 ? request[0] : 0);
+    if (route.sleeping) {
+        /* Its owner's next request, and the answer's acknowledgement, come in seconds, not at
+         * its next wake (draft/managing.md#a-node-that-sleeps). */
+        tern_time until;
+        bool was = tern_route_polling_fast(&route, board_now(), &until);
+        tern_route_poll_fast(&route, board_now(), TERN_MANAGE_POLL_S, TERN_MANAGE_AWAKE_S);
+        if (!was) {
+            printf("managed: polling every %d s for %d s\n", TERN_MANAGE_POLL_S,
+                   TERN_MANAGE_AWAKE_S);
+        }
+    }
 }
 
 /* A message for this board itself, from a peer it shares a session with. Its first byte says

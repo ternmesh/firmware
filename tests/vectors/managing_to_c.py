@@ -25,6 +25,8 @@ def main():
     L.append(f"#define V_ANSWER_MAX {p['ANSWER_MAX']}")
     L.append(f"#define V_OWNERS {p['OWNERS']}")
     L.append(f"#define V_TRIAL_S {p['TRIAL']}")
+    L.append(f"#define V_MANAGED_POLL_S {p['MANAGED_POLL']}")
+    L.append(f"#define V_MANAGED_AWAKE_S {p['MANAGED_AWAKE']}")
 
     L.append("static const struct content_case requests[] = {")
     for c in v["requests"]:
