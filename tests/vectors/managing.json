@@ -1,0 +1,574 @@
+{
+  "description": "Managing a node over the mesh (draft/managing.md). A request is the content of a message for the node, its kind and one companion request; an answer is its kind and companion frames, each after a u8 length, packed in order into as few answers as fit. Companion frames are as vectors/companion.json has them, at version 17. Syncs are of a relay whose one contact is its owner, the first address, with no satellite receiver, awake: with three neighbours, and with twenty. Addresses are those of vectors/companion.json.",
+  "generator": "vectors/tools/managing.py",
+  "parameters": {
+    "OWNERS": 4,
+    "REQUEST_MAX": 141,
+    "ANSWER_MAX": 145,
+    "MESH_ANSWER_WAIT": 120,
+    "TRIAL": 900
+  },
+  "requests": [
+    {
+      "why": "HELLO, at this version",
+      "frame": "010111",
+      "content": "05010111"
+    },
+    {
+      "why": "a sync",
+      "frame": "020200000000",
+      "content": "05020200000000"
+    },
+    {
+      "why": "a power of 10 dBm",
+      "frame": "0503030a",
+      "content": "050503030a"
+    },
+    {
+      "why": "the PING that ends a trial",
+      "frame": "0304",
+      "content": "050304"
+    },
+    {
+      "why": "a wake of ten minutes",
+      "frame": "0505080258",
+      "content": "050505080258"
+    },
+    {
+      "why": "making a contact an owner",
+      "frame": "1406fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb91154890802501",
+      "content": "051406fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb91154890802501"
+    },
+    {
+      "why": "the longest request",
+      "frame": "1807fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb91154890802500000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "content": "051807fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb91154890802500000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "why": "a restart",
+      "frame": "3808",
+      "content": "053808"
+    }
+  ],
+  "answers": [
+    {
+      "why": "OK",
+      "frames": [
+        "4004"
+      ],
+      "contents": [
+        "06024004"
+      ]
+    },
+    {
+      "why": "ERROR 13: not over the mesh",
+      "frames": [
+        "41050d"
+      ],
+      "contents": [
+        "060341050d"
+      ]
+    },
+    {
+      "why": "INFO",
+      "frames": [
+        "420111147465726e20302e322e302068656c7465632d76330968656c7465632d763305302e322e3001"
+      ],
+      "contents": [
+        "0629420111147465726e20302e322e302068656c7465632d76330968656c7465632d763305302e322e3001"
+      ]
+    },
+    {
+      "why": "a sync of a relay with three neighbours",
+      "frames": [
+        "80003d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c010545553836380e6ab13b8000000001",
+        "8101d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a0105416c696365000001",
+        "85021d2e3f4000da002a",
+        "85031d2e3f4101df002b",
+        "85041d2e3f4201e4002c",
+        "870500000e1000057e400000107200000000",
+        "8806100e6003",
+        "940700000000000000000000000000000000000000",
+        "950800000200000000000000",
+        "430209"
+      ],
+      "contents": [
+        "063280003d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c010545553836380e6ab13b80000000012c8101d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a0105416c6963650000010a85021d2e3f4000da002a0a85031d2e3f4101df002b0a85041d2e3f4201e4002c",
+        "0612870500000e1000057e400000107200000000068806100e6003159407000000000000000000000000000000000000000c95080000020000000000000003430209"
+      ]
+    }
+  ],
+  "rejected": [
+    {
+      "why": "a request of no frame",
+      "content": "05"
+    },
+    {
+      "why": "a request longer than REQUEST_MAX",
+      "content": "0503030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303"
+    },
+    {
+      "why": "an answer of no frame",
+      "content": "06"
+    },
+    {
+      "why": "an answer whose frame has length 0",
+      "content": "0600"
+    },
+    {
+      "why": "an answer whose last length runs past its end",
+      "content": "06024004034105"
+    },
+    {
+      "why": "an answer longer than ANSWER_MAX",
+      "content": "06024004024004024004024004024004024004024004024004024004024004024004024004024004024004024004024004024004024004024004024004024004024004024004024004024004024004024004024004024004024004024004024004024004024004024004024004024004024004024004024004024004024004024004024004024004024004024004024004024004"
+    }
+  ],
+  "allowed": [
+    {
+      "type": "HELLO",
+      "setting": null,
+      "allowed": true
+    },
+    {
+      "type": "SYNC",
+      "setting": null,
+      "allowed": true
+    },
+    {
+      "type": "PING",
+      "setting": null,
+      "allowed": true
+    },
+    {
+      "type": "SET_TIME",
+      "setting": null,
+      "allowed": true
+    },
+    {
+      "type": "SET",
+      "setting": 1,
+      "allowed": false
+    },
+    {
+      "type": "SET",
+      "setting": 2,
+      "allowed": true
+    },
+    {
+      "type": "SET",
+      "setting": 3,
+      "allowed": true
+    },
+    {
+      "type": "SET",
+      "setting": 4,
+      "allowed": false
+    },
+    {
+      "type": "SET",
+      "setting": 5,
+      "allowed": true
+    },
+    {
+      "type": "SET",
+      "setting": 6,
+      "allowed": true
+    },
+    {
+      "type": "SET",
+      "setting": 7,
+      "allowed": true
+    },
+    {
+      "type": "SET",
+      "setting": 8,
+      "allowed": true
+    },
+    {
+      "type": "SET",
+      "setting": 9,
+      "allowed": true
+    },
+    {
+      "type": "OFF",
+      "setting": null,
+      "allowed": false
+    },
+    {
+      "type": "SEND",
+      "setting": null,
+      "allowed": false
+    },
+    {
+      "type": "READ",
+      "setting": null,
+      "allowed": false
+    },
+    {
+      "type": "FORGET",
+      "setting": null,
+      "allowed": false
+    },
+    {
+      "type": "MANAGE",
+      "setting": null,
+      "allowed": false
+    },
+    {
+      "type": "OWNER",
+      "setting": null,
+      "allowed": true
+    },
+    {
+      "type": "SAVE_CONTACT",
+      "setting": null,
+      "allowed": true
+    },
+    {
+      "type": "REMOVE_CONTACT",
+      "setting": null,
+      "allowed": true
+    },
+    {
+      "type": "END_SESSION",
+      "setting": null,
+      "allowed": true
+    },
+    {
+      "type": "MAKE_GROUP",
+      "setting": null,
+      "allowed": false
+    },
+    {
+      "type": "LEAVE_GROUP",
+      "setting": null,
+      "allowed": false
+    },
+    {
+      "type": "NAME_GROUP",
+      "setting": null,
+      "allowed": false
+    },
+    {
+      "type": "SEND_GROUP",
+      "setting": null,
+      "allowed": false
+    },
+    {
+      "type": "SEND_INVITE",
+      "setting": null,
+      "allowed": false
+    },
+    {
+      "type": "JOIN",
+      "setting": null,
+      "allowed": false
+    },
+    {
+      "type": "GROUP_LINK",
+      "setting": null,
+      "allowed": false
+    },
+    {
+      "type": "JOIN_LINK",
+      "setting": null,
+      "allowed": false
+    },
+    {
+      "type": "FORGET_GROUP",
+      "setting": null,
+      "allowed": false
+    },
+    {
+      "type": "UPDATE_BEGIN",
+      "setting": null,
+      "allowed": false
+    },
+    {
+      "type": "UPDATE_DATA",
+      "setting": null,
+      "allowed": false
+    },
+    {
+      "type": "UPDATE_END",
+      "setting": null,
+      "allowed": false
+    },
+    {
+      "type": "SET_POSITION",
+      "setting": null,
+      "allowed": false
+    },
+    {
+      "type": "SHARE",
+      "setting": null,
+      "allowed": false
+    },
+    {
+      "type": "SHARE_GROUP",
+      "setting": null,
+      "allowed": false
+    },
+    {
+      "type": "UPDATE_BOOTLOADER",
+      "setting": null,
+      "allowed": false
+    },
+    {
+      "type": "WIPE",
+      "setting": null,
+      "allowed": false
+    },
+    {
+      "type": "RESTART",
+      "setting": null,
+      "allowed": true
+    }
+  ],
+  "owners": [
+    {
+      "owners": [
+        "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"
+      ],
+      "from": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "answers": true
+    },
+    {
+      "owners": [
+        "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"
+      ],
+      "from": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+      "answers": false
+    },
+    {
+      "owners": [],
+      "from": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "answers": false
+    },
+    {
+      "owners": [
+        "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "278117fc144c72340f67d0f2316e8386ceffbf2b2428c9c51fef7c597f1d426e",
+        "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"
+      ],
+      "from": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "answers": true
+    }
+  ],
+  "trials": [
+    {
+      "answered_s": 0,
+      "confirmed": false,
+      "holds": "new"
+    },
+    {
+      "answered_s": 899,
+      "confirmed": false,
+      "holds": "new"
+    },
+    {
+      "answered_s": 900,
+      "confirmed": false,
+      "holds": "old"
+    },
+    {
+      "answered_s": 3600,
+      "confirmed": false,
+      "holds": "old"
+    },
+    {
+      "answered_s": 60,
+      "confirmed": true,
+      "holds": "new"
+    },
+    {
+      "answered_s": 3600,
+      "confirmed": true,
+      "holds": "new"
+    }
+  ],
+  "syncs": [
+    {
+      "self": {
+        "address": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "role": 1,
+        "region": "EU868",
+        "power": 14,
+        "time": 1790000000,
+        "cards": 0,
+        "card_name": "",
+        "most": 0,
+        "pairing": 1
+      },
+      "owner": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "neighbours": [
+        {
+          "routing_id": 489570112,
+          "role": 0,
+          "snr_quarter_db": -38,
+          "heard": 42
+        },
+        {
+          "routing_id": 489570113,
+          "role": 1,
+          "snr_quarter_db": -33,
+          "heard": 43
+        },
+        {
+          "routing_id": 489570114,
+          "role": 1,
+          "snr_quarter_db": -28,
+          "heard": 44
+        }
+      ],
+      "request": "020200000000",
+      "answers": [
+        "063280003d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c010545553836380e6ab13b80000000012c8101d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a0105416c6963650000010a85021d2e3f4000da002a0a85031d2e3f4101df002b0a85041d2e3f4201e4002c",
+        "0612870500000e1000057e400000107200000000068806100e6003159407000000000000000000000000000000000000000c95080000020000000000000003430209"
+      ]
+    },
+    {
+      "self": {
+        "address": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "role": 1,
+        "region": "EU868",
+        "power": 14,
+        "time": 1790000000,
+        "cards": 0,
+        "card_name": "",
+        "most": 0,
+        "pairing": 1
+      },
+      "owner": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "neighbours": [
+        {
+          "routing_id": 167772160,
+          "role": 0,
+          "snr_quarter_db": -20,
+          "heard": 0
+        },
+        {
+          "routing_id": 167772161,
+          "role": 1,
+          "snr_quarter_db": -21,
+          "heard": 1
+        },
+        {
+          "routing_id": 167772162,
+          "role": 0,
+          "snr_quarter_db": -22,
+          "heard": 2
+        },
+        {
+          "routing_id": 167772163,
+          "role": 1,
+          "snr_quarter_db": -23,
+          "heard": 3
+        },
+        {
+          "routing_id": 167772164,
+          "role": 0,
+          "snr_quarter_db": -24,
+          "heard": 4
+        },
+        {
+          "routing_id": 167772165,
+          "role": 1,
+          "snr_quarter_db": -25,
+          "heard": 5
+        },
+        {
+          "routing_id": 167772166,
+          "role": 0,
+          "snr_quarter_db": -26,
+          "heard": 6
+        },
+        {
+          "routing_id": 167772167,
+          "role": 1,
+          "snr_quarter_db": -27,
+          "heard": 7
+        },
+        {
+          "routing_id": 167772168,
+          "role": 0,
+          "snr_quarter_db": -28,
+          "heard": 8
+        },
+        {
+          "routing_id": 167772169,
+          "role": 1,
+          "snr_quarter_db": -29,
+          "heard": 9
+        },
+        {
+          "routing_id": 167772170,
+          "role": 0,
+          "snr_quarter_db": -30,
+          "heard": 10
+        },
+        {
+          "routing_id": 167772171,
+          "role": 1,
+          "snr_quarter_db": -31,
+          "heard": 11
+        },
+        {
+          "routing_id": 167772172,
+          "role": 0,
+          "snr_quarter_db": -32,
+          "heard": 12
+        },
+        {
+          "routing_id": 167772173,
+          "role": 1,
+          "snr_quarter_db": -33,
+          "heard": 13
+        },
+        {
+          "routing_id": 167772174,
+          "role": 0,
+          "snr_quarter_db": -34,
+          "heard": 14
+        },
+        {
+          "routing_id": 167772175,
+          "role": 1,
+          "snr_quarter_db": -35,
+          "heard": 15
+        },
+        {
+          "routing_id": 167772176,
+          "role": 0,
+          "snr_quarter_db": -36,
+          "heard": 16
+        },
+        {
+          "routing_id": 167772177,
+          "role": 1,
+          "snr_quarter_db": -37,
+          "heard": 17
+        },
+        {
+          "routing_id": 167772178,
+          "role": 0,
+          "snr_quarter_db": -38,
+          "heard": 18
+        },
+        {
+          "routing_id": 167772179,
+          "role": 1,
+          "snr_quarter_db": -39,
+          "heard": 19
+        }
+      ],
+      "request": "020200000000",
+      "answers": [
+        "063280003d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c010545553836380e6ab13b80000000012c8101d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a0105416c6963650000010a85020a00000000ec00000a85030a00000101eb00010a85040a00000200ea00020a85050a00000301e90003",
+        "060a85060a00000400e800040a85070a00000501e700050a85080a00000600e600060a85090a00000701e500070a850a0a00000800e400080a850b0a00000901e300090a850c0a00000a00e2000a0a850d0a00000b01e1000b0a850e0a00000c00e0000c0a850f0a00000d01df000d0a85100a00000e00de000e0a85110a00000f01dd000f0a85120a00001000dc0010",
+        "060a85130a00001101db00110a85140a00001200da00120a85150a00001301d9001312871600000e1000057e400000107200000000068817100e6003159418000000000000000000000000000000000000000c9519000002000000000000000343021a"
+      ]
+    }
+  ]
+}

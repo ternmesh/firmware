@@ -21,6 +21,10 @@
     python3 tools/companion.py --port /dev/ttyUSB0 share <address or group> <precision>
     python3 tools/companion.py --port /dev/ttyUSB0 update tern-heltec-v3-eu868-0.2.0-app.bin
     python3 tools/companion.py --port /dev/ttyACM0 update tern-heltec-t114-us915-0.6.0.zip
+    python3 tools/companion.py --port /dev/ttyUSB0 owner <address> on
+    python3 tools/companion.py --port /dev/ttyUSB0 manage <address> state
+    python3 tools/companion.py --port /dev/ttyUSB0 manage <address> set power 10
+    python3 tools/companion.py --port /dev/ttyUSB0 restart
     python3 tools/companion.py --port /dev/ttyUSB0 off
     python3 tools/companion.py --port /dev/ttyUSB0 wipe --yes
     python3 tools/companion.py selftest tests/vectors/companion.json
@@ -54,6 +58,11 @@ package, and tools/release_key.py). Without it, a node updated over the link che
 itself; a node's bootloader checks none, so an nRF52840 board's `.zip` is not sent unchecked.
 `--unsigned` sends an image anyway, for a developer's own build: a node that checks signatures still
 refuses it. `--test-key` checks against the specification's published test key instead.
+`owner <address> on` lets a contact manage this node over the mesh (draft/managing.md), and `off`
+stops it. `manage <address> ...` drives another node over the mesh, from the node on the port, as
+one of its owners: `state` prints what it holds, `set` changes a setting and then pings, which
+confirms it (a setting not confirmed goes back by itself in 15 minutes), `owner` and `contact`
+change its owners and contacts, and `restart` restarts it. `restart` restarts the node on the port.
 `off` turns the node off; nothing on the port turns it on again, only its own button.
 `wipe --yes` erases the node: its address, contacts, groups, messages, settings and Bluetooth bonds,
 for good, and it starts again as new.
@@ -85,7 +94,7 @@ MAX_FRAME, MAGIC = 180, b"\xf5\x54"
 # version brought; `--speak` says another, so that `watch` is told of groups, positions or cards.
 VERSION = 1
 # The latest version the frames below are, which selftest reads the vectors by.
-LATEST = 16
+LATEST = 17
 # SET 4's value for the node's default passkey: a new one on its screen each time, or 123456 on a
 # node without one.
 PASSKEY_DEFAULT = 0xFFFFFFFF
@@ -109,6 +118,8 @@ FRAMES = {
     0x10: ("SEND", [("ref", "I"), ("to", "addr"), ("text", "str")]),
     0x11: ("READ", [("through", "I")]),
     0x12: ("FORGET", [("contact", "addr"), ("through", "I")]),
+    0x13: ("MANAGE", [("ref", "I"), ("to", "addr"), ("request", "raw")]),
+    0x14: ("OWNER", [("address", "addr"), ("owner", "B")]),
     0x18: ("SAVE_CONTACT", [("address", "addr"), ("name", "str")]),
     0x19: ("REMOVE_CONTACT", [("address", "addr")]),
     0x1A: ("END_SESSION", [("address", "addr")]),
@@ -132,6 +143,7 @@ FRAMES = {
                            ("interval", "H"), ("minutes", "H")]),
     0x36: ("UPDATE_BOOTLOADER", []),
     0x37: ("WIPE", []),
+    0x38: ("RESTART", []),
     0x40: ("OK", []),
     0x41: ("ERROR", [("code", "B")]),
     0x42: ("INFO", [("version", "B"), ("firmware", "str"), ("board", "str"), ("release", "str"),
@@ -144,7 +156,8 @@ FRAMES = {
     0x80: ("SELF", [("address", "addr"), ("role", "B"), ("region", "str"), ("power", "b"),
                     ("time", "I"), ("cards", "B"), ("card_name", "str"), ("most", "B"),
                     ("pairing", "B")]),
-    0x81: ("CONTACT", [("address", "addr"), ("session", "B"), ("name", "str"), ("wake", "H")]),
+    0x81: ("CONTACT", [("address", "addr"), ("session", "B"), ("name", "str"), ("wake", "H"),
+                       ("owner", "B")]),
     0x82: ("CONTACT_GONE", [("address", "addr")]),
     0x83: ("MESSAGE", [("id", "I"), ("contact", "addr"), ("time", "I"), ("flags", "B"),
                        ("state", "B"), ("reason", "B"), ("wait", "H"), ("text", "str")]),
@@ -179,11 +192,13 @@ FRAMES = {
                      ("retry", "H")]),
     0x96: ("FORGOTTEN", [("contact", "addr"), ("through", "I")]),
     0x97: ("GROUP_FORGOTTEN", [("group", "gid"), ("through", "I")]),
+    0x98: ("MANAGED", [("from", "addr"), ("answer", "raw")]),
 }
 # Fields a later version added at the end of a frame: an earlier version's frame stops before them.
 LATER = {(0x43, "news"): 3, (0x42, "board"): 4, (0x42, "release"): 4, (0x80, "cards"): 6,
          (0x80, "card_name"): 6, (0x80, "most"): 10, (0x80, "pairing"): 11, (0x42, "update"): 12,
-         (0x30, "signature"): 13, (0x81, "wake"): 15}
+         (0x30, "signature"): 13, (0x81, "wake"): 15,
+         (0x81, "owner"): 17}
 BYTES = {"addr": 32, "gid": 8, "digest": 32}
 TYPE = {name: t for t, (name, _) in FRAMES.items()}
 SETTINGS = {1: ("region", "str"), 2: ("role", "B"), 3: ("power", "b"), 4: ("passkey", "I"),
@@ -203,7 +218,11 @@ ERRORS = {1: "not something this node knows", 2: "malformed", 3: "refused",
           7: "the Bluetooth MTU is too small", 8: "not now", 9: "not held",
           10: "not where the update is",
           11: "not an image this node runs, or not signed by a release key it holds",
-          12: "not a contact"}
+          12: "not a contact", 13: "not something a node does when managed over the mesh"}
+# Managing over the mesh (draft/managing.md): how long after a request is delivered a client waits
+# for its answer, and how long a SET stays on trial unless a later request reaches the node.
+MESH_ANSWER_WAIT = 120.0
+TRIAL = 900
 
 
 def crc16(data):
@@ -465,8 +484,9 @@ def describe(m, names):
     if t == "CONTACT":
         names[m["address"]] = m["name"]
         sleeps = f", sleeps up to {m['wake']} s between wakes" if m.get("wake") else ""
+        owner = ", an owner: may manage this node over the mesh" if m.get("owner") else ""
         return (f"contact {m['name']!r}: {m['address'].hex()}"
-                f"{', with a session' if m['session'] else ''}{sleeps}")
+                f"{', with a session' if m['session'] else ''}{sleeps}{owner}")
     if t == "CONTACT_GONE":
         return f"contact removed: {m['address'].hex()}"
     if t == "MESSAGE":
@@ -755,7 +775,8 @@ def joins_codes(info):
 
 
 def run(args):
-    latest = ("state", "update", "group", "position", "share", "off", "wipe", "clear")
+    latest = ("state", "update", "group", "position", "share", "off", "wipe", "clear", "owner",
+              "restart", "manage")
     speak = LATEST if args.command in latest else VERSION
     if args.command == "set":
         speak = max(speak, SINCE.get(args.setting, VERSION))
@@ -863,15 +884,24 @@ def run(args):
             node.request("SHARE_GROUP", group=group_id(args.to), **sharing(args))
         print("sharing is off" if not args.precision else "sharing")
     elif args.command == "set":
-        n, kind = SETTING[args.setting]
-        if args.setting == "power" and args.value == "most":
-            value = POWER_MOST
-        elif args.setting == "passkey" and args.value == "default":
-            value = PASSKEY_DEFAULT
-        else:
-            value = args.value if kind == "str" else int(args.value, 0)
+        n, value = setting_value(args.setting, args.value)
         node.request("SET", setting=n, value=value)
         print("set")
+    elif args.command == "owner":
+        if info["version"] < 17:
+            raise SystemExit("this node's firmware is too old to be managed over the mesh")
+        node.request("OWNER", address=address(args.address), owner=int(args.on == "on"))
+        print("an owner: it may manage this node over the mesh" if args.on == "on"
+              else "no longer an owner")
+    elif args.command == "restart":
+        if info["version"] < 17:
+            raise SystemExit("this node's firmware is too old to be restarted from here")
+        node.request("RESTART")
+        print("restarting")
+    elif args.command == "manage":
+        if info["version"] < 17:
+            raise SystemExit("this node's firmware is too old to manage another over the mesh")
+        manage(node, args, names)
     elif args.command == "update":
         update(node, info, args.image, args)
     elif args.command == "watch":
@@ -885,15 +915,125 @@ def run(args):
                 print(describe(m, names), flush=True)
 
 
+def setting_value(name, text):
+    """SET's setting number and value, from a name and what the user typed."""
+    n, kind = SETTING[name]
+    if name == "power" and text == "most":
+        return n, POWER_MOST
+    if name == "passkey" and text == "default":
+        return n, PASSKEY_DEFAULT
+    return n, text if kind == "str" else int(text, 0)
+
+
+def unpack(content):
+    """The companion frames of a managed node's answer, each after its length (draft/managing.md,
+    "The frames"), or None for one that is not an answer."""
+    frames, at = [], 0
+    while at < len(content):
+        n = content[at]
+        if n == 0 or at + 1 + n > len(content):
+            return None
+        frames.append(content[at + 1:at + 1 + n])
+        at += 1 + n
+    return frames or None
+
+
+class Remote:
+    """A node managed over the mesh through the one on the port (draft/managing.md): each request
+    goes in a MANAGE, and its answer, with any news, comes back in MANAGED."""
+
+    def __init__(self, node, to, wait):
+        self.node, self.to, self.wait = node, to, wait
+        self.seq, self.speak, self.news = 0, LATEST, []
+
+    def request(self, kind, /, refusable=False, **values):
+        self.seq = self.seq % 255 + 1
+        frame = encode(kind, self.seq, speak=self.speak, **values)
+        q = self.node.request("MANAGE", ref=random.getrandbits(32), to=self.to, request=frame)
+        said = None
+        end = time.monotonic() + self.wait
+        for m in self.node.news(self.wait):
+            if m["type"] == "STATE" and m["id"] == q["id"] and m["state"] != said:
+                said = m["state"]
+                print(f"  {kind}: {STATES[said]}"
+                      f"{' ' + REASONS[m['reason']] if said == 0 and m['reason'] else ''}",
+                      flush=True)
+                if said == 3:
+                    raise SystemExit(f"{kind}: not delivered")
+                if said == 2:
+                    end = time.monotonic() + MESH_ANSWER_WAIT
+            if m["type"] != "MANAGED" or m["from"] != self.to:
+                if time.monotonic() > end:
+                    break
+                continue
+            for f in unpack(m["answer"]) or []:
+                got = decode(f, self.speak)
+                if got is None:
+                    continue
+                if TYPE[got["type"]] >= 0x80:
+                    self.news.append(got)
+                elif got["seq"] == self.seq:
+                    if got["type"] == "ERROR" and not refusable:
+                        raise SystemExit(f"{kind}: {ERRORS.get(got['code'], got['code'])}")
+                    return got
+            if time.monotonic() > end:
+                break
+        raise SystemExit(f"{kind}: no answer from the managed node")
+
+    def hello(self):
+        info = self.request("HELLO", version=LATEST)
+        self.speak = min(LATEST, info["version"])
+        return info
+
+
+def manage(node, args, names):
+    """Drives the node at an address over the mesh, as one of its owners."""
+    node.request("SYNC", after=0)  # for the names of contacts
+    for m in node.pending:
+        describe(m, names)
+    node.pending.clear()
+    to = address(args.address)
+    remote = Remote(node, to, args.wait)
+    print(f"managing {names.get(to, to.hex())} over the mesh: each request waits for its answer")
+    info = remote.hello()
+    print(f"{info['firmware']}, companion protocol version {info['version']}")
+    if args.what == "state":
+        remote.request("SYNC", after=0)
+        for m in remote.news:
+            print(describe(m, {}))
+    elif args.what == "ping":
+        remote.request("PING")
+        print("there")
+    elif args.what == "set":
+        n, value = setting_value(args.setting, args.value)
+        remote.request("SET", setting=n, value=value)
+        print(f"set, on trial: it goes back in {TRIAL // 60} minutes unless the node hears from "
+              "an owner again")
+        remote.request("PING")
+        print("confirmed: the node heard again, and the setting stays")
+    elif args.what == "owner":
+        remote.request("OWNER", address=address(args.owner), owner=int(args.on == "on"))
+        print("done")
+    elif args.what == "contact":
+        remote.request("SAVE_CONTACT", address=address(args.contact), name=args.name)
+        print("saved")
+    elif args.what == "restart":
+        remote.request("RESTART")
+        print("restarting")
+
+
 def selftest(path):
     """Checks this script's frames and framing against the specification's vectors."""
     v = json.load(open(path, encoding="utf-8"))
     failed = 0
     for f in v["frames"]:
         fields = dict(f["fields"])
-        for k in ("to", "address", "contact", "group", "digest", "data", "signature"):
+        for k in ("to", "address", "contact", "group", "digest", "data", "signature", "request",
+                  "answer"):
             if k in fields:
                 fields[k] = bytes.fromhex(fields[k])
+        if f["type"] == "MANAGED":
+            fields["from"] = bytes.fromhex(fields["from"])
         frame = bytes.fromhex(f["frame"])
         ok = encode(f["type"], f["seq"], speak=LATEST, **fields) == frame
         ok = ok and wrap(frame).hex() == f["stream"]
@@ -901,7 +1041,7 @@ def selftest(path):
         ok = ok and got is not None and got["type"] == f["type"]
         failed += not ok
     # Each connection read by the version its client speaks: an older one's SYNCED is two bytes.
-    runs = [v["exchange"], *v["update"], v["refusals"], v["wipe"], *v["forget"]]
+    runs = [v["exchange"], *v["update"], v["refusals"], v["wipe"], *v["forget"], v["manage"]]
     for c in [{"version": LATEST, "frames": f} for f in runs] + v["older"]:
         for f in c["frames"]:
             got = decode(bytes.fromhex(f["frame"]), c["version"])
@@ -987,6 +1127,27 @@ def main():
                    help="send it even with no signature, or one that does not verify")
     u.add_argument("--test-key", action="store_true",
                    help="check the signature against the specification's test key")
+    ow = sub.add_parser("owner", help="let a contact manage this node over the mesh, or not")
+    ow.add_argument("address")
+    ow.add_argument("on", choices=("on", "off"))
+    sub.add_parser("restart", help="restart the node")
+    mg = sub.add_parser("manage", help="manage a node over the mesh, as one of its owners")
+    mg.add_argument("address", help="the managed node's address")
+    mg.add_argument("--wait", type=float, default=600.0,
+                    help="seconds to wait for each request to be delivered (default 600)")
+    ms = mg.add_subparsers(dest="what", required=True)
+    ms.add_parser("state", help="what the node holds: itself, its contacts and neighbours")
+    ms.add_parser("ping")
+    mt = ms.add_parser("set", help="change a setting, on trial until confirmed")
+    mt.add_argument("setting", choices=[k for k in SETTING if k not in ("region", "passkey")])
+    mt.add_argument("value")
+    mo = ms.add_parser("owner")
+    mo.add_argument("owner", help="a contact's address")
+    mo.add_argument("on", choices=("on", "off"))
+    mc = ms.add_parser("contact")
+    mc.add_argument("contact")
+    mc.add_argument("name")
+    ms.add_parser("restart")
     sub.add_parser("off", help="turn the node off; only its own button turns it on again")
     wp = sub.add_parser("wipe", help="erase the node, for good: it starts again as new")
     wp.add_argument("--yes", action="store_true", help="yes, erase it")

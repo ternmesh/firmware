@@ -28,6 +28,7 @@ idf_component_register(
         ${root}/src/card.c
         ${root}/src/ccm.c
         ${root}/src/companion.c
+        ${root}/src/manage.c
         ${root}/src/contact.c
         ${root}/src/duty.c
         ${root}/src/fe25519.c

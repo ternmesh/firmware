@@ -3,16 +3,44 @@
 #include <string.h>
 
 #include "tern/crypto.h"
+#include "tern/manage.h"
 #include "tern/release.h"
 #include "tern/route.h"
 
 /* --- Frames out ----------------------------------------------------------------------------- */
 
+static uint32_t keep_raw(struct link *l, uint8_t kind, const uint8_t address[TERN_ADDRESS_LEN],
+                         const uint8_t *bytes, size_t len);
+
+/* The answer packed so far goes to the owner as a message of its own. */
+static void answer_flush(struct link *l) {
+    if (l->answer_len != 0 && l->answer_to != NULL) {
+        (void)keep_raw(l, LINK_KIND_ANSWER, l->answer_to, l->answer, l->answer_len);
+    }
+    l->answer_len = 0;
+}
+
+/* A frame for an owner over the mesh goes into the answer being packed, after its length, and
+ * one that does not fit starts the next answer (draft/managing.md, "The connection"). */
+static void answer_pack(struct link *l, const uint8_t *frame, size_t len) {
+    if (l->answer_len + 1 + len > sizeof l->answer) {
+        answer_flush(l);
+    }
+    l->answer[l->answer_len++] = (uint8_t)len;
+    memcpy(l->answer + l->answer_len, frame, len);
+    l->answer_len += len;
+}
+
 /* Each client gets a frame as its version has it: a SYNCED to one of version 2 is two bytes. */
 static void send_msg(struct link *l, struct link_conn *c, const struct tern_companion_msg *m) {
     uint8_t frame[TERN_COMPANION_MAX_FRAME];
     size_t len = tern_companion_write_as(m, frame, c->version);
-    if (len != 0) {
+    if (len == 0) {
+        return;
+    }
+    if (c->mesh) {
+        answer_pack(l, frame, len);
+    } else {
         l->host.out(l->host.ctx, (unsigned)(c - l->conns), frame, len);
     }
 }
@@ -32,6 +60,10 @@ static void error(struct link *l, uint8_t seq, uint8_t code) {
  * version defines. */
 static void tell(struct link *l, struct link_conn *c, struct tern_companion_msg *m) {
     if (!c->hello || c->version < tern_companion_since(m->type)) {
+        return;
+    }
+    /* An owner over the mesh is sent news only in answer to its SYNC: none unasked. */
+    if (c->mesh && !l->mesh_syncing) {
         return;
     }
     m->seq = c->news++;
@@ -115,6 +147,7 @@ static void news_contact(struct link *l, struct link_conn *to, const struct link
     memcpy(m.address, c->address, TERN_ADDRESS_LEN);
     m.session = l->host.session(l->host.ctx, c->address) ? 1 : 0;
     m.wake = m.session != 0 && l->host.wake != NULL ? l->host.wake(l->host.ctx, c->address) : 0;
+    m.owner = link_owner(l, c->address) ? 1 : 0;
     put_text(&m, c->name, c->name_len);
     news(l, to, &m);
 }
@@ -123,11 +156,15 @@ static void news_contact(struct link *l, struct link_conn *to, const struct link
 static uint8_t type_of(const struct link_message *x) {
     return x->kind == LINK_KIND_GROUP    ? TERN_C_GROUP_MESSAGE
            : x->kind == LINK_KIND_INVITE ? TERN_C_INVITE
+           : x->kind == LINK_KIND_MANAGE ? TERN_C_MANAGE
                                          : TERN_C_MESSAGE;
 }
 
-/* A message as news, of whichever kind it is. */
+/* A message as news, of whichever kind it is. A MANAGE's request and an answer are not news. */
 static void news_message(struct link *l, struct link_conn *to, const struct link_message *x) {
+    if (!link_for_user(x->kind)) {
+        return;
+    }
     struct tern_companion_msg m = {
         .type = type_of(x),
         .id = x->id,
@@ -337,6 +374,48 @@ bool link_contact(const struct link *l, const uint8_t address[TERN_ADDRESS_LEN])
         }
     }
     return false;
+}
+
+/* --- Owners (draft/managing.md) ------------------------------------------------------------- */
+
+static struct link_owner *find_owner(struct link *l, const uint8_t address[TERN_ADDRESS_LEN]) {
+    for (size_t i = 0; i < LINK_OWNERS; i++) {
+        if (l->owners[i].used && memcmp(l->owners[i].address, address, TERN_ADDRESS_LEN) == 0) {
+            return &l->owners[i];
+        }
+    }
+    return NULL;
+}
+
+bool link_owner(const struct link *l, const uint8_t address[TERN_ADDRESS_LEN]) {
+    return find_owner((struct link *)l, address) != NULL;
+}
+
+/* The owners' addresses, one after another. A host with nowhere to keep them keeps none. */
+static bool save_owners(struct link *l) {
+    uint8_t b[LINK_OWNERS * TERN_ADDRESS_LEN];
+    size_t n = 0;
+    for (size_t i = 0; i < LINK_OWNERS; i++) {
+        if (l->owners[i].used) {
+            memcpy(b + n, l->owners[i].address, TERN_ADDRESS_LEN);
+            n += TERN_ADDRESS_LEN;
+        }
+    }
+    return l->host.save_owners != NULL && l->host.save_owners(l->host.ctx, b, n);
+}
+
+/* Each owner is a contact: one saved that is not, as a write that failed may leave, is not one. */
+static void load_owners(struct link *l) {
+    uint8_t b[LINK_OWNERS * TERN_ADDRESS_LEN];
+    size_t n = l->host.load_owners == NULL ? 0 : l->host.load_owners(l->host.ctx, b, sizeof b);
+    for (size_t at = 0, i = 0; at + TERN_ADDRESS_LEN <= n && i < LINK_OWNERS;
+         at += TERN_ADDRESS_LEN) {
+        if (find_contact(l, b + at) != NULL) {
+            l->owners[i].used = true;
+            memcpy(l->owners[i].address, b + at, TERN_ADDRESS_LEN);
+            i++;
+        }
+    }
 }
 
 uint32_t link_contact_id(struct link *l, size_t place) {
@@ -581,6 +660,10 @@ static bool unsave_oldest(struct link *l, const struct link_message *but) {
  * failed for another reason takes nothing out. If it cannot be saved even so, what the place held
  * before is forgotten, so that a restart does not bring back a message the node has let go of. */
 static void save_message(struct link *l, struct link_message *x) {
+    if (!link_for_user(x->kind)) {
+        x->saved = false; /* a request to manage, or an answer: neither outlives a restart */
+        return;
+    }
     uint8_t b[LINK_SAVED_MAX];
     size_t place = (size_t)(x - l->messages);
     b[0] = SAVED_VERSION;
@@ -945,6 +1028,7 @@ void link_init(struct link *l, const struct link_host *host) {
     for (size_t i = 0; i < LINK_MESSAGES; i++) {
         load_message(l, i);
     }
+    load_owners(l);
 }
 
 /* Sets the next message id aside in flash, if it is not yet. Done before the id is told to
@@ -979,6 +1063,28 @@ static uint32_t keep_message(struct link *l, const struct link_message *like, co
     x->text_len = (uint8_t)keep;
     save_message(l, x);
     news_message(l, NULL, x);
+    return x->id;
+}
+
+/* A request to manage another node, or an answer to an owner: bytes, not text, never saved and
+ * never news but for a request's STATE. 0, and nothing kept, if there is no room. */
+static uint32_t keep_raw(struct link *l, uint8_t kind, const uint8_t address[TERN_ADDRESS_LEN],
+                         const uint8_t *bytes, size_t len) {
+    struct link_message *x = len == 0 || len > LINK_TEXT_ROOM ? NULL : room(l);
+    if (x == NULL) {
+        return 0;
+    }
+    reserve_id(l);
+    tern_wipe(x, sizeof *x);
+    x->used = true;
+    x->kind = kind;
+    x->id = l->next_id++;
+    x->time = l->view.time;
+    x->state = TERN_C_WAITING;
+    x->reason = l->host.why(l->host.ctx, address);
+    memcpy(x->address, address, TERN_ADDRESS_LEN);
+    memcpy(x->text, bytes, len);
+    x->text_len = (uint8_t)len;
     return x->id;
 }
 
@@ -1040,9 +1146,10 @@ void link_state(struct link *l, uint32_t id, uint8_t state, uint8_t reason, uint
     if (moved) {
         save_state(l, x);
     }
-    if (changed) {
+    if (changed && x->kind != LINK_KIND_ANSWER) {
         /* Only to a client that was told of the message: one from before groups was not sent a
-         * group message or an invite, and news of what became of one would be of nothing. */
+         * group message or an invite, and news of what became of one would be of nothing. An
+         * answer to an owner is no client's. */
         uint8_t since = tern_companion_since(type_of(x));
         for (size_t i = 0; i < LINK_CONNS; i++) {
             struct tern_companion_msg m = {
@@ -1131,20 +1238,24 @@ static bool usable_address(struct link *l, const uint8_t address[TERN_ADDRESS_LE
 static void sync(struct link *l, const struct tern_companion_msg *q, tern_time now) {
     struct link_conn *c = l->asker;
     l->host.view(l->host.ctx, &l->view);
+    /* An owner over the mesh is told the node's own state, and none of its user's
+     * (draft/managing.md, "Syncing"): no group, message, position, sharing or card. */
+    bool own = c->mesh;
+    l->mesh_syncing = own;
     news_self(l, c);
     for (size_t i = 0; i < LINK_CONTACTS; i++) {
         if (l->contacts[i].used) {
             news_contact(l, c, &l->contacts[i]);
         }
     }
-    for (size_t i = 0; i < LINK_GROUPS; i++) {
+    for (size_t i = 0; !own && i < LINK_GROUPS; i++) {
         if (l->groups[i].used) {
             news_group(l, c, &l->groups[i]);
         }
     }
     /* Oldest first, as a client would have heard them. */
     uint32_t after = q->after;
-    for (;;) {
+    while (!own) {
         const struct link_message *next = NULL;
         for (size_t i = 0; i < LINK_MESSAGES; i++) {
             const struct link_message *x = &l->messages[i];
@@ -1160,7 +1271,7 @@ static void sync(struct link *l, const struct tern_companion_msg *q, tern_time n
     }
     /* And how much of each conversation is forgotten, whatever `after`: a client that was away
      * learns it so. Addresses first, then groups. */
-    for (int group = 0; group < 2; group++) {
+    for (int group = 0; !own && group < 2; group++) {
         for (size_t i = 0; i < LINK_FORGOTTEN; i++) {
             if (l->forgotten[i].used && l->forgotten[i].group == (group == 1)) {
                 news_forgotten(l, c, &l->forgotten[i]);
@@ -1172,29 +1283,29 @@ static void sync(struct link *l, const struct tern_companion_msg *q, tern_time n
         news_neighbour(l, c, &l->view.neighbours[i]);
         c->told[c->n_told++] = (struct link_told){l->view.neighbours[i], now};
     }
-    for (size_t i = 0; i < LINK_CONTACTS; i++) {
+    for (size_t i = 0; !own && i < LINK_CONTACTS; i++) {
         if (l->contacts[i].used && l->contact_positions[i].holds) {
             news_position(l, c, i, now);
         }
     }
-    for (size_t i = 0; i < LINK_GROUPS; i++) {
+    for (size_t i = 0; !own && i < LINK_GROUPS; i++) {
         for (size_t k = 0; l->groups[i].used && k < LINK_GROUP_POSITIONS; k++) {
             if (l->group_positions[i][k].used) {
                 news_group_position(l, c, i, &l->group_positions[i][k], now);
             }
         }
     }
-    for (size_t i = 0; i < LINK_CONTACTS; i++) {
+    for (size_t i = 0; !own && i < LINK_CONTACTS; i++) {
         if (l->contacts[i].used && l->contact_shares[i].precision != 0) {
             news_sharing(l, c, i, now);
         }
     }
-    for (size_t i = 0; i < LINK_GROUPS; i++) {
+    for (size_t i = 0; !own && i < LINK_GROUPS; i++) {
         if (l->groups[i].used && l->group_shares[i].precision != 0) {
             news_group_sharing(l, c, i, now);
         }
     }
-    for (size_t i = 0; i < LINK_CARDS; i++) {
+    for (size_t i = 0; !own && i < LINK_CARDS; i++) {
         if (l->card_places[i].held) {
             news_card(l, c, &l->card_places[i], now);
         }
@@ -1206,8 +1317,9 @@ static void sync(struct link *l, const struct tern_companion_msg *q, tern_time n
     c->fix = fix_of(l, now);
     tell(l, c, &c->fix);
     tell_sleep(l, c);
+    l->mesh_syncing = false;
     c->look_at = c->air_at = c->power_at = c->fix_at = now;
-    c->synced = true;
+    c->synced = !own;
     /* With the count as it stands, so that a client that missed the last of the news knows. */
     struct tern_companion_msg a = {.type = TERN_C_SYNCED, .seq = q->seq, .news = c->news};
     send_msg(l, c, &a);
@@ -1348,6 +1460,12 @@ static void remove_contact(struct link *l, const struct tern_companion_msg *q) {
             *c = was;
             error(l, q->seq, TERN_C_ERR_NOT_NOW);
             return;
+        }
+        /* An address that is no contact is no owner (draft/managing.md, "Owners"). */
+        struct link_owner *o = find_owner(l, q->address);
+        if (o != NULL) {
+            o->used = false;
+            (void)save_owners(l);
         }
     }
     answer(l, TERN_C_OK, q->seq);
@@ -2059,6 +2177,85 @@ void link_close(struct link *l, unsigned conn) {
     l->conns[conn] = (struct link_conn){.open = false};
 }
 
+/* MANAGE: a request to manage the node at an address, once for each ref (draft/companion.md, as
+ * SEND's). */
+static void manage_request(struct link *l, const struct tern_companion_msg *q) {
+    l->host.view(l->host.ctx, &l->view);
+    if (!usable_address(l, q->address)) {
+        error(l, q->seq, TERN_C_ERR_ADDRESS);
+        return;
+    }
+    if (q->data_len == 0) {
+        error(l, q->seq, TERN_C_ERR_REFUSED);
+        return;
+    }
+    uint8_t d[8];
+    digest(q->data, q->data_len, d);
+    for (size_t i = 0; i < LINK_REFS; i++) {
+        const struct link_ref *r = &l->refs[i];
+        if (r->used && !r->group && r->ref == q->ref &&
+            memcmp(r->to, q->address, TERN_ADDRESS_LEN) == 0 &&
+            memcmp(r->digest, d, sizeof d) == 0) {
+            struct tern_companion_msg a = {.type = TERN_C_QUEUED, .seq = q->seq, .id = r->id};
+            send_msg(l, l->asker, &a);
+            return;
+        }
+    }
+    if (room(l) == NULL) {
+        error(l, q->seq, TERN_C_ERR_FULL);
+        return;
+    }
+    /* Answered before the news of it, as SEND is, and the id set aside before the answer names
+     * it. */
+    reserve_id(l);
+    struct tern_companion_msg a = {.type = TERN_C_QUEUED, .seq = q->seq, .id = l->next_id};
+    send_msg(l, l->asker, &a);
+    uint32_t id = keep_raw(l, LINK_KIND_MANAGE, q->address, q->data, q->data_len);
+    struct link_ref *r = &l->refs[l->next_ref];
+    *r = (struct link_ref){.used = true, .ref = q->ref, .id = id};
+    memcpy(r->to, q->address, TERN_ADDRESS_LEN);
+    memcpy(r->digest, d, sizeof d);
+    l->next_ref = (l->next_ref + 1) % LINK_REFS;
+}
+
+/* OWNER: a contact made one of the node's owners, or not. */
+static void owner_request(struct link *l, const struct tern_companion_msg *q) {
+    const struct link_contact *c = find_contact(l, q->address);
+    if (c == NULL) {
+        error(l, q->seq, TERN_C_ERR_NOT_CONTACT);
+        return;
+    }
+    if (q->owner > 1) {
+        error(l, q->seq, TERN_C_ERR_REFUSED);
+        return;
+    }
+    struct link_owner *o = find_owner(l, q->address);
+    if ((o != NULL) == (q->owner == 1)) {
+        answer(l, TERN_C_OK, q->seq);
+        return;
+    }
+    if (o != NULL) {
+        o->used = false;
+    } else {
+        for (size_t i = 0; i < LINK_OWNERS && o == NULL; i++) {
+            o = l->owners[i].used ? NULL : &l->owners[i];
+        }
+        if (o == NULL) {
+            error(l, q->seq, TERN_C_ERR_FULL);
+            return;
+        }
+        *o = (struct link_owner){.used = true};
+        memcpy(o->address, q->address, TERN_ADDRESS_LEN);
+    }
+    if (!save_owners(l)) {
+        o->used = !o->used;
+        error(l, q->seq, TERN_C_ERR_NOT_NOW);
+        return;
+    }
+    answer(l, TERN_C_OK, q->seq);
+    news_contact(l, NULL, c);
+}
+
 /* Answers the request in frame, which it reads into q. */
 static void receive(struct link *l, unsigned conn, tern_time now, const uint8_t *frame, size_t len,
                     struct tern_companion_msg *q) {
@@ -2091,6 +2288,10 @@ static void receive(struct link *l, unsigned conn, tern_time now, const uint8_t 
      * could not be told what the request changed. */
     if (c->hello && q->type != TERN_C_HELLO && c->version < tern_companion_since(q->type)) {
         error(l, q->seq, TERN_C_ERR_UNKNOWN);
+        return;
+    }
+    if (c->mesh && !tern_manage_allowed(q->type, q->setting)) {
+        error(l, q->seq, TERN_C_ERR_NOT_OVER_MESH);
         return;
     }
     switch (q->type) {
@@ -2253,6 +2454,22 @@ static void receive(struct link *l, unsigned conn, tern_time now, const uint8_t 
     case TERN_C_SET_POSITION:
         set_position(l, q, now);
         break;
+    case TERN_C_MANAGE:
+        manage_request(l, q);
+        break;
+    case TERN_C_OWNER:
+        owner_request(l, q);
+        break;
+    case TERN_C_RESTART: {
+        /* As OFF: answered first, and the board restarts only once the answer is out. */
+        uint8_t code = l->host.restart == NULL ? TERN_C_ERR_NOT_NOW : l->host.restart(l->host.ctx);
+        if (code != 0) {
+            error(l, q->seq, code);
+        } else {
+            answer(l, TERN_C_OK, q->seq);
+        }
+        break;
+    }
     case TERN_C_SHARE:
         share_request(l, q, now);
         break;
@@ -2270,6 +2487,42 @@ void link_receive(struct link *l, unsigned conn, tern_time now, const uint8_t *f
     receive(l, conn, now, frame, len, &q);
     /* Whatever became of it: a JOIN_LINK's code is a group's secret, and none is left behind. */
     tern_wipe(&q, sizeof q);
+}
+
+bool link_manage(struct link *l, tern_time now, const uint8_t from[TERN_ADDRESS_LEN],
+                 const uint8_t *request, size_t len) {
+    struct link_owner *o = find_owner(l, from);
+    if (o == NULL) {
+        return false;
+    }
+    if (!tern_manage_request_ok(request, len)) {
+        return true; /* ignored, as the specification says */
+    }
+    struct link_conn *c = &l->conns[LINK_MESH];
+    *c = (struct link_conn){
+        .open = true, .mesh = true, .hello = o->hello, .version = o->version, .news = o->news};
+    l->answer_to = o->address;
+    l->answer_len = 0;
+    l->host.view(l->host.ctx, &l->view);
+    link_receive(l, LINK_MESH, now, request, len);
+    answer_flush(l);
+    o->hello = c->hello;
+    o->version = c->version;
+    o->news = c->news;
+    *c = (struct link_conn){.open = false};
+    l->answer_to = NULL;
+    return true;
+}
+
+void link_managed(struct link *l, const uint8_t from[TERN_ADDRESS_LEN], const uint8_t *content,
+                  size_t len) {
+    if (!tern_manage_answer_ok(content, len)) {
+        return;
+    }
+    struct tern_companion_msg m = {.type = TERN_C_MANAGED, .data_len = (uint8_t)len};
+    memcpy(m.address, from, TERN_ADDRESS_LEN);
+    memcpy(m.data, content, len);
+    news(l, NULL, &m);
 }
 
 /* --- Telling what changed -------------------------------------------------------------------- */
