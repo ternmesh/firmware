@@ -97,6 +97,14 @@
  * made there is made as one made from a phone is. */
 enum { LINK_SERIAL, LINK_BLE, LINK_BOARD, LINK_CONNS };
 
+/* An owner's requests over the mesh (draft/managing.md) are answered on the board's own connection,
+ * borrowed while link_manage() reads one: that connection never syncs, so nothing of it but a few
+ * fields needs keeping, and a connection of its own would cost RAM a classic ESP32 does not have.
+ * While borrowed its frames are packed into answers, messages for the owner's node, rather than
+ * handed to the host. */
+#define LINK_MESH LINK_BOARD
+#define LINK_OWNERS TERN_C_OWNERS
+
 struct link_neighbour {
     uint32_t id;
     uint8_t role;   /* 0 leaf, 1 relay */
@@ -113,6 +121,7 @@ struct link_view {
     int8_t power;
     uint8_t most;    /* 1 if `power` is the most the node may send at, which it works out */
     uint8_t pairing; /* how a client pairs over Bluetooth: a TERN_C_PAIRING_ */
+    uint8_t locked;  /* 1 if the node's Bluetooth is locked (draft/managing.md) */
     uint32_t time;   /* seconds since 1970, or 0 */
     uint8_t cards;   /* 1 if the node sends cards, 0 if not */
     uint8_t card_name_len;
@@ -235,6 +244,13 @@ struct link_host {
     /* WIPE: 0 if the board will erase everything it holds, its identity and Bluetooth bonds among
      * it, and restart as new once the answer is out, or the ERROR code to answer with. */
     uint8_t (*wipe)(void *ctx);
+    /* RESTART: 0 if the board will restart once the answer is out, or the ERROR code to answer
+     * with. Every connection drops then. */
+    uint8_t (*restart)(void *ctx);
+    /* The owners' addresses (draft/managing.md, "Owners"), as save_owners last wrote them: the
+     * bytes read, at most cap. */
+    size_t (*load_owners)(void *ctx, uint8_t *buf, size_t cap);
+    bool (*save_owners)(void *ctx, const uint8_t *buf, size_t len);
 };
 
 /* An update under way: the image's size and digest, how much of it the node holds, and the digest
@@ -271,7 +287,25 @@ struct link_group {
 
 /* What a message is: one to or from an address, one to or from a group, or an invite to a group,
  * to or from an address. */
-enum link_kind { LINK_KIND_MESSAGE, LINK_KIND_GROUP, LINK_KIND_INVITE };
+enum link_kind {
+    LINK_KIND_MESSAGE,
+    LINK_KIND_GROUP,
+    LINK_KIND_INVITE,
+    LINK_KIND_MANAGE,
+    LINK_KIND_ANSWER,
+    LINK_KIND_NOTICE /* to an owner, that the owners changed: its text is all after the kind */
+};
+
+/* A MANAGE's request to another node, and an answer to an owner, are messages for the node of
+ * kinds 0x05 and 0x06 (draft/managing.md): kept and sent as the others are, so that each is tried
+ * again and its end is known, but never saved, shown or synced. A MANAGE's state is told in STATE
+ * news; an answer's is told to no one. Their text is the bytes after the kind. */
+#define LINK_TEXT_ROOM TERN_COMPANION_TEXT_MAX
+#define LINK_MANAGE_KIND 0x05
+#define LINK_ANSWER_KIND 0x06
+
+/* Whether a message is one of the user's, to show and sync. */
+static inline bool link_for_user(uint8_t kind) { return kind <= LINK_KIND_INVITE; }
 
 struct link_message {
     bool used;
@@ -287,7 +321,7 @@ struct link_message {
     uint8_t flags, state, reason;
     uint16_t wait;
     uint8_t text_len; /* an invite's is the group's name */
-    uint8_t text[TERN_COMPANION_TEXT_MAX];
+    uint8_t text[LINK_TEXT_ROOM];
 };
 
 /* How much of a conversation the user has forgotten: every message and invite with an address,
@@ -375,6 +409,7 @@ struct link_conn {
     tern_time lapse;
     size_t mtu; /* the ATT MTU over Bluetooth; 0 on a byte stream, which carries any frame */
     bool hello;
+    bool mesh;             /* an owner's, over the mesh: told news only in answer to SYNC */
     uint8_t version;       /* the client's, from its HELLO: it is sent nothing a later one added */
     bool synced;           /* told everything since HELLO: link_tick tells what changed since */
     uint8_t news;          /* the count: the next news frame's seq */
@@ -386,6 +421,7 @@ struct link_conn {
     int8_t self_power;
     uint8_t self_most;
     uint8_t self_pairing;
+    uint8_t self_locked;
     const char *self_region;
     uint8_t self_cards;
     uint8_t self_card_name_len;
@@ -396,6 +432,16 @@ struct link_conn {
     uint8_t sleep_listen, sleep_state;
     uint32_t sleep_keeper;
     tern_time air_at, power_at, fix_at, look_at;
+};
+
+/* An owner, and its connection over the mesh while LINK_MESH is not answering it: whether its
+ * client has said HELLO, in what version, and the news count. Kept in RAM only, so after a restart
+ * an owner says HELLO again. */
+struct link_owner {
+    bool used;
+    uint8_t address[TERN_ADDRESS_LEN];
+    bool hello;
+    uint8_t version, news;
 };
 
 struct link {
@@ -435,6 +481,13 @@ struct link {
 
     struct tern_card card_places[LINK_CARDS];
     struct tern_cards cards;
+
+    struct link_owner owners[LINK_OWNERS];
+    /* The answer being packed for the owner LINK_MESH answers: frames, each after its length. */
+    bool mesh_syncing; /* LINK_MESH is being told what a SYNC tells */
+    const uint8_t *answer_to;
+    uint8_t answer[TERN_COMPANION_MANAGED_MAX];
+    size_t answer_len;
 
     struct link_view view; /* scratch, filled by the host */
 };
@@ -575,6 +628,28 @@ uint32_t link_contact_id(struct link *l, size_t place);
 
 /* The board refused first contact from an address that proved itself, for a TERN_C_ASKED_
  * reason: news, for a client to offer to let it in. */
+/* Whether an address is one of the node's owners (draft/managing.md). */
+bool link_owner(const struct link *l, const uint8_t address[TERN_ADDRESS_LEN]);
+
+/* A request to manage this node, the content of a message for the node of kind 0x05 after the
+ * kind, from `from`, with whom the node shares a session. One from an address that is not an owner
+ * is let go, and false returned: the node answers no one else. An owner's is answered as a
+ * request over a link is, on LINK_MESH, but for what may not be asked over the mesh, which is
+ * answered ERROR 13; the answer, and the news a SYNC sends, are packed into messages to `from` of
+ * kind 0x06, which go as the node's other messages do. */
+bool link_manage(struct link *l, tern_time now, const uint8_t from[TERN_ADDRESS_LEN],
+                 const uint8_t *request, size_t len);
+
+/* An answer from a node this one manages: a message for the node of kind 0x06, `content` after
+ * the kind. It is told to every client as MANAGED, if it is an answer at all. */
+void link_managed(struct link *l, const uint8_t from[TERN_ADDRESS_LEN], const uint8_t *content,
+                  size_t len);
+
+/* A notice that the owners of the node at `from` changed: a message for the node of kind 0x07,
+ * kind included. It is told to every client as OWNER_CHANGED, if it is a notice at all. */
+void link_owners_notice(struct link *l, const uint8_t from[TERN_ADDRESS_LEN],
+                        const uint8_t *content, size_t len);
+
 void link_asked(struct link *l, tern_time now, const uint8_t address[TERN_ADDRESS_LEN],
                 uint8_t why);
 

@@ -1,4 +1,5 @@
 #include "link.h"
+#include "tern/manage.h"
 
 #include <string.h>
 
@@ -36,6 +37,26 @@ struct signature_case {
 /* The specification's exchange, and the frames unknown to older versions, alone: the build writes
  * them from the same JSON as tests/companion.c reads. */
 #include "companion_exchange.h"
+
+struct content_case {
+    const char *why;
+    uint8_t content[160];
+    size_t len;
+};
+struct allowed_case {
+    uint8_t type, setting;
+    bool allowed;
+};
+struct notice_case {
+    uint8_t contact[32];
+    uint8_t owner, by;
+    uint8_t content[TERN_MANAGE_NOTICE_LEN];
+};
+struct locked_case {
+    uint8_t type;
+    bool allowed;
+};
+#include "managing.h"
 
 #define COUNT(a) (sizeof(a) / sizeof(a)[0])
 
@@ -107,6 +128,9 @@ struct board {
     unsigned boots;     /* how many times UPDATE_BOOTLOADER asked the board to restart into it */
     unsigned wipes;     /* how many times WIPE asked the board to erase itself */
     uint8_t wipe_answer;
+    unsigned restarts; /* how many times RESTART asked the board to restart */
+    uint8_t owners[LINK_OWNERS * TERN_ADDRESS_LEN];
+    size_t owners_len;
     uint8_t out[96][TERN_COMPANION_MAX_FRAME];
     size_t out_len[96];
     unsigned out_conn[96];
@@ -434,6 +458,29 @@ static uint8_t board_wipe(void *ctx) {
     return b->wipe_answer;
 }
 
+static uint8_t board_restart(void *ctx) {
+    struct board *b = ctx;
+    b->restarts++;
+    return 0;
+}
+
+static size_t board_load_owners(void *ctx, uint8_t *buf, size_t cap) {
+    struct board *b = ctx;
+    size_t n = b->owners_len < cap ? b->owners_len : cap;
+    memcpy(buf, b->owners, n);
+    return n;
+}
+
+static bool board_save_owners(void *ctx, const uint8_t *buf, size_t len) {
+    struct board *b = ctx;
+    if (b->save_fails) {
+        return false;
+    }
+    memcpy(b->owners, buf, len);
+    b->owners_len = len;
+    return true;
+}
+
 static struct board board;
 static struct link companion;
 
@@ -496,6 +543,9 @@ static void start(void) {
         .off = board_off,
         .bootloader = board_bootloader,
         .wipe = board_wipe,
+        .restart = board_restart,
+        .load_owners = board_load_owners,
+        .save_owners = board_save_owners,
         /* The specification's test key, as the vectors' node holds it. */
         .release_keys = release_key,
         .n_release_keys = 1,
@@ -649,6 +699,14 @@ static void follow(const char *name, const struct step *steps, size_t n, size_t 
                 link_state(&companion, m.id, m.state, m.reason, (uint16_t)m.wait);
             } else if (m.type == TERN_C_ASKED) {
                 link_asked(&companion, TERN_S(100), m.address, m.why);
+            } else if (m.type == TERN_C_OWNER_CHANGED) {
+                /* The managed node's notice comes over the mesh. */
+                uint8_t notice[TERN_MANAGE_NOTICE_LEN];
+                tern_manage_notice_write(m.digest, m.owner, m.why, notice);
+                link_owners_notice(&companion, m.address, notice, sizeof notice);
+            } else if (m.type == TERN_C_MANAGED) {
+                /* The managed node's answer comes back over the mesh. */
+                link_managed(&companion, m.address, m.data, m.data_len);
             } else if (m.type == TERN_C_GROUP_MESSAGE && m.state == TERN_C_RECEIVED) {
                 bob_writes_and_invites();
             } else if (m.type == TERN_C_POSITION && m.precision != 0) {
@@ -2924,6 +2982,297 @@ static void a_forgotten_conversation_is_gone_from_the_node(void) {
     follow("forget 1", forget_1, COUNT(forget_1), COUNT(forget_1), NULL);
 }
 
+/* --- Managing (draft/managing.md) ---------------------------------------------------------- */
+
+/* The specification's managing, from the manager's side: the client makes Bob an owner after two
+ * refusals, and each MANAGE goes as a message for Bob's node, whose answers come back as MANAGED.
+ * Each request is kept as a message of its own kind, which no sync and no MESSAGE tells of. */
+static void a_node_manages_another_over_the_mesh(void) {
+    holding_what_forget_shows();
+    for (size_t i = 0; i < LINK_MESSAGES; i++) {
+        companion.messages[i].used = false;
+    }
+    follow("manage", manage, COUNT(manage), COUNT(manage), NULL);
+    CHECK(link_owner(&companion, bob));
+    CHECK_EQ_U64(board.owners_len, TERN_ADDRESS_LEN);
+    CHECK_EQ_U64(board.restarts, 1);
+    unsigned kept = 0;
+    for (size_t i = 0; i < LINK_MESSAGES; i++) {
+        const struct link_message *x = &companion.messages[i];
+        if (x->used) {
+            /* The notice to Bob that he is an owner, and the six requests. */
+            CHECK(x->kind == (x->id == 22 ? LINK_KIND_NOTICE : LINK_KIND_MANAGE));
+            CHECK(!x->saved);
+            CHECK_EQ_U64(board.message_len[i], 0);
+            kept++;
+        }
+    }
+    CHECK_EQ_U64(kept, 7);
+}
+
+/* Bob's node, which Alice owns: Alice is a contact and its owner, and Bob's node is a relay. */
+static void owned_by_alice(void) {
+    start();
+    memcpy(board.view.address, bob, TERN_ADDRESS_LEN);
+    companion.contacts[0] = (struct link_contact){.used = true, .name_len = 5, .name = "Alice"};
+    memcpy(companion.contacts[0].address, alice, TERN_ADDRESS_LEN);
+    memcpy(board.saved, &companion.contacts[0], sizeof companion.contacts[0]);
+    board.saved_len = sizeof companion.contacts[0];
+    memcpy(board.owners, alice, TERN_ADDRESS_LEN);
+    board.owners_len = TERN_ADDRESS_LEN;
+    restart(); /* the owners are loaded with the contacts */
+    CHECK(link_owner(&companion, alice));
+}
+
+/* What Bob's node sends Alice over the mesh in answer to `q`: its answers, kept as messages to
+ * Alice, each `frames` after its kind; returns how many frames in all, into `out`. */
+static size_t answered(const struct tern_companion_msg *q, const uint8_t *from,
+                       struct tern_companion_msg *out, size_t cap, bool *owner) {
+    uint8_t frame[TERN_COMPANION_MAX_FRAME];
+    size_t len = tern_companion_write(q, frame);
+    for (size_t i = 0; i < LINK_MESSAGES; i++) {
+        companion.messages[i].used = false;
+    }
+    board.n_out = 0;
+    *owner = link_manage(&companion, TERN_S(100), from, frame, len);
+    CHECK_EQ_U64(board.n_out, 0); /* nothing to any client */
+    size_t n = 0;
+    for (uint32_t id = 1; id < companion.next_id; id++) {
+        for (size_t i = 0; i < LINK_MESSAGES; i++) {
+            const struct link_message *x = &companion.messages[i];
+            if (!x->used || x->id != id) {
+                continue;
+            }
+            CHECK_EQ_I64(x->kind, LINK_KIND_ANSWER);
+            CHECK(memcmp(x->address, from, TERN_ADDRESS_LEN) == 0);
+            CHECK(tern_manage_answer_ok(x->text, x->text_len));
+            for (size_t at = 0; at < x->text_len; at += 1 + x->text[at]) {
+                CHECK(n < cap);
+                CHECK_EQ_I64(tern_companion_read(&out[n], x->text + at + 1, x->text[at]), 0);
+                n++;
+            }
+        }
+    }
+    return n;
+}
+
+/* An owner's requests are answered over the mesh: HELLO first, a SYNC of the node's own state and
+ * none of its user's, ERROR 13 for what may not be asked; and anyone else's is let go. */
+static void an_owner_is_answered_over_the_mesh_and_no_one_else(void) {
+    owned_by_alice();
+    CHECK_EQ_U64(
+        link_add(&companion, alice, 1790000000, TERN_C_RECEIVED, 0, (const uint8_t *)"secret", 6),
+        1);
+    struct tern_companion_msg got[48];
+    bool owner;
+    /* Carol is no owner: nothing kept, nothing said. */
+    CHECK_EQ_U64(answered(&(struct tern_companion_msg){.type = TERN_C_PING, .seq = 1}, carol, got,
+                          COUNT(got), &owner),
+                 0);
+    CHECK(!owner);
+    /* Alice says HELLO first. */
+    CHECK_EQ_U64(answered(&(struct tern_companion_msg){.type = TERN_C_PING, .seq = 1}, alice, got,
+                          COUNT(got), &owner),
+                 1);
+    CHECK(owner);
+    CHECK_EQ_I64(got[0].type, TERN_C_ERROR);
+    CHECK_EQ_I64(got[0].code, TERN_C_ERR_HELLO_FIRST);
+    CHECK_EQ_U64(answered(&(struct tern_companion_msg){.type = TERN_C_HELLO,
+                                                       .seq = 2,
+                                                       .version = TERN_COMPANION_VERSION},
+                          alice, got, COUNT(got), &owner),
+                 1);
+    CHECK_EQ_I64(got[0].type, TERN_C_INFO);
+    /* A sync: the node's own state, in order, and no message. */
+    size_t n = answered(&(struct tern_companion_msg){.type = TERN_C_SYNC, .seq = 3}, alice, got,
+                        COUNT(got), &owner);
+    static const uint8_t want[] = {TERN_C_SELF,  TERN_C_CONTACT, TERN_C_NEIGHBOUR, TERN_C_AIRTIME,
+                                   TERN_C_POWER, TERN_C_FIX,     TERN_C_SLEEP,     TERN_C_SYNCED};
+    CHECK_EQ_U64(n, COUNT(want));
+    for (size_t i = 0; i < n && i < COUNT(want); i++) {
+        CHECK_EQ_I64(got[i].type, want[i]);
+        if (got[i].type >= TERN_C_SELF) {
+            CHECK_EQ_I64(got[i].seq, i); /* the owner's own news count */
+        }
+    }
+    CHECK_EQ_I64(got[1].owner, 1);
+    CHECK_EQ_I64(got[n - 1].news, n - 1);
+    /* What may not be asked over the mesh. */
+    CHECK_EQ_U64(answered(&(struct tern_companion_msg){.type = TERN_C_SEND,
+                                                       .seq = 4,
+                                                       .ref = 1,
+                                                       .address = {1},
+                                                       .text_len = 1,
+                                                       .text = "x"},
+                          alice, got, COUNT(got), &owner),
+                 1);
+    CHECK_EQ_I64(got[0].code, TERN_C_ERR_NOT_OVER_MESH);
+    CHECK_EQ_U64(answered(&(struct tern_companion_msg){.type = TERN_C_SET,
+                                                       .seq = 5,
+                                                       .setting = TERN_C_SET_REGION,
+                                                       .text_len = 5,
+                                                       .text = "US915"},
+                          alice, got, COUNT(got), &owner),
+                 1);
+    CHECK_EQ_I64(got[0].code, TERN_C_ERR_NOT_OVER_MESH);
+    /* A SET of power is the board's, and RESTART too. */
+    CHECK_EQ_U64(answered(
+                     &(struct tern_companion_msg){
+                         .type = TERN_C_SET, .seq = 6, .setting = TERN_C_SET_POWER, .power = 10},
+                     alice, got, COUNT(got), &owner),
+                 1);
+    CHECK_EQ_I64(got[0].type, TERN_C_OK);
+    CHECK_EQ_U64(answered(&(struct tern_companion_msg){.type = TERN_C_RESTART, .seq = 7}, alice,
+                          got, COUNT(got), &owner),
+                 1);
+    CHECK_EQ_I64(got[0].type, TERN_C_OK);
+    CHECK_EQ_U64(board.restarts, 1);
+}
+
+/* A request that is not one, and an answer that is not one, are let go. */
+static void what_managing_ignores(void) {
+    owned_by_alice();
+    bool owner = link_manage(&companion, TERN_S(100), alice, (const uint8_t *)"", 0);
+    CHECK(owner);
+    CHECK_EQ_U64(link_outgoing(&companion) == NULL, 1);
+    for (size_t i = 0; i < COUNT(rejected_answers); i++) {
+        board.n_out = 0;
+        link_open(&companion, LINK_SERIAL, 0, 0);
+        hello();
+        board.n_out = 0;
+        if (rejected_answers[i].content[0] == TERN_MANAGE_ANSWER) {
+            link_managed(&companion, alice, rejected_answers[i].content + 1,
+                         rejected_answers[i].len - 1);
+        }
+        CHECK_EQ_U64(board.n_out, 0);
+    }
+}
+
+/* The notices kept for owners, to `to`: how many, and the last one's text. */
+static unsigned notices_to(const uint8_t to[TERN_ADDRESS_LEN], uint8_t *owner, uint8_t *by) {
+    unsigned n = 0;
+    for (size_t i = 0; i < LINK_MESSAGES; i++) {
+        const struct link_message *x = &companion.messages[i];
+        if (x->used && x->kind == LINK_KIND_NOTICE &&
+            memcmp(x->address, to, TERN_ADDRESS_LEN) == 0) {
+            CHECK_EQ_U64(x->text_len, TERN_MANAGE_NOTICE_LEN - 1);
+            *owner = x->text[TERN_ADDRESS_LEN];
+            *by = x->text[TERN_ADDRESS_LEN + 1];
+            n++;
+        }
+    }
+    return n;
+}
+
+/* When the owners change, each owner before and after is told, but the one whose request over the
+ * mesh made the change. */
+static void owners_are_told_when_the_owners_change(void) {
+    owned_by_alice();
+    companion.contacts[1] = (struct link_contact){.used = true};
+    memcpy(companion.contacts[1].address, carol, TERN_ADDRESS_LEN);
+    hello();
+    /* Over a link: Alice is told Carol became an owner, and Carol too. */
+    struct tern_companion_msg q = {.type = TERN_C_OWNER, .seq = 2, .owner = 1};
+    memcpy(q.address, carol, TERN_ADDRESS_LEN);
+    request(&q);
+    uint8_t owner = 9, by = 9;
+    CHECK_EQ_U64(notices_to(alice, &owner, &by), 1);
+    CHECK_EQ_I64(owner, 1);
+    CHECK_EQ_I64(by, TERN_MANAGE_BY_LINK);
+    CHECK_EQ_U64(notices_to(carol, &owner, &by), 1);
+    for (size_t i = 0; i < LINK_MESSAGES; i++) {
+        companion.messages[i].used = false;
+    }
+    /* Over the mesh, by Alice: Carol is told she is no longer one, and Alice is not told. */
+    struct tern_companion_msg r = {
+        .type = TERN_C_HELLO, .seq = 1, .version = TERN_COMPANION_VERSION};
+    uint8_t frame[TERN_COMPANION_MAX_FRAME];
+    size_t len = tern_companion_write(&r, frame);
+    CHECK(link_manage(&companion, TERN_S(100), alice, frame, len));
+    for (size_t i = 0; i < LINK_MESSAGES; i++) {
+        companion.messages[i].used = false;
+    }
+    r = (struct tern_companion_msg){.type = TERN_C_OWNER, .seq = 2, .owner = 0};
+    memcpy(r.address, carol, TERN_ADDRESS_LEN);
+    len = tern_companion_write(&r, frame);
+    CHECK(link_manage(&companion, TERN_S(100), alice, frame, len));
+    CHECK_EQ_U64(notices_to(alice, &owner, &by), 0);
+    CHECK_EQ_U64(notices_to(carol, &owner, &by), 1);
+    CHECK_EQ_I64(owner, 0);
+    CHECK_EQ_I64(by, TERN_MANAGE_BY_MESH);
+}
+
+/* A locked node's Bluetooth says HELLO and PING and nothing else; its serial port is as before. */
+static void a_locked_nodes_bluetooth_changes_nothing(void) {
+    start();
+    board.view.locked = 1;
+    link_open(&companion, LINK_BLE, 0, TERN_COMPANION_MAX_FRAME + 3);
+    struct tern_companion_msg q = {
+        .type = TERN_C_HELLO, .seq = 1, .version = TERN_COMPANION_VERSION};
+    uint8_t frame[TERN_COMPANION_MAX_FRAME];
+    size_t len = tern_companion_write(&q, frame);
+    board.n_out = 0;
+    link_receive(&companion, LINK_BLE, TERN_S(100), frame, len);
+    CHECK_EQ_I64(sent(0).type, TERN_C_INFO);
+    static const struct tern_companion_msg refused[] = {
+        {.type = TERN_C_SYNC, .seq = 2},
+        {.type = TERN_C_SET, .seq = 3, .setting = TERN_C_SET_LOCK, .locked = 0},
+        {.type = TERN_C_WIPE, .seq = 4},
+    };
+    for (size_t i = 0; i < COUNT(refused); i++) {
+        len = tern_companion_write(&refused[i], frame);
+        board.n_out = 0;
+        link_receive(&companion, LINK_BLE, TERN_S(100), frame, len);
+        CHECK_EQ_I64(sent(0).type, TERN_C_ERROR);
+        CHECK_EQ_I64(sent(0).code, TERN_C_ERR_LOCKED);
+    }
+    CHECK_EQ_U64(board.wipes, 0);
+    q = (struct tern_companion_msg){.type = TERN_C_PING, .seq = 5};
+    len = tern_companion_write(&q, frame);
+    board.n_out = 0;
+    link_receive(&companion, LINK_BLE, TERN_S(100), frame, len);
+    CHECK_EQ_I64(sent(0).type, TERN_C_OK);
+    /* Over the serial port the board is as before. */
+    hello();
+    request(&(struct tern_companion_msg){.type = TERN_C_SYNC, .seq = 2});
+    CHECK_EQ_I64(sent(0).type, TERN_C_SELF);
+    CHECK_EQ_I64(sent(0).locked, 1);
+}
+
+/* Removing a contact removes the owner; an owner is a contact; and there are only so many. */
+static void owners_are_contacts(void) {
+    owned_by_alice();
+    hello();
+    request(&(struct tern_companion_msg){.type = TERN_C_REMOVE_CONTACT, .seq = 2, .address = {0}});
+    memcpy(companion.contacts[1].address, carol, TERN_ADDRESS_LEN);
+    struct tern_companion_msg q = {.type = TERN_C_REMOVE_CONTACT, .seq = 3};
+    memcpy(q.address, alice, TERN_ADDRESS_LEN);
+    request(&q);
+    CHECK_EQ_I64(sent(0).type, TERN_C_OK);
+    CHECK(!link_owner(&companion, alice));
+    CHECK_EQ_U64(board.owners_len, 0);
+    q = (struct tern_companion_msg){.type = TERN_C_OWNER, .seq = 4, .owner = 1};
+    memcpy(q.address, alice, TERN_ADDRESS_LEN);
+    request(&q);
+    CHECK_EQ_I64(sent(0).code, TERN_C_ERR_NOT_CONTACT);
+    for (size_t i = 0; i < LINK_OWNERS + 1; i++) {
+        struct link_contact *c = &companion.contacts[i];
+        *c = (struct link_contact){.used = true};
+        memset(c->address, (int)(0x40 + i), TERN_ADDRESS_LEN);
+        q = (struct tern_companion_msg){.type = TERN_C_OWNER, .seq = (uint8_t)(5 + i), .owner = 1};
+        memcpy(q.address, c->address, TERN_ADDRESS_LEN);
+        request(&q);
+        CHECK_EQ_I64(sent(0).type, i < LINK_OWNERS ? TERN_C_OK : TERN_C_ERROR);
+        if (i < LINK_OWNERS) {
+            CHECK_EQ_I64(sent(1).type, TERN_C_CONTACT);
+            CHECK_EQ_I64(sent(1).owner, 1);
+        } else {
+            CHECK_EQ_I64(sent(0).code, TERN_C_ERR_FULL);
+        }
+    }
+    CHECK_EQ_U64(board.owners_len, LINK_OWNERS * TERN_ADDRESS_LEN);
+}
+
 /* A client of version 15 may not forget: the node answers FORGET as a request it does not know
  * from that client. */
 static void an_older_client_cannot_forget(void) {
@@ -3278,5 +3627,11 @@ int main(void) {
     RUN(a_message_flash_has_no_room_for_is_held_until_a_restart);
     RUN(the_newest_messages_are_the_ones_in_flash);
     RUN(what_flash_holds_that_is_no_message_is_not_loaded);
+    RUN(a_node_manages_another_over_the_mesh);
+    RUN(an_owner_is_answered_over_the_mesh_and_no_one_else);
+    RUN(what_managing_ignores);
+    RUN(owners_are_contacts);
+    RUN(owners_are_told_when_the_owners_change);
+    RUN(a_locked_nodes_bluetooth_changes_nothing);
     return CHECK_DONE();
 }

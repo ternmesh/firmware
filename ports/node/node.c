@@ -76,6 +76,7 @@
 #include "tern/forward.h"
 #include "tern/group.h"
 #include "tern/lora.h"
+#include "tern/manage.h"
 #include "tern/nmea.h"
 #include "tern/position.h"
 #include "tern/radio.h"
@@ -344,6 +345,11 @@ static tern_time clock_at;
 #define RESTART_QUIET 1
 #define RESTART_NOW 2
 static uint8_t restart_due;
+/* A restart an owner asked for over the mesh, or a setting it changed needs: once the answer has
+ * been delivered, or given up, or MANAGE_RESTART_WAIT has passed (answers_out()). */
+#define MANAGE_RESTART_WAIT TERN_S(120)
+static tern_time restart_asked_at;
+
 static bool off_due; /* a client sent OFF: the board turns off once its answer has gone */
 /* A client sent UPDATE_BOOTLOADER: the board restarts into its bootloader once its answer has
  * gone. */
@@ -407,6 +413,9 @@ struct settings {
     uint32_t receiver_off; /* 1 if a client turned it off */
     /* And sleeping, as a leaf (doze.h's doze_setting()): off on a board that saved none. */
     uint32_t sleep;
+    /* And the lock on Bluetooth (draft/managing.md, SET 10): unlocked on a board that saved none.
+     */
+    uint32_t locked;
 };
 #define SCREEN_BENCH 0x01u /* screen_flags: the bench screen's pages follow the user's */
 #if CONFIG_TERN_SCREEN_BENCH
@@ -425,7 +434,19 @@ static struct settings settings = {SETTINGS_MAGIC,
                                    0,
                                    {0},
                                    0,
+                                   0,
                                    0};
+
+/* Managing over the mesh (draft/managing.md): whether an owner's request is being answered, and a
+ * SET of one on trial, with the settings it replaced. A trial is kept in flash, so that it goes on
+ * across the restart that applies its setting, for a whole TERN_MANAGE_TRIAL from the start. */
+static bool managing;
+struct trial_saved {
+    uint32_t on;
+    struct settings old;
+};
+static struct trial_saved trial;
+static tern_time trial_end;
 
 /* The bench: test frames sent on a timer, and counts of what was received. */
 #define BEACON_LEN 24
@@ -540,6 +561,36 @@ static uint8_t link_bootloader(void *ctx) {
     (void)ctx;
     bootloader_due = true;
     return 0;
+}
+
+/* RESTART: once the answer is out, and over the mesh once it has been delivered (answers_out()). */
+static uint8_t link_restart(void *ctx) {
+    (void)ctx;
+    restart_due = RESTART_NOW;
+    restart_asked_at = board_now();
+    return 0;
+}
+
+/* The owners, after a count of them: a record is never empty. */
+static size_t link_load_owners(void *ctx, uint8_t *buf, size_t cap) {
+    uint8_t b[1 + LINK_OWNERS * TERN_ADDRESS_LEN];
+    (void)ctx;
+    size_t n = plat_store_read("owners", b, sizeof b);
+    if (n < 1 || n != 1 + (size_t)b[0] * TERN_ADDRESS_LEN || n - 1 > cap) {
+        return 0;
+    }
+    memcpy(buf, b + 1, n - 1);
+    return n - 1;
+}
+
+static bool link_save_owners(void *ctx, const uint8_t *buf, size_t len) {
+    uint8_t b[1 + LINK_OWNERS * TERN_ADDRESS_LEN];
+    if (len > LINK_OWNERS * TERN_ADDRESS_LEN) {
+        return false;
+    }
+    b[0] = (uint8_t)(len / TERN_ADDRESS_LEN);
+    memcpy(b + 1, buf, len);
+    return store_save(ctx, "owners", b, 1 + len);
 }
 
 /* OFF: every board can be turned on again, by PRG or by RESET, so none refuses it. */
@@ -699,7 +750,8 @@ static bool hand_over(const struct link_message *x, struct pending *p, bool *gon
     if (sealed_id != x->id) {
         /* An invite is a message for the peer's node: its group's secret and name, sealed as a
          * message is, with the header that says whom it is for. */
-        uint8_t invite[TERN_GROUP_INVITE_MAX];
+        uint8_t invite[TERN_GROUP_INVITE_MAX > 1 + LINK_TEXT_ROOM ? TERN_GROUP_INVITE_MAX
+                                                                  : 1 + LINK_TEXT_ROOM];
         const uint8_t *plain = x->text;
         size_t len = x->text_len;
         if (x->kind == LINK_KIND_INVITE) {
@@ -709,9 +761,18 @@ static bool hand_over(const struct link_message *x, struct pending *p, bool *gon
                 *gone = true; /* its group was left since */
                 return false;
             }
+        } else if (x->kind == LINK_KIND_MANAGE || x->kind == LINK_KIND_ANSWER ||
+                   x->kind == LINK_KIND_NOTICE) {
+            /* A request to manage, an answer or a notice, after its kind (draft/managing.md). */
+            invite[0] = x->kind == LINK_KIND_MANAGE   ? TERN_MANAGE_REQUEST
+                        : x->kind == LINK_KIND_ANSWER ? TERN_MANAGE_ANSWER
+                                                      : TERN_MANAGE_OWNERS;
+            memcpy(invite + 1, x->text, x->text_len);
+            len = 1 + (size_t)x->text_len;
+            plain = invite;
         }
         sealed_counter = demo.s[slot].session.tx.next;
-        enum demo_result r = x->kind == LINK_KIND_INVITE
+        enum demo_result r = x->kind != LINK_KIND_MESSAGE && x->kind != LINK_KIND_GROUP
                                  ? demo_seal_node(&demo, slot, plain, len, sealed)
                                  : demo_seal(&demo, slot, plain, len, sealed);
         tern_wipe(invite, sizeof invite);
@@ -949,6 +1010,34 @@ static void heard_flood(const struct tern_radio_event *ev) {
     }
 }
 
+/* Ends a setting's trial: an owner has reached the board since (draft/managing.md, "Trial"). */
+static void trial_end_confirmed(void) {
+    if (trial.on) {
+        trial.on = 0;
+        (void)store_save(NULL, "trial", &trial, sizeof trial);
+        printf("an owner was heard from again: the setting on trial stays\n");
+    }
+}
+
+/* A request to manage this board, from a peer. An owner's ends any trial, and is answered over the
+ * mesh; anyone else's is let go, unanswered. */
+static void manage_heard(const uint8_t *request, size_t len, const uint8_t peer[TERN_ADDRESS_LEN]) {
+    if (!link_owner(&companion, peer)) {
+        printf("a request to manage this board from ");
+        print_address(peer);
+        printf(", which is not an owner: let go\n");
+        return;
+    }
+    trial_end_confirmed();
+    trial.old = settings; /* what a SET in this request replaces */
+    managing = true;
+    (void)link_manage(&companion, board_now(), peer, request, len);
+    managing = false;
+    printf("managed by ");
+    print_address(peer);
+    printf(": request 0x%02x answered\n", len > 0 ? request[0] : 0);
+}
+
 /* A message for this board itself, from a peer it shares a session with. Its first byte says
  * what it is: a position, which the link keeps if the peer is a contact, or an invite to a group,
  * which is kept for the user to take or leave: the board holds no group it was not told to.
@@ -959,6 +1048,27 @@ static void heard_for_node(const uint8_t *plain, size_t len, const uint8_t peer[
     size_t name_len;
     if (len > 0 && plain[0] == TERN_POSITION_KIND) {
         link_position_received(&companion, board_now(), peer, counter, plain, len);
+        return;
+    }
+    if (len > 0 && plain[0] == TERN_MANAGE_REQUEST) {
+        manage_heard(plain + 1, len - 1, peer);
+        return;
+    }
+    if (len > 0 && plain[0] == TERN_MANAGE_ANSWER) {
+        link_managed(&companion, peer, plain + 1, len - 1);
+        return;
+    }
+    if (len > 0 && plain[0] == TERN_MANAGE_OWNERS) {
+        uint8_t contact[TERN_ADDRESS_LEN], owner, by;
+        if (tern_manage_notice_read(plain, len, contact, &owner, &by)) {
+            print_address(peer);
+            printf(" says ");
+            print_address(contact);
+            printf(" %s one of its owners, %s\n", owner ? "is now" : "is no longer",
+                   by == TERN_MANAGE_BY_MESH ? "by an owner over the mesh"
+                                             : "over USB or Bluetooth");
+            link_owners_notice(&companion, peer, plain, len);
+        }
         return;
     }
     if (len > 0 && plain[0] == TERN_SLEEP_KIND) {
@@ -1583,11 +1693,20 @@ static void poll_forward(void) {
                     : x;
         }
         p->goes += p->goes < UINT8_MAX;
-        printf("sent #%lu%s \"%.*s\": %u bytes at %d dBm by %02x%02x%02x%02x, %lld.%03lld ms on "
+        /* Words are shown; what managing sends is bytes, and named instead. */
+        bool words = x != NULL && link_for_user(x->kind);
+        const char *what = x == NULL                     ? ""
+                           : x->kind == LINK_KIND_MANAGE ? "a request to manage a node"
+                           : x->kind == LINK_KIND_ANSWER ? "an answer to an owner"
+                           : x->kind == LINK_KIND_NOTICE ? "a notice that the owners changed"
+                                                         : "";
+        const char *quote = words || x == NULL ? "\"" : "";
+        printf("sent #%lu%s %s%.*s%s%s: %u bytes at %d dBm by %02x%02x%02x%02x, %lld.%03lld ms on "
                "the air\n",
-               (unsigned long)p->counter, p->goes > 1 ? " again" : "", x ? (int)x->text_len : 0,
-               x ? (const char *)x->text : "", (unsigned)len, dbm, frame[3], frame[4], frame[5],
-               frame[6], (long long)(air / 1000000), (long long)(air / 1000 % 1000));
+               (unsigned long)p->counter, p->goes > 1 ? " again" : "", quote,
+               words ? (int)x->text_len : 0, words ? (const char *)x->text : "", quote, what,
+               (unsigned)len, dbm, frame[3], frame[4], frame[5], frame[6],
+               (long long)(air / 1000000), (long long)(air / 1000 % 1000));
     } else if (kind == TERN_FORWARD_OWN && tern_forward_contact(frame[0])) {
         printf("first contact: sent message_%d, %u bytes at %d dBm by %02x%02x%02x%02x\n",
                frame[0] - 0x50, (unsigned)len, dbm, frame[3], frame[4], frame[5], frame[6]);
@@ -2428,6 +2547,7 @@ static void link_view(void *ctx, struct link_view *v) {
     v->region = region->name;
     v->power = cfg.tx_power_dbm;
     v->most = power_follows_region() ? 1 : 0;
+    v->locked = settings.locked ? 1 : 0;
     v->pairing = settings.passkey != PASSKEY_RANDOM ? TERN_C_PAIRING_SET
                  : have_screen                      ? TERN_C_PAIRING_SHOWN
                                                     : TERN_C_PAIRING_DEFAULT;
@@ -2528,11 +2648,27 @@ static int8_t settings_power(const struct tern_region *r) {
     return settings.power != POWER_UNSET ? settings.power : build_power(r);
 }
 
+static uint8_t set_setting(const struct tern_companion_msg *m);
 static uint8_t link_set(void *ctx, const struct tern_companion_msg *m) {
+    uint8_t code = set_setting(m);
+    /* Over the mesh, on trial: the settings it replaced come back unless an owner is heard from
+     * again (draft/managing.md, "Trial"). A setting that changed nothing is on trial too. */
+    if (code == 0 && managing) {
+        trial.on = 1;
+        if (!store_save(ctx, "trial", &trial, sizeof trial)) {
+            printf("the setting is on trial, but a restart would keep it: flash took no record\n");
+        }
+        trial_end = board_now() + TERN_MANAGE_TRIAL;
+        printf("set by an owner over the mesh: on trial for %u s\n",
+               (unsigned)(TERN_MANAGE_TRIAL / TERN_S(1)));
+    }
+    return code;
+}
+
+static uint8_t set_setting(const struct tern_companion_msg *m) {
     struct settings next = settings;
     struct tern_radio_config check;
     bool restart = true;
-    (void)ctx;
     switch (m->setting) {
     case TERN_C_SET_REGION: {
         const struct tern_region *r = region_named(m->text, m->text_len);
@@ -2648,6 +2784,13 @@ static uint8_t link_set(void *ctx, const struct tern_companion_msg *m) {
         restart = false;
         break;
     }
+    case TERN_C_SET_LOCK:
+        if (m->locked > 1) {
+            return TERN_C_ERR_REFUSED;
+        }
+        next.locked = m->locked;
+        restart = false;
+        break;
     case TERN_C_SET_RECEIVER:
         /* A board without one may turn it off, and has nothing to turn on. */
         if (m->receiver > 1 || (m->receiver == 1 && !board_gnss())) {
@@ -3405,6 +3548,44 @@ static void screen_flush(void);
 
 /* A setting that takes a restart is applied once its answer has gone: out of the console, and given
  * a moment to leave as a notification. OFF is the same, but for what the board does after. */
+/* Whether every answer to an owner has been delivered or given up, or long enough has passed since
+ * the restart was asked for: a restart before the answer is out would leave the owner asking. */
+static bool answers_out(void) {
+    if (restart_asked_at != 0 && board_now() - restart_asked_at >= MANAGE_RESTART_WAIT) {
+        return true;
+    }
+    for (size_t i = 0; i < LINK_MESSAGES; i++) {
+        const struct link_message *x = &companion.messages[i];
+        if (x->used && (x->kind == LINK_KIND_ANSWER || x->kind == LINK_KIND_NOTICE) &&
+            (x->state == TERN_C_WAITING || x->state == TERN_C_SENT)) {
+            if (restart_asked_at == 0) {
+                restart_asked_at = board_now();
+            }
+            return false;
+        }
+    }
+    return true;
+}
+
+/* A setting on trial that no owner confirmed in time: the settings it replaced come back, by a
+ * restart, which applies any of them. */
+static void poll_trial(void) {
+    if (!trial.on || board_now() < trial_end) {
+        return;
+    }
+    printf("no owner was heard from in %u s: the setting on trial goes back\n",
+           (unsigned)(TERN_MANAGE_TRIAL / TERN_S(1)));
+    trial.on = 0;
+    if (!store_save(NULL, "settings", &trial.old, sizeof trial.old) ||
+        !store_save(NULL, "trial", &trial, sizeof trial)) {
+        printf("flash took no record: trying again\n");
+        trial.on = 1;
+        trial_end = board_now() + TERN_S(10);
+        return;
+    }
+    restart_due = RESTART_NOW;
+}
+
 static void restart_if_due(void) {
     if (wipe_due) {
         /* Nothing is saved first: all of it goes. The answer is the one frame the client must
@@ -3463,9 +3644,10 @@ static void restart_if_due(void) {
         plat_sleep_ms(200);
         turn_off(UI_OFF_ASKED);
     }
-    if (restart_due == RESTART_NOW ||
-        (restart_due == RESTART_QUIET &&
-         board_now() - link_answered_at(&companion) >= (tern_time)RESTART_QUIET_MS * 1000000)) {
+    if ((restart_due == RESTART_NOW ||
+         (restart_due == RESTART_QUIET &&
+          board_now() - link_answered_at(&companion) >= (tern_time)RESTART_QUIET_MS * 1000000)) &&
+        answers_out()) {
         (void)link_keep_writers(&companion); /* whatever flash did not take */
         printf("restarting to apply a setting\n");
         fflush(stdout);
@@ -3725,7 +3907,7 @@ static int nearby_rows(void) { return colour ? UI_NEARBY_ROWS_COLOUR : UI_NEARBY
 static size_t newest_first(uint8_t order[LINK_MESSAGES]) {
     size_t n = 0;
     for (size_t i = 0; i < LINK_MESSAGES; i++) {
-        if (!companion.messages[i].used) {
+        if (!companion.messages[i].used || !link_for_user(companion.messages[i].kind)) {
             continue;
         }
         size_t at = n++;
@@ -4573,7 +4755,9 @@ void node_main(void) {
     saved.card_name_len = 0;
     saved.receiver_off = 0;
     saved.sleep = 0;
+    saved.locked = 0;
     if ((store_load(NULL, "settings", &saved, sizeof saved) ||
+         store_load(NULL, "settings", &saved, offsetof(struct settings, locked)) ||
          store_load(NULL, "settings", &saved, offsetof(struct settings, sleep)) ||
          store_load(NULL, "settings", &saved, offsetof(struct settings, receiver_off)) ||
          store_load(NULL, "settings", &saved, offsetof(struct settings, cards)) ||
@@ -4794,6 +4978,9 @@ void node_main(void) {
         .off = link_off,
         .bootloader = link_bootloader,
         .wipe = link_wipe,
+        .restart = link_restart,
+        .load_owners = link_load_owners,
+        .save_owners = link_save_owners,
         /* Signed by the publisher's release keys (release_keys.h), unless built for a bench. */
         .release_keys = node_release_keys,
         .n_release_keys = sizeof node_release_keys / sizeof node_release_keys[0] - 1,
@@ -4814,6 +5001,14 @@ void node_main(void) {
     }
     host.release = CONFIG_TERN_VERSION;
     link_init(&companion, &host);
+    if (store_load(NULL, "trial", &trial, sizeof trial) && trial.on) {
+        trial_end = board_now() + TERN_MANAGE_TRIAL;
+        printf("a setting an owner changed over the mesh is on trial: it goes back in %u s unless "
+               "an owner is heard from\n",
+               (unsigned)(TERN_MANAGE_TRIAL / TERN_S(1)));
+    } else {
+        trial.on = 0;
+    }
     if (plat_update_on_trial()) {
         /* On the air and listening: an image that gets this far is one to keep. */
         plat_update_confirm();
@@ -4860,6 +5055,7 @@ void node_main(void) {
             poll_radio();
         }
         poll_watch();
+        poll_trial();
         if (bench) {
             crumb_at(cr, CRUMB_BEACON);
             poll_beacon();

@@ -16,7 +16,7 @@
  * text console. What a node answers and when is the node's business, not the core's (in the node
  * every port shares, ports/node/link.c). */
 
-#define TERN_COMPANION_VERSION 16
+#define TERN_COMPANION_VERSION 17
 #define TERN_COMPANION_MAX_FRAME 180
 /* The fewest FORGOTTEN and GROUP_FORGOTTEN records a node keeps (version 16). */
 #define TERN_C_FORGOTTEN_KEPT 16
@@ -48,6 +48,9 @@
 #define TERN_COMPANION_DIGEST 32        /* a SHA-256 */
 #define TERN_COMPANION_SIGNATURE 64     /* UPDATE_BEGIN's: an Ed25519 signature (tern/release.h) */
 #define TERN_COMPANION_GROUP 8          /* a group's id */
+#define TERN_COMPANION_MANAGE_MAX 128   /* a MANAGE's request: as long as a message's text */
+#define TERN_COMPANION_MANAGED_MAX 128  /* a MANAGED's answer: the same */
+#define TERN_C_OWNERS 4                 /* owners a node holds, at most (draft/managing.md) */
 #define TERN_COMPANION_GAP TERN_MS(500) /* a partial frame idle this long is not a frame */
 
 enum tern_companion_type {
@@ -61,6 +64,8 @@ enum tern_companion_type {
     TERN_C_SEND = 0x10,
     TERN_C_READ = 0x11,
     TERN_C_FORGET = 0x12, /* version 16, as are FORGET_GROUP, FORGOTTEN and GROUP_FORGOTTEN */
+    TERN_C_MANAGE = 0x13, /* version 17, as are OWNER, RESTART and MANAGED */
+    TERN_C_OWNER = 0x14,
     TERN_C_SAVE_CONTACT = 0x18,
     TERN_C_REMOVE_CONTACT = 0x19,
     TERN_C_END_SESSION = 0x1A, /* version 1 */
@@ -81,6 +86,7 @@ enum tern_companion_type {
     TERN_C_SHARE_GROUP = 0x35,
     TERN_C_UPDATE_BOOTLOADER = 0x36, /* version 12 */
     TERN_C_WIPE = 0x37,              /* version 13 */
+    TERN_C_RESTART = 0x38,
     /* Answers, node to client. */
     TERN_C_OK = 0x40,
     TERN_C_ERROR = 0x41,
@@ -115,6 +121,8 @@ enum tern_companion_type {
     TERN_C_SLEEP = 0x95, /* version 15 */
     TERN_C_FORGOTTEN = 0x96,
     TERN_C_GROUP_FORGOTTEN = 0x97,
+    TERN_C_MANAGED = 0x98,
+    TERN_C_OWNER_CHANGED = 0x99, /* `contact` is in digest, and `by` in why */
 };
 
 /* The first version of the protocol that defines a type: a node sends a client no frame its
@@ -135,6 +143,7 @@ enum tern_companion_setting {
     TERN_C_SET_RECEIVER = 7,  /* receiver: version 8 */
     TERN_C_SET_WAKE = 8,      /* wake: version 15, as is the one after it */
     TERN_C_SET_LISTEN = 9,    /* listen */
+    TERN_C_SET_LOCK = 10,     /* locked: version 17 */
 };
 
 /* The first version of the protocol that defines a setting of SET's. */
@@ -149,10 +158,12 @@ enum tern_companion_error {
     TERN_C_ERR_HELLO_FIRST = 6,
     TERN_C_ERR_MTU = 7,
     TERN_C_ERR_NOT_NOW = 8,
-    TERN_C_ERR_NOT_HELD = 9,      /* version 2 */
-    TERN_C_ERR_NOT_THERE = 10,    /* version 4: no update under way, or not at that offset */
-    TERN_C_ERR_NOT_AN_IMAGE = 11, /* version 4: the update is discarded */
-    TERN_C_ERR_NOT_CONTACT = 12,  /* version 5: an address the node does not hold as a contact */
+    TERN_C_ERR_NOT_HELD = 9,       /* version 2 */
+    TERN_C_ERR_NOT_THERE = 10,     /* version 4: no update under way, or not at that offset */
+    TERN_C_ERR_NOT_AN_IMAGE = 11,  /* version 4: the update is discarded */
+    TERN_C_ERR_NOT_CONTACT = 12,   /* version 5: an address the node does not hold as a contact */
+    TERN_C_ERR_NOT_OVER_MESH = 13, /* version 17: a request a managed node does not act on */
+    TERN_C_ERR_LOCKED = 14,        /* version 17: the node's Bluetooth is locked */
 };
 
 enum tern_companion_state {
@@ -227,6 +238,8 @@ struct tern_companion_msg {
     uint8_t pairing; /* SELF's: a TERN_C_PAIRING_ */
     uint8_t update;  /* INFO's: a TERN_C_UPDATES_ */
     uint8_t listen;  /* SLEEP's, and SET 9's value: seconds */
+    uint8_t owner;   /* CONTACT's and OWNER's: 1 if the contact is one of the node's owners */
+    uint8_t locked;  /* SELF's, and SET 10's value: 1 if the node's Bluetooth is locked */
     uint16_t wake;   /* CONTACT's, SLEEP's, and SET 8's value: seconds, 0 for not sleeping */
     uint16_t retry;  /* SLEEP's: seconds */
     uint32_t keeper; /* SLEEP's: a routing id */
@@ -251,7 +264,7 @@ struct tern_companion_msg {
     uint8_t release[TERN_COMPANION_RELEASE_MAX];
     uint8_t card_name_len; /* SELF's */
     uint8_t card_name[TERN_COMPANION_NAME_MAX];
-    /* UPDATE_DATA's data, or UPDATE_BEGIN's signature: none, or TERN_COMPANION_SIGNATURE bytes */
+    /* UPDATE_DATA's data, UPDATE_BEGIN's signature, MANAGE's request or MANAGED's answer */
     uint8_t data_len;
     uint8_t data[TERN_COMPANION_UPDATE_CHUNK];
 };

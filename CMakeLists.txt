@@ -35,6 +35,7 @@ add_library(tern
     src/card.c
     src/ccm.c
     src/companion.c
+    src/manage.c
     src/contact.c
     src/duty.c
     src/fe25519.c
@@ -69,7 +70,7 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
-    foreach(t address airtime card companion contact crypto duty flood forward group listen lora mesh nmea position radio region route share sleep sx126x sx127x lr11xx unicast)
+    foreach(t address airtime card companion contact crypto duty flood forward group listen lora manage mesh nmea position radio region route share sleep sx126x sx127x lr11xx unicast)
         add_executable(test_${t} tests/${t}.c)
         target_link_libraries(test_${t} PRIVATE tern)
         # The test files define their cases as static functions, so the prototype warning is
@@ -145,6 +146,17 @@ if(BUILD_TESTING)
         VERBATIM)
     target_sources(test_sleep PRIVATE ${sleeping_h})
     target_include_directories(test_sleep PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/vectors)
+
+    set(managing_h ${CMAKE_CURRENT_BINARY_DIR}/vectors/managing.h)
+    add_custom_command(
+        OUTPUT ${managing_h}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/vectors
+        COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tests/vectors/managing_to_c.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/vectors/managing.json ${managing_h}
+        DEPENDS tests/vectors/managing_to_c.py tests/vectors/managing.json
+        VERBATIM)
+    target_sources(test_manage PRIVATE ${managing_h})
+    target_include_directories(test_manage PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/vectors)
 
     set(forwarding_h ${CMAKE_CURRENT_BINARY_DIR}/vectors/forwarding.h)
     add_custom_command(
@@ -256,7 +268,7 @@ if(BUILD_TESTING)
     target_link_libraries(test_relay PRIVATE tern)
     target_compile_options(test_relay PRIVATE ${TERN_WARNINGS} -Wno-missing-prototypes)
     add_test(NAME relay COMMAND test_relay)
-    add_executable(test_link tests/link.c ports/node/link.c ${exchange_h})
+    add_executable(test_link tests/link.c ports/node/link.c ${exchange_h} ${managing_h})
     target_include_directories(test_link PRIVATE ports/node
         ${CMAKE_CURRENT_BINARY_DIR}/vectors)
     target_link_libraries(test_link PRIVATE tern)
@@ -272,7 +284,7 @@ if(BUILD_TESTING)
     target_compile_options(test_demo_wide PRIVATE ${TERN_WARNINGS} -Wno-missing-prototypes)
     target_compile_definitions(test_demo_wide PRIVATE ${TERN_WIDE})
     add_test(NAME demo_wide COMMAND test_demo_wide)
-    add_executable(test_link_wide tests/link.c ports/node/link.c ${exchange_h})
+    add_executable(test_link_wide tests/link.c ports/node/link.c ${exchange_h} ${managing_h})
     target_include_directories(test_link_wide PRIVATE ports/node
         ${CMAKE_CURRENT_BINARY_DIR}/vectors)
     target_link_libraries(test_link_wide PRIVATE tern)
