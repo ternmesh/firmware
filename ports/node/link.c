@@ -184,6 +184,42 @@ static void news_message(struct link *l, struct link_conn *to, const struct link
     news(l, to, &m);
 }
 
+static struct link_route *find_route(struct link *l, uint32_t id) {
+    for (size_t i = 0; id != 0 && i < LINK_ROUTES; i++) {
+        if (l->routes[i].id == id) {
+            return &l->routes[i];
+        }
+    }
+    return NULL;
+}
+
+static struct link_message *find_message(struct link *l, uint32_t id);
+
+/* How a message went, as news: only of a message of the user's the node still holds, and only to
+ * a client told of messages of its kind. */
+static void news_route(struct link *l, struct link_conn *to, const struct link_route *r) {
+    const struct link_message *x = find_message(l, r->id);
+    if (x == NULL || !link_for_user(x->kind)) {
+        return;
+    }
+    struct tern_companion_msg m = {
+        .type = TERN_C_ROUTE,
+        .id = r->id,
+        .hops = r->hops,
+        .snr = r->snr,
+        .rssi = r->rssi,
+        .via = r->via,
+        .goes = r->goes,
+        .took = r->took,
+    };
+    uint8_t since = tern_companion_since(type_of(x));
+    for (size_t i = 0; i < LINK_CONNS; i++) {
+        if ((to == NULL || to == &l->conns[i]) && l->conns[i].version >= since) {
+            tell(l, &l->conns[i], &m);
+        }
+    }
+}
+
 static void news_group(struct link *l, struct link_conn *to, const struct link_group *g) {
     struct tern_companion_msg m = {.type = TERN_C_GROUP};
     memcpy(m.group, g->id, sizeof m.group);
@@ -853,6 +889,10 @@ static void erase_message(struct link *l, struct link_message *x) {
             tern_wipe(&l->refs[i], sizeof l->refs[i]);
         }
     }
+    struct link_route *r = find_route(l, x->id);
+    if (r != NULL) {
+        r->id = 0;
+    }
     tern_wipe(x, sizeof *x);
 }
 
@@ -1164,14 +1204,33 @@ struct link_message *link_outgoing(struct link *l) {
     return first;
 }
 
+static uint32_t *find_trace(struct link *l, uint32_t id) {
+    for (size_t i = 0; i < LINK_TRACES; i++) {
+        if (l->traces[i] == id) {
+            return &l->traces[i];
+        }
+    }
+    return NULL;
+}
+
 void link_state(struct link *l, uint32_t id, uint8_t state, uint8_t reason, uint16_t wait) {
     struct link_message *x = find_message(l, id);
-    if (x == NULL) {
-        return;
-    }
     if (state != TERN_C_WAITING) {
         reason = TERN_C_WAIT_UNNAMED;
         wait = 0;
+    }
+    if (x == NULL) {
+        /* A trace's: news of what became of it on the air, which nothing holds. */
+        if (id != 0 && find_trace(l, id) != NULL) {
+            struct tern_companion_msg m = {
+                .type = TERN_C_STATE, .id = id, .state = state, .reason = reason, .wait = wait};
+            for (size_t i = 0; i < LINK_CONNS; i++) {
+                if (l->conns[i].version >= tern_companion_since(TERN_C_TRACE)) {
+                    tell(l, &l->conns[i], &m);
+                }
+            }
+        }
+        return;
     }
     bool changed = x->state != state || x->reason != reason;
     bool moved = x->state != state;
@@ -1194,6 +1253,40 @@ void link_state(struct link *l, uint32_t id, uint8_t state, uint8_t reason, uint
             }
         }
     }
+}
+
+void link_route(struct link *l, const struct link_route *r) {
+    struct link_route *place = find_route(l, r->id);
+    if (r->id == 0) {
+        return;
+    }
+    if (place == NULL) {
+        /* The oldest given up for the newest. */
+        place = &l->routes[l->next_route];
+        l->next_route = (l->next_route + 1) % LINK_ROUTES;
+    }
+    *place = *r;
+    news_route(l, NULL, place);
+}
+
+void link_traced(struct link *l, uint32_t id, uint32_t to, uint8_t result, uint8_t out,
+                 uint32_t took, int8_t snr, const uint8_t *entries, size_t n) {
+    uint32_t *place = find_trace(l, id);
+    if (id == 0 || place == NULL) {
+        return;
+    }
+    *place = 0;
+    struct tern_companion_msg m = {.type = TERN_C_TRACED,
+                                   .id = id,
+                                   .routing_id = to,
+                                   .result = result,
+                                   .out = out,
+                                   .took = took,
+                                   .snr = snr};
+    n = n * 5 > TERN_COMPANION_ENTRIES_MAX ? TERN_COMPANION_ENTRIES_MAX / 5 : n;
+    memcpy(m.data, entries, n * 5);
+    m.data_len = (uint8_t)(n * 5);
+    news(l, NULL, &m);
 }
 
 bool link_wanted(struct link *l, uint32_t id) {
@@ -1302,6 +1395,10 @@ static void sync(struct link *l, const struct tern_companion_msg *q, tern_time n
             break;
         }
         news_message(l, c, next);
+        const struct link_route *r = find_route(l, next->id);
+        if (r != NULL) {
+            news_route(l, c, r);
+        }
         after = next->id;
     }
     /* And how much of each conversation is forgotten, whatever `after`: a client that was away
@@ -1358,6 +1455,46 @@ static void sync(struct link *l, const struct tern_companion_msg *q, tern_time n
     /* With the count as it stands, so that a client that missed the last of the news knows. */
     struct tern_companion_msg a = {.type = TERN_C_SYNCED, .seq = q->seq, .news = c->news};
     send_msg(l, c, &a);
+}
+
+/* TRACE: a trace to a routing id, once for each ref, with an id from the messages' count. */
+static void trace_request(struct link *l, const struct tern_companion_msg *q) {
+    static const uint8_t mark[8] = "trace"; /* a ref's digest, for a TRACE's */
+    uint8_t to[TERN_ADDRESS_LEN] = {0};
+    uint32_t *place = find_trace(l, 0);
+    to[0] = (uint8_t)(q->routing_id >> 24);
+    to[1] = (uint8_t)(q->routing_id >> 16);
+    to[2] = (uint8_t)(q->routing_id >> 8);
+    to[3] = (uint8_t)q->routing_id;
+    if (q->routing_id == 0 || q->routing_id == 0xFFFFFFFFu) {
+        error(l, q->seq, TERN_C_ERR_REFUSED); /* reserved (draft/routing.md) */
+        return;
+    }
+    for (size_t i = 0; i < LINK_REFS; i++) {
+        const struct link_ref *r = &l->refs[i];
+        if (r->used && !r->group && r->ref == q->ref && memcmp(r->to, to, sizeof to) == 0 &&
+            memcmp(r->digest, mark, sizeof mark) == 0) {
+            struct tern_companion_msg a = {.type = TERN_C_QUEUED, .seq = q->seq, .id = r->id};
+            send_msg(l, l->asker, &a);
+            return;
+        }
+    }
+    uint8_t code = l->host.trace == NULL ? TERN_C_ERR_UNKNOWN
+                   : place == NULL       ? TERN_C_ERR_FULL
+                                         : l->host.trace(l->host.ctx, l->next_id, q->routing_id);
+    if (code != 0) {
+        error(l, q->seq, code);
+        return;
+    }
+    reserve_id(l);
+    *place = l->next_id++;
+    struct tern_companion_msg a = {.type = TERN_C_QUEUED, .seq = q->seq, .id = *place};
+    send_msg(l, l->asker, &a);
+    struct link_ref *r = &l->refs[l->next_ref];
+    *r = (struct link_ref){.used = true, .ref = q->ref, .id = *place};
+    memcpy(r->to, to, sizeof to);
+    memcpy(r->digest, mark, sizeof mark);
+    l->next_ref = (l->next_ref + 1) % LINK_REFS;
 }
 
 /* SEND and SEND_GROUP: a message to an address or to a group, once for each ref. */
@@ -2508,6 +2645,9 @@ static void receive(struct link *l, unsigned conn, tern_time now, const uint8_t 
         break;
     case TERN_C_OWNER:
         owner_request(l, q);
+        break;
+    case TERN_C_TRACE:
+        trace_request(l, q);
         break;
     case TERN_C_RESTART: {
         /* As OFF: answered first, and the board restarts only once the answer is out. */

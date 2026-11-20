@@ -81,6 +81,8 @@
 #define LINK_LAPSE TERN_S(60)  /* a serial client silent this long since its last answer is gone */
 #define LINK_GROUP_POSITIONS 8 /* members' positions held for each group */
 #define LINK_CARDS NODE_CARDS  /* cards held from others: who is about */
+#define LINK_ROUTES NODE_ROUTES /* how messages went, for the latest of them */
+#define LINK_TRACES 4          /* traces out at once (TRACE) */
 /* A card held, as saved: its version, the name's length, its number, when it was heard in seconds
  * since 1970 or 0 if the node did not know, its address and its name. */
 #define LINK_CARD_SAVED_HEAD (1 + 1 + 4 + 4 + TERN_ADDRESS_LEN)
@@ -247,6 +249,10 @@ struct link_host {
     /* RESTART: 0 if the board will restart once the answer is out, or the ERROR code to answer
      * with. Every connection drops then. */
     uint8_t (*restart)(void *ctx);
+    /* TRACE (version 18): begins a trace to the routing id `to`, which link_traced() will end, as
+     * `id`. 0, or the ERROR code to answer with: TERN_C_ERR_REFUSED for the node's own routing id,
+     * TERN_C_ERR_NOT_NOW for one it already traces, TERN_C_ERR_FULL with no room. May be NULL. */
+    uint8_t (*trace)(void *ctx, uint32_t id, uint32_t to);
     /* The owners' addresses (draft/managing.md, "Owners"), as save_owners last wrote them: the
      * bytes read, at most cap. */
     size_t (*load_owners)(void *ctx, uint8_t *buf, size_t cap);
@@ -340,6 +346,20 @@ struct link_ref {
     uint32_t ref, id;
     uint8_t to[TERN_ADDRESS_LEN];
     uint8_t digest[8]; /* of the text: the first bytes of its SHA-256 */
+};
+
+/* How a message went (ROUTE, version 18), as draft/companion.md has it: for one received, how the
+ * frame that brought it was heard; for one sent, the neighbour it last went to, how many tries
+ * went on the air, and once delivered how its acknowledgement was heard and the round trip. Kept
+ * for the latest LINK_ROUTES messages, and not saved. */
+struct link_route {
+    uint32_t id; /* the message's; 0 for a free place */
+    uint32_t via;
+    uint32_t took; /* ms */
+    int16_t rssi;
+    uint8_t hops;
+    uint8_t goes;
+    int8_t snr;
 };
 
 struct link_asked {
@@ -482,6 +502,10 @@ struct link {
     struct tern_card card_places[LINK_CARDS];
     struct tern_cards cards;
 
+    struct link_route routes[LINK_ROUTES];
+    size_t next_route;
+    uint32_t traces[LINK_TRACES]; /* the ids of traces out, 0 for a free place */
+
     struct link_owner owners[LINK_OWNERS];
     /* The answer being packed for the owner LINK_MESH answers: frames, each after its length. */
     bool mesh_syncing; /* LINK_MESH is being told what a SYNC tells */
@@ -542,6 +566,16 @@ struct link_message *link_outgoing(struct link *l);
 /* What became of a message: its state, why it waits and for how long. A change to the state or
  * the reason is news. */
 void link_state(struct link *l, uint32_t id, uint8_t state, uint8_t reason, uint16_t wait);
+
+/* How a message went (ROUTE): kept, replacing what was kept for it, and told to every client
+ * that was told of the message. Only for a message, group message or invite of the user's. */
+void link_route(struct link *l, const struct link_route *r);
+
+/* A trace begun by TRACE has ended, as TRACED tells every client: `result` a TERN_C_TRACED_,
+ * `entries` the trace answer's, `n` of them, five bytes each. Its STATE before, waiting or sent,
+ * is link_state()'s, as a message's is. */
+void link_traced(struct link *l, uint32_t id, uint32_t to, uint8_t result, uint8_t out,
+                 uint32_t took, int8_t snr, const uint8_t *entries, size_t n);
 
 /* Whether a message handed over is still to go: false once it has come to rest some other way,
  * as when its group is left or its session ended, and then the board lets go of its frame. */
