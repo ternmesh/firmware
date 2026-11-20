@@ -222,7 +222,9 @@ ERRORS = {1: "not something this node knows", 2: "malformed", 3: "refused",
           10: "not where the update is",
           11: "not an image this node runs, or not signed by a release key it holds",
           12: "not a contact", 13: "not something a node does when managed over the mesh",
-          14: "the node's Bluetooth is locked: use USB, or manage it over the mesh as an owner"}
+          14: "the node's Bluetooth is locked: use USB, or manage it over the mesh as an owner",
+          15: "not an owner: that node has not made this one an owner, and only an owner, or "
+              "someone at the node, can"}
 # Managing over the mesh (draft/managing.md): how long after a request is delivered a client waits
 # for its answer, and how long a SET stays on trial unless a later request reaches the node.
 MESH_ANSWER_WAIT = 120.0
@@ -1019,7 +1021,8 @@ class Remote:
                         return got
         if gave_up:
             return None
-        raise SystemExit(f"{kind}: no answer from the managed node")
+        raise SystemExit(f"{kind}: no answer from the managed node: it is out of reach, or has "
+                         "not made this one an owner")
 
     def hello(self):
         info = self.request("HELLO", version=LATEST)

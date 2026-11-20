@@ -1020,18 +1020,21 @@ static void trial_end_confirmed(void) {
 }
 
 /* A request to manage this board, from a peer. An owner's ends any trial, and is answered over the
- * mesh; anyone else's is let go, unanswered. */
+ * mesh; anyone else's is refused, or let go if one was refused lately. */
 static void manage_heard(const uint8_t *request, size_t len, const uint8_t peer[TERN_ADDRESS_LEN]) {
     if (!link_owner(&companion, peer)) {
+        bool refused;
+        (void)link_manage(&companion, board_now(), peer, request, len, &refused);
         printf("a request to manage this board from ");
         print_address(peer);
-        printf(", which is not an owner: let go\n");
+        printf(", which is not an owner: %s\n",
+               refused ? "refused" : "let go, a refusal having gone in the last minute");
         return;
     }
     trial_end_confirmed();
     trial.old = settings; /* what a SET in this request replaces */
     managing = true;
-    (void)link_manage(&companion, board_now(), peer, request, len);
+    (void)link_manage(&companion, board_now(), peer, request, len, NULL);
     managing = false;
     printf("managed by ");
     print_address(peer);

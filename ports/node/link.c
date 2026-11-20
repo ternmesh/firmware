@@ -2538,9 +2538,34 @@ void link_receive(struct link *l, unsigned conn, tern_time now, const uint8_t *f
     tern_wipe(&q, sizeof q);
 }
 
+/* A non-owner's request, refused with ERROR 15 and its seq, unless one was refused lately
+ * (draft/managing.md, "Who is answered"). */
+static bool refuse(struct link *l, tern_time now, const uint8_t from[TERN_ADDRESS_LEN],
+                   const uint8_t *request, size_t len) {
+    if (!tern_manage_request_ok(request, len) ||
+        (l->refused && now - l->refused_at < TERN_MANAGE_REFUSE_GAP)) {
+        return false;
+    }
+    struct tern_companion_msg m = {
+        .type = TERN_C_ERROR, .seq = request[1], .code = TERN_C_ERR_NOT_OWNER};
+    uint8_t answer[1 + TERN_COMPANION_MAX_FRAME];
+    size_t n = tern_companion_write_as(&m, answer + 1, TERN_COMPANION_VERSION);
+    answer[0] = (uint8_t)n;
+    if (n == 0 || keep_raw(l, LINK_KIND_ANSWER, from, answer, 1 + n) == 0) {
+        return false;
+    }
+    l->refused = true;
+    l->refused_at = now;
+    return true;
+}
+
 bool link_manage(struct link *l, tern_time now, const uint8_t from[TERN_ADDRESS_LEN],
-                 const uint8_t *request, size_t len) {
+                 const uint8_t *request, size_t len, bool *refused) {
     struct link_owner *o = find_owner(l, from);
+    bool no = o == NULL && refuse(l, now, from, request, len);
+    if (refused != NULL) {
+        *refused = no;
+    }
     if (o == NULL) {
         return false;
     }

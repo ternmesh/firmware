@@ -6,7 +6,8 @@
     "REQUEST_MAX": 128,
     "ANSWER_MAX": 128,
     "MESH_ANSWER_WAIT": 120,
-    "TRIAL": 900
+    "TRIAL": 900,
+    "REFUSE_GAP": 60
   },
   "requests": [
     {
@@ -67,6 +68,15 @@
       ],
       "contents": [
         "060341050d"
+      ]
+    },
+    {
+      "why": "ERROR 15: not an owner",
+      "frames": [
+        "41010f"
+      ],
+      "contents": [
+        "060341010f"
       ]
     },
     {
@@ -353,19 +363,58 @@
         "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"
       ],
       "from": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
-      "answers": true
+      "refused_s": null,
+      "request": "010111",
+      "answer": "acts",
+      "refusal": null
+    },
+    {
+      "owners": [
+        "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"
+      ],
+      "from": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "refused_s": 0,
+      "request": "010111",
+      "answer": "acts",
+      "refusal": null
     },
     {
       "owners": [
         "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"
       ],
       "from": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
-      "answers": false
+      "refused_s": null,
+      "request": "010111",
+      "answer": "refuses",
+      "refusal": "060341010f"
+    },
+    {
+      "owners": [
+        "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"
+      ],
+      "from": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+      "refused_s": 59,
+      "request": "010111",
+      "answer": "nothing",
+      "refusal": null
+    },
+    {
+      "owners": [
+        "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"
+      ],
+      "from": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+      "refused_s": 60,
+      "request": "010111",
+      "answer": "refuses",
+      "refusal": "060341010f"
     },
     {
       "owners": [],
       "from": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
-      "answers": false
+      "refused_s": null,
+      "request": "010111",
+      "answer": "refuses",
+      "refusal": "060341010f"
     },
     {
       "owners": [
@@ -374,7 +423,10 @@
         "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"
       ],
       "from": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
-      "answers": true
+      "refused_s": null,
+      "request": "010111",
+      "answer": "acts",
+      "refusal": null
     }
   ],
   "trials": [

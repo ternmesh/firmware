@@ -488,6 +488,10 @@ struct link {
     const uint8_t *answer_to;
     uint8_t answer[TERN_COMPANION_MANAGED_MAX];
     size_t answer_len;
+    /* When a request from a non-owner was last refused, if one has been: one each
+     * TERN_MANAGE_REFUSE_GAP, whoever asks. */
+    bool refused;
+    tern_time refused_at;
 
     struct link_view view; /* scratch, filled by the host */
 };
@@ -633,12 +637,14 @@ bool link_owner(const struct link *l, const uint8_t address[TERN_ADDRESS_LEN]);
 
 /* A request to manage this node, the content of a message for the node of kind 0x05 after the
  * kind, from `from`, with whom the node shares a session. One from an address that is not an owner
- * is let go, and false returned: the node answers no one else. An owner's is answered as a
+ * is refused with ERROR 15 in an answer of its own, at most once each TERN_MANAGE_REFUSE_GAP
+ * whoever asks, and otherwise let go; false is returned for it, and *refused (if not NULL) says
+ * whether it was refused. An owner's is answered as a
  * request over a link is, on LINK_MESH, but for what may not be asked over the mesh, which is
  * answered ERROR 13; the answer, and the news a SYNC sends, are packed into messages to `from` of
  * kind 0x06, which go as the node's other messages do. */
 bool link_manage(struct link *l, tern_time now, const uint8_t from[TERN_ADDRESS_LEN],
-                 const uint8_t *request, size_t len);
+                 const uint8_t *request, size_t len, bool *refused);
 
 /* An answer from a node this one manages: a message for the node of kind 0x06, `content` after
  * the kind. It is told to every client as MANAGED, if it is an answer at all. */
