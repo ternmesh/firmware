@@ -158,6 +158,7 @@ static bool off_profile; /* the frequency, modulation or sync word is not the re
 static struct tern_duty duty;
 static struct tern_airtime budget; /* the airtime budget, beside the region's account */
 static struct demo demo;
+static struct demo_slots demo_slots; /* its sessions */
 static bool transmitting;
 static struct tern_route route;
 static struct tern_route_neighbour neighbours[NEIGHBOURS];
@@ -3380,11 +3381,18 @@ static bool memory_save(void *ctx, const char *key, const void *buf, size_t len)
 }
 
 static void selftest(void) {
-    /* Two whole nodes, borrowed from the heap while the test runs rather than kept for it: the
-     * classic ESP32 has too little static RAM to hold them besides the node's own. */
+    /* Two nodes, borrowed from the heap while the test runs rather than kept for it: the classic
+     * ESP32 has too little static RAM to hold them besides the node's own. Each has room for the
+     * one session the test makes, not a board's DEMO_PEERS: with those, the two came to some
+     * 33 KB, more than an nRF52840 has left once the node has its own. */
     struct selftest_memory {
         struct memory_store flash[2];
         struct demo node[2];
+        struct {
+            struct demo_state s;
+            uint32_t id;
+            tern_time aged;
+        } slot[2];
         uint8_t msg[TERN_UNICAST_MAX_PLAINTEXT];
     } *m = calloc(1, sizeof *m);
     if (m == NULL) {
@@ -3404,7 +3412,8 @@ static void selftest(void) {
 
     for (int i = 0; i < 2; i++) {
         struct demo_store st = {&flash[i], memory_load, memory_save, board_random};
-        ok = demo_start(&node[i], &st, 1000000000LL) && ok;
+        struct demo_room room = {&m->slot[i].s, &m->slot[i].id, &m->slot[i].aged, 1};
+        ok = demo_start(&node[i], room, &st, 1000000000LL) && ok;
     }
     printf("selftest: two identities in %lld ms\n", (long long)((board_now() - t0) / 1000000));
 
@@ -4892,7 +4901,7 @@ void node_main(void) {
     struct demo_store store = {
         .ctx = NULL, .load = store_load, .save = store_save, .random = board_random};
     had_identity = plat_store_has("identity");
-    if (!demo_start(&demo, &store, DEMO_HOLD)) {
+    if (!demo_start(&demo, demo_slots_room(&demo_slots), &store, DEMO_HOLD)) {
         printf("could not make this board's identity and save it to flash. Not starting.\n");
         halt(UI_FAULT_IDENTITY, 0);
     }

@@ -74,12 +74,14 @@ static bool store_random(void *ctx, uint8_t *buf, size_t len) {
 struct board {
     struct store flash;
     struct demo ram;
+    struct demo_slots slots; /* its sessions, in RAM too */
 };
 
 static bool boot(struct board *b) {
     struct demo_store st = {&b->flash, store_load, store_save, store_random};
     memset(&b->ram, 0xA5, sizeof b->ram); /* RAM holds nothing useful at power-on */
-    bool ok = demo_start(&b->ram, &st, HOLD);
+    memset(&b->slots, 0xA5, sizeof b->slots);
+    bool ok = demo_start(&b->ram, demo_slots_room(&b->slots), &st, HOLD);
     /* Most of these tests make contact many times at one moment; how often a board answers is
      * its own test's (a_board_answers_so_many_handshakes). */
     b->ram.answer_span = 0;
@@ -850,6 +852,27 @@ static void a_full_board_takes_no_new_peer_until_one_is_forgotten(void) {
     CHECK(say(late, hub, "in", &n) == DEMO_HEARD_MESSAGE && n == 1);
 }
 
+/* A board given room for fewer sessions, as the self-test's are, holds that many and no more,
+ * and one given none does not start. */
+static void a_board_holds_only_the_sessions_it_has_room_for(void) {
+    struct board *a = new_board(), *b = new_board(), *small = new_board();
+    struct demo_state s;
+    uint32_t id, n;
+    tern_time aged;
+    struct frame f;
+    struct demo_store st = {&small->flash, store_load, store_save, store_random};
+    struct demo_room none = {&s, &id, &aged, 0}, one = {&s, &id, &aged, 1};
+    CHECK(!demo_start(&small->ram, none, &st, HOLD));
+    CHECK(demo_start(&small->ram, one, &st, HOLD));
+    small->ram.answer_span = 0;
+    CHECK(contact(small, a, 0) == DEMO_HEARD_PAIRED);
+    CHECK_EQ_U64(demo_peers(&small->ram), 1);
+    CHECK(say(small, a, "one", &n) == DEMO_HEARD_MESSAGE && n == 0);
+    CHECK(demo_contact(&small->ram, b->ram.id.address, 0, f.data, &f.len) == DEMO_FULL);
+    CHECK(let_in(b, small) == DEMO_HEARD_FULL);
+    CHECK(!demo_forget(&small->ram, 1));
+}
+
 /* Forgotten in RAM and not in flash, a session would come back at the next restart. */
 static void a_session_is_forgotten_only_if_the_store_forgets_it(void) {
     struct board *a = new_board(), *b = new_board();
@@ -940,6 +963,7 @@ int main(void) {
     RUN(a_board_holds_a_session_with_each_peer);
     RUN(contact_again_replaces_only_that_peers_session);
     RUN(a_full_board_takes_no_new_peer_until_one_is_forgotten);
+    RUN(a_board_holds_only_the_sessions_it_has_room_for);
     RUN(a_session_is_forgotten_only_if_the_store_forgets_it);
     RUN(the_one_session_of_an_earlier_build_is_kept);
     RUN(frames_that_are_not_terns_are_malformed);

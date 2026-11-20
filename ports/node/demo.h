@@ -90,14 +90,36 @@ struct demo_handshake {
     tern_time until; /* the responder's: when to forget the handshake */
 };
 
+/* Where a board keeps its sessions, outside struct demo so that a board can be given less: room
+ * for `peers` of them, 1 to DEMO_PEERS, in three arrays of that length. A board has DEMO_PEERS
+ * (struct demo_slots); the self-test's two nodes, borrowed from the heap, have one each. */
+struct demo_room {
+    struct demo_state *s;
+    uint32_t *ids;
+    tern_time *aged;
+    int peers;
+};
+
+/* Room for DEMO_PEERS sessions, and the room it is. */
+struct demo_slots {
+    struct demo_state s[DEMO_PEERS];
+    uint32_t ids[DEMO_PEERS];
+    tern_time aged[DEMO_PEERS];
+};
+
+static inline struct demo_room demo_slots_room(struct demo_slots *x) {
+    return (struct demo_room){x->s, x->ids, x->aged, DEMO_PEERS};
+}
+
 struct demo {
     struct demo_store store;
     tern_time hold; /* how long a responder keeps a handshake with nothing of it heard */
     struct tern_identity id;
-    struct demo_state s[DEMO_PEERS]; /* a slot with role 0 holds none */
+    int peers;            /* how many sessions it has room for: the room's */
+    struct demo_state *s; /* peers of them; a slot with role 0 holds none */
     /* Each slot's peer's routing id, worked out from its address when first asked for
      * (demo_peer_id()), 0 until then: it takes two scalar multiplications. */
-    uint32_t ids[DEMO_PEERS];
+    uint32_t *ids;
     int last; /* the slot of the session last made or used, or -1 with none: where a board with
                  only a button sends */
     struct demo_handshake h;
@@ -107,7 +129,7 @@ struct demo {
      * the board has been on, which is what the specification asks of a board without a clock
      * that runs while it is off. */
     tern_time now;
-    tern_time aged[DEMO_PEERS];
+    tern_time *aged;
     /* When the last DEMO_ANSWERS message_2 frames went, oldest first from answers_next, for the
      * specification's limit on them (draft/first-contact.md, "How often"). */
     tern_time answered[DEMO_ANSWERS];
@@ -131,14 +153,16 @@ enum demo_result {
     DEMO_SPENT,        /* every counter used, or the session is to start again (demo_restart()):
                           make contact again */
     DEMO_TOO_LONG,     /* more than TERN_UNICAST_MAX_PLAINTEXT bytes */
-    DEMO_FULL,         /* DEMO_PEERS sessions already, none of them with this address */
+    DEMO_FULL,         /* as many sessions as it has room for, none of them with this address */
 };
 
-/* Loads the identity and the sessions, making and saving an identity if there is none. hold is
- * how long a handshake another board began is kept with nothing of it heard: DEMO_HOLD, but in
- * tests. False if there is no identity and one could not be made or saved; the board should not
- * run. */
-bool demo_start(struct demo *d, const struct demo_store *store, tern_time hold);
+/* Loads the identity and the sessions, making and saving an identity if there is none, keeping
+ * the sessions in room, whose arrays are the board's for as long as d is. hold is how long a
+ * handshake another board began is kept with nothing of it heard: DEMO_HOLD, but in tests. False
+ * if there is no identity and one could not be made or saved, or room is not 1 to DEMO_PEERS
+ * sessions; the board should not run. */
+bool demo_start(struct demo *d, struct demo_room room, const struct demo_store *store,
+                tern_time hold);
 
 /* Starts first contact with the board whose address is peer, abandoning any handshake under
  * way: writes message_1's frame (TERN_CONTACT_MAX_FRAME bytes are enough), for the forwarder to
