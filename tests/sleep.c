@@ -689,6 +689,24 @@ static void a_managed_leaf_answers_in_seconds_not_wakes(void) {
     CHECK(net.polls - before <= 3);
 }
 
+/* Polling fast, the leaf polls every MANAGED_POLL for the whole of MANAGED_AWAKE, and again when an
+ * owner's next request restarts it: on two boards, after the first half minute, its polls came 40 s
+ * apart, spaced by the requests' share of the cap they were paid from. */
+static void fast_polls_keep_their_pace(void) {
+    tern_time until;
+    net_init();
+    unsigned before = net.polls;
+    tern_route_poll_fast(&net.node[LEAF].r, net.now, TERN_MANAGE_POLL_S, TERN_MANAGE_AWAKE_S);
+    run(net.now + TERN_S(60));
+    /* An owner's next request, half way through. */
+    tern_route_poll_fast(&net.node[LEAF].r, net.now, TERN_MANAGE_POLL_S, TERN_MANAGE_AWAKE_S);
+    CHECK(tern_route_polling_fast(&net.node[LEAF].r, net.now, &until));
+    run(until);
+    unsigned polled = net.polls - before, want = (60 + TERN_MANAGE_AWAKE_S) / TERN_MANAGE_POLL_S;
+    CHECK(polled + 2 >= want);
+    CHECK(polled <= want + 2);
+}
+
 static void a_leaf_that_does_not_sleep_never_may(void) {
     struct tern_route r;
     struct tern_forward f;
@@ -729,5 +747,6 @@ int main(void) {
     RUN(a_keeper_that_restarts_with_nothing_kept_gives_up);
     RUN(a_source_told_it_is_held_waits);
     RUN(a_managed_leaf_answers_in_seconds_not_wakes);
+    RUN(fast_polls_keep_their_pace);
     return CHECK_DONE();
 }

@@ -480,6 +480,7 @@ struct tern_route_config tern_route_defaults(const struct tern_lora *lora, int8_
         .quiet_max = 2,
         .announce_ppm = 3750, /* a cap of 0.5%, a quarter of it for requests */
         .request_ppm = 1250,
+        .fast_polls = 24,  /* MANAGED_AWAKE / MANAGED_POLL: draft/managing.md#a-node-that-sleeps */
         .learn_ppm = 1875, /* LEARN_SHARE: half the announces' share, for changed routes */
         .learn_for = TERN_S(6 * 3600), /* LEARN_FOR */
         .cap_window = TERN_S(60),
@@ -2022,6 +2023,12 @@ static void sleep_step(struct tern_route *r) {
 static size_t send_poll(struct tern_route *r, uint8_t *frame, int8_t *power) {
     struct tern_route_bucket *b = &r->requests;
     tern_time cost = airtime(r, TERN_POLL_LEN) * MILLION;
+    /* Polling fast, an owner's burst is paid from its own allowance first, so that its polls keep
+     * their pace; past it, from the requests' share, spaced as that can pay. */
+    refill(&r->fast, r->now);
+    if (r->poll_fast_s && r->now < r->poll_fast_until && r->fast.have >= cost) {
+        b = &r->fast;
+    }
     struct tern_poll q = {r->id,
                           r->keeper,
                           (uint16_t)(r->poll_id + 1),
@@ -2322,6 +2329,12 @@ void tern_route_init(struct tern_route *r, const struct tern_route_config *confi
                 airtime(r, TERN_ROUTE_FRAME_MAX), now);
     bucket_init(&r->learning, config->learn_ppm, config->cap_window,
                 airtime(r, TERN_ROUTE_FRAME_MAX), now);
+    /* As many fast polls as one owner's burst of requests takes; empty for a node with none. */
+    bucket_init(&r->fast, config->request_ppm, 0,
+                (tern_time)config->fast_polls * airtime(r, TERN_POLL_LEN), now);
+    if (config->fast_polls == 0) {
+        r->fast.have = 0;
+    }
     r->learn_until = now + config->learn_for;
     trickle_begin(r);
     r->house_at = now + house_period(r);

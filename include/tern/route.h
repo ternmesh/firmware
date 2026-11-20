@@ -291,6 +291,9 @@ struct tern_route_config {
     uint32_t learn_ppm;
     tern_time learn_for;  /* and for how long after the node starts it may */
     uint32_t request_ppm; /* and for requests */
+    /* Polls a sleeping leaf may send fast (tern_route_poll_fast()) at once before they are paid
+     * from the requests' share: a burst of them, refilled at request_ppm. 0 for none. */
+    uint8_t fast_polls;
     tern_time cap_window;
     uint8_t burst;
     uint8_t named_max; /* neighbours named in a frame */
@@ -596,6 +599,7 @@ struct tern_route {
     struct tern_route_bucket announces; /* the cap, in two */
     struct tern_route_bucket requests;
     struct tern_route_bucket learning; /* learn_ppm's */
+    struct tern_route_bucket fast;     /* fast_polls' */
     tern_time learn_until;             /* the end of learn_for */
     bool announcing;                   /* an announce is due, when its bucket can pay */
     uint8_t burst;                     /* frames sent of it so far */
