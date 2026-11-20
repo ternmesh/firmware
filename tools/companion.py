@@ -227,6 +227,13 @@ ERRORS = {1: "not something this node knows", 2: "malformed", 3: "refused",
 # for its answer, and how long a SET stays on trial unless a later request reaches the node.
 MESH_ANSWER_WAIT = 120.0
 TRIAL = 900
+# Settings a node restarts to apply (role and power), and how long a manager leaves it after one
+# before it asks again. A node that has just started acknowledges nothing until a link to a
+# neighbour is up both ways (draft/routing.md#starting), and two messages given up in a row make
+# the session start again (draft/unicast-security.md#starting-again): asking at once costs a first
+# contact, and asking later costs nothing, the trial being far longer.
+RESTARTS = {2, 3}
+RESTART_SETTLE = 45
 
 
 def crc16(data):
@@ -969,7 +976,7 @@ class Remote:
             if got is not None:
                 return got
             print(f"  {kind}: trying again", flush=True)
-            time.sleep(5)
+            time.sleep(RESTART_SETTLE // 3)
         raise SystemExit(f"{kind}: not delivered")
 
     TRIES = 3
@@ -1046,6 +1053,10 @@ def manage(node, args, names):
         if args.no_confirm:
             print("not confirmed: any request from an owner before then keeps it")
         else:
+            if n in RESTARTS:
+                print(f"the node restarts to apply it: confirming in {RESTART_SETTLE} s, once it "
+                      "can answer", flush=True)
+                time.sleep(RESTART_SETTLE)
             remote.request("PING")
             print("confirmed: the node heard again, and the setting stays")
     elif args.what == "owner":
