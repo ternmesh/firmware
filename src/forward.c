@@ -355,8 +355,12 @@ bool tern_forward_send(struct tern_forward *f, tern_time now, uint32_t destinati
     memcpy(s->frame, frame, len);
     put32(s->frame + AT_DEST, destination);
     if (routed) {
+        bool answered;
         s->state = TERN_FORWARD_WAITING;
         s->at = now + (back == INT8_MIN ? 0 : jitter(f, len));
+        if (own_held(f, s, now, &answered)) {
+            recount(f, s->next, now); /* the leaf's next poll is told of it */
+        }
     } else {
         /* Asking counts as a try, and is waited on as one. */
         s->state = TERN_FORWARD_HELD;
@@ -573,6 +577,14 @@ static tern_time kept_due(const struct tern_forward *f) {
     bool room = false;
     for (size_t i = 0; i < f->cap && !room; i++) {
         room = f->slot[i].state == TERN_FORWARD_FREE;
+    }
+    /* A poll to be answered: what is held for its leaf, this node's own frames among it, is
+     * counted afresh first (keep()), as the node polls the forwarder before the router. */
+    for (size_t i = 0; f->kept_cap && i < TERN_ROUTE_KEPT_LEAVES; i++) {
+        const struct tern_route_kept_leaf *e = &f->route->keeps[i];
+        if (e->leaf && e->answer_due && e->answer_at < t) {
+            t = e->answer_at;
+        }
     }
     for (size_t i = 0; i < f->kept_cap; i++) {
         const struct tern_forward_kept *k = &f->kept[i];
