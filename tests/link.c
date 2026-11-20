@@ -56,6 +56,19 @@ struct locked_case {
     uint8_t type;
     bool allowed;
 };
+enum owner_answer { ACTS, REFUSES, NOTHING };
+struct owner_case {
+    uint8_t owners[3][TERN_ADDRESS_LEN];
+    size_t n_owners;
+    uint8_t from[TERN_ADDRESS_LEN];
+    int32_t refused_s; /* -1: never */
+    uint8_t request[8];
+    size_t request_len;
+    enum owner_answer answer;
+    uint8_t refusal[8]; /* the answer's content, its kind first */
+    size_t refusal_len;
+};
+#define MANAGING_OWNER_CASES
 #include "managing.h"
 
 #define COUNT(a) (sizeof(a) / sizeof(a)[0])
@@ -3034,7 +3047,7 @@ static size_t answered(const struct tern_companion_msg *q, const uint8_t *from,
         companion.messages[i].used = false;
     }
     board.n_out = 0;
-    *owner = link_manage(&companion, TERN_S(100), from, frame, len);
+    *owner = link_manage(&companion, TERN_S(100), from, frame, len, NULL);
     CHECK_EQ_U64(board.n_out, 0); /* nothing to any client */
     size_t n = 0;
     for (uint32_t id = 1; id < companion.next_id; id++) {
@@ -3065,11 +3078,18 @@ static void an_owner_is_answered_over_the_mesh_and_no_one_else(void) {
         1);
     struct tern_companion_msg got[48];
     bool owner;
-    /* Carol is no owner: nothing kept, nothing said. */
+    /* Carol is no owner: refused, and nothing else said. */
     CHECK_EQ_U64(answered(&(struct tern_companion_msg){.type = TERN_C_PING, .seq = 1}, carol, got,
                           COUNT(got), &owner),
-                 0);
+                 1);
     CHECK(!owner);
+    CHECK_EQ_I64(got[0].type, TERN_C_ERROR);
+    CHECK_EQ_I64(got[0].seq, 1);
+    CHECK_EQ_I64(got[0].code, TERN_C_ERR_NOT_OWNER);
+    /* Asking again in the same minute: let go, unanswered. */
+    CHECK_EQ_U64(answered(&(struct tern_companion_msg){.type = TERN_C_PING, .seq = 2}, carol, got,
+                          COUNT(got), &owner),
+                 0);
     /* Alice says HELLO first. */
     CHECK_EQ_U64(answered(&(struct tern_companion_msg){.type = TERN_C_PING, .seq = 1}, alice, got,
                           COUNT(got), &owner),
@@ -3129,10 +3149,60 @@ static void an_owner_is_answered_over_the_mesh_and_no_one_else(void) {
     CHECK_EQ_U64(board.restarts, 1);
 }
 
+/* The specification's owners: a node acts for its owners, refuses anyone else at once, and once a
+ * minute at most, whoever asks. */
+static void owners_from_the_vectors(void) {
+    static const uint8_t other[TERN_ADDRESS_LEN] = {0x99, 1};
+    for (size_t i = 0; i < COUNT(owner_cases); i++) {
+        const struct owner_case *v = &owner_cases[i];
+        start();
+        memcpy(board.view.address, bob, TERN_ADDRESS_LEN);
+        board.saved_len = board.owners_len = 0;
+        for (size_t k = 0; k < v->n_owners; k++) {
+            struct link_contact c = {.used = true, .name_len = 1, .name = "O"};
+            memcpy(c.address, v->owners[k], TERN_ADDRESS_LEN);
+            memcpy(board.saved + board.saved_len, &c, sizeof c);
+            board.saved_len += sizeof c;
+            memcpy(board.owners + board.owners_len, v->owners[k], TERN_ADDRESS_LEN);
+            board.owners_len += TERN_ADDRESS_LEN;
+        }
+        restart();
+        tern_time now = TERN_S(1000);
+        if (v->refused_s >= 0) {
+            bool refused = false;
+            CHECK(!link_manage(&companion, now - TERN_S(v->refused_s), other, v->request,
+                               v->request_len, &refused));
+            CHECK(refused);
+        }
+        for (size_t k = 0; k < LINK_MESSAGES; k++) {
+            companion.messages[k].used = false;
+        }
+        bool refused = true;
+        bool acted = link_manage(&companion, now, v->from, v->request, v->request_len, &refused);
+        CHECK_EQ_I64(acted, v->answer == ACTS);
+        CHECK_EQ_I64(refused, v->answer == REFUSES);
+        size_t kept = 0;
+        for (size_t k = 0; k < LINK_MESSAGES; k++) {
+            const struct link_message *x = &companion.messages[k];
+            if (!x->used) {
+                continue;
+            }
+            kept++;
+            CHECK_EQ_I64(x->kind, LINK_KIND_ANSWER);
+            CHECK(memcmp(x->address, v->from, TERN_ADDRESS_LEN) == 0);
+            if (v->answer == REFUSES) {
+                CHECK_EQ_U64(x->text_len + 1, v->refusal_len);
+                CHECK(memcmp(x->text, v->refusal + 1, v->refusal_len - 1) == 0);
+            }
+        }
+        CHECK_EQ_U64(kept, v->answer == NOTHING ? 0 : 1);
+    }
+}
+
 /* A request that is not one, and an answer that is not one, are let go. */
 static void what_managing_ignores(void) {
     owned_by_alice();
-    bool owner = link_manage(&companion, TERN_S(100), alice, (const uint8_t *)"", 0);
+    bool owner = link_manage(&companion, TERN_S(100), alice, (const uint8_t *)"", 0, NULL);
     CHECK(owner);
     CHECK_EQ_U64(link_outgoing(&companion) == NULL, 1);
     for (size_t i = 0; i < COUNT(rejected_answers); i++) {
@@ -3188,14 +3258,14 @@ static void owners_are_told_when_the_owners_change(void) {
         .type = TERN_C_HELLO, .seq = 1, .version = TERN_COMPANION_VERSION};
     uint8_t frame[TERN_COMPANION_MAX_FRAME];
     size_t len = tern_companion_write(&r, frame);
-    CHECK(link_manage(&companion, TERN_S(100), alice, frame, len));
+    CHECK(link_manage(&companion, TERN_S(100), alice, frame, len, NULL));
     for (size_t i = 0; i < LINK_MESSAGES; i++) {
         companion.messages[i].used = false;
     }
     r = (struct tern_companion_msg){.type = TERN_C_OWNER, .seq = 2, .owner = 0};
     memcpy(r.address, carol, TERN_ADDRESS_LEN);
     len = tern_companion_write(&r, frame);
-    CHECK(link_manage(&companion, TERN_S(100), alice, frame, len));
+    CHECK(link_manage(&companion, TERN_S(100), alice, frame, len, NULL));
     CHECK_EQ_U64(notices_to(alice, &owner, &by), 0);
     CHECK_EQ_U64(notices_to(carol, &owner, &by), 1);
     CHECK_EQ_I64(owner, 0);
@@ -3629,6 +3699,7 @@ int main(void) {
     RUN(what_flash_holds_that_is_no_message_is_not_loaded);
     RUN(a_node_manages_another_over_the_mesh);
     RUN(an_owner_is_answered_over_the_mesh_and_no_one_else);
+    RUN(owners_from_the_vectors);
     RUN(what_managing_ignores);
     RUN(owners_are_contacts);
     RUN(owners_are_told_when_the_owners_change);

@@ -62,6 +62,18 @@ def main():
     for c in v["locked"]:
         L.append(f"    {{0x{types[c['type']]:02x}, {'true' if c['allowed'] else 'false'}}},")
     L.append("};")
+    L.append("#ifdef MANAGING_OWNER_CASES /* tests/link.c's, which defines struct owner_case */")
+    L.append("static const struct owner_case owner_cases[] = {")
+    for c in v["owners"]:
+        owners = ", ".join(hexbytes(o) for o in c["owners"]) or "{0}"
+        refused = -1 if c["refused_s"] is None else c["refused_s"]
+        refusal = c["refusal"] or ""
+        answer = {"acts": "ACTS", "refuses": "REFUSES", "nothing": "NOTHING"}[c["answer"]]
+        L.append(f"    {{{{{owners}}}, {len(c['owners'])}, {hexbytes(c['from'])}, {refused}, "
+                 f"{hexbytes(c['request'])}, {len(c['request']) // 2}, {answer}, "
+                 f"{hexbytes(refusal)}, {len(refusal) // 2}}},")
+    L.append("};")
+    L.append("#endif")
     with open(out, "w", encoding="utf-8") as f:
         f.write("\n".join(L) + "\n")
 

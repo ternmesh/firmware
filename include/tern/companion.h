@@ -164,6 +164,7 @@ enum tern_companion_error {
     TERN_C_ERR_NOT_CONTACT = 12,   /* version 5: an address the node does not hold as a contact */
     TERN_C_ERR_NOT_OVER_MESH = 13, /* version 17: a request a managed node does not act on */
     TERN_C_ERR_LOCKED = 14,        /* version 17: the node's Bluetooth is locked */
+    TERN_C_ERR_NOT_OWNER = 15,     /* version 17: a node managed by someone it has not made one */
 };
 
 enum tern_companion_state {
