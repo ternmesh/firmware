@@ -1693,11 +1693,20 @@ static void poll_forward(void) {
                     : x;
         }
         p->goes += p->goes < UINT8_MAX;
-        printf("sent #%lu%s \"%.*s\": %u bytes at %d dBm by %02x%02x%02x%02x, %lld.%03lld ms on "
+        /* Words are shown; what managing sends is bytes, and named instead. */
+        bool words = x != NULL && link_for_user(x->kind);
+        const char *what = x == NULL                     ? ""
+                           : x->kind == LINK_KIND_MANAGE ? "a request to manage a node"
+                           : x->kind == LINK_KIND_ANSWER ? "an answer to an owner"
+                           : x->kind == LINK_KIND_NOTICE ? "a notice that the owners changed"
+                                                         : "";
+        const char *quote = words || x == NULL ? "\"" : "";
+        printf("sent #%lu%s %s%.*s%s%s: %u bytes at %d dBm by %02x%02x%02x%02x, %lld.%03lld ms on "
                "the air\n",
-               (unsigned long)p->counter, p->goes > 1 ? " again" : "", x ? (int)x->text_len : 0,
-               x ? (const char *)x->text : "", (unsigned)len, dbm, frame[3], frame[4], frame[5],
-               frame[6], (long long)(air / 1000000), (long long)(air / 1000 % 1000));
+               (unsigned long)p->counter, p->goes > 1 ? " again" : "", quote,
+               words ? (int)x->text_len : 0, words ? (const char *)x->text : "", quote, what,
+               (unsigned)len, dbm, frame[3], frame[4], frame[5], frame[6],
+               (long long)(air / 1000000), (long long)(air / 1000 % 1000));
     } else if (kind == TERN_FORWARD_OWN && tern_forward_contact(frame[0])) {
         printf("first contact: sent message_%d, %u bytes at %d dBm by %02x%02x%02x%02x\n",
                frame[0] - 0x50, (unsigned)len, dbm, frame[3], frame[4], frame[5], frame[6]);

@@ -958,37 +958,60 @@ class Remote:
         self.seq, self.speak, self.news = 0, LATEST, []
 
     def request(self, kind, /, refusable=False, **values):
+        """Sends a request and returns its answer. One that was not delivered goes again, as a new
+        message, up to TRIES times: each a node acts on over the mesh may be sent twice without
+        harm, and a node that has just restarted, as one does to apply a power, may not yet have
+        a route back. Its answer, if the node had it after all, may come in the meantime."""
         self.seq = self.seq % 255 + 1
         frame = encode(kind, self.seq, speak=self.speak, **values)
+        for attempt in range(self.TRIES):
+            got = self._ask(kind, frame, refusable, values)
+            if got is not None:
+                return got
+            print(f"  {kind}: trying again", flush=True)
+            time.sleep(5)
+        raise SystemExit(f"{kind}: not delivered")
+
+    TRIES = 3
+
+    def _ask(self, kind, frame, refusable, values):
         q = self.node.request("MANAGE", ref=random.getrandbits(32), to=self.to, request=frame)
         said = None
+        gave_up = False
         end = time.monotonic() + self.wait
-        for m in self.node.news(self.wait):
-            if m["type"] == "STATE" and m["id"] == q["id"] and m["state"] != said:
-                said = m["state"]
-                print(f"  {kind}: {STATES[said]}"
-                      f"{' ' + REASONS[m['reason']] if said == 0 and m['reason'] else ''}",
-                      flush=True)
-                if said == 3:
-                    raise SystemExit(f"{kind}: not delivered")
-                if said == 2:
-                    end = time.monotonic() + MESH_ANSWER_WAIT
-            if m["type"] != "MANAGED" or m["from"] != self.to:
-                if time.monotonic() > end:
-                    break
-                continue
-            for f in unpack(m["answer"]) or []:
-                got = decode(f, self.speak)
-                if got is None:
+        while time.monotonic() < end:
+            for m in self.node.news(1.0):
+                if m["type"] == "STATE" and m["id"] == q["id"] and m["state"] != said:
+                    said = m["state"]
+                    print(f"  {kind}: {STATES[said]}"
+                          f"{' ' + REASONS[m['reason']] if said == 0 and m['reason'] else ''}",
+                          flush=True)
+                    if said == 3:
+                        # Its answer may still come, from a copy that arrived: a moment for it.
+                        end = time.monotonic() + 10
+                        gave_up = True
+                    if said == 2:
+                        end = time.monotonic() + MESH_ANSWER_WAIT
+                if m["type"] != "MANAGED" or m["from"] != self.to:
                     continue
-                if TYPE[got["type"]] >= 0x80:
-                    self.news.append(got)
-                elif got["seq"] == self.seq:
-                    if got["type"] == "ERROR" and not refusable:
-                        raise SystemExit(f"{kind}: {ERRORS.get(got['code'], got['code'])}")
-                    return got
-            if time.monotonic() > end:
-                break
+                for f in unpack(m["answer"]) or []:
+                    got = decode(f, self.speak)
+                    if got is None:
+                        continue
+                    if TYPE[got["type"]] >= 0x80:
+                        self.news.append(got)
+                    elif got["seq"] == self.seq:
+                        # A node that restarted, as one does to apply a power or a role, has
+                        # forgotten this client's HELLO: say it again, and ask once more.
+                        if got["type"] == "ERROR" and got["code"] == 6 and kind != "HELLO":
+                            print("  the node restarted: saying HELLO again", flush=True)
+                            self.hello()
+                            return self.request(kind, refusable=refusable, **values)
+                        if got["type"] == "ERROR" and not refusable:
+                            raise SystemExit(f"{kind}: {ERRORS.get(got['code'], got['code'])}")
+                        return got
+        if gave_up:
+            return None
         raise SystemExit(f"{kind}: no answer from the managed node")
 
     def hello(self):
@@ -1020,8 +1043,11 @@ def manage(node, args, names):
         remote.request("SET", setting=n, value=value)
         print(f"set, on trial: it goes back in {TRIAL // 60} minutes unless the node hears from "
               "an owner again")
-        remote.request("PING")
-        print("confirmed: the node heard again, and the setting stays")
+        if args.no_confirm:
+            print("not confirmed: any request from an owner before then keeps it")
+        else:
+            remote.request("PING")
+            print("confirmed: the node heard again, and the setting stays")
     elif args.what == "owner":
         remote.request("OWNER", address=address(args.owner), owner=int(args.on == "on"))
         print("done")
@@ -1152,6 +1178,8 @@ def main():
     mt = ms.add_parser("set", help="change a setting, on trial until confirmed")
     mt.add_argument("setting", choices=[k for k in SETTING if k not in ("region", "passkey")])
     mt.add_argument("value")
+    mt.add_argument("--no-confirm", action="store_true",
+                    help="leave it on trial: it goes back unless an owner is heard from in time")
     mo = ms.add_parser("owner")
     mo.add_argument("owner", help="a contact's address")
     mo.add_argument("on", choices=("on", "off"))
