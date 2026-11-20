@@ -27,6 +27,12 @@ void tern_address_text(const uint8_t address[TERN_ADDRESS_LEN],
 void tern_address_link(const uint8_t address[TERN_ADDRESS_LEN],
                        char out[TERN_ADDRESS_LINK_LEN + 1]);
 
+/* A link, an address's or a group's join code, as it is shown for a person to tap or send: its
+ * scheme, host and path letter in lower case ("https://ternmesh.org/a/"), the rest as it was. A
+ * phone opens that form in the Tern app, and the upper-case one, which a QR code holds, in a
+ * browser; every reader takes either. Changes text where it is. */
+void tern_link_tappable(char *text);
+
 /* The short code, NUL-terminated: SHA-256("tern short code" || address), its first eight bytes
  * big-endian, mod 10^12, as three groups of four digits. */
 void tern_short_code(const uint8_t address[TERN_ADDRESS_LEN], char out[TERN_SHORT_CODE_LEN + 1]);

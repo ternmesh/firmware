@@ -3487,6 +3487,7 @@ static void print_watchdog(const struct crumb *c) {
 static void status(void) {
     char link[TERN_ADDRESS_LINK_LEN + 1], code[TERN_SHORT_CODE_LEN + 1];
     tern_address_link(demo.id.address, link);
+    tern_link_tappable(link);
     tern_short_code(demo.id.address, code);
     printf("this board's address: ");
     print_address(demo.id.address);
