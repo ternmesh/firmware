@@ -3852,9 +3852,14 @@ static void command(char *line) {
         unsigned long to = strtoul(&line[6], &end, 16);
         if (end == &line[6] || *end != '\0') {
             printf("trace what? A routing id, eight hex digits, as 'routes' lists them\n");
-        } else if (ask(&(struct tern_companion_msg){.type = TERN_C_TRACE,
-                                                    .routing_id = (uint32_t)to})) {
-            printf("trace #%lu to %08lx begun\n", (unsigned long)board_answer.id, to);
+        } else {
+            /* A new ref each time: the link takes a TRACE with the ref of one it remembers as
+             * that one sent again, and begins nothing. */
+            struct tern_companion_msg q = {.type = TERN_C_TRACE, .routing_id = (uint32_t)to};
+            (void)board_random(NULL, (uint8_t *)&q.ref, sizeof q.ref);
+            if (ask(&q)) {
+                printf("trace #%lu to %08lx begun\n", (unsigned long)board_answer.id, to);
+            }
         }
     } else if (strcmp(line, "ignore") == 0 || strncmp(line, "ignore ", 7) == 0) {
         ignore_command(line[6] == ' ' ? &line[7] : "");
