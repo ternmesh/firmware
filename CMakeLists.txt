@@ -284,6 +284,9 @@ if(BUILD_TESTING)
     add_test(NAME companion_script COMMAND Python3::Interpreter
         ${CMAKE_CURRENT_SOURCE_DIR}/tools/companion.py selftest
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/vectors/companion.json)
+    # The field test's summary (docs/field-test.md), against logs it writes as the node prints.
+    add_test(NAME fieldsummary_script COMMAND Python3::Interpreter
+        ${CMAKE_CURRENT_SOURCE_DIR}/tools/fieldsummary.py --self-test)
     if(UNIX)
         add_executable(test_link_pty tests/link_pty.c ports/node/link.c)
         target_include_directories(test_link_pty PRIVATE ports/node)
