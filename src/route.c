@@ -1635,6 +1635,15 @@ static void on_solicit(struct tern_route *r, const struct tern_solicit *q, int16
     r->answered_next =
         (uint8_t)((r->answered_next + 1) % (sizeof r->answered / sizeof r->answered[0]));
     n->owed = true;
+    if (!n->up || n->theirs == 0) {
+        /* A leaf that does not name this relay may hold no key for it, as one that has just
+         * restarted holds none, and takes no announce of it that comes without one: it is a
+         * neighbour just found, its key carried in the next ADDRESS_AFTER announces, the next of
+         * them soon. Otherwise only one announce in ADDRESS_EVERY carries the key, Trickle's
+         * longest interval apart, and the leaf, its solicits soon given up, waits that long. */
+        r->address_owed = r->config.address_after;
+        trickle_reset(r, TERN_ROUTE_RESET_NEIGHBOUR);
+    }
     if (r->answer_count == TERN_ROUTE_ANSWERS) {
         return;
     }

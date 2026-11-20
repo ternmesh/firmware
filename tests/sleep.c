@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <string.h>
 
 #include "check.h"
@@ -233,13 +234,41 @@ static struct {
     int16_t snr[NODES][NODES];
     struct tern_lora lora;
     tern_time now;
-    tern_time awake;          /* the leaf's time with its radio on */
-    bool deaf[NODES];         /* a relay on firmware before sleeping leaves: it takes no poll */
-    unsigned polls;           /* the leaf's, sent */
-    unsigned keeper_messages; /* messages the keeper put on the air */
+    tern_time awake;           /* the leaf's time with its radio on */
+    bool deaf[NODES];          /* a relay on firmware before sleeping leaves: it takes no poll */
+    tern_time leaf_deaf_until; /* the leaf hears no relay until then */
+    unsigned polls;            /* the leaf's, sent */
+    unsigned keeper_messages;  /* messages the keeper put on the air */
 } net;
 
-static uint32_t id_of(int i) { return 0x2000u + (uint32_t)i; }
+/* Routers that sign and check, as boards' do (the specification's "Signed"), where a test asks:
+ * each node's routing id then comes from its key, and an announce is taken only with a key held
+ * or carried. */
+static bool signed_net;
+static struct tern_identity ident[NODES];
+
+static void sign_ed25519(void *ctx, const uint8_t *m, size_t len, uint8_t sig[TERN_ANNOUNCE_SIG]) {
+    tern_identity_sign_blinded(ctx, TERN_EPOCH, m, len, sig);
+}
+
+static bool verify_ed25519(void *ctx, const uint8_t key[TERN_ADDRESS_LEN], const uint8_t *m,
+                           size_t len, const uint8_t sig[TERN_ANNOUNCE_SIG]) {
+    (void)ctx;
+    return tern_address_valid(key) && tern_address_verify(key, m, len, sig);
+}
+
+static uint32_t id_of(int i) {
+    return signed_net ? tern_route_key_id(ident[i].key) : 0x2000u + (uint32_t)i;
+}
+
+static void auth(int i) {
+    if (signed_net) {
+        tern_route_auth(&net.node[i].r, &(struct tern_route_auth){.key = ident[i].key,
+                                                                  .ctx = &ident[i],
+                                                                  .sign = sign_ed25519,
+                                                                  .verify = verify_ed25519});
+    }
+}
 
 static bool off(int k) {
     tern_time wake;
@@ -256,6 +285,9 @@ static void on_air(int from, const uint8_t *frame, size_t len, int8_t dbm) {
             continue;
         }
         if (net.deaf[k] && frame[0] == TERN_HDR_POLL) {
+            continue;
+        }
+        if (k == LEAF && net.now < net.leaf_deaf_until) {
             continue;
         }
         if (tern_route_frame(frame, len)) {
@@ -336,6 +368,7 @@ static void net_init(void) {
         }
         tern_route_init(&x->r, &c, id_of(a), x->nb, NB, x->dest, DESTS, 0,
                         0x9E3779B97F4A7C15ULL * (uint64_t)(a + 1), 0);
+        auth(a);
         tern_forward_init(&x->f, &fc, &x->r, x->slot, SLOTS, (uint64_t)(a + 7));
         if (a != LEAF) {
             tern_forward_keeper(&x->f, x->kept, KEPT);
@@ -542,6 +575,7 @@ static void restart(int k, const struct tern_route_kept_saved *saved, size_t n) 
     }
     tern_route_init(&x->r, &c, id_of(k), x->nb, NB, x->dest, DESTS, 0,
                     0x5851F42D4C957F2DULL * (uint64_t)(k + 3), net.now);
+    auth(k);
     tern_forward_init(&x->f, &fc, &x->r, x->slot, SLOTS, (uint64_t)(k + 17));
     if (k != LEAF) {
         tern_forward_keeper(&x->f, x->kept, KEPT);
@@ -602,6 +636,43 @@ static void both_restart_and_the_keepers_own_frame_waits_for_the_next_poll(void)
     CHECK_EQ_I64(net.node[LEAF].got, 1);
     CHECK_EQ_I64(net.node[KEEPER].acked, 1);
     CHECK_EQ_I64(net.node[KEEPER].failed, 0);
+}
+
+/* The leaf alone restarts, as one an owner restarts over the mesh does, its keeper long settled and
+ * its other neighbours gone, with routers that sign as boards' do. Restarted, the leaf holds no
+ * key, and takes no announce that comes without one. It misses the few that carry the keeper's
+ * key after it finds the leaf again, here for want of hearing anything for a while. It solicits;
+ * the keeper, answering one from a leaf that does not name it, carries its key again at once.
+ * Found on two boards: one announce in ADDRESS_EVERY carried it, Trickle's longest interval apart,
+ * the leaf gave up soliciting after three it took to have no answer, and it was without a keeper
+ * for eight and a half minutes, and here for more than fifteen. */
+static void a_leaf_that_restarts_takes_a_keeper_again_soon(void) {
+    uint32_t keeper = 0;
+    signed_net = true;
+    for (int i = 0; i < NODES; i++) {
+        uint8_t seed[32];
+        memset(seed, 0x40 + i, sizeof seed);
+        tern_identity_init(&ident[i], seed);
+    }
+    net_init();
+    link(OTHER, LEAF, NONE);
+    link(SRC, KEEPER, NONE);
+    link(KEEPER, OTHER, NONE);
+    run(net.now + TERN_S(3600)); /* the keeper's interval at its longest */
+    CHECK(tern_route_sleeping(&net.node[LEAF].r, &keeper));
+    uint16_t next = (uint16_t)(net.node[LEAF].r.number + 1);
+    restart(LEAF, NULL, 0);
+    tern_route_numbering_from(&net.node[LEAF].r, next, (uint16_t)(next + 64)); /* as boards keep */
+    net.leaf_deaf_until = net.now + TERN_S(150);
+    for (tern_time limit = net.now + TERN_S(900);
+         !tern_route_sleeping(&net.node[LEAF].r, &keeper) && net.now < limit;) {
+        run(net.now + TERN_S(1));
+    }
+    CHECK(tern_route_sleeping(&net.node[LEAF].r, &keeper));
+    CHECK(keeper == id_of(KEEPER));
+    /* Its next solicit after it hears again, and the keeper's announces soon after. */
+    CHECK(net.now - net.leaf_deaf_until <= TERN_S(90));
+    signed_net = false;
 }
 
 /* A frame of the keeper's own that comes just after it answered the leaf's poll saying nothing is
@@ -744,6 +815,7 @@ int main(void) {
     RUN(a_keeper_that_restarts_still_keeps_its_leaf);
     RUN(both_restart_and_the_keepers_own_frame_waits_for_the_next_poll);
     RUN(a_frame_after_the_answer_waits_for_the_next_poll);
+    RUN(a_leaf_that_restarts_takes_a_keeper_again_soon);
     RUN(a_keeper_that_restarts_with_nothing_kept_gives_up);
     RUN(a_source_told_it_is_held_waits);
     RUN(a_managed_leaf_answers_in_seconds_not_wakes);
