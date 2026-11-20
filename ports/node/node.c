@@ -413,6 +413,9 @@ struct settings {
     uint32_t receiver_off; /* 1 if a client turned it off */
     /* And sleeping, as a leaf (doze.h's doze_setting()): off on a board that saved none. */
     uint32_t sleep;
+    /* And the lock on Bluetooth (draft/managing.md, SET 10): unlocked on a board that saved none.
+     */
+    uint32_t locked;
 };
 #define SCREEN_BENCH 0x01u /* screen_flags: the bench screen's pages follow the user's */
 #if CONFIG_TERN_SCREEN_BENCH
@@ -430,6 +433,7 @@ static struct settings settings = {SETTINGS_MAGIC,
                                    0,
                                    0,
                                    {0},
+                                   0,
                                    0,
                                    0};
 
@@ -757,9 +761,12 @@ static bool hand_over(const struct link_message *x, struct pending *p, bool *gon
                 *gone = true; /* its group was left since */
                 return false;
             }
-        } else if (x->kind == LINK_KIND_MANAGE || x->kind == LINK_KIND_ANSWER) {
-            /* A request to manage, or an answer, after its kind (draft/managing.md). */
-            invite[0] = x->kind == LINK_KIND_MANAGE ? TERN_MANAGE_REQUEST : TERN_MANAGE_ANSWER;
+        } else if (x->kind == LINK_KIND_MANAGE || x->kind == LINK_KIND_ANSWER ||
+                   x->kind == LINK_KIND_NOTICE) {
+            /* A request to manage, an answer or a notice, after its kind (draft/managing.md). */
+            invite[0] = x->kind == LINK_KIND_MANAGE   ? TERN_MANAGE_REQUEST
+                        : x->kind == LINK_KIND_ANSWER ? TERN_MANAGE_ANSWER
+                                                      : TERN_MANAGE_OWNERS;
             memcpy(invite + 1, x->text, x->text_len);
             len = 1 + (size_t)x->text_len;
             plain = invite;
@@ -1049,6 +1056,19 @@ static void heard_for_node(const uint8_t *plain, size_t len, const uint8_t peer[
     }
     if (len > 0 && plain[0] == TERN_MANAGE_ANSWER) {
         link_managed(&companion, peer, plain + 1, len - 1);
+        return;
+    }
+    if (len > 0 && plain[0] == TERN_MANAGE_OWNERS) {
+        uint8_t contact[TERN_ADDRESS_LEN], owner, by;
+        if (tern_manage_notice_read(plain, len, contact, &owner, &by)) {
+            print_address(peer);
+            printf(" says ");
+            print_address(contact);
+            printf(" %s one of its owners, %s\n", owner ? "is now" : "is no longer",
+                   by == TERN_MANAGE_BY_MESH ? "by an owner over the mesh"
+                                             : "over USB or Bluetooth");
+            link_owners_notice(&companion, peer, plain, len);
+        }
         return;
     }
     if (len > 0 && plain[0] == TERN_SLEEP_KIND) {
@@ -2518,6 +2538,7 @@ static void link_view(void *ctx, struct link_view *v) {
     v->region = region->name;
     v->power = cfg.tx_power_dbm;
     v->most = power_follows_region() ? 1 : 0;
+    v->locked = settings.locked ? 1 : 0;
     v->pairing = settings.passkey != PASSKEY_RANDOM ? TERN_C_PAIRING_SET
                  : have_screen                      ? TERN_C_PAIRING_SHOWN
                                                     : TERN_C_PAIRING_DEFAULT;
@@ -2754,6 +2775,13 @@ static uint8_t set_setting(const struct tern_companion_msg *m) {
         restart = false;
         break;
     }
+    case TERN_C_SET_LOCK:
+        if (m->locked > 1) {
+            return TERN_C_ERR_REFUSED;
+        }
+        next.locked = m->locked;
+        restart = false;
+        break;
     case TERN_C_SET_RECEIVER:
         /* A board without one may turn it off, and has nothing to turn on. */
         if (m->receiver > 1 || (m->receiver == 1 && !board_gnss())) {
@@ -3519,7 +3547,7 @@ static bool answers_out(void) {
     }
     for (size_t i = 0; i < LINK_MESSAGES; i++) {
         const struct link_message *x = &companion.messages[i];
-        if (x->used && x->kind == LINK_KIND_ANSWER &&
+        if (x->used && (x->kind == LINK_KIND_ANSWER || x->kind == LINK_KIND_NOTICE) &&
             (x->state == TERN_C_WAITING || x->state == TERN_C_SENT)) {
             if (restart_asked_at == 0) {
                 restart_asked_at = board_now();
@@ -4718,7 +4746,9 @@ void node_main(void) {
     saved.card_name_len = 0;
     saved.receiver_off = 0;
     saved.sleep = 0;
+    saved.locked = 0;
     if ((store_load(NULL, "settings", &saved, sizeof saved) ||
+         store_load(NULL, "settings", &saved, offsetof(struct settings, locked)) ||
          store_load(NULL, "settings", &saved, offsetof(struct settings, sleep)) ||
          store_load(NULL, "settings", &saved, offsetof(struct settings, receiver_off)) ||
          store_load(NULL, "settings", &saved, offsetof(struct settings, cards)) ||

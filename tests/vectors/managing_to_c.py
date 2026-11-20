@@ -52,6 +52,14 @@ def main():
         setting = c["setting"] if c["setting"] is not None else 0
         L.append(f"    {{0x{types[c['type']]:02x}, {setting}, {'true' if c['allowed'] else 'false'}}},")
     L.append("};")
+    L.append("static const struct notice_case notices[] = {")
+    for c in v["notices"]:
+        L.append(f"    {{{hexbytes(c['contact'])}, {c['owner']}, {c['by']}, {hexbytes(c['content'])}}},")
+    L.append("};")
+    L.append("static const struct locked_case locked[] = {")
+    for c in v["locked"]:
+        L.append(f"    {{0x{types[c['type']]:02x}, {'true' if c['allowed'] else 'false'}}},")
+    L.append("};")
     with open(out, "w", encoding="utf-8") as f:
         f.write("\n".join(L) + "\n")
 

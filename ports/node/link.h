@@ -121,6 +121,7 @@ struct link_view {
     int8_t power;
     uint8_t most;    /* 1 if `power` is the most the node may send at, which it works out */
     uint8_t pairing; /* how a client pairs over Bluetooth: a TERN_C_PAIRING_ */
+    uint8_t locked;  /* 1 if the node's Bluetooth is locked (draft/managing.md) */
     uint32_t time;   /* seconds since 1970, or 0 */
     uint8_t cards;   /* 1 if the node sends cards, 0 if not */
     uint8_t card_name_len;
@@ -291,7 +292,8 @@ enum link_kind {
     LINK_KIND_GROUP,
     LINK_KIND_INVITE,
     LINK_KIND_MANAGE,
-    LINK_KIND_ANSWER
+    LINK_KIND_ANSWER,
+    LINK_KIND_NOTICE /* to an owner, that the owners changed: its text is all after the kind */
 };
 
 /* A MANAGE's request to another node, and an answer to an owner, are messages for the node of
@@ -419,6 +421,7 @@ struct link_conn {
     int8_t self_power;
     uint8_t self_most;
     uint8_t self_pairing;
+    uint8_t self_locked;
     const char *self_region;
     uint8_t self_cards;
     uint8_t self_card_name_len;
@@ -641,6 +644,11 @@ bool link_manage(struct link *l, tern_time now, const uint8_t from[TERN_ADDRESS_
  * the kind. It is told to every client as MANAGED, if it is an answer at all. */
 void link_managed(struct link *l, const uint8_t from[TERN_ADDRESS_LEN], const uint8_t *content,
                   size_t len);
+
+/* A notice that the owners of the node at `from` changed: a message for the node of kind 0x07,
+ * kind included. It is told to every client as OWNER_CHANGED, if it is a notice at all. */
+void link_owners_notice(struct link *l, const uint8_t from[TERN_ADDRESS_LEN],
+                        const uint8_t *content, size_t len);
 
 void link_asked(struct link *l, tern_time now, const uint8_t address[TERN_ADDRESS_LEN],
                 uint8_t why);

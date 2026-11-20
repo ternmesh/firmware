@@ -1,5 +1,5 @@
 {
-  "description": "The companion protocol, version 17 (draft/companion.md). Frames, streams, addresses and group ids are hex; numbers are numbers; strings are text. In frames, frame is the frame alone, as one BLE write or notification carries it, and stream is the same frame as it goes on a byte stream. In extended, frame carries bytes past the fields this version defines, and fields is what a receiver reads from it. In rejected, a receiver discards frame; answer is the ERROR code a node answers it with, null for none. In unknown_to_older, frame is of a type, or names a setting, that version does not define: a node speaking it answers ERROR answer, and a client speaking it ignores news and discards an answer (null). In streams, items are what a receiver finds in stream, in order: a frame, or a run of bytes that is not one, and pending is what it holds at the end waiting for more. In group_ids, group is the id of the group whose secret is group_secret. Exchange is one connection, in order. In it the node refuses first contact from the third address just before the ASKED; the group it makes has the secret made, where a node in use draws one; and after its own group message is sent it receives a message to that group from the second address's routing id, and then an invite from that address to the group whose secret is invited. After it leaves the first group, it receives a position from the second address, just before its POSITION. It holds a card from the fourth address from the start, received 1260 seconds before the sync; after the CONTACT that follows END_SESSION it accepts a newer card from that address, with the same name, just before the CARD that says so, and forgets it just before the CARD_GONE. Its last JOIN_LINK carries the first group's join code with one character of the secret typed wrong. Its satellite receiver is on, without a fix, from the start; it finds a fix just before the FIX that says so, and each FIX's age is as the file gives it. Asked for the most it may transmit at, it works it out as 22 dBm. It has no screen, and pairs with the default passkey until the user sets one. Its last request turns it off: it answers, and then turns off, so nothing follows. Older holds connections to the same node by clients of earlier versions. To the client of version 0 it holds what the exchange begins with, and refuses that first contact after the sync, before the client's SAVE_CONTACT. To the client of version 1 it holds what the exchange has before its JOIN but for the group message and the invite received, which come after the sync and before the client's SEND; the client's last request is one its version does not define, which a client must not send, and the node answers it as it would any other it does not know from that client. To the client of version 2 it holds what the exchange begins with, and its SYNCED is version 2's, without news. To the clients of versions 3 and 4 it holds what the exchange begins with, a position from the second address, and sharing with that address: the sync sends neither, and the node refuses the request each client's version does not define, which it must not send. To the client of version 5 it holds what the exchange begins with, and the sync sends no card; the client's last request names a setting its version does not define. To the client of version 6 it holds what the exchange begins with, and the client's last request is one its version does not define. To the client of version 7 it holds what the exchange begins with, the sync sends no FIX, and the client's last request names a setting its version does not define. To the client of version 8 it holds what the exchange begins with, and the client's last request is one its version does not define. To the client of version 9 it holds what the exchange begins with, and the client's last request asks for a power of -128 dBm, which its version does not take as the most and no radio sends at. To the client of version 10 it holds what the exchange begins with, and sends a SELF without pairing. To the client of version 11 it holds what the exchange begins with, sends an INFO without update, and the client's last request is one its version does not define. To the client of version 12 it holds what the exchange begins with, refuses its UPDATE_BEGIN, which has no signature, and the client's last request is one its version does not define. To the client of version 14 it holds what the exchange begins with, the sync sends no SLEEP, and the client's last request names a setting its version does not define. To the client of version 15 it holds what the exchange begins with, and the client's last request is one its version does not define. To the client of version 16 it holds what the exchange begins with, its CONTACT has no owner, and the client's last request is one its version does not define. Positions are in units of 10^-7 degree. Each connection's frames are read by the version its client speaks, and each client of an earlier version is sent an INFO without board and release. Release_key is a release key (draft/companion.md, Signed images), and release_seed the seed of its private key: a TEST KEY, published so that anyone can check a signer, which no node or client in use may hold. Image_signature is its signature of image. In signatures, message is what a release key signs for the image whose SHA-256 is digest, and verifies is whether signature verifies over it with release_key. Update is one update of image, whose SHA-256 is image_digest, over two connections to a node that holds only itself, holds release_key as its one release key, and has no satellite receiver: the link is lost after the first connection's last frame, and the node keeps what it was sent. Refusals is one connection to the same node with no update under way, given UPDATE_BEGINs whose signatures do not verify, and then an image of the same size whose digest is not its own, signed, and that updates over this protocol, not by its bootloader. Bootloader is two connections to a node whose bootloader takes its updates over Bluetooth, which has no room for an image itself: one by a client of this version, after whose last frame the node restarts into its bootloader, and one by a client of version 11, which is sent an INFO with no board. Wipe is one connection to the node of update, which answers WIPE and then erases itself and restarts. Forget is two connections to a node that holds the second address as a contact, the first group, and the messages and invite the first connection's sync sends, with its satellite receiver on and without a fix: in the first, the client forgets the conversation with the second address while a message to it waits, and the first group's, and the node receives a message from the second address just before the last MESSAGE; the second is a client that held every message through id 21, and is told what the first forgot. Manage is one connection to a node like the first of forget's, whose client makes the second address an owner and then manages the node at that address over the mesh: each request is delivered, and each answer, packed as draft/managing.md has it, comes back as MANAGED; that node holds the first address as its owner, three neighbours, and no satellite receiver. The four addresses are the public keys of RFC 8032's first four Ed25519 test vectors (section 7.1: TEST 1, 2, 3 and 1024).",
+  "description": "The companion protocol, version 17 (draft/companion.md). Frames, streams, addresses and group ids are hex; numbers are numbers; strings are text. In frames, frame is the frame alone, as one BLE write or notification carries it, and stream is the same frame as it goes on a byte stream. In extended, frame carries bytes past the fields this version defines, and fields is what a receiver reads from it. In rejected, a receiver discards frame; answer is the ERROR code a node answers it with, null for none. In unknown_to_older, frame is of a type, or names a setting, that version does not define: a node speaking it answers ERROR answer, and a client speaking it ignores news and discards an answer (null). In streams, items are what a receiver finds in stream, in order: a frame, or a run of bytes that is not one, and pending is what it holds at the end waiting for more. In group_ids, group is the id of the group whose secret is group_secret. Exchange is one connection, in order. In it the node refuses first contact from the third address just before the ASKED; the group it makes has the secret made, where a node in use draws one; and after its own group message is sent it receives a message to that group from the second address's routing id, and then an invite from that address to the group whose secret is invited. After it leaves the first group, it receives a position from the second address, just before its POSITION. It holds a card from the fourth address from the start, received 1260 seconds before the sync; after the CONTACT that follows END_SESSION it accepts a newer card from that address, with the same name, just before the CARD that says so, and forgets it just before the CARD_GONE. Its last JOIN_LINK carries the first group's join code with one character of the secret typed wrong. Its satellite receiver is on, without a fix, from the start; it finds a fix just before the FIX that says so, and each FIX's age is as the file gives it. Asked for the most it may transmit at, it works it out as 22 dBm. It has no screen, and pairs with the default passkey until the user sets one. Its last request turns it off: it answers, and then turns off, so nothing follows. Older holds connections to the same node by clients of earlier versions. To the client of version 0 it holds what the exchange begins with, and refuses that first contact after the sync, before the client's SAVE_CONTACT. To the client of version 1 it holds what the exchange has before its JOIN but for the group message and the invite received, which come after the sync and before the client's SEND; the client's last request is one its version does not define, which a client must not send, and the node answers it as it would any other it does not know from that client. To the client of version 2 it holds what the exchange begins with, and its SYNCED is version 2's, without news. To the clients of versions 3 and 4 it holds what the exchange begins with, a position from the second address, and sharing with that address: the sync sends neither, and the node refuses the request each client's version does not define, which it must not send. To the client of version 5 it holds what the exchange begins with, and the sync sends no card; the client's last request names a setting its version does not define. To the client of version 6 it holds what the exchange begins with, and the client's last request is one its version does not define. To the client of version 7 it holds what the exchange begins with, the sync sends no FIX, and the client's last request names a setting its version does not define. To the client of version 8 it holds what the exchange begins with, and the client's last request is one its version does not define. To the client of version 9 it holds what the exchange begins with, and the client's last request asks for a power of -128 dBm, which its version does not take as the most and no radio sends at. To the client of version 10 it holds what the exchange begins with, and sends a SELF without pairing. To the client of version 11 it holds what the exchange begins with, sends an INFO without update, and the client's last request is one its version does not define. To the client of version 12 it holds what the exchange begins with, refuses its UPDATE_BEGIN, which has no signature, and the client's last request is one its version does not define. To the client of version 14 it holds what the exchange begins with, the sync sends no SLEEP, and the client's last request names a setting its version does not define. To the client of version 15 it holds what the exchange begins with, and the client's last request is one its version does not define. To the client of version 16 it holds what the exchange begins with, its CONTACT has no owner, and the client's last request is one its version does not define. Positions are in units of 10^-7 degree. Each connection's frames are read by the version its client speaks, and each client of an earlier version is sent an INFO without board and release. Release_key is a release key (draft/companion.md, Signed images), and release_seed the seed of its private key: a TEST KEY, published so that anyone can check a signer, which no node or client in use may hold. Image_signature is its signature of image. In signatures, message is what a release key signs for the image whose SHA-256 is digest, and verifies is whether signature verifies over it with release_key. Update is one update of image, whose SHA-256 is image_digest, over two connections to a node that holds only itself, holds release_key as its one release key, and has no satellite receiver: the link is lost after the first connection's last frame, and the node keeps what it was sent. Refusals is one connection to the same node with no update under way, given UPDATE_BEGINs whose signatures do not verify, and then an image of the same size whose digest is not its own, signed, and that updates over this protocol, not by its bootloader. Bootloader is two connections to a node whose bootloader takes its updates over Bluetooth, which has no room for an image itself: one by a client of this version, after whose last frame the node restarts into its bootloader, and one by a client of version 11, which is sent an INFO with no board. Wipe is one connection to the node of update, which answers WIPE and then erases itself and restarts. Forget is two connections to a node that holds the second address as a contact, the first group, and the messages and invite the first connection's sync sends, with its satellite receiver on and without a fix: in the first, the client forgets the conversation with the second address while a message to it waits, and the first group's, and the node receives a message from the second address just before the last MESSAGE; the second is a client that held every message through id 21, and is told what the first forgot. Manage is one connection to a node like the first of forget's, whose client makes the second address an owner and then manages the node at that address over the mesh: the notice the node sends its new owner takes id 22; each request is delivered, and each answer, packed as draft/managing.md has it, comes back as MANAGED; that node holds the first address as its owner, three neighbours, and no satellite receiver. Before the client's last request, that node tells its owners that the third address was made one over a link. The four addresses are the public keys of RFC 8032's first four Ed25519 test vectors (section 7.1: TEST 1, 2, 3 and 1024).",
   "generator": "vectors/tools/companion.py",
   "crc_check": {
     "input": "313233343536373839",
@@ -757,6 +757,7 @@
       "type": "SELF",
       "seq": 0,
       "fields": {
+        "locked": 0,
         "address": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
         "role": 1,
         "region": "EU868",
@@ -767,13 +768,14 @@
         "most": 0,
         "pairing": 0
       },
-      "frame": "8000d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b80011141646120c2b7206875742077617264656e0000",
-      "stream": "f55400438000d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b80011141646120c2b7206875742077617264656e0000b535"
+      "frame": "8000d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b80011141646120c2b7206875742077617264656e000000",
+      "stream": "f55400448000d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b80011141646120c2b7206875742077617264656e000000f210"
     },
     {
       "type": "SELF",
       "seq": 1,
       "fields": {
+        "locked": 0,
         "address": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
         "role": 0,
         "region": "US915",
@@ -784,13 +786,14 @@
         "most": 0,
         "pairing": 2
       },
-      "frame": "8001d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a00055553393135f70000000000000002",
-      "stream": "f55400328001d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a00055553393135f70000000000000002412d"
+      "frame": "8001d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a00055553393135f7000000000000000200",
+      "stream": "f55400338001d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a00055553393135f70000000000000002000ea5"
     },
     {
       "type": "SELF",
       "seq": 2,
       "fields": {
+        "locked": 0,
         "address": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
         "role": 1,
         "region": "US915",
@@ -801,8 +804,8 @@
         "most": 1,
         "pairing": 1
       },
-      "frame": "8002d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a01055553393135160000000000000101",
-      "stream": "f55400328002d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010555533931351600000000000001019162"
+      "frame": "8002d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a0105555339313516000000000000010100",
+      "stream": "f55400338002d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a01055553393135160000000000000101008ad8"
     },
     {
       "type": "CONTACT",
@@ -1402,6 +1405,59 @@
       "stream": "f55400023832708d"
     },
     {
+      "type": "SET",
+      "seq": 51,
+      "fields": {
+        "setting": 10,
+        "value": 1
+      },
+      "frame": "05330a01",
+      "stream": "f554000405330a01584c"
+    },
+    {
+      "type": "SET",
+      "seq": 52,
+      "fields": {
+        "setting": 10,
+        "value": 0
+      },
+      "frame": "05340a00",
+      "stream": "f554000405340a00cdfd"
+    },
+    {
+      "type": "ERROR",
+      "seq": 51,
+      "fields": {
+        "code": 14
+      },
+      "frame": "41330e",
+      "stream": "f554000341330e1145"
+    },
+    {
+      "type": "OWNER_CHANGED",
+      "seq": 47,
+      "fields": {
+        "from": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "contact": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "owner": 1,
+        "by": 0
+      },
+      "frame": "992f3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660cfc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb9115489080250100",
+      "stream": "f5540044992f3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660cfc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb91154890802501002d74"
+    },
+    {
+      "type": "OWNER_CHANGED",
+      "seq": 48,
+      "fields": {
+        "from": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "contact": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        "owner": 0,
+        "by": 1
+      },
+      "frame": "99303d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660cd75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a0001",
+      "stream": "f554004499303d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660cd75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a0001a219"
+    },
+    {
       "type": "MANAGED",
       "seq": 45,
       "fields": {
@@ -1433,7 +1489,7 @@
       "fields": {}
     },
     {
-      "frame": "8000d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e0000000000000000aa",
+      "frame": "8000d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e000000000000000000aa",
       "type": "SELF",
       "seq": 0,
       "fields": {
@@ -1445,7 +1501,8 @@
         "cards": 0,
         "card_name": "",
         "most": 0,
-        "pairing": 0
+        "pairing": 0,
+        "locked": 0
       }
     }
   ],
@@ -1915,7 +1972,7 @@
       "from": "node",
       "type": "SELF",
       "seq": 0,
-      "frame": "8000d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b8000000001"
+      "frame": "8000d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b800000000100"
     },
     {
       "from": "node",
@@ -2311,7 +2368,7 @@
       "from": "node",
       "type": "SELF",
       "seq": 33,
-      "frame": "8021d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b80001141646120c2b7206875742077617264656e0001"
+      "frame": "8021d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b80001141646120c2b7206875742077617264656e000100"
     },
     {
       "from": "client",
@@ -2329,7 +2386,7 @@
       "from": "node",
       "type": "SELF",
       "seq": 34,
-      "frame": "8022d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b80011141646120c2b7206875742077617264656e0001"
+      "frame": "8022d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b80011141646120c2b7206875742077617264656e000100"
     },
     {
       "from": "client",
@@ -2383,7 +2440,7 @@
       "from": "node",
       "type": "SELF",
       "seq": 37,
-      "frame": "8025d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b80001141646120c2b7206875742077617264656e0001"
+      "frame": "8025d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b80001141646120c2b7206875742077617264656e000100"
     },
     {
       "from": "node",
@@ -2503,7 +2560,7 @@
       "from": "node",
       "type": "SELF",
       "seq": 43,
-      "frame": "802bd75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a01054555383638166ab13b80001141646120c2b7206875742077617264656e0101"
+      "frame": "802bd75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a01054555383638166ab13b80001141646120c2b7206875742077617264656e010100"
     },
     {
       "from": "client",
@@ -2521,7 +2578,7 @@
       "from": "node",
       "type": "SELF",
       "seq": 44,
-      "frame": "802cd75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a01054555383638166ab13b80001141646120c2b7206875742077617264656e0102"
+      "frame": "802cd75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a01054555383638166ab13b80001141646120c2b7206875742077617264656e010200"
     },
     {
       "from": "client",
@@ -2539,7 +2596,7 @@
       "from": "node",
       "type": "SELF",
       "seq": 45,
-      "frame": "802dd75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a00054555383638166ab13b80001141646120c2b7206875742077617264656e0102"
+      "frame": "802dd75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a00054555383638166ab13b80001141646120c2b7206875742077617264656e010200"
     },
     {
       "from": "client",
@@ -4225,6 +4282,20 @@
       "answer": 1
     },
     {
+      "type": "SET",
+      "version": 16,
+      "frame": "05050a01",
+      "why": "a setting this version does not define",
+      "answer": 1
+    },
+    {
+      "type": "OWNER_CHANGED",
+      "version": 16,
+      "frame": "99053d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660cfc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb9115489080250100",
+      "why": "a type this version does not define",
+      "answer": null
+    },
+    {
       "type": "MANAGED",
       "version": 16,
       "frame": "98053d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c03024007",
@@ -4331,7 +4402,7 @@
         "from": "node",
         "type": "SELF",
         "seq": 0,
-        "frame": "8000d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b8000000001"
+        "frame": "8000d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b800000000100"
       },
       {
         "from": "node",
@@ -4435,7 +4506,7 @@
         "from": "node",
         "type": "SELF",
         "seq": 0,
-        "frame": "8000d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b8000000001"
+        "frame": "8000d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b800000000100"
       },
       {
         "from": "node",
@@ -4899,7 +4970,7 @@
         "from": "node",
         "type": "SELF",
         "seq": 0,
-        "frame": "8000d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b8000000001"
+        "frame": "8000d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b800000000100"
       },
       {
         "from": "node",
@@ -5087,7 +5158,7 @@
         "from": "node",
         "type": "SELF",
         "seq": 0,
-        "frame": "8000d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b8000000001"
+        "frame": "8000d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a010545553836380e6ab13b800000000100"
       },
       {
         "from": "node",
@@ -5246,19 +5317,19 @@
       "from": "node",
       "type": "QUEUED",
       "seq": 7,
-      "frame": "440700000016"
+      "frame": "440700000017"
     },
     {
       "from": "node",
       "type": "STATE",
       "seq": 1,
-      "frame": "84010000001601000000"
+      "frame": "84010000001701000000"
     },
     {
       "from": "node",
       "type": "STATE",
       "seq": 2,
-      "frame": "84020000001602000000"
+      "frame": "84020000001702000000"
     },
     {
       "from": "node",
@@ -5276,25 +5347,25 @@
       "from": "node",
       "type": "QUEUED",
       "seq": 8,
-      "frame": "440800000017"
+      "frame": "440800000018"
     },
     {
       "from": "node",
       "type": "STATE",
       "seq": 4,
-      "frame": "84040000001701000000"
+      "frame": "84040000001801000000"
     },
     {
       "from": "node",
       "type": "STATE",
       "seq": 5,
-      "frame": "84050000001702000000"
+      "frame": "84050000001802000000"
     },
     {
       "from": "node",
       "type": "MANAGED",
       "seq": 6,
-      "frame": "98063d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c763280003d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c010545553836380e6ab13b80000000012c8101d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a0105416c6963650000010a85021d2e3f4000da002a0a85031d2e3f4101df002b"
+      "frame": "98063d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c773380003d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c010545553836380e6ab13b8000000001002c8101d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a0105416c6963650000010a85021d2e3f4000da002a0a85031d2e3f4101df002b"
     },
     {
       "from": "node",
@@ -5312,19 +5383,19 @@
       "from": "node",
       "type": "QUEUED",
       "seq": 9,
-      "frame": "440900000018"
+      "frame": "440900000019"
     },
     {
       "from": "node",
       "type": "STATE",
       "seq": 8,
-      "frame": "84080000001801000000"
+      "frame": "84080000001901000000"
     },
     {
       "from": "node",
       "type": "STATE",
       "seq": 9,
-      "frame": "84090000001802000000"
+      "frame": "84090000001902000000"
     },
     {
       "from": "node",
@@ -5342,19 +5413,19 @@
       "from": "node",
       "type": "QUEUED",
       "seq": 10,
-      "frame": "440a00000019"
+      "frame": "440a0000001a"
     },
     {
       "from": "node",
       "type": "STATE",
       "seq": 11,
-      "frame": "840b0000001901000000"
+      "frame": "840b0000001a01000000"
     },
     {
       "from": "node",
       "type": "STATE",
       "seq": 12,
-      "frame": "840c0000001902000000"
+      "frame": "840c0000001a02000000"
     },
     {
       "from": "node",
@@ -5372,19 +5443,19 @@
       "from": "node",
       "type": "QUEUED",
       "seq": 11,
-      "frame": "440b0000001a"
+      "frame": "440b0000001b"
     },
     {
       "from": "node",
       "type": "STATE",
       "seq": 14,
-      "frame": "840e0000001a01000000"
+      "frame": "840e0000001b01000000"
     },
     {
       "from": "node",
       "type": "STATE",
       "seq": 15,
-      "frame": "840f0000001a02000000"
+      "frame": "840f0000001b02000000"
     },
     {
       "from": "node",
@@ -5402,25 +5473,31 @@
       "from": "node",
       "type": "QUEUED",
       "seq": 12,
-      "frame": "440c0000001b"
+      "frame": "440c0000001c"
     },
     {
       "from": "node",
       "type": "STATE",
       "seq": 17,
-      "frame": "84110000001b01000000"
+      "frame": "84110000001c01000000"
     },
     {
       "from": "node",
       "type": "STATE",
       "seq": 18,
-      "frame": "84120000001b02000000"
+      "frame": "84120000001c02000000"
     },
     {
       "from": "node",
       "type": "MANAGED",
       "seq": 19,
       "frame": "98133d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c03024006"
+    },
+    {
+      "from": "node",
+      "type": "OWNER_CHANGED",
+      "seq": 20,
+      "frame": "99143d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660cfc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb9115489080250100"
     },
     {
       "from": "client",

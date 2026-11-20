@@ -122,6 +122,7 @@ enum tern_companion_type {
     TERN_C_FORGOTTEN = 0x96,
     TERN_C_GROUP_FORGOTTEN = 0x97,
     TERN_C_MANAGED = 0x98,
+    TERN_C_OWNER_CHANGED = 0x99, /* `contact` is in digest, and `by` in why */
 };
 
 /* The first version of the protocol that defines a type: a node sends a client no frame its
@@ -142,6 +143,7 @@ enum tern_companion_setting {
     TERN_C_SET_RECEIVER = 7,  /* receiver: version 8 */
     TERN_C_SET_WAKE = 8,      /* wake: version 15, as is the one after it */
     TERN_C_SET_LISTEN = 9,    /* listen */
+    TERN_C_SET_LOCK = 10,     /* locked: version 17 */
 };
 
 /* The first version of the protocol that defines a setting of SET's. */
@@ -161,6 +163,7 @@ enum tern_companion_error {
     TERN_C_ERR_NOT_AN_IMAGE = 11,  /* version 4: the update is discarded */
     TERN_C_ERR_NOT_CONTACT = 12,   /* version 5: an address the node does not hold as a contact */
     TERN_C_ERR_NOT_OVER_MESH = 13, /* version 17: a request a managed node does not act on */
+    TERN_C_ERR_LOCKED = 14,        /* version 17: the node's Bluetooth is locked */
 };
 
 enum tern_companion_state {
@@ -236,6 +239,7 @@ struct tern_companion_msg {
     uint8_t update;  /* INFO's: a TERN_C_UPDATES_ */
     uint8_t listen;  /* SLEEP's, and SET 9's value: seconds */
     uint8_t owner;   /* CONTACT's and OWNER's: 1 if the contact is one of the node's owners */
+    uint8_t locked;  /* SELF's, and SET 10's value: 1 if the node's Bluetooth is locked */
     uint16_t wake;   /* CONTACT's, SLEEP's, and SET 8's value: seconds, 0 for not sleeping */
     uint16_t retry;  /* SLEEP's: seconds */
     uint32_t keeper; /* SLEEP's: a routing id */

@@ -58,7 +58,9 @@ package, and tools/release_key.py). Without it, a node updated over the link che
 itself; a node's bootloader checks none, so an nRF52840 board's `.zip` is not sent unchecked.
 `--unsigned` sends an image anyway, for a developer's own build: a node that checks signatures still
 refuses it. `--test-key` checks against the specification's published test key instead.
-`owner <address> on` lets a contact manage this node over the mesh (draft/managing.md), and `off`
+`set lock 1` locks the node's Bluetooth: a client there may then only say HELLO and PING, and only
+USB or an owner over the mesh can `set lock 0`. `--speak 17 watch` prints a NOTICE when a node this one owns
+says its owners changed. `owner <address> on` lets a contact manage this node over the mesh (draft/managing.md), and `off`
 stops it. `manage <address> ...` drives another node over the mesh, from the node on the port, as
 one of its owners: `state` prints what it holds, `set` changes a setting and then pings, which
 confirms it (a setting not confirmed goes back by itself in 15 minutes), `owner` and `contact`
@@ -155,7 +157,7 @@ FRAMES = {
     0x47: ("LINK", [("link", "str")]),
     0x80: ("SELF", [("address", "addr"), ("role", "B"), ("region", "str"), ("power", "b"),
                     ("time", "I"), ("cards", "B"), ("card_name", "str"), ("most", "B"),
-                    ("pairing", "B")]),
+                    ("pairing", "B"), ("locked", "B")]),
     0x81: ("CONTACT", [("address", "addr"), ("session", "B"), ("name", "str"), ("wake", "H"),
                        ("owner", "B")]),
     0x82: ("CONTACT_GONE", [("address", "addr")]),
@@ -193,21 +195,22 @@ FRAMES = {
     0x96: ("FORGOTTEN", [("contact", "addr"), ("through", "I")]),
     0x97: ("GROUP_FORGOTTEN", [("group", "gid"), ("through", "I")]),
     0x98: ("MANAGED", [("from", "addr"), ("answer", "raw")]),
+    0x99: ("OWNER_CHANGED", [("from", "addr"), ("contact", "addr"), ("owner", "B"), ("by", "B")]),
 }
 # Fields a later version added at the end of a frame: an earlier version's frame stops before them.
 LATER = {(0x43, "news"): 3, (0x42, "board"): 4, (0x42, "release"): 4, (0x80, "cards"): 6,
          (0x80, "card_name"): 6, (0x80, "most"): 10, (0x80, "pairing"): 11, (0x42, "update"): 12,
          (0x30, "signature"): 13, (0x81, "wake"): 15,
-         (0x81, "owner"): 17}
+         (0x81, "owner"): 17, (0x80, "locked"): 17}
 BYTES = {"addr": 32, "gid": 8, "digest": 32}
 TYPE = {name: t for t, (name, _) in FRAMES.items()}
 SETTINGS = {1: ("region", "str"), 2: ("role", "B"), 3: ("power", "b"), 4: ("passkey", "I"),
             5: ("cards", "B"), 6: ("card_name", "str"), 7: ("receiver", "B"), 8: ("wake", "H"),
-            9: ("listen", "B")}
+            9: ("listen", "B"), 10: ("lock", "B")}
 SETTING = {name: (n, kind) for n, (name, kind) in SETTINGS.items()}
 # The version a setting came with, where it was not there from the first: a node refuses it of a
 # client that speaks an earlier one.
-SINCE = {"cards": 6, "card_name": 6, "receiver": 8, "wake": 15, "listen": 15}
+SINCE = {"cards": 6, "card_name": 6, "receiver": 8, "wake": 15, "listen": 15, "lock": 17}
 # What a node holds with an id and a state, which a sync sends again: one id space for the three.
 HELD = ("MESSAGE", "GROUP_MESSAGE", "INVITE")
 STATES = ["waiting", "sent", "delivered", "not delivered", "received"]
@@ -218,7 +221,8 @@ ERRORS = {1: "not something this node knows", 2: "malformed", 3: "refused",
           7: "the Bluetooth MTU is too small", 8: "not now", 9: "not held",
           10: "not where the update is",
           11: "not an image this node runs, or not signed by a release key it holds",
-          12: "not a contact", 13: "not something a node does when managed over the mesh"}
+          12: "not a contact", 13: "not something a node does when managed over the mesh",
+          14: "the node's Bluetooth is locked: use USB, or manage it over the mesh as an owner"}
 # Managing over the mesh (draft/managing.md): how long after a request is delivered a client waits
 # for its answer, and how long a SET stays on trial unless a later request reaches the node.
 MESH_ANSWER_WAIT = 120.0
@@ -478,6 +482,8 @@ def describe(m, names):
             cards = f"\n  cards {'on' if m['cards'] else 'off'}, as {m['card_name']!r}"
         if "pairing" in m and m["pairing"] < len(PAIRING):
             cards += f"\n  Bluetooth: {PAIRING[m['pairing']]}"
+        if m.get("locked"):
+            cards += "\n  Bluetooth locked: only USB and the node's owners change it"
         return (f"this node: {m['address'].hex()}\n  a {'relay' if m['role'] else 'leaf'} in "
                 f"{m['region'] or 'no region'}, at {m['power']} dBm"
                 f"{', the most it may' if m.get('most') else ''}{cards}")
@@ -487,6 +493,11 @@ def describe(m, names):
         owner = ", an owner: may manage this node over the mesh" if m.get("owner") else ""
         return (f"contact {m['name']!r}: {m['address'].hex()}"
                 f"{', with a session' if m['session'] else ''}{sleeps}{owner}")
+    if t == "OWNER_CHANGED":
+        how = "by one of its owners over the mesh" if m["by"] else "over USB or Bluetooth, at the node"
+        return (f"NOTICE: node {names.get(m['from'], m['from'].hex())} says "
+                f"{names.get(m['contact'], m['contact'].hex())} "
+                f"{'is now one of its owners' if m['owner'] else 'is no longer an owner'}, {how}")
     if t == "CONTACT_GONE":
         return f"contact removed: {m['address'].hex()}"
     if t == "MESSAGE":
@@ -1032,7 +1043,7 @@ def selftest(path):
                   "answer"):
             if k in fields:
                 fields[k] = bytes.fromhex(fields[k])
-        if f["type"] == "MANAGED":
+        if f["type"] in ("MANAGED", "OWNER_CHANGED"):
             fields["from"] = bytes.fromhex(fields["from"])
         frame = bytes.fromhex(f["frame"])
         ok = encode(f["type"], f["seq"], speak=LATEST, **fields) == frame

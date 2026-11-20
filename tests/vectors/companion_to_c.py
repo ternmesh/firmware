@@ -29,14 +29,14 @@ TYPES = {
     "GROUP_SHARING": 0x91, "CARD": 0x92, "CARD_GONE": 0x93, "GROUP_LINK": 0x26,
     "JOIN_LINK": 0x27, "LINK": 0x47, "FIX": 0x94, "OFF": 0x06, "UPDATE_BOOTLOADER": 0x36,
     "WIPE": 0x37, "SLEEP": 0x95, "FORGET": 0x12, "FORGET_GROUP": 0x28, "FORGOTTEN": 0x96,
-    "GROUP_FORGOTTEN": 0x97, "MANAGE": 0x13, "OWNER": 0x14, "RESTART": 0x38, "MANAGED": 0x98,
+    "GROUP_FORGOTTEN": 0x97, "MANAGE": 0x13, "OWNER": 0x14, "RESTART": 0x38, "MANAGED": 0x98, "OWNER_CHANGED": 0x99,
 }
 STRINGS = ("text", "name", "firmware", "region", "link")
 ADDRESSES = ("to", "address", "contact")
 OWN_STRINGS = ("board", "release", "card_name")  # strings with members of their own
 RENAMED = {"snr_quarter_db": "snr"}
 SET_VALUE = {1: "region", 2: "role", 3: "power", 4: "passkey", 5: "cards", 6: "text",
-             7: "receiver", 8: "wake", 9: "listen"}
+             7: "receiver", 8: "wake", 9: "listen", 10: "locked"}
 
 
 def hexbytes(h):
@@ -66,7 +66,11 @@ def msg(kind, seq, fields):
                 parts.append(f".data = {hexbytes(value)}")
         elif name == "digest":
             parts.append(f".digest = {hexbytes(value)}")
-        elif name in ADDRESSES or (kind == "MANAGED" and name == "from"):
+        elif kind == "OWNER_CHANGED" and name == "contact":
+            parts.append(f".digest = {hexbytes(value)}")
+        elif kind == "OWNER_CHANGED" and name == "by":
+            parts.append(f".why = {value}")
+        elif name in ADDRESSES or (kind in ("MANAGED", "OWNER_CHANGED") and name == "from"):
             parts.append(f".address = {hexbytes(value)}")
         elif name == "group":
             parts.append(f".group = {hexbytes(value)}")

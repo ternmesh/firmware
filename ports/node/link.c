@@ -106,6 +106,8 @@ static void news_self(struct link *l, struct link_conn *c) {
     m.card_name_len = v->card_name_len;
     m.most = v->most;
     m.pairing = v->pairing;
+    m.locked = v->locked;
+    c->self_locked = v->locked;
     c->self_role = v->role;
     c->self_power = v->power;
     c->self_most = v->most;
@@ -120,8 +122,9 @@ static void news_self(struct link *l, struct link_conn *c) {
 /* Whether SELF says something other than what the client was last told: its time aside. */
 static bool self_changed(const struct link_view *v, const struct link_conn *c) {
     return v->role != c->self_role || v->power != c->self_power || v->most != c->self_most ||
-           v->pairing != c->self_pairing || v->region != c->self_region ||
-           v->cards != c->self_cards || v->card_name_len != c->self_card_name_len ||
+           v->pairing != c->self_pairing || v->locked != c->self_locked ||
+           v->region != c->self_region || v->cards != c->self_cards ||
+           v->card_name_len != c->self_card_name_len ||
            memcmp(v->card_name, c->self_card_name, v->card_name_len) != 0;
 }
 
@@ -402,6 +405,38 @@ static bool save_owners(struct link *l) {
         }
     }
     return l->host.save_owners != NULL && l->host.save_owners(l->host.ctx, b, n);
+}
+
+static uint32_t keep_raw(struct link *l, uint8_t kind, const uint8_t address[TERN_ADDRESS_LEN],
+                         const uint8_t *bytes, size_t len);
+
+/* Tells each owner, before the change and after it, that `contact` became one or stopped being one
+ * (draft/managing.md, "Telling the owners"): but the owner whose request over the mesh made the
+ * change, who knows. */
+static void owners_changed(struct link *l, const struct link_owner before[LINK_OWNERS],
+                           const uint8_t contact[TERN_ADDRESS_LEN], uint8_t owner) {
+    bool mesh = l->asker != NULL && l->asker->mesh;
+    uint8_t notice[TERN_MANAGE_NOTICE_LEN];
+    tern_manage_notice_write(contact, owner, mesh ? TERN_MANAGE_BY_MESH : TERN_MANAGE_BY_LINK,
+                             notice);
+    const struct link_owner *lists[2] = {before, l->owners};
+    for (size_t k = 0; k < 2; k++) {
+        for (size_t i = 0; i < LINK_OWNERS; i++) {
+            const struct link_owner *o = &lists[k][i];
+            if (!o->used || (mesh && memcmp(o->address, l->answer_to, TERN_ADDRESS_LEN) == 0)) {
+                continue;
+            }
+            /* One that was an owner before and is one still is told once. */
+            bool told = false;
+            for (size_t j = 0; k == 1 && j < LINK_OWNERS; j++) {
+                told |=
+                    before[j].used && memcmp(before[j].address, o->address, TERN_ADDRESS_LEN) == 0;
+            }
+            if (!told) {
+                (void)keep_raw(l, LINK_KIND_NOTICE, o->address, notice + 1, sizeof notice - 1);
+            }
+        }
+    }
 }
 
 /* Each owner is a contact: one saved that is not, as a write that failed may leave, is not one. */
@@ -1146,7 +1181,7 @@ void link_state(struct link *l, uint32_t id, uint8_t state, uint8_t reason, uint
     if (moved) {
         save_state(l, x);
     }
-    if (changed && x->kind != LINK_KIND_ANSWER) {
+    if (changed && x->kind != LINK_KIND_ANSWER && x->kind != LINK_KIND_NOTICE) {
         /* Only to a client that was told of the message: one from before groups was not sent a
          * group message or an invite, and news of what became of one would be of nothing. An
          * answer to an owner is no client's. */
@@ -1464,8 +1499,11 @@ static void remove_contact(struct link *l, const struct tern_companion_msg *q) {
         /* An address that is no contact is no owner (draft/managing.md, "Owners"). */
         struct link_owner *o = find_owner(l, q->address);
         if (o != NULL) {
+            struct link_owner before[LINK_OWNERS];
+            memcpy(before, l->owners, sizeof before);
             o->used = false;
             (void)save_owners(l);
+            owners_changed(l, before, q->address, 0);
         }
     }
     answer(l, TERN_C_OK, q->seq);
@@ -2234,6 +2272,8 @@ static void owner_request(struct link *l, const struct tern_companion_msg *q) {
         answer(l, TERN_C_OK, q->seq);
         return;
     }
+    struct link_owner before[LINK_OWNERS];
+    memcpy(before, l->owners, sizeof before);
     if (o != NULL) {
         o->used = false;
     } else {
@@ -2254,6 +2294,7 @@ static void owner_request(struct link *l, const struct tern_companion_msg *q) {
     }
     answer(l, TERN_C_OK, q->seq);
     news_contact(l, NULL, c);
+    owners_changed(l, before, q->address, q->owner);
 }
 
 /* Answers the request in frame, which it reads into q. */
@@ -2293,6 +2334,14 @@ static void receive(struct link *l, unsigned conn, tern_time now, const uint8_t 
     if (c->mesh && !tern_manage_allowed(q->type, q->setting)) {
         error(l, q->seq, TERN_C_ERR_NOT_OVER_MESH);
         return;
+    }
+    /* A locked node's Bluetooth says HELLO and PING, and nothing more (draft/managing.md). */
+    if (conn == LINK_BLE && !tern_manage_unlocked(q->type)) {
+        l->host.view(l->host.ctx, &l->view);
+        if (l->view.locked) {
+            error(l, q->seq, TERN_C_ERR_LOCKED);
+            return;
+        }
     }
     switch (q->type) {
     case TERN_C_HELLO: {
@@ -2529,6 +2578,16 @@ bool link_manage(struct link *l, tern_time now, const uint8_t from[TERN_ADDRESS_
     c->mesh = c->synced = false;
     l->answer_to = NULL;
     return true;
+}
+
+void link_owners_notice(struct link *l, const uint8_t from[TERN_ADDRESS_LEN],
+                        const uint8_t *content, size_t len) {
+    struct tern_companion_msg m = {.type = TERN_C_OWNER_CHANGED};
+    if (!tern_manage_notice_read(content, len, m.digest, &m.owner, &m.why)) {
+        return;
+    }
+    memcpy(m.address, from, TERN_ADDRESS_LEN);
+    news(l, NULL, &m);
 }
 
 void link_managed(struct link *l, const uint8_t from[TERN_ADDRESS_LEN], const uint8_t *content,

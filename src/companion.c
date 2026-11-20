@@ -35,6 +35,8 @@ enum field {
     UPDATE,    /* u8 */
     LISTEN,    /* u8 */
     OWNER,     /* u8 */
+    LOCKED,    /* u8 */
+    BY,        /* u8, into why: how a notice says the owners changed */
     POWER,     /* i8 */
     SNR,       /* i8 */
     HEARD,     /* u16, into heard */
@@ -69,6 +71,7 @@ enum field {
     ADDRESS,   /* 32 bytes */
     GROUP,     /* 8 bytes: a group's id */
     DIGEST,    /* 32 bytes: a SHA-256 */
+    OTHER,     /* 32 bytes: a second address, OWNER_CHANGED's contact, into digest */
     TEXT,      /* a string of up to TERN_COMPANION_TEXT_MAX */
     NAME,      /* a string of up to TERN_COMPANION_NAME_MAX, into text */
     FIRMWARE,  /* a string of up to TERN_COMPANION_FIRMWARE_MAX, into text */
@@ -129,7 +132,7 @@ static const struct layout layouts[] = {
     {TERN_C_MADE, {GROUP}},
     {TERN_C_UPDATING, {OFFSET}},
     {TERN_C_LINK, {LINK}},
-    {TERN_C_SELF, {ADDRESS, ROLE, REGION, POWER, TIME, CARDS, CARD_NAME, MOST, PAIRING}},
+    {TERN_C_SELF, {ADDRESS, ROLE, REGION, POWER, TIME, CARDS, CARD_NAME, MOST, PAIRING, LOCKED}},
     {TERN_C_CONTACT, {ADDRESS, SESSION, NAME, WAKE, OWNER}},
     {TERN_C_CONTACT_GONE, {ADDRESS}},
     {TERN_C_MESSAGE, {ID, ADDRESS, TIME, FLAGS, STATE, REASON, WAIT16, TEXT}},
@@ -154,6 +157,7 @@ static const struct layout layouts[] = {
     {TERN_C_FORGOTTEN, {ADDRESS, THROUGH}},
     {TERN_C_GROUP_FORGOTTEN, {GROUP, THROUGH}},
     {TERN_C_MANAGED, {ADDRESS, ANSWER}},
+    {TERN_C_OWNER_CHANGED, {ADDRESS, OTHER, OWNER, BY}},
 };
 
 /* A later version adds fields only at the end of a frame: from field `from` on, a type's fields
@@ -161,9 +165,10 @@ static const struct layout layouts[] = {
 static const struct {
     uint8_t type, from, since;
 } later_fields[] = {
-    {TERN_C_SYNCED, 0, 3},        {TERN_C_INFO, 2, 4},     {TERN_C_SELF, 5, 6},
-    {TERN_C_SELF, 7, 10},         {TERN_C_SELF, 8, 11},    {TERN_C_INFO, 4, 12},
-    {TERN_C_UPDATE_BEGIN, 2, 13}, {TERN_C_CONTACT, 3, 15}, {TERN_C_CONTACT, 4, 17},
+    {TERN_C_SYNCED, 0, 3},   {TERN_C_INFO, 2, 4},          {TERN_C_SELF, 5, 6},
+    {TERN_C_SELF, 7, 10},    {TERN_C_SELF, 8, 11},         {TERN_C_SELF, 9, 17},
+    {TERN_C_INFO, 4, 12},    {TERN_C_UPDATE_BEGIN, 2, 13}, {TERN_C_CONTACT, 3, 15},
+    {TERN_C_CONTACT, 4, 17},
 };
 
 static bool added_later(uint8_t type, size_t i, uint8_t version) {
@@ -177,6 +182,9 @@ static bool added_later(uint8_t type, size_t i, uint8_t version) {
 }
 
 uint8_t tern_companion_setting_since(uint8_t setting) {
+    if (setting == TERN_C_SET_LOCK) {
+        return 17;
+    }
     if (setting == TERN_C_SET_WAKE || setting == TERN_C_SET_LISTEN) {
         return 15;
     }
@@ -210,6 +218,8 @@ static enum field setting_value(uint8_t setting, uint8_t version) {
         return WAKE;
     case TERN_C_SET_LISTEN:
         return LISTEN;
+    case TERN_C_SET_LOCK:
+        return LOCKED;
     default:
         return END;
     }
@@ -226,7 +236,7 @@ static const struct layout *layout_of(uint8_t type) {
 
 uint8_t tern_companion_since(uint8_t type) {
     if (type == TERN_C_MANAGE || type == TERN_C_OWNER || type == TERN_C_RESTART ||
-        type == TERN_C_MANAGED) {
+        type == TERN_C_MANAGED || type == TERN_C_OWNER_CHANGED) {
         return 17;
     }
     if (type == TERN_C_FORGET || type == TERN_C_FORGET_GROUP || type == TERN_C_FORGOTTEN ||
@@ -279,10 +289,10 @@ bool tern_companion_news(uint8_t type) { return type >= 0x80 && type <= 0xBF; }
 
 static size_t width(enum field f) {
     if (f >= ADDRESS) {
-        return f == ADDRESS  ? TERN_ADDRESS_LEN
-               : f == GROUP  ? TERN_COMPANION_GROUP
-               : f == DIGEST ? TERN_COMPANION_DIGEST
-                             : 0; /* strings and data vary */
+        return f == ADDRESS                ? TERN_ADDRESS_LEN
+               : f == GROUP                ? TERN_COMPANION_GROUP
+               : f == DIGEST || f == OTHER ? TERN_COMPANION_DIGEST
+                                           : 0; /* strings and data vary */
     }
     if (f >= AFTER) {
         return 4;
@@ -347,6 +357,10 @@ static void *member(struct tern_companion_msg *m, enum field f) {
         return &m->cards;
     case MOST:
         return &m->most;
+    case LOCKED:
+        return &m->locked;
+    case BY:
+        return &m->why;
     case PAIRING:
         return &m->pairing;
     case UPDATE:
@@ -561,7 +575,7 @@ enum tern_companion_read tern_companion_read_as(struct tern_companion_msg *m, co
             return TERN_C_READ_OK;
         }
         size_t w = width(f);
-        if (f == ADDRESS || f == GROUP || f == DIGEST) {
+        if (f == ADDRESS || f == GROUP || f == DIGEST || f == OTHER) {
             if (at + w > len) {
                 return TERN_C_READ_MALFORMED;
             }
@@ -612,7 +626,7 @@ size_t tern_companion_write_as(const struct tern_companion_msg *m, uint8_t *out,
             return l->type == TERN_C_SET && i == 1 ? 0 : at;
         }
         size_t w = width(f);
-        if (f == ADDRESS || f == GROUP || f == DIGEST) {
+        if (f == ADDRESS || f == GROUP || f == DIGEST || f == OTHER) {
             memcpy(out + at, bytes_of((struct tern_companion_msg *)m, f), w);
             at += w;
         } else if (w == 0) {
