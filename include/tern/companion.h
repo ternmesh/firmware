@@ -48,8 +48,8 @@
 #define TERN_COMPANION_DIGEST 32        /* a SHA-256 */
 #define TERN_COMPANION_SIGNATURE 64     /* UPDATE_BEGIN's: an Ed25519 signature (tern/release.h) */
 #define TERN_COMPANION_GROUP 8          /* a group's id */
-#define TERN_COMPANION_MANAGE_MAX 141   /* a MANAGE's request: what fits a frame */
-#define TERN_COMPANION_MANAGED_MAX 145  /* a MANAGED's answer: what fits a frame */
+#define TERN_COMPANION_MANAGE_MAX 128   /* a MANAGE's request: as long as a message's text */
+#define TERN_COMPANION_MANAGED_MAX 128  /* a MANAGED's answer: the same */
 #define TERN_C_OWNERS 4                 /* owners a node holds, at most (draft/managing.md) */
 #define TERN_COMPANION_GAP TERN_MS(500) /* a partial frame idle this long is not a frame */
 

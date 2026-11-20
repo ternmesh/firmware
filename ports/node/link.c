@@ -2498,9 +2498,19 @@ bool link_manage(struct link *l, tern_time now, const uint8_t from[TERN_ADDRESS_
     if (!tern_manage_request_ok(request, len)) {
         return true; /* ignored, as the specification says */
     }
+    /* The board's own connection, borrowed: it never syncs, so these are all of it to keep. */
     struct link_conn *c = &l->conns[LINK_MESH];
-    *c = (struct link_conn){
-        .open = true, .mesh = true, .hello = o->hello, .version = o->version, .news = o->news};
+    bool was_open = c->open, was_hello = c->hello;
+    uint8_t was_version = c->version, was_news = c->news;
+    tern_time was_lapse = c->lapse, was_at = c->answered_at;
+    size_t was_mtu = c->mtu;
+    c->open = c->mesh = true;
+    c->hello = o->hello;
+    c->version = o->version;
+    c->news = o->news;
+    c->lapse = 0;
+    c->mtu = 0;
+    c->synced = false;
     l->answer_to = o->address;
     l->answer_len = 0;
     l->host.view(l->host.ctx, &l->view);
@@ -2509,7 +2519,14 @@ bool link_manage(struct link *l, tern_time now, const uint8_t from[TERN_ADDRESS_
     o->hello = c->hello;
     o->version = c->version;
     o->news = c->news;
-    *c = (struct link_conn){.open = false};
+    c->open = was_open;
+    c->hello = was_hello;
+    c->version = was_version;
+    c->news = was_news;
+    c->lapse = was_lapse;
+    c->answered_at = was_at;
+    c->mtu = was_mtu;
+    c->mesh = c->synced = false;
     l->answer_to = NULL;
     return true;
 }

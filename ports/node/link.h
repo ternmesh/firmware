@@ -95,12 +95,14 @@
 /* The connections: where a frame came from, and where one goes. The third is the board's own:
  * what is typed at its console is asked of the link as a client would ask it, so that a group
  * made there is made as one made from a phone is. */
-enum { LINK_SERIAL, LINK_BLE, LINK_BOARD, LINK_MESH, LINK_CONNS };
+enum { LINK_SERIAL, LINK_BLE, LINK_BOARD, LINK_CONNS };
 
-/* LINK_MESH is not a link: it is the connection an owner's requests over the mesh are answered on
- * (draft/managing.md), one owner's at a time, while link_manage() reads one. It is open only
- * then, and its frames are packed into answers, messages for the owner's node, rather than handed
- * to the host. */
+/* An owner's requests over the mesh (draft/managing.md) are answered on the board's own connection,
+ * borrowed while link_manage() reads one: that connection never syncs, so nothing of it but a few
+ * fields needs keeping, and a connection of its own would cost RAM a classic ESP32 does not have.
+ * While borrowed its frames are packed into answers, messages for the owner's node, rather than
+ * handed to the host. */
+#define LINK_MESH LINK_BOARD
 #define LINK_OWNERS TERN_C_OWNERS
 
 struct link_neighbour {
@@ -296,7 +298,7 @@ enum link_kind {
  * kinds 0x05 and 0x06 (draft/managing.md): kept and sent as the others are, so that each is tried
  * again and its end is known, but never saved, shown or synced. A MANAGE's state is told in STATE
  * news; an answer's is told to no one. Their text is the bytes after the kind. */
-#define LINK_TEXT_ROOM TERN_COMPANION_MANAGED_MAX
+#define LINK_TEXT_ROOM TERN_COMPANION_TEXT_MAX
 #define LINK_MANAGE_KIND 0x05
 #define LINK_ANSWER_KIND 0x06
 
@@ -405,10 +407,10 @@ struct link_conn {
     tern_time lapse;
     size_t mtu; /* the ATT MTU over Bluetooth; 0 on a byte stream, which carries any frame */
     bool hello;
-    bool mesh;       /* LINK_MESH: told news only in answer to SYNC, and only the node's own */
-    uint8_t version; /* the client's, from its HELLO: it is sent nothing a later one added */
-    bool synced;     /* told everything since HELLO: link_tick tells what changed since */
-    uint8_t news;    /* the count: the next news frame's seq */
+    bool mesh;             /* an owner's, over the mesh: told news only in answer to SYNC */
+    uint8_t version;       /* the client's, from its HELLO: it is sent nothing a later one added */
+    bool synced;           /* told everything since HELLO: link_tick tells what changed since */
+    uint8_t news;          /* the count: the next news frame's seq */
     tern_time answered_at; /* when the last request was answered */
 
     struct link_told told[LINK_NEIGHBOURS];
