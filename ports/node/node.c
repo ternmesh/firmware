@@ -573,6 +573,13 @@ static uint8_t link_restart(void *ctx) {
     return 0;
 }
 
+/* A signal-to-noise ratio in centibels, as the radio gives it, written as dB: -725 is "-7.25". */
+static const char *db_text(int cb, char out[12]) {
+    snprintf(out, 12, "%s%d.%02d", cb < 0 ? "-" : "", (cb < 0 ? -cb : cb) / 100,
+             (cb < 0 ? -cb : cb) % 100);
+    return out;
+}
+
 /* Traces this board began (TRACE, draft/forwarding.md "Traces"), by the link's id for each. */
 static struct {
     uint32_t id; /* 0 for a free place */
@@ -1065,12 +1072,13 @@ static void heard_ack(const struct tern_radio_event *ev) {
                        ? (uint8_t)(forward.config.hop_max + 1 - ev->data[1])
                        : 0;
     uint32_t took = p->air_ms ? now_ms() - p->air_ms : 0;
+    char snr_db[12];
     printf("delivered #%lu: acknowledged %lld ms after it was handed over, %lu ms after it first "
            "went, having gone %u time%s; the acknowledgement came %s%u hop%s, at %d dBm, SNR "
-           "%d cB\n",
+           "%s dB\n",
            (unsigned long)p->counter, (long long)((board_now() - p->at) / 1000000),
            (unsigned long)took, p->goes, p->goes == 1 ? "" : "s", hops == 1 ? "direct, " : "", hops,
-           hops == 1 ? "" : "s", ev->rssi_dbm, ev->snr_cdb);
+           hops == 1 ? "" : "s", ev->rssi_dbm, db_text(ev->snr_cdb, snr_db));
     if (p->id != PENDING_POSITION && p->id != PENDING_SLEEP) {
         link_route(&companion, &(struct link_route){.id = p->id,
                                                     .via = p->via,
@@ -1137,9 +1145,10 @@ static void heard_flood(const struct tern_radio_event *ev) {
     /* Its writer draws its hops (draft/flooding.md): it came this far at most, or one less. */
     uint8_t hops =
         ev->data[1] <= flood.config.hops ? (uint8_t)(flood.config.hops + 1 - ev->data[1]) : 0;
-    printf("heard in \"%.*s\", from %08lx: \"%s\" at %d dBm, SNR %d cB, %u hop%s at most\n",
+    char snr_db[12];
+    printf("heard in \"%.*s\", from %08lx: \"%s\" at %d dBm, SNR %s dB, %u hop%s at most\n",
            (int)g->name_len, (const char *)g->name, (unsigned long)got.from, (const char *)text,
-           ev->rssi_dbm, ev->snr_cdb, hops, hops == 1 ? "" : "s");
+           ev->rssi_dbm, db_text(ev->snr_cdb, snr_db), hops, hops == 1 ? "" : "s");
     uint32_t kept = link_add_group(&companion, got.group, got.from, clock_now(), text, got.len);
     if (kept != 0) {
         link_route(&companion, &(struct link_route){.id = kept,
@@ -1330,9 +1339,17 @@ static void heard_traced(const struct tern_radio_event *ev) {
                                           : "answered",
            (unsigned long)took);
     print_entries(e, out);
-    printf(". Back:");
+    /* Back from the node that answered, the last of the way out. */
+    char answerer[UI_NAME + 1] = "?";
+    if (out > 0) {
+        const uint8_t *a = e + (size_t)(out - 1) * TERN_TRACE_ENTRY;
+        node_named((uint32_t)a[0] << 24 | (uint32_t)a[1] << 16 | (uint32_t)a[2] << 8 | a[3], "",
+                   answerer);
+    }
+    printf(". Back: %s", answerer);
     print_entries(e + (size_t)out * TERN_TRACE_ENTRY, n - out);
-    printf(" > you (%d cB)\n", ev->snr_cdb);
+    char snr_db[12];
+    printf(" > you (%s dB)\n", db_text(ev->snr_cdb, snr_db));
     link_state(&companion, traces[i].id, TERN_C_SENT, 0, 0);
     link_traced(&companion, traces[i].id, traces[i].to, flags, out, took, (int8_t)snr, e, n);
     traces[i].id = 0;
