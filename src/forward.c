@@ -30,12 +30,71 @@ void tern_forward_head_write(const struct tern_forward_head *h, uint8_t *frame) 
 
 static bool an_id(uint32_t id) { return id != 0 && id != TERN_ROUTE_EVERYONE; }
 
+/* Whether a trace or a trace answer is of a length and holds entries the specification allows. */
+static bool trace_valid(const uint8_t *frame, size_t len) {
+    size_t at, n;
+    if (len < (frame[0] == TERN_HDR_TRACE ? TERN_TRACE_MIN : TERN_TRACE_ANSWER_MIN)) {
+        return false;
+    }
+    n = tern_forward_entries(frame, len, &at);
+    if ((len - at) % TERN_TRACE_ENTRY != 0) {
+        return false;
+    }
+    if (frame[0] == TERN_HDR_TRACE) {
+        return n <= TERN_TRACE_ENTRIES;
+    }
+    uint8_t flags = frame[TERN_FORWARD_MIN], out = frame[TERN_FORWARD_MIN + 1];
+    return flags < TERN_TRACE_BY_COUNT && out <= TERN_TRACE_ENTRIES && out <= n &&
+           n - out <= TERN_TRACE_ENTRIES;
+}
+
+size_t tern_forward_entries(const uint8_t *frame, size_t len, size_t *at) {
+    *at = frame[0] == TERN_HDR_TRACE ? TERN_TRACE_MIN : TERN_TRACE_ANSWER_MIN;
+    return len > *at ? (len - *at) / TERN_TRACE_ENTRY : 0;
+}
+
+void tern_forward_entry_write(uint32_t id, int16_t snr_q, uint8_t entry[TERN_TRACE_ENTRY]) {
+    put32(entry, id);
+    entry[4] = (uint8_t)(int8_t)(snr_q > INT8_MAX ? INT8_MAX : snr_q < INT8_MIN ? INT8_MIN : snr_q);
+}
+
+size_t tern_forward_entry_pass(const uint8_t *frame, size_t len, uint32_t id, int16_t snr_q,
+                               uint8_t out[TERN_FORWARD_FRAME_MAX]) {
+    size_t at, n = tern_forward_entries(frame, len, &at);
+    size_t carried = frame[0] == TERN_HDR_TRACE ? n : n - frame[TERN_FORWARD_MIN + 1];
+    if (frame[1] <= 1 || carried >= TERN_TRACE_ENTRIES || len + TERN_TRACE_ENTRY > TERN_FORWARD_FRAME_MAX) {
+        return 0;
+    }
+    memcpy(out, frame, len);
+    out[1] = (uint8_t)(frame[1] - 1);
+    tern_forward_entry_write(id, snr_q, out + len);
+    return len + TERN_TRACE_ENTRY;
+}
+
+size_t tern_forward_answer_write(const uint8_t *trace, size_t len, uint32_t id, int16_t snr_q,
+                                 uint8_t flags, uint8_t hops, uint8_t out[TERN_FORWARD_FRAME_MAX]) {
+    size_t at, n = tern_forward_entries(trace, len, &at);
+    if (n >= TERN_TRACE_ENTRIES) {
+        return 0;
+    }
+    tern_forward_head_write(&(struct tern_forward_head){TERN_HDR_TRACE_ANSWER, hops, 0, 0,
+                                                        get32(trace + TERN_TRACE_FROM)},
+                            out);
+    memcpy(out + TERN_FORWARD_HEAD, trace + TERN_FORWARD_HEAD, TERN_FORWARD_TAG);
+    out[TERN_FORWARD_MIN] = flags;
+    out[TERN_FORWARD_MIN + 1] = (uint8_t)(n + 1);
+    memcpy(out + TERN_TRACE_ANSWER_MIN, trace + at, n * TERN_TRACE_ENTRY);
+    tern_forward_entry_write(id, snr_q, out + TERN_TRACE_ANSWER_MIN + n * TERN_TRACE_ENTRY);
+    return TERN_TRACE_ANSWER_MIN + (n + 1) * TERN_TRACE_ENTRY;
+}
+
 bool tern_forward_head_read(struct tern_forward_head *h, const uint8_t *frame, size_t len) {
     if (len < TERN_FORWARD_MIN || len > TERN_FORWARD_FRAME_MAX || !tern_forward_frame(frame, len) ||
         (frame[0] == TERN_HDR_ACK && len != TERN_ACK_LEN) ||
         (frame[0] == TERN_HDR_HELD && len != TERN_HELD_LEN) ||
         (tern_forward_message(frame[0]) && len < TERN_MESSAGE_MIN) ||
-        (tern_forward_contact(frame[0]) && len != TERN_CONTACT_LEN(frame[0]))) {
+        (tern_forward_contact(frame[0]) && len != TERN_CONTACT_LEN(frame[0])) ||
+        (tern_forward_traced(frame[0]) && !trace_valid(frame, len))) {
         return false;
     }
     *h = (struct tern_forward_head){
@@ -61,19 +120,32 @@ bool tern_forward_same(const uint8_t *a, size_t a_len, const uint8_t *b, size_t 
            memcmp(a + AT_DEST, b + AT_DEST, a_len - AT_DEST) == 0;
 }
 
+/* Whether `passed` is `held` passed on: for a trace or a trace answer, with one entry more, the
+ * entries before it unchanged; for anything else, the same frame. Whatever its hops. */
+static bool passed_on(const uint8_t *held, size_t held_len, const uint8_t *passed,
+                      size_t passed_len) {
+    if (held_len < TERN_FORWARD_MIN || !tern_forward_traced(held[0])) {
+        return tern_forward_same(held, held_len, passed, passed_len);
+    }
+    return passed_len == held_len + TERN_TRACE_ENTRY && passed[0] == held[0] &&
+           memcmp(held + AT_DEST, passed + AT_DEST, held_len - AT_DEST) == 0;
+}
+
 bool tern_forward_ends(const uint8_t *sent, size_t sent_len, const uint8_t *heard,
                        size_t heard_len) {
     bool passed =
-        tern_forward_same(sent, sent_len, heard, heard_len) && (int)heard[1] + 1 == (int)sent[1];
-    bool answered =
-        tern_forward_message(sent[0]) && heard[0] == TERN_HDR_ACK &&
+        passed_on(sent, sent_len, heard, heard_len) && (int)heard[1] + 1 == (int)sent[1];
+    bool tagged =
         memcmp(sent + TERN_FORWARD_HEAD, heard + TERN_FORWARD_HEAD, TERN_FORWARD_TAG) == 0;
+    bool answered = tagged && ((tern_forward_message(sent[0]) && heard[0] == TERN_HDR_ACK) ||
+                               (sent[0] == TERN_HDR_TRACE && heard[0] == TERN_HDR_TRACE_ANSWER));
     return passed || answered;
 }
 
 bool tern_forward_listens(const uint8_t *frame, size_t len) {
     return len >= TERN_FORWARD_HEAD && frame[0] != TERN_HDR_HELD &&
-           (tern_forward_message(frame[0]) || get32(frame + AT_NEXT) != get32(frame + AT_DEST));
+           (tern_forward_message(frame[0]) || frame[0] == TERN_HDR_TRACE ||
+            get32(frame + AT_NEXT) != get32(frame + AT_DEST));
 }
 
 int8_t tern_forward_power(int8_t neighbour, int8_t back, uint8_t tries, uint8_t step, int8_t full) {
@@ -269,7 +341,7 @@ static struct tern_forward_kept *kept_same(struct tern_forward *f, const uint8_t
                                            size_t len) {
     for (size_t i = 0; i < f->kept_cap; i++) {
         struct tern_forward_kept *k = &f->kept[i];
-        if (k->leaf && tern_forward_same(k->frame, k->len, frame, len)) {
+        if (k->leaf && passed_on(frame, len, k->frame, k->len)) {
             return k;
         }
     }
@@ -456,8 +528,17 @@ void tern_forward_heard(struct tern_forward *f, tern_time now, const uint8_t *fr
     }
     out->back = tern_route_power_back(f->route, h.power, snr_q);
     if (h.destination == f->route->id) {
-        out->got = tern_forward_message(h.hdr) ? TERN_FORWARD_MESSAGE : TERN_FORWARD_CONTACT;
         tern_route_held_got(f->route, now);
+        if (h.hdr == TERN_HDR_TRACE_ANSWER) {
+            /* Ends a trace of this node's; any other, or a second, is ignored. */
+            if (tern_forward_done(f, TERN_HDR_TRACE, frame + TERN_FORWARD_HEAD)) {
+                out->got = TERN_FORWARD_TRACED;
+            }
+            return;
+        }
+        out->got = tern_forward_message(h.hdr) ? TERN_FORWARD_MESSAGE
+                   : h.hdr == TERN_HDR_TRACE   ? TERN_FORWARD_TRACE
+                                               : TERN_FORWARD_CONTACT;
         return;
     }
     if (!f->route->config.relay) {
@@ -470,7 +551,7 @@ void tern_forward_heard(struct tern_forward *f, tern_time now, const uint8_t *fr
     for (size_t i = 0; i < f->cap; i++) {
         s = &f->slot[i];
         if (s->state != TERN_FORWARD_FREE && s->state != TERN_FORWARD_FAILED &&
-            tern_forward_same(s->frame, s->len, frame, len)) {
+            passed_on(frame, len, s->frame, s->len)) {
             return; /* still passing it on: the hop before will hear that */
         }
     }
@@ -478,12 +559,33 @@ void tern_forward_heard(struct tern_forward *f, tern_time now, const uint8_t *fr
         notice(f, frame, out->back); /* held already: the node before missed the notice */
         return;
     }
+    /* A trace or a trace answer goes on with this node's entry added, or not at all. */
+    uint8_t passed[TERN_FORWARD_FRAME_MAX];
+    if (tern_forward_traced(h.hdr)) {
+        size_t n = tern_forward_entry_pass(frame, len, f->route->id, snr_q, passed);
+        if (n == 0) {
+            return;
+        }
+        frame = passed;
+        len = n;
+    }
     if (!tern_route_next(f->route, h.destination, &next, &metric)) {
         f->counts.no_route++;
         tern_route_want(f->route, now, h.destination);
+        if (h.hdr == TERN_HDR_TRACE) {
+            /* It got this far: its source is told so. The entry added is this node's own. */
+            (void)tern_forward_trace_answer(f, now, frame, len - TERN_TRACE_ENTRY, snr_q,
+                                            TERN_TRACE_BY_RELAY, out->back);
+        }
         return;
     }
     if (next == h.destination && holds_new(f, next, now)) {
+        if (h.hdr == TERN_HDR_TRACE) {
+            /* A keeper holds no trace for its leaf: it answers, from where frames for it wait. */
+            (void)tern_forward_trace_answer(f, now, frame, len - TERN_TRACE_ENTRY, snr_q,
+                                            TERN_TRACE_BY_KEEPER, out->back);
+            return;
+        }
         /* For a sleeping leaf this node keeps: held until it polls, and the node before told. */
         if (hold(f, next, frame, len, (uint8_t)(h.hops - 1), now, now)) {
             notice(f, frame, out->back);
@@ -514,6 +616,71 @@ void tern_forward_heard(struct tern_forward *f, tern_time now, const uint8_t *fr
     }
     memcpy(s->frame, frame, len);
     f->counts.passed_on++;
+}
+
+bool tern_forward_tracing(const struct tern_forward *f, uint32_t destination) {
+    for (size_t i = 0; i < f->cap; i++) {
+        const struct tern_forward_slot *s = &f->slot[i];
+        if (s->state != TERN_FORWARD_FREE && s->own && s->frame[0] == TERN_HDR_TRACE &&
+            dest_of(s) == destination) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool tern_forward_trace(struct tern_forward *f, tern_time now, uint32_t destination,
+                        const uint8_t tag[TERN_FORWARD_TAG]) {
+    uint8_t frame[TERN_TRACE_MIN] = {TERN_HDR_TRACE};
+    if (tern_forward_tracing(f, destination)) {
+        return false;
+    }
+    memcpy(frame + TERN_FORWARD_HEAD, tag, TERN_FORWARD_TAG);
+    put32(frame + TERN_TRACE_FROM, f->route->id);
+    return tern_forward_send(f, now, destination, frame, sizeof frame, true, INT8_MIN);
+}
+
+bool tern_forward_trace_failed(struct tern_forward *f, uint8_t tag[TERN_FORWARD_TAG],
+                               uint32_t *destination, bool *began) {
+    for (size_t i = 0; i < f->cap; i++) {
+        struct tern_forward_slot *s = &f->slot[i];
+        if (s->state == TERN_FORWARD_FAILED && s->frame[0] == TERN_HDR_TRACE) {
+            memcpy(tag, s->frame + TERN_FORWARD_HEAD, TERN_FORWARD_TAG);
+            *destination = dest_of(s);
+            *began = s->next != 0;
+            s->state = TERN_FORWARD_FREE;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool tern_forward_trace_answer(struct tern_forward *f, tern_time now, const uint8_t *trace,
+                               size_t len, int16_t snr_q, uint8_t flags, int8_t back) {
+    uint8_t answer[TERN_FORWARD_FRAME_MAX];
+    uint16_t second = (uint16_t)(now / TERN_S(1) + 1), *free_at = NULL;
+    size_t n;
+    if (flags >= TERN_TRACE_BY_COUNT) {
+        return false;
+    }
+    second = second ? second : 1;
+    /* No more than TERN_TRACE_ANSWERS in any minute: a place whose answer is a minute old. */
+    for (size_t i = 0; i < TERN_TRACE_ANSWERS && !free_at; i++) {
+        uint16_t *at = &f->answered_at[flags][i];
+        if (*at == 0 || (uint16_t)(second - *at) >= 60) {
+            free_at = at;
+        }
+    }
+    if (!free_at) {
+        return false;
+    }
+    n = tern_forward_answer_write(trace, len, f->route->id, snr_q, flags, f->config.hop_max,
+                                  answer);
+    if (n == 0 || !tern_forward_send(f, now, get32(answer + AT_DEST), answer, n, false, back)) {
+        return false;
+    }
+    *free_at = second;
+    return true;
 }
 
 bool tern_forward_acked(struct tern_forward *f, const uint8_t tag[TERN_FORWARD_TAG]) {
@@ -703,7 +870,10 @@ static void give_up(struct tern_forward *f, struct tern_forward_slot *s, tern_ti
         hold_again(f, s, now); /* to its sleeping leaf: held, the once, not sent another way */
         return;
     }
-    if (s->frame[0] != TERN_HDR_ACK && s->salvages < f->config.salvage) {
+    /* An acknowledgement, a trace and a trace answer are not sent another way: a trace shows the
+     * route this node selected. */
+    if (s->frame[0] != TERN_HDR_ACK && !tern_forward_traced(s->frame[0]) &&
+        s->salvages < f->config.salvage) {
         s->gone[s->salvages] = s->next;
         if (tern_route_other(f->route, dest_of(s), s->gone, s->salvages + 1, &other)) {
             s->salvages++;
@@ -728,6 +898,20 @@ static void try_again(struct tern_forward *f, struct tern_forward_slot *s, tern_
         f->counts.given_up++;
         tern_route_lost(f->route, now, s->next);
         s->unheard = 0;
+    }
+    if (s->frame[0] == TERN_HDR_TRACE) {
+        /* Not begun again. One that waited for a route goes once one has come; with none, or
+         * once it has gone, it is given up. */
+        uint32_t next;
+        if (s->next == 0 && tern_route_next(f->route, dest_of(s), &next, &metric)) {
+            s->next = next;
+            s->state = TERN_FORWARD_WAITING;
+            s->at = now;
+            s->deadline = -1;
+        } else {
+            s->state = TERN_FORWARD_FAILED;
+        }
+        return;
     }
     if (s->attempts >= f->config.retries) {
         s->state = TERN_FORWARD_FAILED;
@@ -961,8 +1145,10 @@ static void start_waiting(struct tern_forward *f, struct tern_forward_slot *s, t
             /* Asleep, the leaf hears its acknowledgement only at its next poll. */
             own_wake = tern_sleep_wake_s(r->config.sleep_wake);
         }
+        /* A trace twice a message's: each node on the way adds its entry, out and back. */
+        tern_time per = s->frame[0] == TERN_HDR_TRACE ? 2 : 1;
         s->deadline = now + f->config.ack_wait +
-                      (tern_time)f->config.ack_factor * (tern_time)metric * TERN_MS(1);
+                      (tern_time)f->config.ack_factor * (tern_time)metric * per * TERN_MS(1);
         if (peer_s || own_wake) {
             /* The shortest listen once, though both sleep. */
             s->deadline += TERN_S((int64_t)(peer_s ? peer_s : TERN_SLEEP_LISTEN_MIN_S) + own_wake);

@@ -8,7 +8,7 @@
 #include "tern/address.h"
 #include "tern/time.h"
 
-/* The companion protocol: version 16 of draft/companion.md in ternmesh/spec.
+/* The companion protocol: version 18 of draft/companion.md in ternmesh/spec.
  *
  * The link between a node and the client driving it, a phone or a computer, over USB serial, TCP
  * or Bluetooth LE. It never goes over LoRa. This is the part every node and every client needs:
@@ -16,7 +16,7 @@
  * text console. What a node answers and when is the node's business, not the core's (in the node
  * every port shares, ports/node/link.c). */
 
-#define TERN_COMPANION_VERSION 17
+#define TERN_COMPANION_VERSION 18
 #define TERN_COMPANION_MAX_FRAME 180
 /* The fewest FORGOTTEN and GROUP_FORGOTTEN records a node keeps (version 16). */
 #define TERN_C_FORGOTTEN_KEPT 16
@@ -50,6 +50,7 @@
 #define TERN_COMPANION_GROUP 8          /* a group's id */
 #define TERN_COMPANION_MANAGE_MAX 128   /* a MANAGE's request: as long as a message's text */
 #define TERN_COMPANION_MANAGED_MAX 128  /* a MANAGED's answer: the same */
+#define TERN_COMPANION_ENTRIES_MAX 160 /* TRACED's entries: 32 of a trace's, 5 bytes each */
 #define TERN_C_OWNERS 4                 /* owners a node holds, at most (draft/managing.md) */
 #define TERN_COMPANION_GAP TERN_MS(500) /* a partial frame idle this long is not a frame */
 
@@ -66,6 +67,7 @@ enum tern_companion_type {
     TERN_C_FORGET = 0x12, /* version 16, as are FORGET_GROUP, FORGOTTEN and GROUP_FORGOTTEN */
     TERN_C_MANAGE = 0x13, /* version 17, as are OWNER, RESTART and MANAGED */
     TERN_C_OWNER = 0x14,
+    TERN_C_TRACE = 0x15, /* version 18, as are ROUTE and TRACED */
     TERN_C_SAVE_CONTACT = 0x18,
     TERN_C_REMOVE_CONTACT = 0x19,
     TERN_C_END_SESSION = 0x1A, /* version 1 */
@@ -123,6 +125,8 @@ enum tern_companion_type {
     TERN_C_GROUP_FORGOTTEN = 0x97,
     TERN_C_MANAGED = 0x98,
     TERN_C_OWNER_CHANGED = 0x99, /* `contact` is in digest, and `by` in why */
+    TERN_C_ROUTE = 0x9A,
+    TERN_C_TRACED = 0x9B, /* `to` is in routing_id, as is TRACE's; `entries` in data */
 };
 
 /* The first version of the protocol that defines a type: a node sends a client no frame its
@@ -213,6 +217,15 @@ enum tern_companion_sleep {
     TERN_C_SLEEP_RESTING = 3, /* relays did not answer its polls; keeper is tried in retry s */
 };
 
+/* TRACED's result (version 18): how a trace ended. */
+enum tern_companion_traced {
+    TERN_C_TRACED_ANSWERED = 0, /* by its destination */
+    TERN_C_TRACED_KEEPER = 1,   /* by the keeper of its destination, a leaf asleep */
+    TERN_C_TRACED_NO_ROUTE = 2, /* by a relay with no route on */
+    TERN_C_TRACED_UNANSWERED = 3,
+    TERN_C_TRACED_NOT_BEGUN = 4, /* no route found */
+};
+
 /* FIX's source: whose fix the node uses. */
 enum tern_companion_source {
     TERN_C_SOURCE_NONE = 0,
@@ -241,6 +254,13 @@ struct tern_companion_msg {
     uint8_t listen;  /* SLEEP's, and SET 9's value: seconds */
     uint8_t owner;   /* CONTACT's and OWNER's: 1 if the contact is one of the node's owners */
     uint8_t locked;  /* SELF's, and SET 10's value: 1 if the node's Bluetooth is locked */
+    uint8_t hops;    /* ROUTE's (version 18) */
+    uint8_t goes;    /* ROUTE's */
+    uint8_t result;  /* TRACED's: a TERN_C_TRACED_ */
+    uint8_t out;     /* TRACED's */
+    int16_t rssi;    /* ROUTE's: dBm */
+    uint32_t via;    /* ROUTE's: a routing id */
+    uint32_t took;   /* ROUTE's and TRACED's: ms */
     uint16_t wake;   /* CONTACT's, SLEEP's, and SET 8's value: seconds, 0 for not sleeping */
     uint16_t retry;  /* SLEEP's: seconds */
     uint32_t keeper; /* SLEEP's: a routing id */
@@ -265,7 +285,8 @@ struct tern_companion_msg {
     uint8_t release[TERN_COMPANION_RELEASE_MAX];
     uint8_t card_name_len; /* SELF's */
     uint8_t card_name[TERN_COMPANION_NAME_MAX];
-    /* UPDATE_DATA's data, UPDATE_BEGIN's signature, MANAGE's request or MANAGED's answer */
+    /* UPDATE_DATA's data, UPDATE_BEGIN's signature, MANAGE's request, MANAGED's answer or
+     * TRACED's entries */
     uint8_t data_len;
     uint8_t data[TERN_COMPANION_UPDATE_CHUNK];
 };

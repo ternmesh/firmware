@@ -1,5 +1,5 @@
 {
-  "description": "Frames that follow routes, draft 0 (draft/forwarding.md). Routing ids are numbers; frames and tags are hex. In hops, sent is the frame the node sent and heard the one it then received; ends is whether that ends the hop, and teaches whether the node takes it as a sample of its neighbour's floor. In waits, listens is whether a node that has sent the frame listens for its hop to succeed, and sends it again if it does not. In backs, power is what a frame was sent at in dBm and snr_quarter_db what it was heard at, and needs is what an answer must go at for its sender to hear it, between the node's lowest and full power. In powers, neighbour is what Routes gives for the neighbour, its boost included, back is what the node the frame came from needs or null for a frame that answers none, and try counts from 0. In agains, a frame of length bytes is sent again at that spreading factor and bandwidth, with the profiles' preamble and coding rate (vectors/phy.json), by a hop that heard nothing of it (hop) or by its source with no acknowledgement (source): airtime_ns is its time on the air and longest_ns the longest it may wait first. In listens, a radio at that spreading factor and bandwidth finds a preamble or a header, says a frame has ended (end), or is given a frame to send (sent) at the times in events, and receiving is whether a node may not start to send at each time in asks, every event at or before that time having happened.",
+  "description": "Frames that follow routes, draft 0 (draft/forwarding.md). Routing ids are numbers; frames and tags are hex. In hops, sent is the frame the node sent and heard the one it then received; ends is whether that ends the hop, and teaches whether the node takes it as a sample of its neighbour's floor. In waits, listens is whether a node that has sent the frame listens for its hop to succeed, and sends it again if it does not. In entries, a relay with routing id id receives the trace or trace answer frame, for it, heard at snr_quarter_db, and passes on a frame whose hops is hops and whose bytes from destination on are passed, or drops it where passed is null. In answers, the node id receives the trace frame, heard at snr_quarter_db, as its destination, the keeper of its destination asleep, or a relay with no route to it (as), and answers with a trace answer whose bytes from destination on are answer, or drops it where answer is null. In backs, power is what a frame was sent at in dBm and snr_quarter_db what it was heard at, and needs is what an answer must go at for its sender to hear it, between the node's lowest and full power. In powers, neighbour is what Routes gives for the neighbour, its boost included, back is what the node the frame came from needs or null for a frame that answers none, and try counts from 0. In agains, a frame of length bytes is sent again at that spreading factor and bandwidth, with the profiles' preamble and coding rate (vectors/phy.json), by a hop that heard nothing of it (hop) or by its source with no acknowledgement (source): airtime_ns is its time on the air and longest_ns the longest it may wait first. In listens, a radio at that spreading factor and bandwidth finds a preamble or a header, says a frame has ended (end), or is given a frame to send (sent) at the times in events, and receiving is whether a node may not start to send at each time in asks, every event at or before that time having happened.",
   "generator": "vectors/tools/forwarding.py",
   "heads": [
     {
@@ -73,6 +73,42 @@
       "destination": 808530483,
       "tag": "60616263",
       "frame": "5402f73031323330313233606162636465666768696a6b6c"
+    },
+    {
+      "hdr": 86,
+      "hops": 32,
+      "power": 14,
+      "next": 489570112,
+      "destination": 168496141,
+      "tag": "c0ffee02",
+      "frame": "56200e1d2e3f400a0b0c0dc0ffee0230313233"
+    },
+    {
+      "hdr": 86,
+      "hops": 30,
+      "power": 8,
+      "next": 168496141,
+      "destination": 168496141,
+      "tag": "c0ffee02",
+      "frame": "561e080a0b0c0d0a0b0c0dc0ffee02303132331d2e3f40212a4a0644ce"
+    },
+    {
+      "hdr": 87,
+      "hops": 32,
+      "power": 11,
+      "next": 709494340,
+      "destination": 808530483,
+      "tag": "c0ffee02",
+      "frame": "57200b2a4a064430313233c0ffee0200031d2e3f40212a4a0644ce0a0b0c0d04"
+    },
+    {
+      "hdr": 87,
+      "hops": 31,
+      "power": 2,
+      "next": 808530483,
+      "destination": 808530483,
+      "tag": "c0ffee03",
+      "frame": "571f023031323330313233c0ffee0301011d2e3f40802a4a06447f"
     }
   ],
   "rejected": [
@@ -151,6 +187,42 @@
     {
       "why": "first contact has no message_5",
       "frame": "55200e000000070000000900000000000000000000000000"
+    },
+    {
+      "why": "a trace with no routing id it came from",
+      "frame": "56200e000000070000000900000000"
+    },
+    {
+      "why": "a trace a byte short of its routing id",
+      "frame": "56200e000000070000000900000000000000"
+    },
+    {
+      "why": "a trace with part of an entry",
+      "frame": "56200e0000000700000009000000000000000000000000"
+    },
+    {
+      "why": "a trace with 17 entries",
+      "frame": "56200e0000000700000009000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "why": "a trace answer with no out",
+      "frame": "57200e00000007000000090000000000"
+    },
+    {
+      "why": "a trace answer with more out than entries",
+      "frame": "57200e00000007000000090000000000020000000000"
+    },
+    {
+      "why": "a trace answer with a reserved flag",
+      "frame": "57200e00000007000000090000000003010000000000"
+    },
+    {
+      "why": "a trace answer with 17 entries back",
+      "frame": "57200e0000000700000009000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "why": "a trace for every destination",
+      "frame": "56200e00000007ffffffff0000000000000000"
     }
   ],
   "hops": [
@@ -314,6 +386,83 @@
       "heard": "541306000000070000000930313233707172737475767778",
       "ends": false,
       "teaches": false
+    },
+    {
+      "why": "a trace passed on, its entry added",
+      "sent": "5614050000000700000009303132330000004d",
+      "heard": "5613050000000900000009303132330000004d000000080c",
+      "ends": true,
+      "teaches": true
+    },
+    {
+      "why": "a trace passed on with no entry added",
+      "sent": "5614050000000700000009303132330000004d",
+      "heard": "5613050000000900000009303132330000004d",
+      "ends": false,
+      "teaches": false
+    },
+    {
+      "why": "a trace passed on with two entries added",
+      "sent": "5614050000000700000009303132330000004d",
+      "heard": "5613050000000900000009303132330000004d000000080c0000000903",
+      "ends": false,
+      "teaches": false
+    },
+    {
+      "why": "a trace passed on, an entry before changed",
+      "sent": "5614050000000700000009303132330000004d0000000508",
+      "heard": "5613050000000900000009303132330000004d0000000509000000080c",
+      "ends": false,
+      "teaches": false
+    },
+    {
+      "why": "a trace answered",
+      "sent": "5614050000000900000009303132330000004d",
+      "heard": "572005000000070000004d3031323300010000000928",
+      "ends": true,
+      "teaches": false
+    },
+    {
+      "why": "a trace answered by a keeper",
+      "sent": "5614050000000700000009303132330000004d",
+      "heard": "572005000000070000004d3031323301010000000828",
+      "ends": true,
+      "teaches": false
+    },
+    {
+      "why": "another trace answered",
+      "sent": "5614050000000700000009303132330000004d",
+      "heard": "572005000000070000004d4041424300010000000928",
+      "ends": false,
+      "teaches": false
+    },
+    {
+      "why": "a trace is not ended by an acknowledgement with its tag",
+      "sent": "5614050000000700000009303132330000004d",
+      "heard": "502003000000070000004d3031323300000000",
+      "ends": false,
+      "teaches": false
+    },
+    {
+      "why": "a message is not ended by a trace answer with its tag",
+      "sent": "48140e000000070000000930313233606162636465666768696a6b6c",
+      "heard": "572005000000070000004d3031323300010000000904",
+      "ends": false,
+      "teaches": false
+    },
+    {
+      "why": "a trace answer passed on, its entry added",
+      "sent": "571405000000070000004d3031323300010000000928",
+      "heard": "571305000000080000004d303132330001000000092800000006fc",
+      "ends": true,
+      "teaches": true
+    },
+    {
+      "why": "a trace answer is not ended by another answer",
+      "sent": "571405000000070000004d3031323300010000000928",
+      "heard": "572005000000080000004d3031323300010000000928",
+      "ends": false,
+      "teaches": false
     }
   ],
   "waits": [
@@ -361,6 +510,166 @@
       "why": "the last frame of first contact on its way",
       "sent": "540306000000070000000930313233707172737475767778",
       "listens": true
+    },
+    {
+      "why": "a trace on its way",
+      "sent": "5620050000000700000009303132330000004d",
+      "listens": true
+    },
+    {
+      "why": "a trace to its destination: its answer is listened for",
+      "sent": "5620050000000900000009303132330000004d",
+      "listens": true
+    },
+    {
+      "why": "a trace answer on its way",
+      "sent": "572005000000070000004d3031323300010000000904",
+      "listens": true
+    },
+    {
+      "why": "a trace answer to the node that began the trace",
+      "sent": "571e050000004d0000004d3031323300010000000904",
+      "listens": false
+    }
+  ],
+  "entries": [
+    {
+      "why": "a trace with no entries",
+      "frame": "5620050000000800000009303132330000004d",
+      "id": 8,
+      "snr_quarter_db": 12,
+      "hops": 31,
+      "passed": "00000009303132330000004d000000080c"
+    },
+    {
+      "why": "a trace with two",
+      "frame": "561e050000000800000009303132330000004d000000051400000006f9",
+      "id": 8,
+      "snr_quarter_db": -33,
+      "hops": 29,
+      "passed": "00000009303132330000004d000000051400000006f900000008df"
+    },
+    {
+      "why": "a signal-to-noise ratio above what an entry holds",
+      "frame": "561e050000000800000009303132330000004d",
+      "id": 8,
+      "snr_quarter_db": 300,
+      "hops": 29,
+      "passed": "00000009303132330000004d000000087f"
+    },
+    {
+      "why": "one below it",
+      "frame": "561e050000000800000009303132330000004d",
+      "id": 8,
+      "snr_quarter_db": -300,
+      "hops": 29,
+      "passed": "00000009303132330000004d0000000880"
+    },
+    {
+      "why": "a trace with one hop left: not passed on",
+      "frame": "5601050000000800000009303132330000004d",
+      "id": 8,
+      "snr_quarter_db": 12,
+      "hops": null,
+      "passed": null
+    },
+    {
+      "why": "a trace with no hops left",
+      "frame": "5600050000000800000009303132330000004d",
+      "id": 8,
+      "snr_quarter_db": 12,
+      "hops": null,
+      "passed": null
+    },
+    {
+      "why": "a trace that already holds as many entries as it may",
+      "frame": "5614050000000800000009303132330000004d0000006400000000650100000066020000006703000000680400000069050000006a060000006b070000006c080000006d090000006e0a0000006f0b000000700c000000710d000000720e000000730f",
+      "id": 8,
+      "snr_quarter_db": 12,
+      "hops": null,
+      "passed": null
+    },
+    {
+      "why": "one entry short of it",
+      "frame": "5614050000000800000009303132330000004d0000006400000000650100000066020000006703000000680400000069050000006a060000006b070000006c080000006d090000006e0a0000006f0b000000700c000000710d000000720e",
+      "id": 8,
+      "snr_quarter_db": 12,
+      "hops": 19,
+      "passed": "00000009303132330000004d0000006400000000650100000066020000006703000000680400000069050000006a060000006b070000006c080000006d090000006e0a0000006f0b000000700c000000710d000000720e000000080c"
+    },
+    {
+      "why": "an answer on its way back",
+      "frame": "571d05000000080000004d30313233000200000005140000000904",
+      "id": 8,
+      "snr_quarter_db": 16,
+      "hops": 28,
+      "passed": "0000004d303132330002000000051400000009040000000810"
+    },
+    {
+      "why": "an answer with as many entries back as it may",
+      "frame": "571405000000080000004d30313233000100000009040000006400000000650100000066020000006703000000680400000069050000006a060000006b070000006c080000006d090000006e0a0000006f0b000000700c000000710d000000720e000000730f",
+      "id": 8,
+      "snr_quarter_db": 16,
+      "hops": null,
+      "passed": null
+    },
+    {
+      "why": "an answer with a full way out and none back",
+      "frame": "571d05000000080000004d3031323300100000006400000000650100000066020000006703000000680400000069050000006a060000006b070000006c080000006d090000006e0a0000006f0b000000700c000000710d000000720e000000730f",
+      "id": 8,
+      "snr_quarter_db": 16,
+      "hops": 28,
+      "passed": "0000004d3031323300100000006400000000650100000066020000006703000000680400000069050000006a060000006b070000006c080000006d090000006e0a0000006f0b000000700c000000710d000000720e000000730f0000000810"
+    }
+  ],
+  "answers": [
+    {
+      "why": "by its destination, with no relay on the way",
+      "frame": "5620050000000900000009303132330000004d",
+      "id": 9,
+      "snr_quarter_db": 40,
+      "as": "destination",
+      "answer": "0000004d3031323300010000000928"
+    },
+    {
+      "why": "by its destination, through two relays",
+      "frame": "561e050000000900000009303132330000004d000000051400000006f9",
+      "id": 9,
+      "snr_quarter_db": 40,
+      "as": "destination",
+      "answer": "0000004d303132330003000000051400000006f90000000928"
+    },
+    {
+      "why": "by the keeper of its destination, asleep",
+      "frame": "561f050000000600000009303132330000004d0000000514",
+      "id": 6,
+      "snr_quarter_db": -2,
+      "as": "keeper",
+      "answer": "0000004d303132330102000000051400000006fe"
+    },
+    {
+      "why": "by a relay with no route to it",
+      "frame": "561f050000000600000009303132330000004d0000000514",
+      "id": 6,
+      "snr_quarter_db": 3,
+      "as": "no route",
+      "answer": "0000004d30313233020200000005140000000603"
+    },
+    {
+      "why": "with a routing id of every bit",
+      "frame": "562005a1b2c3d4a1b2c3d43031323380000001fffffffe01",
+      "id": 2712847316,
+      "snr_quarter_db": 7,
+      "as": "destination",
+      "answer": "80000001303132330002fffffffe01a1b2c3d407"
+    },
+    {
+      "why": "a trace too full to answer",
+      "frame": "5614050000000900000009303132330000004d0000006400000000650100000066020000006703000000680400000069050000006a060000006b070000006c080000006d090000006e0a0000006f0b000000700c000000710d000000720e000000730f",
+      "id": 9,
+      "snr_quarter_db": 40,
+      "as": "destination",
+      "answer": null
     }
   ],
   "backs": [

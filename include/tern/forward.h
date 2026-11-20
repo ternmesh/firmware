@@ -44,6 +44,8 @@
 #define TERN_HDR_CONTACT_1 0x51 /* first contact's four frames, from message_1's */
 #define TERN_HDR_CONTACT_4 0x54
 #define TERN_HDR_HELD 0x55 /* a keeper's held notice (tern/sleep.h) */
+#define TERN_HDR_TRACE 0x56        /* a trace: the way to a node, gathered as it goes */
+#define TERN_HDR_TRACE_ANSWER 0x57 /* its answer, gathering the way back */
 
 #define TERN_FORWARD_HEAD 11 /* hdr, hops, power, next hop and destination */
 #define TERN_FORWARD_TAG 4   /* what tells one frame from another, after the head */
@@ -61,6 +63,21 @@
 #define TERN_FORWARD_NOTICES 2   /* held notices waiting to go */
 #define TERN_FORWARD_WAKES 4     /* destinations a source knows sleep */
 
+/* Traces (the specification's "Traces"). A trace carries, after its tag, the routing id it came
+ * from and then its entries; an answer, after its tag, `flags` and `out` and then its entries. An
+ * entry is a routing id and how well that node heard the frame, an i8 in quarters of a dB. */
+#define TERN_TRACE_FROM TERN_FORWARD_MIN          /* where a trace keeps the routing id */
+#define TERN_TRACE_MIN (TERN_FORWARD_MIN + 4)     /* a trace with no entries: 19 */
+#define TERN_TRACE_ANSWER_MIN (TERN_FORWARD_MIN + 2) /* an answer with none: 17 */
+#define TERN_TRACE_ENTRY 5
+#define TERN_TRACE_ENTRIES 16 /* each way */
+#define TERN_TRACE_ANSWERS 4  /* traces a node answers a minute, as each of the three below */
+/* An answer's flags: who answered. */
+#define TERN_TRACE_BY_DESTINATION 0
+#define TERN_TRACE_BY_KEEPER 1 /* the destination's keeper, the destination asleep */
+#define TERN_TRACE_BY_RELAY 2  /* a relay with no route to the destination */
+#define TERN_TRACE_BY_COUNT 3
+
 /* Whether a frame is one of this layer's, by its first byte. */
 static inline bool tern_forward_contact(uint8_t hdr) {
     return hdr >= TERN_HDR_CONTACT_1 && hdr <= TERN_HDR_CONTACT_4;
@@ -71,9 +88,15 @@ static inline bool tern_forward_message(uint8_t hdr) {
     return hdr == TERN_HDR_MESSAGE || hdr == TERN_HDR_NODE;
 }
 
+/* A trace or a trace answer: each node it reaches adds its entry. */
+static inline bool tern_forward_traced(uint8_t hdr) {
+    return hdr == TERN_HDR_TRACE || hdr == TERN_HDR_TRACE_ANSWER;
+}
+
 static inline bool tern_forward_frame(const uint8_t *frame, size_t len) {
     return len > 0 && (tern_forward_message(frame[0]) || frame[0] == TERN_HDR_ACK ||
-                       tern_forward_contact(frame[0]) || frame[0] == TERN_HDR_HELD);
+                       tern_forward_contact(frame[0]) || frame[0] == TERN_HDR_HELD ||
+                       tern_forward_traced(frame[0]));
 }
 
 struct tern_forward_head {
@@ -97,6 +120,27 @@ size_t tern_forward_held_write(int8_t power, uint32_t keeper, uint32_t destinati
                                const uint8_t tag[TERN_FORWARD_TAG], uint8_t frame[TERN_HELD_LEN]);
 
 /* --- Rules, each as the specification states it, checked against its vectors. --- */
+
+/* The entries a trace or a trace answer carries, and where the first is. A frame
+ * tern_forward_head_read() takes. */
+size_t tern_forward_entries(const uint8_t *frame, size_t len, size_t *at);
+
+/* An entry, as it goes in a frame: the routing id, and the signal-to-noise ratio in quarters of a
+ * dB kept to an i8. */
+void tern_forward_entry_write(uint32_t id, int16_t snr_q, uint8_t entry[TERN_TRACE_ENTRY]);
+
+/* A trace or trace answer a relay passes on, as `out`: `hops` one less, and its entry, `id` and
+ * how well it heard the frame, added at the end. Returns the length, or 0 where it is dropped: it
+ * has come as far as it may, or holds as many entries as it may. A frame
+ * tern_forward_head_read() takes. */
+size_t tern_forward_entry_pass(const uint8_t *frame, size_t len, uint32_t id, int16_t snr_q,
+                               uint8_t out[TERN_FORWARD_FRAME_MAX]);
+
+/* The answer the node `id` gives a trace it heard at `snr_q`, with `flags` saying why, as `out`:
+ * to the trace's `from`, `hops` as given, its `next` and `power` 0, for tern_forward_send() to
+ * fill. Returns the length, or 0 where the trace holds as many entries as it may. */
+size_t tern_forward_answer_write(const uint8_t *trace, size_t len, uint32_t id, int16_t snr_q,
+                                 uint8_t flags, uint8_t hops, uint8_t out[TERN_FORWARD_FRAME_MAX]);
 
 /* Whether two frames are the same one, whatever hop each is on: of one length, with one hdr, and
  * equal in every byte from the destination on. A tag alone does not tell: two messages share one
@@ -226,6 +270,9 @@ struct tern_forward {
         uint32_t destination;
         uint16_t wake;
     } wakes[TERN_FORWARD_WAKES];
+    /* When the last traces of each kind were answered: a second, kept to 16 bits, plus one; 0 for
+     * none. */
+    uint16_t answered_at[TERN_TRACE_BY_COUNT][TERN_TRACE_ANSWERS];
 };
 
 /* Starts a forwarder over a router. `seed` is for jitter and need not be secret. The slots need
@@ -278,6 +325,8 @@ enum tern_forward_got {
     TERN_FORWARD_MESSAGE, /* a message for this node: to open, and to acknowledge */
     TERN_FORWARD_ACK,     /* an acknowledgement for this node: to check */
     TERN_FORWARD_CONTACT, /* a first-contact frame for this node: for tern/contact.h */
+    TERN_FORWARD_TRACE,   /* a trace for this node: tern_forward_trace_answer(), or drop it */
+    TERN_FORWARD_TRACED,  /* the answer to a trace of this node's, which it ends */
 };
 
 struct tern_forward_heard {
@@ -285,7 +334,8 @@ struct tern_forward_heard {
     int8_t back; /* for the answer's tern_forward_send() */
 };
 
-/* A frame of this layer's was received, at this signal-to-noise ratio in quarters of a decibel. */
+/* A frame of this layer's was received, at this signal-to-noise ratio in quarters of a decibel.
+ * A relay answers, itself, a trace for a sleeping leaf it keeps, and one it has no route on for. */
 void tern_forward_heard(struct tern_forward *f, tern_time now, const uint8_t *frame, size_t len,
                         int16_t snr_q, struct tern_forward_heard *out);
 
@@ -304,6 +354,24 @@ bool tern_forward_done(struct tern_forward *f, uint8_t hdr, const uint8_t tag[TE
  * freed. */
 bool tern_forward_contact_failed(struct tern_forward *f, uint8_t *hdr,
                                  uint8_t tag[TERN_FORWARD_TAG]);
+
+/* Begins a trace to `destination`, with `tag`: kept, as a message is, until its answer comes
+ * (TERN_FORWARD_TRACED) or it is given up (tern_forward_trace_failed()). It is not begun again.
+ * False with no slot, or a trace to that destination already held (tern_forward_tracing()). */
+bool tern_forward_trace(struct tern_forward *f, tern_time now, uint32_t destination,
+                        const uint8_t tag[TERN_FORWARD_TAG]);
+bool tern_forward_tracing(const struct tern_forward *f, uint32_t destination);
+
+/* A trace given up, if there is one: its tag and destination are written, `began` is whether it
+ * went on the air (with no route found, it did not), and its slot is freed. */
+bool tern_forward_trace_failed(struct tern_forward *f, uint8_t tag[TERN_FORWARD_TAG],
+                               uint32_t *destination, bool *began);
+
+/* Answers a trace received at `snr_q`, as `flags` says who this node is to it, `back` as
+ * tern_forward_heard() gave. False where it is not: TERN_TRACE_ANSWERS of that kind went in the
+ * last minute, the trace holds as many entries as it may, or there is no route to its source. */
+bool tern_forward_trace_answer(struct tern_forward *f, tern_time now, const uint8_t *trace,
+                               size_t len, int16_t snr_q, uint8_t flags, int8_t back);
 
 /* When tern_forward_poll() next has something to do, or INT64_MAX. */
 tern_time tern_forward_due(const struct tern_forward *f);

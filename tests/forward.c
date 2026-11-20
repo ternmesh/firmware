@@ -43,6 +43,26 @@ struct wait_case {
     size_t len;
     bool listens;
 };
+struct entry_case {
+    const char *why;
+    uint8_t frame[TERN_FORWARD_FRAME_MAX];
+    size_t len;
+    uint32_t id;
+    int16_t snr_q;
+    uint8_t hops;
+    uint8_t passed[TERN_FORWARD_FRAME_MAX]; /* from the destination on */
+    size_t passed_len;                     /* 0: dropped */
+};
+struct answer_case {
+    const char *why;
+    uint8_t frame[TERN_FORWARD_FRAME_MAX];
+    size_t len;
+    uint32_t id;
+    int16_t snr_q;
+    uint8_t flags;
+    uint8_t answer[TERN_FORWARD_FRAME_MAX]; /* from the destination on */
+    size_t answer_len;                     /* 0: not answered */
+};
 struct back_case {
     int8_t power;
     int16_t snr_q;
@@ -82,6 +102,11 @@ struct node {
     int contacts;    /* first-contact frames for it received */
     int answered;    /* and of them, answers to frames of its own */
     int unanswered;  /* first-contact frames of its own given up on */
+    int traced;      /* answers to its traces */
+    int untraced;    /* traces of its own given up on, and of them those never begun */
+    int unbegun;
+    uint8_t answer[TERN_FORWARD_FRAME_MAX]; /* the last answer to a trace of its own */
+    size_t answer_len;
     int sent[3];     /* by kind */
     int8_t power[8]; /* what its last frames went at */
     int powers;
@@ -160,6 +185,15 @@ static void on_air(int from, const uint8_t *frame, size_t len, int8_t dbm) {
                 }
             } else if (got.got == TERN_FORWARD_ACK) {
                 y->acked += tern_forward_acked(&y->f, frame + TERN_FORWARD_HEAD);
+            } else if (got.got == TERN_FORWARD_TRACE) {
+                if (!y->silent) {
+                    (void)tern_forward_trace_answer(&y->f, net.now, frame, len, (int16_t)snr,
+                                                    TERN_TRACE_BY_DESTINATION, got.back);
+                }
+            } else if (got.got == TERN_FORWARD_TRACED) {
+                y->traced++;
+                memcpy(y->answer, frame, len);
+                y->answer_len = len;
             } else if (got.got == TERN_FORWARD_CONTACT) {
                 int who = frame[TERN_FORWARD_HEAD + TERN_FORWARD_TAG];
                 y->contacts++;
@@ -212,6 +246,12 @@ static void run(tern_time until) {
             }
             while (tern_forward_contact_failed(&x->f, &handle, tag)) {
                 x->unanswered++;
+            }
+            uint32_t to;
+            bool began;
+            while (tern_forward_trace_failed(&x->f, tag, &to, &began)) {
+                x->untraced++;
+                x->unbegun += !began;
             }
         }
     }
@@ -630,6 +670,137 @@ static void a_message_with_no_route_waits_and_is_given_up(void) {
     CHECK_EQ_I64(in_hand(0), 0);
 }
 
+static void a_relay_adds_its_entry_as_the_specification_says(void) {
+    for (size_t i = 0; i < COUNT(entry_cases); i++) {
+        const struct entry_case *c = &entry_cases[i];
+        uint8_t out[TERN_FORWARD_FRAME_MAX];
+        struct tern_forward_head h;
+        size_t n;
+        CHECK(tern_forward_head_read(&h, c->frame, c->len));
+        n = tern_forward_entry_pass(c->frame, c->len, c->id, c->snr_q, out);
+        if (n != (c->passed_len ? c->passed_len + 7 : 0) ||
+            (n && (out[1] != c->hops || memcmp(out + 7, c->passed, c->passed_len) != 0))) {
+            fprintf(stderr, "wrong for %s\n", c->why);
+            check_failures++;
+        }
+    }
+}
+
+static void a_trace_is_answered_as_the_specification_says(void) {
+    for (size_t i = 0; i < COUNT(answer_cases); i++) {
+        const struct answer_case *c = &answer_cases[i];
+        uint8_t out[TERN_FORWARD_FRAME_MAX];
+        size_t n = tern_forward_answer_write(c->frame, c->len, c->id, c->snr_q, c->flags, 32, out);
+        if (n != (c->answer_len ? c->answer_len + 7 : 0) ||
+            (n && (out[1] != 32 || memcmp(out + 7, c->answer, c->answer_len) != 0))) {
+            fprintf(stderr, "wrong for %s\n", c->why);
+            check_failures++;
+        }
+    }
+}
+
+static uint32_t entry_id(const uint8_t *frame, size_t k) {
+    const uint8_t *e = frame + TERN_TRACE_ANSWER_MIN + k * TERN_TRACE_ENTRY;
+    return (uint32_t)e[0] << 24 | (uint32_t)e[1] << 16 | (uint32_t)e[2] << 8 | e[3];
+}
+
+static void trace(int from, int to, uint8_t tag) {
+    uint8_t t[TERN_FORWARD_TAG];
+    memset(t, tag, sizeof t);
+    CHECK(tern_forward_trace(&net.node[from].f, net.now, id_of(to), t));
+}
+
+/* Out across two relays and back: each node on the way adds its entry, the destination its own
+ * last on the way out, and the source, which ends the trace, has the whole of both ways. */
+static void a_trace_goes_along_the_line_and_back(void) {
+    line();
+    trace(0, 3, 0x71);
+    CHECK(tern_forward_tracing(&net.node[0].f, id_of(3)));
+    run(net.now + TERN_S(60));
+    CHECK_EQ_I64(net.node[0].traced, 1);
+    CHECK_EQ_I64(net.node[0].untraced, 0);
+    CHECK(!tern_forward_tracing(&net.node[0].f, id_of(3)));
+    CHECK_EQ_I64(net.node[0].answer[TERN_FORWARD_MIN], TERN_TRACE_BY_DESTINATION);
+    CHECK_EQ_I64(net.node[0].answer[TERN_FORWARD_MIN + 1], 3);
+    CHECK_EQ_I64(net.node[0].answer_len, TERN_TRACE_ANSWER_MIN + 5 * TERN_TRACE_ENTRY);
+    CHECK_EQ_I64(entry_id(net.node[0].answer, 0), id_of(1));
+    CHECK_EQ_I64(entry_id(net.node[0].answer, 1), id_of(2));
+    CHECK_EQ_I64(entry_id(net.node[0].answer, 2), id_of(3));
+    CHECK_EQ_I64(entry_id(net.node[0].answer, 3), id_of(2));
+    CHECK_EQ_I64(entry_id(net.node[0].answer, 4), id_of(1));
+    for (int i = 0; i < 4; i++) {
+        CHECK_EQ_I64(net.node[i].f.counts.sent_again, 0);
+        CHECK_EQ_I64(in_hand(i), 0);
+    }
+}
+
+/* One trace to a destination at a time, and a trace not answered is given up, once, not begun
+ * again. */
+static void a_trace_unanswered_is_given_up_once(void) {
+    uint8_t t[TERN_FORWARD_TAG] = {0x72, 0x72, 0x72, 0x72};
+    line();
+    net.node[3].silent = true;
+    trace(0, 3, 0x72);
+    CHECK(!tern_forward_trace(&net.node[0].f, net.now, id_of(3), t));
+    run(net.now + TERN_S(120));
+    CHECK_EQ_I64(net.node[0].traced, 0);
+    CHECK_EQ_I64(net.node[0].untraced, 1);
+    CHECK_EQ_I64(net.node[0].unbegun, 0);
+    CHECK_EQ_I64(net.node[0].sent[TERN_FORWARD_OWN], 1);
+    CHECK_EQ_I64(in_hand(0), 0);
+}
+
+static void a_trace_with_no_route_is_not_begun(void) {
+    net_init(2, NULL);
+    run(TERN_S(600)); /* neither hears the other */
+    trace(0, 1, 0x73);
+    run(net.now + TERN_S(60));
+    CHECK_EQ_I64(net.node[0].untraced, 1);
+    CHECK_EQ_I64(net.node[0].unbegun, 1);
+    CHECK_EQ_I64(net.node[0].sent[TERN_FORWARD_OWN], 0);
+    CHECK_EQ_I64(in_hand(0), 0);
+}
+
+/* A relay with no route on answers, from where the trace got to, with its own entry last. */
+static void a_relay_with_no_route_answers(void) {
+    uint8_t frame[TERN_TRACE_MIN] = {0};
+    struct tern_forward_head h = {TERN_HDR_TRACE, 32, FULL, id_of(1), 0x7777u};
+    struct tern_forward_heard got;
+    line();
+    tern_forward_head_write(&h, frame);
+    memset(frame + TERN_FORWARD_HEAD, 0x74, TERN_FORWARD_TAG);
+    frame[TERN_TRACE_FROM + 2] = 0x10; /* from id_of(0) */
+    tern_forward_heard(&net.node[1].f, net.now, frame, sizeof frame, 40, &got);
+    CHECK_EQ_I64(got.got, TERN_FORWARD_NOTHING);
+    CHECK_EQ_I64(in_hand(1), 1);
+    run(net.now + TERN_S(10));
+    CHECK_EQ_I64(net.node[0].traced, 0); /* no trace of its own: an answer it ignores */
+    CHECK_EQ_I64(net.node[1].sent[TERN_FORWARD_OWN], 1);
+    CHECK_EQ_I64(in_hand(1), 0);
+}
+
+/* No more than TERN_TRACE_ANSWERS a minute, and as many again a minute later. */
+static void a_node_answers_few_traces_a_minute(void) {
+    uint8_t frame[TERN_TRACE_MIN] = {0};
+    struct tern_forward_head h = {TERN_HDR_TRACE, 32, FULL, id_of(1), id_of(1)};
+    line();
+    tern_forward_head_write(&h, frame);
+    frame[TERN_TRACE_FROM + 2] = 0x10;
+    for (int k = 0; k < TERN_TRACE_ANSWERS + 1; k++) {
+        frame[TERN_FORWARD_HEAD] = (uint8_t)k;
+        CHECK_EQ_I64(tern_forward_trace_answer(&net.node[1].f, net.now, frame, sizeof frame, 40,
+                                               TERN_TRACE_BY_DESTINATION, INT8_MIN),
+                     k < TERN_TRACE_ANSWERS);
+        run(net.now + TERN_S(2));
+    }
+    /* Each kind counted apart. */
+    CHECK(tern_forward_trace_answer(&net.node[1].f, net.now, frame, sizeof frame, 40,
+                                    TERN_TRACE_BY_RELAY, INT8_MIN));
+    run(net.now + TERN_S(60));
+    CHECK(tern_forward_trace_answer(&net.node[1].f, net.now, frame, sizeof frame, 40,
+                                    TERN_TRACE_BY_DESTINATION, INT8_MIN));
+}
+
 int main(void) {
     RUN(heads_are_written_and_read);
     RUN(frames_the_specification_rejects_change_nothing);
@@ -652,5 +823,12 @@ int main(void) {
     RUN(a_frame_already_being_passed_on_is_not_taken_twice);
     RUN(a_frame_that_has_come_far_enough_stops);
     RUN(a_message_with_no_route_waits_and_is_given_up);
+    RUN(a_relay_adds_its_entry_as_the_specification_says);
+    RUN(a_trace_is_answered_as_the_specification_says);
+    RUN(a_trace_goes_along_the_line_and_back);
+    RUN(a_trace_unanswered_is_given_up_once);
+    RUN(a_trace_with_no_route_is_not_begun);
+    RUN(a_relay_with_no_route_answers);
+    RUN(a_node_answers_few_traces_a_minute);
     return CHECK_DONE();
 }

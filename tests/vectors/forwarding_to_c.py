@@ -84,6 +84,26 @@ def main():
     ]
     L.append("};")
 
+    L.append("static const struct entry_case entry_cases[] = {")
+    L += [
+        f"    {{\"{c['why']}\", {hexbytes(c['frame'])}, {len(c['frame']) // 2}, {c['id']}u, "
+        f"{c['snr_quarter_db']}, {0 if c['hops'] is None else c['hops']}, "
+        f"{hexbytes(c['passed'] or '00')}, {0 if c['passed'] is None else len(c['passed']) // 2}}},"
+        for c in v["entries"]
+    ]
+    L.append("};")
+
+    AS = {"destination": "TERN_TRACE_BY_DESTINATION", "keeper": "TERN_TRACE_BY_KEEPER",
+          "no route": "TERN_TRACE_BY_RELAY"}
+    L.append("static const struct answer_case answer_cases[] = {")
+    L += [
+        f"    {{\"{c['why']}\", {hexbytes(c['frame'])}, {len(c['frame']) // 2}, {c['id']}u, "
+        f"{c['snr_quarter_db']}, {AS[c['as']]}, "
+        f"{hexbytes(c['answer'] or '00')}, {0 if c['answer'] is None else len(c['answer']) // 2}}},"
+        for c in v["answers"]
+    ]
+    L.append("};")
+
     L.append("static const struct back_case backs[] = {")
     L += [
         f"    {{{c['power']}, {c['snr_quarter_db']}, {c['spreading_factor']}, {c['lowest']}, "

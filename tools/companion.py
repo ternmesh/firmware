@@ -96,7 +96,7 @@ MAX_FRAME, MAGIC = 180, b"\xf5\x54"
 # version brought; `--speak` says another, so that `watch` is told of groups, positions or cards.
 VERSION = 1
 # The latest version the frames below are, which selftest reads the vectors by.
-LATEST = 17
+LATEST = 18
 # SET 4's value for the node's default passkey: a new one on its screen each time, or 123456 on a
 # node without one.
 PASSKEY_DEFAULT = 0xFFFFFFFF
@@ -122,6 +122,7 @@ FRAMES = {
     0x12: ("FORGET", [("contact", "addr"), ("through", "I")]),
     0x13: ("MANAGE", [("ref", "I"), ("to", "addr"), ("request", "raw")]),
     0x14: ("OWNER", [("address", "addr"), ("owner", "B")]),
+    0x15: ("TRACE", [("ref", "I"), ("to", "I")]),
     0x18: ("SAVE_CONTACT", [("address", "addr"), ("name", "str")]),
     0x19: ("REMOVE_CONTACT", [("address", "addr")]),
     0x1A: ("END_SESSION", [("address", "addr")]),
@@ -196,6 +197,10 @@ FRAMES = {
     0x97: ("GROUP_FORGOTTEN", [("group", "gid"), ("through", "I")]),
     0x98: ("MANAGED", [("from", "addr"), ("answer", "raw")]),
     0x99: ("OWNER_CHANGED", [("from", "addr"), ("contact", "addr"), ("owner", "B"), ("by", "B")]),
+    0x9A: ("ROUTE", [("id", "I"), ("hops", "B"), ("snr", "b"), ("rssi", "h"), ("via", "I"),
+                     ("goes", "B"), ("took", "I")]),
+    0x9B: ("TRACED", [("id", "I"), ("to", "I"), ("result", "B"), ("out", "B"), ("took", "I"),
+                      ("snr", "b"), ("entries", "raw")]),
 }
 # Fields a later version added at the end of a frame: an earlier version's frame stops before them.
 LATER = {(0x43, "news"): 3, (0x42, "board"): 4, (0x42, "release"): 4, (0x80, "cards"): 6,
@@ -594,6 +599,10 @@ def describe(m, names):
         more += f", from {m['satellites']} satellites" if m["satellites"] else ""
         return (f"fix: {m['lat'] / 1e7:.7f}, {m['lon'] / 1e7:.7f}{more}, {m['age']} s old, "
                 f"{whose} ({receiver})")
+    if t == "ROUTE":
+        return f"message #{m['id']}: {route(m)}"
+    if t == "TRACED":
+        return f"trace #{m['id']} to {m['to']:08x}: {traced(m)}"
     if t == "SLEEP":
         if not m["wake"]:
             return "sleep: off, listening all the time"
@@ -612,6 +621,40 @@ groups = {}  # a group's id: the name the node holds it under, as GROUP said
 
 def group_name(gid):
     return repr(groups[gid]) if gid in groups else gid.hex()
+
+
+def route(m):
+    """How a message went, as ROUTE says: direct or relayed, how well heard, and for one sent, the
+    neighbour it went to, its tries and its round trip."""
+    parts = []
+    if m["hops"]:
+        hops = "direct" if m["hops"] == 1 else f"{m['hops']} hops"
+        parts.append(f"{hops}, SNR {m['snr'] / 4:g} dB, {m['rssi']} dBm")
+    if m["via"]:
+        parts.append(f"sent to {m['via']:08x}")
+    if m["goes"] > 1:
+        parts.append(f"{m['goes']} tries")
+    if m["took"]:
+        parts.append(f"round trip {m['took'] / 1000:.1f} s")
+    return ", ".join(parts) or "no route known"
+
+
+TRACED = ["answered", "answered by its keeper: it sleeps", "got as far as a relay with no route",
+          "not answered", "not begun: no route"]
+
+
+def traced(m):
+    head = TRACED[m["result"]] if m["result"] < len(TRACED) else f"result {m['result']}"
+    if m["result"] > 2:
+        return head
+    e = m["entries"]
+    hops = [(int.from_bytes(e[i:i + 4], "big"), struct.unpack("b", e[i + 4:i + 5])[0] / 4)
+            for i in range(0, len(e) - 4, 5)]
+    out, back = hops[:m["out"]], hops[m["out"]:]
+    way = lambda hs: " > ".join(f"{rid:08x} ({snr:g} dB)" for rid, snr in hs)
+    return (f"{head} in {m['took'] / 1000:.1f} s\n  out:  you > {way(out)}"
+            f"\n  back: {way(back) + ' > ' if back else ''}you ({m['snr'] / 4:g} dB)"
+            "\n  (a trace shows how frames went just then; relays on the way can misreport it)")
 
 
 def state(m):
@@ -796,7 +839,7 @@ def joins_codes(info):
 
 def run(args):
     latest = ("state", "update", "group", "position", "share", "off", "wipe", "clear", "owner",
-              "restart", "manage")
+              "restart", "manage", "send", "trace")
     speak = LATEST if args.command in latest else VERSION
     if args.command == "set":
         speak = max(speak, SINCE.get(args.setting, VERSION))
@@ -832,6 +875,17 @@ def run(args):
                 break
         if q["id"] in node.lost:
             print(f"message #{q['id']}: the node restarted, and no longer holds it")
+    elif args.command == "trace":
+        if info["version"] < 18:
+            raise SystemExit("this node's firmware is too old to trace from here")
+        q = node.request("TRACE", ref=random.getrandbits(32), to=int(args.to, 16))
+        print(f"queued as trace #{q['id']}")
+        for m in node.news(args.wait):
+            if m.get("id") != q["id"]:
+                continue
+            print(describe(m, names))
+            if m["type"] == "TRACED":
+                break
     elif args.command == "contact":
         node.request("SAVE_CONTACT", address=address(args.address), name=args.name)
         print("saved")
@@ -1080,8 +1134,8 @@ def selftest(path):
     for f in v["frames"]:
         fields = dict(f["fields"])
         for k in ("to", "address", "contact", "group", "digest", "data", "signature", "request",
-                  "answer"):
-            if k in fields:
+                  "answer", "entries"):
+            if k in fields and not (k == "to" and f["type"] in ("TRACE", "TRACED")):
                 fields[k] = bytes.fromhex(fields[k])
         if f["type"] in ("MANAGED", "OWNER_CHANGED"):
             fields["from"] = bytes.fromhex(fields["from"])
@@ -1092,7 +1146,8 @@ def selftest(path):
         ok = ok and got is not None and got["type"] == f["type"]
         failed += not ok
     # Each connection read by the version its client speaks: an older one's SYNCED is two bytes.
-    runs = [v["exchange"], *v["update"], v["refusals"], v["wipe"], *v["forget"], v["manage"]]
+    runs = [v["exchange"], *v["update"], v["refusals"], v["wipe"], *v["forget"], v["manage"],
+            v["route"]]
     for c in [{"version": LATEST, "frames": f} for f in runs] + v["older"]:
         for f in c["frames"]:
             got = decode(bytes.fromhex(f["frame"]), c["version"])
@@ -1121,6 +1176,9 @@ def main():
     s.add_argument("address")
     s.add_argument("text")
     s.add_argument("--wait", type=float, default=30.0, help="seconds to watch it for")
+    tr = sub.add_parser("trace", help="find the way frames take to a node, and back")
+    tr.add_argument("to", help="its routing id, as eight hex digits, as `state` lists neighbours")
+    tr.add_argument("--wait", type=float, default=120.0, help="seconds to watch it for")
     c = sub.add_parser("contact")
     c.add_argument("address")
     c.add_argument("name")
