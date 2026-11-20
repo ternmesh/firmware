@@ -23,8 +23,7 @@
 #define TERN_MANAGE_REQUEST_MAX TERN_COMPANION_MANAGE_MAX
 #define TERN_MANAGE_ANSWER_MAX TERN_COMPANION_MANAGED_MAX
 #define TERN_MANAGE_TRIAL TERN_S(900) /* a SET over the mesh goes back unless confirmed in this */
-#define TERN_MANAGE_REFUSE_GAP TERN_S(60) /* after refusing a non-owner, before refusing another   \
-                                           */
+#define TERN_MANAGE_REFUSE_GAP TERN_S(60) /* between refusals of a non-owner, at least */
 
 /* Whether a request's content, after its kind, is one to act on: one frame, at most
  * TERN_MANAGE_REQUEST_MAX bytes. */
