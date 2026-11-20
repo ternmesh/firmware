@@ -243,6 +243,8 @@ static struct pending {
     uint8_t tag[TERN_FORWARD_TAG];
     uint8_t goes;                 /* times it has gone on the air */
     tern_time at;                 /* when it was handed over */
+    uint32_t via;                 /* the neighbour it last went to (ROUTE) */
+    uint32_t air_ms;              /* when it first went on the air, in ms, or 0 for not yet */
     uint8_t to[TERN_ADDRESS_LEN]; /* a position's: whose it is, though its session be replaced */
     uint16_t wake;                /* a sleep notice's: the wake it told */
 } pending[PENDING];
@@ -569,6 +571,78 @@ static uint8_t link_restart(void *ctx) {
     restart_due = RESTART_NOW;
     restart_asked_at = board_now();
     return 0;
+}
+
+/* Traces this board began (TRACE, draft/forwarding.md "Traces"), by the link's id for each. */
+static struct {
+    uint32_t id; /* 0 for a free place */
+    uint32_t to;
+    uint8_t tag[TERN_FORWARD_TAG];
+    uint32_t air_ms; /* when it first went on the air, or 0 for not yet */
+    bool told;       /* its first STATE has been told */
+} traces[LINK_TRACES];
+
+/* Milliseconds by the board's clock, never 0: a time to take another from, kept to 32 bits. */
+static uint32_t now_ms(void) {
+    uint32_t ms = (uint32_t)(board_now() / 1000000);
+    return ms ? ms : 1;
+}
+
+static uint8_t link_trace(void *ctx, uint32_t id, uint32_t to) {
+    (void)ctx;
+    int free_at = -1;
+    if (to == route.id) {
+        return TERN_C_ERR_REFUSED;
+    }
+    for (int i = 0; i < LINK_TRACES; i++) {
+        if (traces[i].id != 0 && traces[i].to == to) {
+            return TERN_C_ERR_NOT_NOW;
+        }
+        free_at = traces[i].id == 0 && free_at < 0 ? i : free_at;
+    }
+    if (free_at < 0 || tern_forward_tracing(&forward, to)) {
+        return free_at < 0 ? TERN_C_ERR_FULL : TERN_C_ERR_NOT_NOW;
+    }
+    uint8_t tag[TERN_FORWARD_TAG];
+    if (!board_random(NULL, tag, sizeof tag) ||
+        !tern_forward_trace(&forward, board_now(), to, tag)) {
+        return TERN_C_ERR_FULL;
+    }
+    traces[free_at].id = id;
+    traces[free_at].to = to;
+    memcpy(traces[free_at].tag, tag, sizeof tag);
+    traces[free_at].air_ms = 0;
+    traces[free_at].told = false;
+    return 0;
+}
+
+static int trace_tagged(const uint8_t *tag) {
+    for (int i = 0; i < LINK_TRACES; i++) {
+        if (traces[i].id != 0 && memcmp(traces[i].tag, tag, TERN_FORWARD_TAG) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+/* For testing only: routing ids whose routing frames this board does not hear, so that boards on
+ * one desk make a line of hops ('ignore'). Not saved: a restart hears everyone again. */
+#define IGNORED 4
+static uint32_t ignored[IGNORED];
+
+static bool ignoring(const uint8_t *frame, size_t len) {
+    /* Every routing frame but a request names its sender at offset 1 (draft/routing.md). */
+    if (len < 5 || frame[0] == TERN_HDR_REQUEST) {
+        return false;
+    }
+    uint32_t id =
+        (uint32_t)frame[1] << 24 | (uint32_t)frame[2] << 16 | (uint32_t)frame[3] << 8 | frame[4];
+    for (int i = 0; i < IGNORED; i++) {
+        if (ignored[i] != 0 && ignored[i] == id) {
+            return true;
+        }
+    }
+    return false;
 }
 
 /* The owners, after a count of them: a record is never empty. */
@@ -986,10 +1060,26 @@ static void heard_ack(const struct tern_radio_event *ev) {
     }
     flash_led();
     (void)tern_forward_acked(&forward, p->tag);
-    printf("delivered #%lu: acknowledged %lld ms after it was handed over, having gone %u "
-           "time%s\n",
-           (unsigned long)p->counter, (long long)((board_now() - p->at) / 1000000), p->goes,
-           p->goes == 1 ? "" : "s");
+    /* How the acknowledgement came back: its hops, counted as the message's are. */
+    uint8_t hops = ev->data[1] <= forward.config.hop_max
+                       ? (uint8_t)(forward.config.hop_max + 1 - ev->data[1])
+                       : 0;
+    uint32_t took = p->air_ms ? now_ms() - p->air_ms : 0;
+    printf("delivered #%lu: acknowledged %lld ms after it was handed over, %lu ms after it first "
+           "went, having gone %u time%s; the acknowledgement came %s%u hop%s, at %d dBm, SNR "
+           "%d cB\n",
+           (unsigned long)p->counter, (long long)((board_now() - p->at) / 1000000),
+           (unsigned long)took, p->goes, p->goes == 1 ? "" : "s", hops == 1 ? "direct, " : "", hops,
+           hops == 1 ? "" : "s", ev->rssi_dbm, ev->snr_cdb);
+    if (p->id != PENDING_POSITION && p->id != PENDING_SLEEP) {
+        link_route(&companion, &(struct link_route){.id = p->id,
+                                                    .via = p->via,
+                                                    .took = took,
+                                                    .rssi = ev->rssi_dbm,
+                                                    .hops = hops,
+                                                    .goes = p->goes,
+                                                    .snr = (int8_t)(ev->snr_cdb / 25)});
+    }
     if (p->id == PENDING_POSITION) {
         link_position_done(&companion, p->to);
     } else if (p->id == PENDING_SLEEP) {
@@ -1044,9 +1134,18 @@ static void heard_flood(const struct tern_radio_event *ev) {
     text[got.len] = '\0';
     const struct link_group *g = &companion.groups[got.group];
     /* Who wrote is what the frame says, which any member could have written. */
-    printf("heard in \"%.*s\", from %08lx: \"%s\" at %d dBm\n", (int)g->name_len,
-           (const char *)g->name, (unsigned long)got.from, (const char *)text, ev->rssi_dbm);
-    if (link_add_group(&companion, got.group, got.from, clock_now(), text, got.len) != 0) {
+    /* Its writer draws its hops (draft/flooding.md): it came this far at most, or one less. */
+    uint8_t hops =
+        ev->data[1] <= flood.config.hops ? (uint8_t)(flood.config.hops + 1 - ev->data[1]) : 0;
+    printf("heard in \"%.*s\", from %08lx: \"%s\" at %d dBm, SNR %d cB, %u hop%s at most\n",
+           (int)g->name_len, (const char *)g->name, (unsigned long)got.from, (const char *)text,
+           ev->rssi_dbm, ev->snr_cdb, hops, hops == 1 ? "" : "s");
+    uint32_t kept = link_add_group(&companion, got.group, got.from, clock_now(), text, got.len);
+    if (kept != 0) {
+        link_route(&companion, &(struct link_route){.id = kept,
+                                                    .rssi = hops ? ev->rssi_dbm : 0,
+                                                    .hops = hops,
+                                                    .snr = hops ? (int8_t)(ev->snr_cdb / 25) : 0});
         screen_wake();
     }
 }
@@ -1173,6 +1272,72 @@ static bool keep_seq(void) {
     return route.seq == route_seq_saved;
 }
 
+static void node_named(uint32_t id, const char *bare, char out[UI_NAME + 1]);
+static void name_of(const uint8_t address[TERN_ADDRESS_LEN], char out[UI_NAME + 1]);
+
+/* A trace for this board: answered, but by a leaf only for a node it shares a session with
+ * (draft/forwarding.md, "Answering"). */
+static void heard_trace(const struct tern_radio_event *ev, int8_t back) {
+    uint32_t from = (uint32_t)ev->data[TERN_TRACE_FROM] << 24 |
+                    (uint32_t)ev->data[TERN_TRACE_FROM + 1] << 16 |
+                    (uint32_t)ev->data[TERN_TRACE_FROM + 2] << 8 | ev->data[TERN_TRACE_FROM + 3];
+    char who[UI_NAME + 1];
+    bool known = route.config.relay;
+    for (int i = 0; !known && i < DEMO_PEERS; i++) {
+        known = demo.s[i].role != 0 && demo_peer_id(&demo, i) == from;
+    }
+    node_named(from, "", who);
+    if (!known) {
+        printf("(a trace from %s, with whom this leaf has no session: not answered)\n", who);
+        return;
+    }
+    bool answered =
+        tern_forward_trace_answer(&forward, board_now(), ev->data, ev->len,
+                                  (int16_t)(ev->snr_cdb / 25), TERN_TRACE_BY_DESTINATION, back);
+    printf("traced by %s, %u hop%s: %s\n", who,
+           (unsigned)((ev->len - TERN_TRACE_MIN) / TERN_TRACE_ENTRY + 1),
+           (ev->len - TERN_TRACE_MIN) / TERN_TRACE_ENTRY == 0 ? "" : "s",
+           answered ? "answered" : "not answered (too many lately, or no route back)");
+}
+
+static void print_entries(const uint8_t *e, size_t n) {
+    for (size_t k = 0; k < n; k++, e += TERN_TRACE_ENTRY) {
+        char who[UI_NAME + 1];
+        uint32_t id = (uint32_t)e[0] << 24 | (uint32_t)e[1] << 16 | (uint32_t)e[2] << 8 | e[3];
+        node_named(id, "", who);
+        int q = (int8_t)e[4];
+        printf(" > %s (%s%d.%02d dB)", who, q < 0 ? "-" : "", (q < 0 ? -q : q) / 4,
+               (q < 0 ? -q : q) % 4 * 25);
+    }
+}
+
+/* The answer to a trace of this board's: the way out and back, told to every client. */
+static void heard_traced(const struct tern_radio_event *ev) {
+    int i = trace_tagged(&ev->data[TERN_FORWARD_HEAD]);
+    if (i < 0) {
+        return;
+    }
+    uint8_t flags = ev->data[TERN_FORWARD_MIN], out = ev->data[TERN_FORWARD_MIN + 1];
+    size_t n = (ev->len - TERN_TRACE_ANSWER_MIN) / TERN_TRACE_ENTRY;
+    const uint8_t *e = &ev->data[TERN_TRACE_ANSWER_MIN];
+    uint32_t took = traces[i].air_ms ? now_ms() - traces[i].air_ms : 0;
+    int snr = ev->snr_cdb / 25;
+    snr = snr > INT8_MAX ? INT8_MAX : snr < INT8_MIN ? INT8_MIN : snr;
+    printf("trace #%lu to %08lx %s in %lu ms. Out: you", (unsigned long)traces[i].id,
+           (unsigned long)traces[i].to,
+           flags == TERN_TRACE_BY_KEEPER  ? "answered by its keeper, as it sleeps,"
+           : flags == TERN_TRACE_BY_RELAY ? "got as far as a relay with no route on,"
+                                          : "answered",
+           (unsigned long)took);
+    print_entries(e, out);
+    printf(". Back:");
+    print_entries(e + (size_t)out * TERN_TRACE_ENTRY, n - out);
+    printf(" > you (%d cB)\n", ev->snr_cdb);
+    link_state(&companion, traces[i].id, TERN_C_SENT, 0, 0);
+    link_traced(&companion, traces[i].id, traces[i].to, flags, out, took, (int8_t)snr, e, n);
+    traces[i].id = 0;
+}
+
 /* A frame heard, its plaintext, if it has one, opened into msg (TERN_UNICAST_MAX_PLAINTEXT + 1
  * bytes): heard() erases it after. */
 static void heard_into(const struct tern_radio_event *ev, uint8_t *msg) {
@@ -1184,6 +1349,9 @@ static void heard_into(const struct tern_radio_event *ev, uint8_t *msg) {
     int snr_whole = snr_abs / 100, snr_frac = snr_abs % 100;
 
     if (tern_route_frame(ev->data, ev->len)) {
+        if (ignoring(ev->data, ev->len)) {
+            return; /* 'ignore': not heard, for a test */
+        }
         /* The router takes quarters of a decibel, as the radio measures. */
         tern_time now = board_now();
         tern_route_heard(&route, now, ev->data, ev->len, (int16_t)(ev->snr_cdb / 25));
@@ -1214,6 +1382,12 @@ static void heard_into(const struct tern_radio_event *ev, uint8_t *msg) {
         if (routed.got == TERN_FORWARD_ACK) {
             heard_ack(ev);
         }
+        if (routed.got == TERN_FORWARD_TRACE) {
+            heard_trace(ev, routed.back);
+        }
+        if (routed.got == TERN_FORWARD_TRACED) {
+            heard_traced(ev);
+        }
         if (routed.got != TERN_FORWARD_MESSAGE && routed.got != TERN_FORWARD_CONTACT) {
             return;
         }
@@ -1230,8 +1404,14 @@ static void heard_into(const struct tern_radio_event *ev, uint8_t *msg) {
             break;
         }
         msg[got.msg_len] = '\0';
-        printf("heard #%lu \"%s\" at %d dBm, SNR %s%d.%02d dB\n", (unsigned long)got.counter,
-               (const char *)msg, ev->rssi_dbm, snr_sign, snr_whole, snr_frac);
+        uint8_t hops = ev->data[1] <= forward.config.hop_max
+                           ? (uint8_t)(forward.config.hop_max + 1 - ev->data[1])
+                           : 0;
+        char from[UI_NAME + 1];
+        name_of(got.peer, from);
+        printf("heard #%lu from %s \"%s\" at %d dBm, SNR %s%d.%02d dB, %s%u hop%s\n",
+               (unsigned long)got.counter, from, (const char *)msg, ev->rssi_dbm, snr_sign,
+               snr_whole, snr_frac, hops == 1 ? "direct, " : "", hops, hops == 1 ? "" : "s");
         /* As much as the screen keeps of it. */
         size_t keep = got.msg_len < sizeof last_text - 1 ? got.msg_len : sizeof last_text - 1;
         memcpy(last_text, msg, keep);
@@ -1240,6 +1420,13 @@ static void heard_into(const struct tern_radio_event *ev, uint8_t *msg) {
         screen_wake();
         uint32_t kept =
             link_add(&companion, got.peer, clock_now(), TERN_C_RECEIVED, 0, msg, got.msg_len);
+        if (kept != 0) {
+            link_route(&companion,
+                       &(struct link_route){.id = kept,
+                                            .rssi = hops ? ev->rssi_dbm : 0,
+                                            .hops = hops,
+                                            .snr = hops ? (int8_t)(ev->snr_cdb / 25) : 0});
+        }
         if (kept != 0 && have_screen) {
             /* Shown at once, and read once someone presses PRG to say they saw it. */
             screen_page = UI_MESSAGES;
@@ -1678,6 +1865,32 @@ static void poll_forward(void) {
     static uint8_t frame[TERN_FORWARD_FRAME_MAX];
     tern_time now = board_now();
     uint8_t tag[TERN_FORWARD_TAG];
+    uint32_t traced_to;
+    bool began;
+    while (tern_forward_trace_failed(&forward, tag, &traced_to, &began)) {
+        int i = trace_tagged(tag);
+        if (i >= 0) {
+            printf("trace #%lu to %08lx: %s\n", (unsigned long)traces[i].id,
+                   (unsigned long)traces[i].to,
+                   began ? "not answered" : "not begun: no route to it was found");
+            link_traced(&companion, traces[i].id, traces[i].to,
+                        began ? TERN_C_TRACED_UNANSWERED : TERN_C_TRACED_NOT_BEGUN, 0, 0, 0, NULL,
+                        0);
+            traces[i].id = 0;
+        }
+    }
+    for (int i = 0; i < LINK_TRACES; i++) {
+        /* Told once, after the link's QUEUED: waiting, and why. */
+        uint32_t next;
+        uint16_t metric;
+        if (traces[i].id != 0 && !traces[i].told) {
+            traces[i].told = true;
+            link_state(&companion, traces[i].id, TERN_C_WAITING,
+                       tern_route_next(&route, traces[i].to, &next, &metric) ? TERN_C_WAIT_UNNAMED
+                                                                             : TERN_C_WAIT_ROUTE,
+                       0);
+        }
+    }
     while (tern_forward_failed(&forward, tag)) {
         struct pending *p = pending_tagged(tag);
         if (p != NULL) {
@@ -1748,8 +1961,15 @@ static void poll_forward(void) {
                     : x;
         }
         p->goes += p->goes < UINT8_MAX;
+        p->via = (uint32_t)frame[3] << 24 | (uint32_t)frame[4] << 16 | (uint32_t)frame[5] << 8 |
+                 frame[6];
+        p->air_ms = p->air_ms ? p->air_ms : now_ms();
         /* Words are shown; what managing sends is bytes, and named instead. */
         bool words = x != NULL && link_for_user(x->kind);
+        if (words) {
+            link_route(&companion,
+                       &(struct link_route){.id = p->id, .via = p->via, .goes = p->goes});
+        }
         const char *what = x == NULL                     ? ""
                            : x->kind == LINK_KIND_MANAGE ? "a request to manage a node"
                            : x->kind == LINK_KIND_ANSWER ? "an answer to an owner"
@@ -1762,6 +1982,18 @@ static void poll_forward(void) {
                words ? (int)x->text_len : 0, words ? (const char *)x->text : "", quote, what,
                (unsigned)len, dbm, frame[3], frame[4], frame[5], frame[6],
                (long long)(air / 1000000), (long long)(air / 1000 % 1000));
+    } else if (kind == TERN_FORWARD_OWN && frame[0] == TERN_HDR_TRACE) {
+        int i = trace_tagged(&frame[TERN_FORWARD_HEAD]);
+        if (i >= 0 && traces[i].air_ms == 0) {
+            traces[i].air_ms = now_ms();
+        }
+        printf("trace #%lu sent to %08lx by %02x%02x%02x%02x, at %d dBm\n",
+               i >= 0 ? (unsigned long)traces[i].id : 0ul,
+               (unsigned long)(i >= 0 ? traces[i].to : 0), frame[3], frame[4], frame[5], frame[6],
+               dbm);
+    } else if (kind == TERN_FORWARD_OWN && frame[0] == TERN_HDR_TRACE_ANSWER) {
+        printf("answered a trace from %02x%02x%02x%02x, by %02x%02x%02x%02x, at %d dBm\n", frame[7],
+               frame[8], frame[9], frame[10], frame[3], frame[4], frame[5], frame[6], dbm);
     } else if (kind == TERN_FORWARD_OWN && tern_forward_contact(frame[0])) {
         printf("first contact: sent message_%d, %u bytes at %d dBm by %02x%02x%02x%02x\n",
                frame[0] - 0x50, (unsigned)len, dbm, frame[3], frame[4], frame[5], frame[6]);
@@ -2450,8 +2682,12 @@ static bool bench_command(char *line) {
 
 /* One frame to a client: as a notification over Bluetooth, or on the USB port, wrapped, after
  * whatever the console has printed. */
-/* The answer to what the board last asked of the link itself (ask()). */
-static struct tern_companion_msg board_answer;
+/* The answer to what the board last asked of the link itself (ask()): its type, an ERROR's code
+ * and a QUEUED's id, all ask() reads. Not a whole message: a classic ESP32 has no RAM for one. */
+static struct {
+    uint8_t type, code;
+    uint32_t id;
+} board_answer;
 
 static void link_out(void *ctx, unsigned conn, const uint8_t *frame, size_t len) {
     uint8_t wrapped[TERN_COMPANION_STREAM_MAX];
@@ -2459,8 +2695,13 @@ static void link_out(void *ctx, unsigned conn, const uint8_t *frame, size_t len)
     if (conn == LINK_BOARD) {
         /* The board's own connection: its answers are kept for ask(), and it has no use for
          * news of what it can see for itself. */
-        if (len >= 1 && frame[0] >= TERN_C_OK && frame[0] < TERN_C_SELF) {
-            (void)tern_companion_read(&board_answer, frame, len);
+        if (len >= 2 && frame[0] >= TERN_C_OK && frame[0] < TERN_C_SELF) {
+            board_answer.type = frame[0];
+            board_answer.code = frame[0] == TERN_C_ERROR && len >= 3 ? frame[2] : 0;
+            board_answer.id = frame[0] == TERN_C_QUEUED && len >= 6
+                                  ? (uint32_t)frame[2] << 24 | (uint32_t)frame[3] << 16 |
+                                        (uint32_t)frame[4] << 8 | frame[5]
+                                  : 0;
         }
         return;
     }
@@ -3061,7 +3302,9 @@ static bool ask(struct tern_companion_msg *q) {
     uint8_t frame[TERN_COMPANION_MAX_FRAME];
     q->seq = 1;
     size_t len = tern_companion_write(q, frame);
-    board_answer = (struct tern_companion_msg){.type = TERN_C_ERROR, .code = TERN_C_ERR_MALFORMED};
+    board_answer.type = TERN_C_ERROR;
+    board_answer.code = TERN_C_ERR_MALFORMED;
+    board_answer.id = 0;
     if (len != 0) {
         link_receive(&companion, LINK_BOARD, board_now(), frame, len);
     }
@@ -3475,6 +3718,45 @@ static void screen_command(const char *rest) {
     }
 }
 
+/* 'ignore': for testing on one desk, the routing ids whose routing frames this board does not
+ * hear. Two boards that ignore each other route through a third. */
+static void ignore_command(const char *arg) {
+    if (strcmp(arg, "off") == 0) {
+        memset(ignored, 0, sizeof ignored);
+        printf("ignoring nobody: every neighbour is heard again\n");
+        return;
+    }
+    if (arg[0] != '\0') {
+        char *end;
+        unsigned long id = strtoul(arg, &end, 16);
+        int free_at = -1;
+        if (end == arg || *end != '\0' || id == 0 || id == 0xFFFFFFFFul) {
+            printf("ignore what? A routing id, eight hex digits, or 'off'\n");
+            return;
+        }
+        for (int i = 0; i < IGNORED; i++) {
+            free_at = (ignored[i] == 0 || ignored[i] == id) && free_at < 0 ? i : free_at;
+        }
+        if (free_at < 0) {
+            printf("ignoring %d already: 'ignore off' first\n", IGNORED);
+            return;
+        }
+        ignored[free_at] = (uint32_t)id;
+        printf("FOR TESTING: ignoring %08lx's routing frames until 'ignore off' or a restart. "
+               "Have it ignore this board too; their routes then go through another.\n",
+               id);
+    }
+    printf("ignoring:");
+    int n = 0;
+    for (int i = 0; i < IGNORED; i++) {
+        if (ignored[i] != 0) {
+            printf(" %08lx", (unsigned long)ignored[i]);
+            n++;
+        }
+    }
+    printf("%s\n", n ? "" : " nobody");
+}
+
 static void command(char *line) {
     if (doze.dozing && line[0] != '\0') {
         radio_wake(); /* a command may set the radio up: it is awake for it */
@@ -3548,6 +3830,17 @@ static void command(char *line) {
         status();
     } else if (strcmp(line, "routes") == 0) {
         routes();
+    } else if (strncmp(line, "trace ", 6) == 0) {
+        char *end;
+        unsigned long to = strtoul(&line[6], &end, 16);
+        if (end == &line[6] || *end != '\0') {
+            printf("trace what? A routing id, eight hex digits, as 'routes' lists them\n");
+        } else if (ask(&(struct tern_companion_msg){.type = TERN_C_TRACE,
+                                                    .routing_id = (uint32_t)to})) {
+            printf("trace #%lu to %08lx begun\n", (unsigned long)board_answer.id, to);
+        }
+    } else if (strcmp(line, "ignore") == 0 || strncmp(line, "ignore ", 7) == 0) {
+        ignore_command(line[6] == ' ' ? &line[7] : "");
     } else if (strcmp(line, "selftest") == 0) {
         selftest();
     } else if (strncmp(line, "screen", 6) == 0) {
@@ -3566,11 +3859,11 @@ static void command(char *line) {
         const char *key = board_button_name();
         printf(
             "commands: contact <address>, accept, peers, to <number>, send <text>, drop "
-            "<number>, groups, group ..., status, routes, selftest, forget "
+            "<number>, groups, group ..., status, routes, trace <routing id>, selftest, forget "
             "(Bluetooth clients), screen sleep <seconds>, screen bench on|off, sleep [on <seconds> "
             "[listen] | off].%s%s%s For the "
             "bench: bench on|off, sync <hex>, power <dBm>, freq <Hz>, "
-            "sf <n>, bw <Hz>, beacon <count> <ms>, counts [reset].\n",
+            "sf <n>, bw <Hz>, beacon <count> <ms>, counts [reset], ignore [<routing id> | off].\n",
             key != NULL ? " Holding " : "", key != NULL ? key : "",
             key != NULL ? " on a bench page sends a ping." : "");
     }
@@ -5035,6 +5328,7 @@ void node_main(void) {
         .bootloader = link_bootloader,
         .wipe = link_wipe,
         .restart = link_restart,
+        .trace = link_trace,
         .load_owners = link_load_owners,
         .save_owners = link_save_owners,
         /* Signed by the publisher's release keys (release_keys.h), unless built for a bench. */
@@ -5095,6 +5389,9 @@ void node_main(void) {
     } else {
         printf("\nTern demo on the %s, with no screen found. Type 'status'.\n", board_title());
     }
+    /* A line a log of the console can be split at: each start, and what started. */
+    printf("=== started: %s, routing id %08lx, a %s ===\n", FIRMWARE, (unsigned long)route.id,
+           route.config.relay ? "relay" : "leaf");
     pairing_passkey = PAIRING_NONE;
     start_bluetooth();
     status();

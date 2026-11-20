@@ -75,14 +75,14 @@
 #define LINK_UNSAVE 2
 #define LINK_ASKED 8 /* addresses lately refused, remembered so each is news once a LINK_QUIET */
 #define LINK_NEIGHBOURS 64
-#define LINK_QUIET TERN_S(10)  /* the least time between two news frames about one thing */
-#define LINK_LOOK TERN_S(1)    /* how often the link looks for changes to tell */
-#define LINK_SNR_STEP 4        /* quarter-dB: a neighbour's SNR moved this much is news */
-#define LINK_LAPSE TERN_S(60)  /* a serial client silent this long since its last answer is gone */
-#define LINK_GROUP_POSITIONS 8 /* members' positions held for each group */
-#define LINK_CARDS NODE_CARDS  /* cards held from others: who is about */
+#define LINK_QUIET TERN_S(10)   /* the least time between two news frames about one thing */
+#define LINK_LOOK TERN_S(1)     /* how often the link looks for changes to tell */
+#define LINK_SNR_STEP 4         /* quarter-dB: a neighbour's SNR moved this much is news */
+#define LINK_LAPSE TERN_S(60)   /* a serial client silent this long since its last answer is gone */
+#define LINK_GROUP_POSITIONS 8  /* members' positions held for each group */
+#define LINK_CARDS NODE_CARDS   /* cards held from others: who is about */
 #define LINK_ROUTES NODE_ROUTES /* how messages went, for the latest of them */
-#define LINK_TRACES 4          /* traces out at once (TRACE) */
+#define LINK_TRACES 2           /* traces out at once (TRACE) */
 /* A card held, as saved: its version, the name's length, its number, when it was heard in seconds
  * since 1970 or 0 if the node did not know, its address and its name. */
 #define LINK_CARD_SAVED_HEAD (1 + 1 + 4 + 4 + TERN_ADDRESS_LEN)

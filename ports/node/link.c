@@ -1257,8 +1257,9 @@ void link_state(struct link *l, uint32_t id, uint8_t state, uint8_t reason, uint
 
 void link_route(struct link *l, const struct link_route *r) {
     struct link_route *place = find_route(l, r->id);
-    if (r->id == 0) {
-        return;
+    const struct link_message *x = find_message(l, r->id);
+    if (x == NULL || !link_for_user(x->kind)) {
+        return; /* a request to manage, or an answer: no client's to show */
     }
     if (place == NULL) {
         /* The oldest given up for the newest. */

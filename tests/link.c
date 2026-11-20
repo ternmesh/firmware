@@ -757,12 +757,12 @@ static void follow(const char *name, const struct step *steps, size_t n, size_t 
                 link_traced(&companion, m.id, m.routing_id, m.result, m.out, m.took, m.snr, m.data,
                             m.data_len / 5u);
             } else if (m.type == TERN_C_MESSAGE && m.state == TERN_C_RECEIVED) {
-                CHECK_EQ_U64(link_add(&companion, m.address, m.time, TERN_C_RECEIVED, 0, m.text,
-                                      m.text_len),
-                             m.id);
-            } else if (m.type == TERN_C_GROUP_MESSAGE && m.state == TERN_C_RECEIVED && one_by_one) {
                 CHECK_EQ_U64(
-                    link_add_group(&companion, 0, m.from, m.time, m.text, m.text_len), m.id);
+                    link_add(&companion, m.address, m.time, TERN_C_RECEIVED, 0, m.text, m.text_len),
+                    m.id);
+            } else if (m.type == TERN_C_GROUP_MESSAGE && m.state == TERN_C_RECEIVED && one_by_one) {
+                CHECK_EQ_U64(link_add_group(&companion, 0, m.from, m.time, m.text, m.text_len),
+                             m.id);
             } else if (m.type == TERN_C_GROUP_MESSAGE && m.state == TERN_C_RECEIVED) {
                 bob_writes_and_invites();
             } else if (m.type == TERN_C_POSITION && m.precision != 0) {

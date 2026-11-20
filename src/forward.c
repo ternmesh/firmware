@@ -62,7 +62,8 @@ size_t tern_forward_entry_pass(const uint8_t *frame, size_t len, uint32_t id, in
                                uint8_t out[TERN_FORWARD_FRAME_MAX]) {
     size_t at, n = tern_forward_entries(frame, len, &at);
     size_t carried = frame[0] == TERN_HDR_TRACE ? n : n - frame[TERN_FORWARD_MIN + 1];
-    if (frame[1] <= 1 || carried >= TERN_TRACE_ENTRIES || len + TERN_TRACE_ENTRY > TERN_FORWARD_FRAME_MAX) {
+    if (frame[1] <= 1 || carried >= TERN_TRACE_ENTRIES ||
+        len + TERN_TRACE_ENTRY > TERN_FORWARD_FRAME_MAX) {
         return 0;
     }
     memcpy(out, frame, len);
@@ -133,8 +134,7 @@ static bool passed_on(const uint8_t *held, size_t held_len, const uint8_t *passe
 
 bool tern_forward_ends(const uint8_t *sent, size_t sent_len, const uint8_t *heard,
                        size_t heard_len) {
-    bool passed =
-        passed_on(sent, sent_len, heard, heard_len) && (int)heard[1] + 1 == (int)sent[1];
+    bool passed = passed_on(sent, sent_len, heard, heard_len) && (int)heard[1] + 1 == (int)sent[1];
     bool tagged =
         memcmp(sent + TERN_FORWARD_HEAD, heard + TERN_FORWARD_HEAD, TERN_FORWARD_TAG) == 0;
     bool answered = tagged && ((tern_forward_message(sent[0]) && heard[0] == TERN_HDR_ACK) ||

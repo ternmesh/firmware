@@ -51,7 +51,7 @@ struct entry_case {
     int16_t snr_q;
     uint8_t hops;
     uint8_t passed[TERN_FORWARD_FRAME_MAX]; /* from the destination on */
-    size_t passed_len;                     /* 0: dropped */
+    size_t passed_len;                      /* 0: dropped */
 };
 struct answer_case {
     const char *why;
@@ -61,7 +61,7 @@ struct answer_case {
     int16_t snr_q;
     uint8_t flags;
     uint8_t answer[TERN_FORWARD_FRAME_MAX]; /* from the destination on */
-    size_t answer_len;                     /* 0: not answered */
+    size_t answer_len;                      /* 0: not answered */
 };
 struct back_case {
     int8_t power;
@@ -94,16 +94,16 @@ struct node {
     struct tern_route_dest dest[DESTS];
     struct tern_forward_slot slot[SLOTS];
     bool relay;
-    bool deaf;       /* hears no frame that follows routes */
-    bool silent;     /* acknowledges nothing */
-    int got;         /* messages for it received, copies and all */
-    int acked;       /* acknowledgements for its messages */
-    int failed;      /* messages of its own given up on */
-    int contacts;    /* first-contact frames for it received */
-    int answered;    /* and of them, answers to frames of its own */
-    int unanswered;  /* first-contact frames of its own given up on */
-    int traced;      /* answers to its traces */
-    int untraced;    /* traces of its own given up on, and of them those never begun */
+    bool deaf;      /* hears no frame that follows routes */
+    bool silent;    /* acknowledges nothing */
+    int got;        /* messages for it received, copies and all */
+    int acked;      /* acknowledgements for its messages */
+    int failed;     /* messages of its own given up on */
+    int contacts;   /* first-contact frames for it received */
+    int answered;   /* and of them, answers to frames of its own */
+    int unanswered; /* first-contact frames of its own given up on */
+    int traced;     /* answers to its traces */
+    int untraced;   /* traces of its own given up on, and of them those never begun */
     int unbegun;
     uint8_t answer[TERN_FORWARD_FRAME_MAX]; /* the last answer to a trace of its own */
     size_t answer_len;

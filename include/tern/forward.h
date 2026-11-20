@@ -43,7 +43,7 @@
 #define TERN_HDR_ACK 0x50       /* its destination's acknowledgement */
 #define TERN_HDR_CONTACT_1 0x51 /* first contact's four frames, from message_1's */
 #define TERN_HDR_CONTACT_4 0x54
-#define TERN_HDR_HELD 0x55 /* a keeper's held notice (tern/sleep.h) */
+#define TERN_HDR_HELD 0x55         /* a keeper's held notice (tern/sleep.h) */
 #define TERN_HDR_TRACE 0x56        /* a trace: the way to a node, gathered as it goes */
 #define TERN_HDR_TRACE_ANSWER 0x57 /* its answer, gathering the way back */
 
@@ -66,8 +66,8 @@
 /* Traces (the specification's "Traces"). A trace carries, after its tag, the routing id it came
  * from and then its entries; an answer, after its tag, `flags` and `out` and then its entries. An
  * entry is a routing id and how well that node heard the frame, an i8 in quarters of a dB. */
-#define TERN_TRACE_FROM TERN_FORWARD_MIN          /* where a trace keeps the routing id */
-#define TERN_TRACE_MIN (TERN_FORWARD_MIN + 4)     /* a trace with no entries: 19 */
+#define TERN_TRACE_FROM TERN_FORWARD_MIN             /* where a trace keeps the routing id */
+#define TERN_TRACE_MIN (TERN_FORWARD_MIN + 4)        /* a trace with no entries: 19 */
 #define TERN_TRACE_ANSWER_MIN (TERN_FORWARD_MIN + 2) /* an answer with none: 17 */
 #define TERN_TRACE_ENTRY 5
 #define TERN_TRACE_ENTRIES 16 /* each way */

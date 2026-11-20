@@ -158,6 +158,8 @@ Type commands into the serial terminal:
 | `group send <number> <text>` | Write up to 128 bytes to a group. |
 | `group leave <number>` | Leave a group. The others are not told. |
 | `routes` | The boards this one hears, how well each hears the other, and the routes it has. |
+| `trace <routing id>` | Find the way this board's frames take to another, by its routing id as `routes` shows it, and back: every relay on the way and how well each heard the one before. A relay of an older firmware drops a trace, and it goes unanswered. |
+| `ignore <routing id>`, `ignore off` | For testing only, until a restart: hear none of that board's routing frames, so that it is not a neighbour. Two boards on one desk that ignore each other route through a third. `ignore` alone lists them. |
 | `selftest` | Run a handshake between two nodes in the board's memory, and time it. |
 | `forget` | Forget every Bluetooth client that has paired ([the companion link](#over-bluetooth)). |
 | `screen sleep <seconds>` | How long the [screen](#the-screen) stays on; `0` keeps it on. `screen` alone says. |
