@@ -291,6 +291,9 @@ struct tern_route_config {
     uint32_t learn_ppm;
     tern_time learn_for;  /* and for how long after the node starts it may */
     uint32_t request_ppm; /* and for requests */
+    /* Polls a sleeping leaf may send fast (tern_route_poll_fast()) at once before they are paid
+     * from the requests' share: a burst of them, refilled at request_ppm. 0 for none. */
+    uint8_t fast_polls;
     tern_time cap_window;
     uint8_t burst;
     uint8_t named_max; /* neighbours named in a frame */
@@ -596,6 +599,7 @@ struct tern_route {
     struct tern_route_bucket announces; /* the cap, in two */
     struct tern_route_bucket requests;
     struct tern_route_bucket learning; /* learn_ppm's */
+    struct tern_route_bucket fast;     /* fast_polls' */
     tern_time learn_until;             /* the end of learn_for */
     bool announcing;                   /* an announce is due, when its bucket can pay */
     uint8_t burst;                     /* frames sent of it so far */
@@ -683,6 +687,10 @@ struct tern_route {
     tern_time poll_at;
     tern_time listen_until;
     tern_time slept_announce; /* -1 for none yet */
+    /* Polling fast (tern_route_poll_fast()): every poll_fast_s until poll_fast_until, then by its
+     * wake again; 0 for not polling fast. */
+    tern_time poll_fast_until;
+    uint16_t poll_fast_s;
     /* Relays it gave up as keeper, not to be taken again for KEEPER_REST unless one answers a poll
      * of its (tern/sleep.h): each one's routing id, 0 for a free place, and the second it was
      * given up (tern_time / 1 s). The oldest makes way for a new one. */
@@ -800,6 +808,16 @@ void tern_route_kept_restore(struct tern_route *r, tern_time now,
  * it listens again, and its next announce, soon, says so. One told a new wake gives it in its next
  * poll. A relay keeps it and never sleeps. */
 void tern_route_sleep_set(struct tern_route *r, uint16_t wake, uint8_t listen_s);
+
+/* A sleeping leaf that something is talking to, as an owner managing it is
+ * (draft/managing.md#a-node-that-sleeps), polls its keeper every `every_s` seconds until `for_s`
+ * after now, then by its wake again: what its keeper holds for it comes in seconds, not a wake.
+ * Called again, the time runs from the later call. Its polls are paid for as any other, so a
+ * cap that runs short spaces them out. Nothing for a leaf not asleep, or a relay. */
+void tern_route_poll_fast(struct tern_route *r, tern_time now, uint16_t every_s, uint16_t for_s);
+
+/* Whether a sleeping leaf polls fast now, and if so until when. */
+bool tern_route_polling_fast(const struct tern_route *r, tern_time now, tern_time *until);
 
 /* For a leaf that would sleep and is not asleep: whether it waits for a relay it gave up as keeper
  * to rest (KEEPER_REST), and if so which, and when it may take it again; of those resting, the

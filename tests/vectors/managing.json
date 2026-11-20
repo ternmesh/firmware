@@ -7,7 +7,9 @@
     "ANSWER_MAX": 128,
     "MESH_ANSWER_WAIT": 120,
     "TRIAL": 900,
-    "REFUSE_GAP": 60
+    "REFUSE_GAP": 60,
+    "MANAGED_POLL": 5,
+    "MANAGED_AWAKE": 120
   },
   "requests": [
     {
