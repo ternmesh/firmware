@@ -658,6 +658,8 @@ struct tern_route {
         uint16_t poll_id;
         uint8_t listen;
         uint8_t held;
+        uint8_t told;   /* what the answer to its last poll said was held */
+        uint8_t handed; /* of those, how many have gone to it since */
         bool polled;
         bool answer_due;
         bool answered;
@@ -758,9 +760,14 @@ void tern_route_budget(struct tern_route *r, struct tern_airtime *budget);
 /* What this node is to a neighbour as a keeper: not its keeper, or it does not sleep, or it is not
  * kept at all (TERN_KEEP_NONE: frames go to it as to any node, by its route); its keeper with the
  * leaf asleep (TERN_KEEP_ASLEEP: frames for it are held) or awake (TERN_KEEP_AWAKE), and in that
- * case whether the answer to its poll has gone, from which held frames may be handed over; and
- * `wake` its last wake code. TERN_KEEP_GONE for a neighbour this node no longer keeps at all. */
+ * case whether the answer to its poll has gone and the leaf still listens for a frame it was told
+ * of, from which held frames may be handed over, as many as the answer said; and `wake` its last
+ * wake code. TERN_KEEP_GONE for a neighbour this node no longer keeps at all. */
 enum tern_route_keep { TERN_KEEP_NONE, TERN_KEEP_ASLEEP, TERN_KEEP_AWAKE, TERN_KEEP_GONE };
+/* A frame the answer to the leaf's last poll counted has gone to it (the forwarder, as it hands one
+ * over the first time): the leaf listens only for as many as it was told of. */
+void tern_route_handed(struct tern_route *r, uint32_t leaf);
+
 enum tern_route_keep tern_route_keeper_of(const struct tern_route *r, uint32_t leaf, tern_time now,
                                           bool *answered, uint16_t *wake);
 

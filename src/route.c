@@ -1772,6 +1772,8 @@ static size_t send_poll_answer(struct tern_route *r, uint8_t *frame, int8_t *pow
             e->poll_id, tern_route_margin(r->config.full_dbm, slot(r, s)->floor),
             e->held,    power_to(r, e->leaf)};
         e->answered = true;
+        e->told = e->held;
+        e->handed = 0;
         if (r->budget) {
             tern_airtime_charge(r->budget, r->now, TERN_HDR_POLL_ANSWER, true,
                                 airtime(r, TERN_POLL_ANSWER_LEN));
@@ -2684,10 +2686,19 @@ enum tern_route_keep tern_route_keeper_of(const struct tern_route *r, uint32_t l
         *wake = tern_route_promise_code((uint64_t)(p / TERN_S(1)));
     }
     if (e && e->polled && !tern_sleep_holds(now - e->poll_at, e->listen)) {
-        *answered = e->answered;
+        /* Answered, the leaf listens only for the frames it was told of (draft/sleeping.md, "What
+         * the leaf does"): once they have gone, anything more waits for its next poll. */
+        *answered = e->answered && e->handed < e->told;
         return TERN_KEEP_AWAKE;
     }
     return TERN_KEEP_ASLEEP;
+}
+
+void tern_route_handed(struct tern_route *r, uint32_t leaf) {
+    struct tern_route_kept_leaf *e = kept_leaf(r, leaf);
+    if (e && e->answered && e->handed < UINT8_MAX) {
+        e->handed++;
+    }
 }
 
 void tern_route_holding(struct tern_route *r, uint32_t leaf, uint8_t held) {

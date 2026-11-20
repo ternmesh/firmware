@@ -233,9 +233,10 @@ static struct {
     int16_t snr[NODES][NODES];
     struct tern_lora lora;
     tern_time now;
-    tern_time awake;  /* the leaf's time with its radio on */
-    bool deaf[NODES]; /* a relay on firmware before sleeping leaves: it takes no poll */
-    unsigned polls;   /* the leaf's, sent */
+    tern_time awake;          /* the leaf's time with its radio on */
+    bool deaf[NODES];         /* a relay on firmware before sleeping leaves: it takes no poll */
+    unsigned polls;           /* the leaf's, sent */
+    unsigned keeper_messages; /* messages the keeper put on the air */
 } net;
 
 static uint32_t id_of(int i) { return 0x2000u + (uint32_t)i; }
@@ -247,6 +248,7 @@ static bool off(int k) {
 
 static void on_air(int from, const uint8_t *frame, size_t len, int8_t dbm) {
     net.polls += from == LEAF && frame[0] == TERN_HDR_POLL;
+    net.keeper_messages += from == KEEPER && frame[0] == TERN_HDR_MESSAGE;
     for (int k = 0; k < NODES; k++) {
         struct node *y = &net.node[k];
         int snr = net.snr[from][k] == NONE ? NONE : net.snr[from][k] + 4 * (dbm - FULL);
@@ -602,6 +604,30 @@ static void both_restart_and_the_keepers_own_frame_waits_for_the_next_poll(void)
     CHECK_EQ_I64(net.node[KEEPER].failed, 0);
 }
 
+/* A frame of the keeper's own that comes just after it answered the leaf's poll saying nothing is
+ * held: the leaf, told nothing, sleeps again at once, so the frame waits for its next poll and goes
+ * once, then. On two boards it went at once, and twice more, to a leaf that was not listening. */
+static void a_frame_after_the_answer_waits_for_the_next_poll(void) {
+    net_init();
+    tern_forward_wake(&net.node[KEEPER].f, id_of(LEAF), WAKE);
+    unsigned polled = net.polls;
+    while (net.polls == polled) {
+        run(net.now + TERN_MS(10));
+    }
+    run(net.now + TERN_MS(300)); /* answered, saying nothing is held; the leaf asleep again */
+    CHECK_EQ_I64(held_for_leaf(), 0);
+    unsigned before = net.keeper_messages;
+    message(KEEPER, LEAF, 0xF5);
+    run(net.now + TERN_S(10));
+    CHECK_EQ_I64(net.keeper_messages, before); /* not to a leaf that is not listening */
+    CHECK_EQ_I64(held_for_leaf(), 1);
+    run(net.now + TERN_S(WAKE + 30));
+    CHECK_EQ_I64(net.node[LEAF].got, 1);
+    CHECK_EQ_I64(net.keeper_messages, before + 1);
+    CHECK_EQ_I64(net.node[KEEPER].acked, 1);
+    CHECK_EQ_I64(net.node[KEEPER].failed, 0);
+}
+
 /* The same with nothing kept, as before: the frame is given up. */
 static void a_keeper_that_restarts_with_nothing_kept_gives_up(void) {
     net_init();
@@ -699,6 +725,7 @@ int main(void) {
     RUN(relays_that_do_not_keep_are_rested);
     RUN(a_keeper_that_restarts_still_keeps_its_leaf);
     RUN(both_restart_and_the_keepers_own_frame_waits_for_the_next_poll);
+    RUN(a_frame_after_the_answer_waits_for_the_next_poll);
     RUN(a_keeper_that_restarts_with_nothing_kept_gives_up);
     RUN(a_source_told_it_is_held_waits);
     RUN(a_managed_leaf_answers_in_seconds_not_wakes);
