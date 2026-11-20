@@ -93,6 +93,7 @@ static const char dave_says[] = "Trail crew \xc2\xb7 ask me";
 /* The fake board: what it shows the link, and every frame the link sent. */
 struct board {
     struct link_view view;
+    uint32_t tracing[LINK_TRACES]; /* the routing ids the board traces, 0 for a free place */
     uint32_t clock;
     bool session_with_bob;
     uint8_t why;
@@ -477,6 +478,27 @@ static uint8_t board_restart(void *ctx) {
     return 0;
 }
 
+/* A trace, as main.c begins one: refused for the node's own routing id, and for one it traces. */
+static uint8_t board_trace(void *ctx, uint32_t id, uint32_t to) {
+    struct board *b = ctx;
+    (void)id;
+    if (to == tern_route_id(b->view.address)) {
+        return TERN_C_ERR_REFUSED;
+    }
+    for (size_t i = 0; i < LINK_TRACES; i++) {
+        if (b->tracing[i] == to) {
+            return TERN_C_ERR_NOT_NOW;
+        }
+    }
+    for (size_t i = 0; i < LINK_TRACES; i++) {
+        if (b->tracing[i] == 0) {
+            b->tracing[i] = to;
+            return 0;
+        }
+    }
+    return TERN_C_ERR_FULL;
+}
+
 static size_t board_load_owners(void *ctx, uint8_t *buf, size_t cap) {
     struct board *b = ctx;
     size_t n = b->owners_len < cap ? b->owners_len : cap;
@@ -557,6 +579,7 @@ static void start(void) {
         .bootloader = board_bootloader,
         .wipe = board_wipe,
         .restart = board_restart,
+        .trace = board_trace,
         .load_owners = board_load_owners,
         .save_owners = board_save_owners,
         /* The specification's test key, as the vectors' node holds it. */
@@ -673,6 +696,10 @@ static void bob_is_at(const struct tern_companion_msg *m, tern_time now) {
     link_position_received(&companion, now, bob, 7, plain, len);
 }
 
+/* Whether what comes from the air comes one frame at a time, as the steps say, rather than as the
+ * exchange has it. */
+static bool one_by_one;
+
 /* Plays one of the specification's connections from where the node stands. What the board does
  * of itself comes where the connection has the news of it, or, for a client too old to be told,
  * before the step `before`: `unseen` is called there. */
@@ -720,6 +747,22 @@ static void follow(const char *name, const struct step *steps, size_t n, size_t 
             } else if (m.type == TERN_C_MANAGED) {
                 /* The managed node's answer comes back over the mesh. */
                 link_managed(&companion, m.address, m.data, m.data_len);
+            } else if (m.type == TERN_C_ROUTE) {
+                link_route(&companion, &(struct link_route){m.id, m.via, m.took, m.rssi, m.hops,
+                                                            m.goes, m.snr});
+            } else if (m.type == TERN_C_TRACED) {
+                for (size_t k = 0; k < LINK_TRACES; k++) {
+                    board.tracing[k] = board.tracing[k] == m.routing_id ? 0 : board.tracing[k];
+                }
+                link_traced(&companion, m.id, m.routing_id, m.result, m.out, m.took, m.snr, m.data,
+                            m.data_len / 5u);
+            } else if (m.type == TERN_C_MESSAGE && m.state == TERN_C_RECEIVED) {
+                CHECK_EQ_U64(
+                    link_add(&companion, m.address, m.time, TERN_C_RECEIVED, 0, m.text, m.text_len),
+                    m.id);
+            } else if (m.type == TERN_C_GROUP_MESSAGE && m.state == TERN_C_RECEIVED && one_by_one) {
+                CHECK_EQ_U64(link_add_group(&companion, 0, m.from, m.time, m.text, m.text_len),
+                             m.id);
             } else if (m.type == TERN_C_GROUP_MESSAGE && m.state == TERN_C_RECEIVED) {
                 bob_writes_and_invites();
             } else if (m.type == TERN_C_POSITION && m.precision != 0) {
@@ -2995,6 +3038,59 @@ static void a_forgotten_conversation_is_gone_from_the_node(void) {
     follow("forget 1", forget_1, COUNT(forget_1), COUNT(forget_1), NULL);
 }
 
+/* --- How messages went, and traces (version 18) ------------------------------------------- */
+
+/* The specification's route: a leaf holding Bob with a session and the group Hut sends him a
+ * message that goes twice through the relay before it is delivered, receives one from him across
+ * two hops and one in Hut, and traces him, the relay and a routing id it has no route to. */
+static void how_messages_went_and_traces_are_told(void) {
+    holding_what_forget_shows();
+    for (size_t i = 0; i < LINK_MESSAGES; i++) {
+        companion.messages[i].used = false;
+    }
+    board.view.role = 0;
+    board.why = TERN_C_WAIT_UNNAMED;
+    companion.next_id = 17;
+    one_by_one = true;
+    follow("route", route, COUNT(route), COUNT(route), NULL);
+    one_by_one = false;
+    for (size_t i = 0; i < LINK_TRACES; i++) {
+        CHECK_EQ_U64(companion.traces[i], 0); /* each ended */
+    }
+}
+
+/* A sync sends each message's ROUTE after it, to a client of version 18, and none to one of 17. */
+static void a_sync_tells_how_each_message_went(void) {
+    start();
+    hello();
+    uint32_t id = add();
+    link_route(&companion, &(struct link_route){.id = id, .hops = 2, .snr = 21, .rssi = -101});
+    request(&(struct tern_companion_msg){.type = TERN_C_SYNC, .seq = 2});
+    bool seen = false;
+    for (size_t i = 0; i + 1 < board.n_out; i++) {
+        if (sent(i).type == TERN_C_MESSAGE && sent(i).id == id) {
+            CHECK_EQ_I64(sent(i + 1).type, TERN_C_ROUTE);
+            CHECK_EQ_I64(sent(i + 1).hops, 2);
+            seen = true;
+        }
+    }
+    CHECK(seen);
+    request(&(struct tern_companion_msg){.type = TERN_C_HELLO, .seq = 3, .version = 17});
+    request(&(struct tern_companion_msg){.type = TERN_C_SYNC, .seq = 4});
+    for (size_t i = 0; i < board.n_out; i++) {
+        CHECK(board.out[i][0] != TERN_C_ROUTE);
+    }
+    /* Kept for the latest LINK_ROUTES, the oldest given up. */
+    for (size_t i = 0; i < LINK_ROUTES; i++) {
+        link_route(&companion, &(struct link_route){.id = add(), .hops = 1});
+    }
+    bool kept = false;
+    for (size_t i = 0; i < LINK_ROUTES; i++) {
+        kept |= companion.routes[i].id == id;
+    }
+    CHECK(!kept);
+}
+
 /* --- Managing (draft/managing.md) ---------------------------------------------------------- */
 
 /* The specification's managing, from the manager's side: the client makes Bob an owner after two
@@ -3698,6 +3794,8 @@ int main(void) {
     RUN(the_newest_messages_are_the_ones_in_flash);
     RUN(what_flash_holds_that_is_no_message_is_not_loaded);
     RUN(a_node_manages_another_over_the_mesh);
+    RUN(how_messages_went_and_traces_are_told);
+    RUN(a_sync_tells_how_each_message_went);
     RUN(an_owner_is_answered_over_the_mesh_and_no_one_else);
     RUN(owners_from_the_vectors);
     RUN(what_managing_ignores);

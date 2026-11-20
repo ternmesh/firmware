@@ -39,11 +39,19 @@
 #define NODE_CARDS 32
 #endif
 
+/* How messages went (ROUTE, draft/companion.md): kept for this many of the latest. */
+#ifdef CONFIG_TERN_ROUTES
+#define NODE_ROUTES CONFIG_TERN_ROUTES
+#else
+#define NODE_ROUTES 4
+#endif
+
 /* The least of each a build may set: what every earlier build held, so that what one saved is
  * never more than a later one loads. */
 _Static_assert(NODE_SESSIONS >= 8 && NODE_SESSIONS <= 32, "8 to 32 sessions");
 _Static_assert(NODE_CONTACTS >= 16 && NODE_CONTACTS <= 128, "16 to 128 contacts");
 _Static_assert(NODE_GROUPS >= 4 && NODE_GROUPS <= 16, "4 to 16 groups");
 _Static_assert(NODE_CARDS >= 8 && NODE_CARDS <= 128, "8 to 128 cards");
+_Static_assert(NODE_ROUTES >= 1 && NODE_ROUTES <= 32, "1 to 32 routes");
 
 #endif

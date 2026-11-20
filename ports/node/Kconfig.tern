@@ -127,6 +127,14 @@
             80 bytes of RAM each, and no flash: the newest card from each address, the oldest
             let go of when there is no room. The ESP32-S3 and nRF52840 builds hold 64.
 
+    config TERN_ROUTES
+        int "Messages the board keeps how they went for: direct or relayed, and how well heard"
+        range 1 32
+        default 4
+        help
+            20 bytes of RAM each, and no flash: what ROUTE tells a client of the latest messages
+            sent and received, forgotten at a restart. The ESP32-S3 and nRF52840 builds keep 32.
+
     config TERN_SCREEN_FLIP
         bool "Turn the screen upside down"
         default n

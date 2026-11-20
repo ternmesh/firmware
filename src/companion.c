@@ -37,6 +37,10 @@ enum field {
     OWNER,     /* u8 */
     LOCKED,    /* u8 */
     BY,        /* u8, into why: how a notice says the owners changed */
+    HOPS,      /* u8 */
+    GOES,      /* u8 */
+    RESULT,    /* u8 */
+    OUT,       /* u8 */
     POWER,     /* i8 */
     SNR,       /* i8 */
     HEARD,     /* u16, into heard */
@@ -49,6 +53,7 @@ enum field {
     MINUTES,   /* u16 */
     WAKE,      /* u16 */
     RETRY,     /* u16 */
+    RSSI,      /* i16 */
     AFTER,     /* u32 */
     TIME,      /* u32 */
     REF,       /* u32 */
@@ -68,6 +73,8 @@ enum field {
     LON,       /* i32 */
     AGE32,     /* u32, into age */
     HEARD32,   /* u32, into heard */
+    VIA,       /* u32 */
+    TOOK,      /* u32 */
     ADDRESS,   /* 32 bytes */
     GROUP,     /* 8 bytes: a group's id */
     DIGEST,    /* 32 bytes: a SHA-256 */
@@ -84,6 +91,7 @@ enum field {
     SIGNATURE, /* up to TERN_COMPANION_SIGNATURE bytes of anything, into data */
     REQUEST,   /* up to TERN_COMPANION_MANAGE_MAX bytes of anything, into data */
     ANSWER,    /* up to TERN_COMPANION_MANAGED_MAX bytes of anything, into data */
+    ENTRIES,   /* up to TERN_COMPANION_ENTRIES_MAX bytes of anything, into data */
 };
 
 struct layout {
@@ -104,6 +112,7 @@ static const struct layout layouts[] = {
     {TERN_C_FORGET_GROUP, {GROUP, THROUGH}},
     {TERN_C_MANAGE, {REF, ADDRESS, REQUEST}},
     {TERN_C_OWNER, {ADDRESS, OWNER}},
+    {TERN_C_TRACE, {REF, RID}},
     {TERN_C_SAVE_CONTACT, {ADDRESS, NAME}},
     {TERN_C_REMOVE_CONTACT, {ADDRESS}},
     {TERN_C_END_SESSION, {ADDRESS}},
@@ -158,6 +167,8 @@ static const struct layout layouts[] = {
     {TERN_C_GROUP_FORGOTTEN, {GROUP, THROUGH}},
     {TERN_C_MANAGED, {ADDRESS, ANSWER}},
     {TERN_C_OWNER_CHANGED, {ADDRESS, OTHER, OWNER, BY}},
+    {TERN_C_ROUTE, {ID, HOPS, SNR, RSSI, VIA, GOES, TOOK}},
+    {TERN_C_TRACED, {ID, RID, RESULT, OUT, TOOK, SNR, ENTRIES}},
 };
 
 /* A later version adds fields only at the end of a frame: from field `from` on, a type's fields
@@ -235,6 +246,9 @@ static const struct layout *layout_of(uint8_t type) {
 }
 
 uint8_t tern_companion_since(uint8_t type) {
+    if (type == TERN_C_TRACE || type == TERN_C_ROUTE || type == TERN_C_TRACED) {
+        return 18;
+    }
     if (type == TERN_C_MANAGE || type == TERN_C_OWNER || type == TERN_C_RESTART ||
         type == TERN_C_MANAGED || type == TERN_C_OWNER_CHANGED) {
         return 17;
@@ -323,6 +337,8 @@ static size_t string_max(enum field f) {
         return TERN_COMPANION_MANAGE_MAX;
     case ANSWER:
         return TERN_COMPANION_MANAGED_MAX;
+    case ENTRIES:
+        return TERN_COMPANION_ENTRIES_MAX;
     default:
         return TERN_COMPANION_REGION_MAX;
     }
@@ -369,6 +385,20 @@ static void *member(struct tern_companion_msg *m, enum field f) {
         return &m->listen;
     case OWNER:
         return &m->owner;
+    case HOPS:
+        return &m->hops;
+    case GOES:
+        return &m->goes;
+    case RESULT:
+        return &m->result;
+    case OUT:
+        return &m->out;
+    case RSSI:
+        return &m->rssi;
+    case VIA:
+        return &m->via;
+    case TOOK:
+        return &m->took;
     case WAKE:
         return &m->wake;
     case RETRY:
@@ -461,6 +491,7 @@ static uint8_t *variable_of(struct tern_companion_msg *m, enum field f, uint8_t 
     case DATA:
     case REQUEST:
     case ANSWER:
+    case ENTRIES:
     case SIGNATURE: /* UPDATE_BEGIN's, which has no data */
         *len = &m->data_len;
         return m->data;
@@ -586,7 +617,7 @@ enum tern_companion_read tern_companion_read_as(struct tern_companion_msg *m, co
                 return TERN_C_READ_MALFORMED;
             }
             size_t n = frame[at];
-            bool raw = f == DATA || f == SIGNATURE || f == REQUEST || f == ANSWER;
+            bool raw = f == DATA || f == SIGNATURE || f == REQUEST || f == ANSWER || f == ENTRIES;
             if (n > string_max(f) || (!raw && !tern_companion_utf8(frame + at + 1, n))) {
                 return TERN_C_READ_MALFORMED;
             }
