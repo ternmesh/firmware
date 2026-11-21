@@ -2675,22 +2675,14 @@ bool tern_route_retry(const struct tern_route *r, uint32_t destination, uint32_t
            tern_route_next(r, destination, next, metric);
 }
 
-void tern_route_worse(struct tern_route *r, tern_time now, uint32_t neighbour, int8_t power,
-                      int16_t snr_q) {
-    uint8_t s = slot_of(r, neighbour);
-    struct tern_route_neighbour *n;
-    int32_t sample;
-    r->now = now;
-    if (!s) {
-        return;
-    }
-    n = slot(r, s);
-    /* As a floor's first sample: what this one frame says, before any average. */
-    sample = tern_route_floor(true, 0, power, snr_q, r->config.lora.sf);
+/* A worse sample of slot `s`, `sample` sixteenths of a dBm: into the floor a quarter of the way if
+ * it is above it, and the link, if up, judged afresh. */
+static void worse(struct tern_route *r, uint8_t s, int32_t sample) {
+    struct tern_route_neighbour *n = slot(r, s);
     if (sample <= n->floor) {
         return;
     }
-    n->floor = tern_route_floor(false, n->floor, power, snr_q, r->config.lora.sf);
+    n->floor = div_down(3 * n->floor + sample, 4);
     if (n->up &&
         !tern_route_link_up(true, 16 * (int32_t)r->config.full_dbm - n->floor, n->theirs)) {
         n->up = false;
@@ -2698,6 +2690,25 @@ void tern_route_worse(struct tern_route *r, tern_time now, uint32_t neighbour, i
         reselect_through(r, s);
         trickle_reset(r, TERN_ROUTE_RESET_LINK);
         r->changed = false;
+    }
+}
+
+void tern_route_worse(struct tern_route *r, tern_time now, uint32_t neighbour, int8_t power,
+                      int16_t snr_q) {
+    uint8_t s = slot_of(r, neighbour);
+    r->now = now;
+    if (s) {
+        /* As a floor's first sample: what this one frame says, before any average. */
+        worse(r, s, tern_route_floor(true, 0, power, snr_q, r->config.lora.sf));
+    }
+}
+
+void tern_route_worse_floor(struct tern_route *r, tern_time now, uint32_t neighbour,
+                            int8_t floor_dbm) {
+    uint8_t s = slot_of(r, neighbour);
+    r->now = now;
+    if (s) {
+        worse(r, s, 16 * (int32_t)floor_dbm);
     }
 }
 

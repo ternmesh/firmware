@@ -874,6 +874,11 @@ bool tern_route_retry(const struct tern_route *r, uint32_t destination, uint32_t
 void tern_route_worse(struct tern_route *r, tern_time now, uint32_t neighbour, int8_t power,
                       int16_t snr_q);
 
+/* A worse sample of `neighbour` whose floor by one frame is `floor_dbm`, as tern_route_worse()
+ * takes one from a frame's power and signal-to-noise ratio. */
+void tern_route_worse_floor(struct tern_route *r, tern_time now, uint32_t neighbour,
+                            int8_t floor_dbm);
+
 /* A frame sent to a neighbour was given up on: the next goes louder, and after dead_hops of them
  * with nothing heard from it between, it is forgotten, and every route through it. */
 void tern_route_lost(struct tern_route *r, tern_time now, uint32_t neighbour);

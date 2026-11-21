@@ -462,6 +462,27 @@ bool tern_forward_send(struct tern_forward *f, tern_time now, uint32_t destinati
     return true;
 }
 
+/* An acknowledgement `ack` this node passes on to its destination, the message's source: if this
+ * node passed that message on, and it came to it with hop_max hops, it came from that source, and
+ * what the source needed then is what the acknowledgement goes no quieter than, and a worse sample
+ * of it. A slot passed on is freed once its hop succeeds and kept until it is taken again, so the
+ * message is found if no frame has taken its place since: a few seconds, at most frames' rate. */
+static int8_t source_back(struct tern_forward *f, tern_time now, const uint8_t *ack, int8_t back) {
+    for (size_t i = 0; i < f->cap; i++) {
+        const struct tern_forward_slot *s = &f->slot[i];
+        if (s->own || s->back == INT8_MIN || !tern_forward_message(s->frame[0]) ||
+            s->len < TERN_FORWARD_MIN || s->hops != (uint8_t)(f->config.hop_max - 1) ||
+            memcmp(s->frame + TERN_FORWARD_HEAD, ack + TERN_FORWARD_HEAD, TERN_FORWARD_TAG) != 0) {
+            continue;
+        }
+        /* back is the source's floor by that frame, plus the margin: the sample, to a decibel. */
+        tern_route_worse_floor(f->route, now, get32(ack + AT_DEST),
+                               (int8_t)(s->back - f->route->config.power_margin_db));
+        return s->back > back ? s->back : back;
+    }
+    return back;
+}
+
 void tern_forward_heard(struct tern_forward *f, tern_time now, const uint8_t *frame, size_t len,
                         int16_t snr_q, struct tern_forward_heard *out) {
     struct tern_forward_head h;
@@ -607,6 +628,10 @@ void tern_forward_heard(struct tern_forward *f, tern_time now, const uint8_t *fr
         }
         return;
     }
+    int8_t back = out->back;
+    if (h.hdr == TERN_HDR_ACK && next == h.destination) {
+        back = source_back(f, now, frame, back);
+    }
     s = free_slot(f);
     if (!s) {
         f->counts.no_room++;
@@ -615,7 +640,7 @@ void tern_forward_heard(struct tern_forward *f, tern_time now, const uint8_t *fr
     *s = (struct tern_forward_slot){
         .state = TERN_FORWARD_WAITING,
         .hops = (uint8_t)(h.hops - 1),
-        .back = out->back,
+        .back = back,
         .len = (uint8_t)len,
         .next = next,
         .at = now + jitter(f, len),
@@ -905,15 +930,17 @@ static void give_up(struct tern_forward *f, struct tern_forward_slot *s, tern_ti
 }
 
 /* A message's acknowledgement did not come in its time: the message starts again, if it may,
- * whatever had become of its first hop. A next hop that has by now been sent it as often as a hop
- * is, and never heard passing it on, is counted against as one given up on. */
+ * whatever had become of its first hop. A first hop that never heard it this try is counted
+ * against as one given up on, and the next try goes another way if there is one: the wait for an
+ * acknowledgement ends before a hop's own sends are done, so without this every try would go to
+ * the same neighbour, twice, unheard. */
 static void try_again(struct tern_forward *f, struct tern_forward_slot *s, tern_time now) {
     uint16_t metric;
-    /* Its first hop never heard it this try: the next goes another way, if there is one. */
-    uint32_t missed = s->unheard > 0 ? s->next : 0;
-    if (s->unheard > f->config.hop_retries) {
+    uint32_t missed = 0;
+    if (s->unheard > 0) {
         f->counts.given_up++;
         tern_route_lost(f->route, now, s->next);
+        missed = s->next;
         s->unheard = 0;
     }
     if (s->frame[0] == TERN_HDR_TRACE) {

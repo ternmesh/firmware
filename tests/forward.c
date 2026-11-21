@@ -1073,6 +1073,47 @@ static void a_worse_sample_comes_only_from_whom_the_specification_says(void) {
     }
 }
 
+/* The simulator's drive (ternmesh/sim scenarios/core/drive.tsim), its losses mapped to this
+ * harness's signal-to-noise ratios: six boards in one house, the relays to their places, the hill's
+ * out of the desk's reach, the leaf waiting by the patio, and then driven where only the patio
+ * hears it. Both ways, a message every four minutes: from the third on, the leaf's arrive once each
+ * and are acknowledged, and every one of the desk's reaches the leaf, nearly all acknowledged.
+ * Before the changes of spec#81, none of either did in the first hour. */
+static void loss(int a, int b, int db) {
+    int q = 4 * (133 - db); /* quarters of a dB at full power, the noise some 111 dB down */
+    net.snr[a][b] = net.snr[b][a] = q < SNR_FLOOR_Q ? NONE : (int16_t)q;
+}
+
+static void six_boards_and_a_drive(void) {
+    static const bool relay[] = {true, true, true, true, true, false};
+    net_init(6, relay);
+    for (int a = 0; a < 6; a++) {
+        for (int b = a + 1; b < 6; b++) {
+            loss(a, b, 80);
+        }
+    }
+    run(TERN_S(600));
+    loss(0, 1, 110), loss(0, 2, 160), loss(0, 3, 162), loss(0, 4, 165), loss(1, 2, 112);
+    loss(1, 3, 118), loss(1, 4, 120), loss(2, 3, 105), loss(2, 4, 108), loss(3, 4, 104);
+    loss(5, 0, 105), loss(5, 1, 90), loss(5, 2, 160), loss(5, 3, 162), loss(5, 4, 165);
+    run(TERN_S(7200));
+    loss(5, 0, 170), loss(5, 1, 125);
+}
+
+static void the_drive_both_ways(void) {
+    six_boards_and_a_drive();
+    for (int k = 0; k < 10; k++) {
+        message(5, 0, (uint8_t)(0x10 + k));
+        run(net.now + TERN_S(120));
+        message(0, 5, (uint8_t)(0x30 + k));
+        run(net.now + TERN_S(120));
+    }
+    CHECK(net.node[0].got >= 8 && net.node[0].got <= 10); /* once each, from the third on */
+    CHECK(net.node[5].acked >= 8);
+    CHECK(net.node[5].got >= 10); /* every one, a copy now and then where frames cross */
+    CHECK(net.node[0].acked >= 9);
+}
+
 static void a_node_answers_few_traces_a_minute(void) {
     uint8_t frame[TERN_TRACE_MIN] = {0};
     struct tern_forward_head h = {TERN_HDR_TRACE, 32, FULL, id_of(1), id_of(1)};
@@ -1129,5 +1170,6 @@ int main(void) {
     RUN(an_acknowledgement_from_its_maker_raises_a_stale_floor);
     RUN(a_next_try_goes_the_way_the_specification_says);
     RUN(a_worse_sample_comes_only_from_whom_the_specification_says);
+    RUN(the_drive_both_ways);
     return CHECK_DONE();
 }
