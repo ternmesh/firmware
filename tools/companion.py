@@ -536,7 +536,8 @@ def describe(m, names):
         how = "".join([", charging" if flags & 1 else "", ", on external power" if flags & 2 else ""])
         if not m["millivolts"] and m["percent"] == 255:
             return "power: battery not measured" + how
-        return f"power: {m['millivolts']} mV, {m['percent']}%" + how
+        charge = "charge unknown" if m["percent"] == 255 else f"{m['percent']}%"
+        return f"power: {m['millivolts']} mV, {charge}" + how
     if t == "ASKED":
         why = {1: "it is not a contact: save it as one to let it in",
                2: "there is no room for another session: end one to make room"}
