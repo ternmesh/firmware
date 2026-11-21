@@ -654,6 +654,15 @@ static void battery_off(void) {}
 
 #endif
 
+/* USB's 5 V on the chip's VBUS pin, which every board here charges its battery from. */
+bool board_external_power(void) {
+#if NRF_POWER_HAS_USBREG
+    return nrf_power_usbregstatus_vbusdet_get(NRF_POWER);
+#else
+    return false;
+#endif
+}
+
 /* --- Turning off ----------------------------------------------------------------------------- */
 
 /* A start the timer gave, told apart from a press or power coming on by a word in RAM that a
