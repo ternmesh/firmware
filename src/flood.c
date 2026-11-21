@@ -204,6 +204,11 @@ bool tern_flood_own_room(const struct tern_flood *f, tern_time now, size_t len) 
 void tern_flood_budget(struct tern_flood *f, struct tern_airtime *budget) { f->budget = budget; }
 
 bool tern_flood_send(struct tern_flood *f, tern_time now, const uint8_t *frame, size_t len) {
+    return tern_flood_send_hops(f, now, frame, len, f->config.hops);
+}
+
+bool tern_flood_send_hops(struct tern_flood *f, tern_time now, const uint8_t *frame, size_t len,
+                          uint8_t hops) {
     struct tern_flood_slot *s;
     if (!tern_flood_frame(frame, len) || (s = free_slot(f)) == NULL) {
         return false;
@@ -214,7 +219,7 @@ bool tern_flood_send(struct tern_flood *f, tern_time now, const uint8_t *frame, 
                                   .at = now,
                                   .order = f->own_order++};
     memcpy(s->frame, frame, len);
-    s->frame[1] = tern_flood_starts(frame[0], f->config.hops);
+    s->frame[1] = tern_flood_starts(frame[0], hops < f->config.hops ? hops : f->config.hops);
     /* A frame that would start at the most starts one lower half the time, so that the first
      * relay's copy looks like the writer's. Kinds that start lower start where they say. */
     if (f->config.lower && s->frame[1] == f->config.hops && s->frame[1] > 1) {

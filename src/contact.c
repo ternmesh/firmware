@@ -1,11 +1,13 @@
 #include "tern/contact.h"
 
+#include "tern/companion.h"
 #include "tern/err.h"
 #include "tern/route.h"
 
 /* First contact, as draft/first-contact.md specifies it, with EDHOC (RFC 9528) fixed to the
  * profile there: method 3, cipher suite 0, credentials holding Ed25519 addresses, the responder
- * named by kid 0 and the initiator by value, one-byte connection identifiers, no EAD. Every
+ * named by kid 0 and the initiator by value, one-byte connection identifiers, and in message_3 and
+ * message_4 one EAD item each, a name (draft/first-contact.md, "Names"). Every
  * message has a fixed length and layout, so each is built and checked byte by byte rather than
  * through a general CBOR codec. Section and step references are to RFC 9528. */
 
@@ -16,10 +18,12 @@
 #define PREFIX_1 19         /* and message_1, after the routing id it came from */
 #define M1_LEN 37
 #define M2_LEN 45
-#define M3_LEN 65
-#define M4_LEN 9
+#define M3_LEN 101
+#define M4_LEN 46
 #define PT2_LEN 11
-#define PT3_LEN 55
+#define PT3_LEN (55 + NAME_ITEM) /* {14: CRED_I}, MAC_3 and the name item */
+#define NAME_ITEM 36             /* the name item: label 116, then a byte string of 32 */
+#define NAME_RAW 32              /* its value: the name's length, the name, zeros */
 #define CRED_LEN 44
 #define ID_CRED_I_LEN 46
 #define MAC_LEN 8
@@ -63,11 +67,11 @@ static void extract(uint8_t out[32], const uint8_t *salt, size_t salt_len, const
 }
 
 /* EDHOC_KDF (section 4.1.2): HKDF-Expand with info the CBOR sequence (label, context as a byte
- * string, length). Labels here are 0 to 10 and 32768; contexts are at most 124 bytes and lengths
- * at most 32, so every CBOR head is one or two bytes. */
+ * string, length). Labels here are 0 to 10 and 32768; contexts are at most 160 bytes (MAC_3's,
+ * with its EAD) and lengths at most 32, so every CBOR head is one or two bytes. */
 static void kdf(uint8_t *out, size_t len, const uint8_t prk[32], uint32_t label,
                 const uint8_t *context, size_t context_len) {
-    uint8_t info[3 + 2 + 124 + 2];
+    uint8_t info[3 + 2 + 160 + 2];
     size_t n = 0;
     if (label < 24) {
         info[n++] = (uint8_t)label;
@@ -193,10 +197,11 @@ static void mac_2(uint8_t out[MAC_LEN], const uint8_t prk_3e2m[32], uint8_t c_r,
     kdf(out, MAC_LEN, prk_3e2m, 2, ctx, sizeof ctx);
 }
 
-/* MAC_3 (section 5.4.2): context_3 = ID_CRED_I, TH_3, CRED_I, where ID_CRED_I = {14: CRED_I}. */
+/* MAC_3 (section 5.4.2): context_3 = ID_CRED_I, TH_3, CRED_I, ?EAD_3, where ID_CRED_I =
+ * {14: CRED_I} and EAD_3 is the initiator's name item. */
 static void mac_3(uint8_t out[MAC_LEN], const uint8_t prk_4e3m[32], const uint8_t th_3[32],
-                  const uint8_t cred_i[CRED_LEN]) {
-    uint8_t ctx[ID_CRED_I_LEN + 34 + CRED_LEN];
+                  const uint8_t cred_i[CRED_LEN], const uint8_t ead_3[NAME_ITEM]) {
+    uint8_t ctx[ID_CRED_I_LEN + 34 + CRED_LEN + NAME_ITEM];
     ctx[0] = 0xa1;
     ctx[1] = 0x0e;
     for (int i = 0; i < CRED_LEN; i++) {
@@ -204,7 +209,50 @@ static void mac_3(uint8_t out[MAC_LEN], const uint8_t prk_4e3m[32], const uint8_
         ctx[ID_CRED_I_LEN + 34 + i] = cred_i[i];
     }
     bstr32(ctx + ID_CRED_I_LEN, th_3);
+    for (int i = 0; i < NAME_ITEM; i++) {
+        ctx[ID_CRED_I_LEN + 34 + CRED_LEN + i] = ead_3[i];
+    }
     kdf(out, MAC_LEN, prk_4e3m, 6, ctx, sizeof ctx);
+}
+
+/* A name item (draft/first-contact.md, "Names"): ead_label 116, not critical, and a byte string of
+ * 32 bytes, the name's length, the name and zeros. */
+static void name_item(uint8_t out[NAME_ITEM], const uint8_t *name, size_t len) {
+    out[0] = 0x18;
+    out[1] = 0x74;
+    out[2] = 0x58;
+    out[3] = 0x20;
+    out[4] = (uint8_t)len;
+    for (size_t i = 0; i < NAME_RAW - 1; i++) {
+        out[5 + i] = i < len ? name[i] : 0;
+    }
+}
+
+/* Reads a name item into a raw name (its length, the name and zeros), or false for anything but
+ * that one form: another label or length, a length past 31, a byte after the name that is not
+ * zero, or a name that is not UTF-8. */
+static bool read_name(uint8_t raw[NAME_RAW], const uint8_t item[NAME_ITEM]) {
+    const uint8_t *v = item + 4;
+    if (item[0] != 0x18 || item[1] != 0x74 || item[2] != 0x58 || item[3] != 0x20 ||
+        v[0] > TERN_CONTACT_NAME_MAX) {
+        return false;
+    }
+    uint8_t after = 0;
+    for (size_t i = 1u + v[0]; i < NAME_RAW; i++) {
+        after |= v[i];
+    }
+    if (after != 0 || !tern_companion_utf8(v + 1, v[0])) {
+        return false;
+    }
+    for (int i = 0; i < NAME_RAW; i++) {
+        raw[i] = v[i];
+    }
+    return true;
+}
+
+/* Whether a name is one this node may give: at most 31 bytes of UTF-8. */
+static bool a_name(const uint8_t *name, size_t len) {
+    return len <= TERN_CONTACT_NAME_MAX && (len == 0 || tern_companion_utf8(name, len));
 }
 
 /* PRK_2e and TH_2, from G_Y, H(message_1) and G_XY. */
@@ -362,7 +410,8 @@ int tern_contact_respond(struct tern_contact *c, const struct tern_identity *me,
 
 /* The initiator, given message_2: verify it, send message_3 (section 5.3.3, then 5.4.2). */
 static int initiator_message_2(struct tern_contact *c, const struct tern_identity *me,
-                               const uint8_t *m2, uint8_t *out) {
+                               const uint8_t *name, size_t name_len, const uint8_t *m2,
+                               uint8_t *out) {
     uint8_t g_xy[32], th_2[32], prk_2e[32], prk_3e2m[32], ks[PT2_LEN], pt_2[PT2_LEN];
     uint8_t cred_r[CRED_LEN], cred_i[CRED_LEN], want[MAC_LEN], th_3[32], g_iy[32], k[32];
     int verdict = TERN_CONTACT_FAILED;
@@ -401,8 +450,10 @@ static int initiator_message_2(struct tern_contact *c, const struct tern_identit
     }
     next_prk(c->prk, prk_3e2m, 5, th_3, g_iy); /* PRK_4e3m */
 
-    /* PLAINTEXT_3 = ID_CRED_I ({14: CRED_I}), MAC_3 as an 8-byte string. */
+    /* PLAINTEXT_3 = ID_CRED_I ({14: CRED_I}), MAC_3 as an 8-byte string, EAD_3: this node's
+     * name. */
     uint8_t pt_3[PT3_LEN], k_3[16], iv_3[13], aad[45];
+    uint8_t *ead_3 = pt_3 + ID_CRED_I_LEN + 1 + MAC_LEN;
     cred(cred_i, me->address);
     pt_3[0] = 0xa1;
     pt_3[1] = 0x0e;
@@ -410,7 +461,8 @@ static int initiator_message_2(struct tern_contact *c, const struct tern_identit
         pt_3[2 + i] = cred_i[i];
     }
     pt_3[ID_CRED_I_LEN] = 0x48;
-    mac_3(pt_3 + ID_CRED_I_LEN + 1, c->prk, th_3, cred_i);
+    name_item(ead_3, name, name_len);
+    mac_3(pt_3 + ID_CRED_I_LEN + 1, c->prk, th_3, cred_i, ead_3);
 
     kdf(k_3, 16, prk_3e2m, 3, th_3, 32);
     kdf(iv_3, 13, prk_3e2m, 4, th_3, 32);
@@ -418,7 +470,7 @@ static int initiator_message_2(struct tern_contact *c, const struct tern_identit
     uint8_t *m3 = out + PREFIX;
     put_frame(out, 3, c->ctag[2], tern_route_id(c->peer));
     m3[0] = 0x58;
-    m3[1] = 0x3f;
+    m3[1] = M3_LEN - 2;
     (void)tern_ccm_seal(k_3, iv_3, aad, sizeof aad, pt_3, PT3_LEN, m3 + 2, m3 + 2 + PT3_LEN);
 
     /* TH_4 = H(TH_3, PLAINTEXT_3, CRED_I). */
@@ -449,12 +501,14 @@ done:
 }
 
 /* The responder, given message_3: verify it, send message_4, derive S (sections 5.4.3, 5.5.2). */
-static int responder_message_3(struct tern_contact *c, const uint8_t *m3, uint8_t *out) {
+static int responder_message_3(struct tern_contact *c, const uint8_t *name, size_t name_len,
+                               const uint8_t *m3, uint8_t *out) {
     uint8_t k_3[16], iv_3[13], aad[45], pt_3[PT3_LEN], u_i[32], g_iy[32], prk_4e3m[32];
-    uint8_t want[MAC_LEN], cred_i[CRED_LEN], th_4[32];
+    uint8_t want[MAC_LEN], cred_i[CRED_LEN], th_4[32], raw[NAME_RAW], pt_4[NAME_ITEM];
+    const uint8_t *ead_3 = pt_3 + ID_CRED_I_LEN + 1 + MAC_LEN;
     int verdict = TERN_CONTACT_FAILED;
 
-    if (m3[0] != 0x58 || m3[1] != 0x3f) {
+    if (m3[0] != 0x58 || m3[1] != M3_LEN - 2) {
         goto done;
     }
     kdf(k_3, 16, c->prk, 3, c->th, 32);
@@ -464,14 +518,14 @@ static int responder_message_3(struct tern_contact *c, const uint8_t *m3, uint8_
         goto done;
     }
 
-    /* PLAINTEXT_3 must be exactly {14: CRED_I} and an 8-byte MAC, CRED_I holding a valid
-     * address. */
+    /* PLAINTEXT_3 must be exactly {14: CRED_I}, an 8-byte MAC and a name item, CRED_I holding a
+     * valid address. */
     bool shape = pt_3[0] == 0xa1 && pt_3[1] == 0x0e && pt_3[ID_CRED_I_LEN] == 0x48;
     for (int i = 0; i < 12; i++) {
         shape = shape && pt_3[2 + i] == cred_prefix[i];
     }
     const uint8_t *a_i = pt_3 + 14;
-    if (!shape || !tern_address_x25519(u_i, a_i)) {
+    if (!shape || !read_name(raw, ead_3) || !tern_address_x25519(u_i, a_i)) {
         goto done;
     }
     if (!tern_x25519(g_iy, c->ephemeral, u_i)) {
@@ -479,7 +533,7 @@ static int responder_message_3(struct tern_contact *c, const uint8_t *m3, uint8_
     }
     next_prk(prk_4e3m, c->prk, 5, c->th, g_iy);
     cred(cred_i, a_i);
-    mac_3(want, prk_4e3m, c->th, cred_i);
+    mac_3(want, prk_4e3m, c->th, cred_i, ead_3);
     if (!tern_equal_ct(want, pt_3 + ID_CRED_I_LEN + 1, MAC_LEN)) {
         goto done;
     }
@@ -490,14 +544,21 @@ static int responder_message_3(struct tern_contact *c, const uint8_t *m3, uint8_
     kdf(k_4, 16, prk_4e3m, 8, th_4, 32);
     kdf(iv_4, 13, prk_4e3m, 9, th_4, 32);
     enc0_aad(aad, th_4);
+    /* PLAINTEXT_4 = EAD_4: this node's name. */
     uint8_t *m4 = out + PREFIX;
     put_frame(out, 4, c->ctag[3], tern_route_id(a_i));
-    m4[0] = 0x48;
-    (void)tern_ccm_seal(k_4, iv_4, aad, sizeof aad, NULL, 0, NULL, m4 + 1);
+    m4[0] = 0x58;
+    m4[1] = M4_LEN - 2;
+    name_item(pt_4, name, name_len);
+    (void)tern_ccm_seal(k_4, iv_4, aad, sizeof aad, pt_4, NAME_ITEM, m4 + 2, m4 + 2 + NAME_ITEM);
 
     for (int i = 0; i < TERN_ADDRESS_LEN; i++) {
         c->peer[i] = a_i[i];
     }
+    for (int i = 0; i < NAME_RAW; i++) {
+        c->name[i] = raw[i];
+    }
+    c->named = true;
     session_secret(c->secret, prk_4e3m, th_4);
     tern_wipe(c->ephemeral, sizeof c->ephemeral);
     tern_wipe(c->prk, sizeof c->prk);
@@ -516,20 +577,28 @@ done:
     tern_wipe(prk_4e3m, sizeof prk_4e3m);
     tern_wipe(want, sizeof want);
     tern_wipe(th_4, sizeof th_4);
+    tern_wipe(raw, sizeof raw);
+    tern_wipe(pt_4, sizeof pt_4);
     return verdict;
 }
 
 /* The initiator, given message_4: verify it and derive S (section 5.5.3). */
 static int initiator_message_4(struct tern_contact *c, const uint8_t *m4) {
-    uint8_t k_4[16], iv_4[13], aad[45];
+    uint8_t k_4[16], iv_4[13], aad[45], pt_4[NAME_ITEM], raw[NAME_RAW];
     int verdict = TERN_CONTACT_FAILED;
-    if (m4[0] != 0x48) {
+    if (m4[0] != 0x58 || m4[1] != M4_LEN - 2) {
         return verdict;
     }
     kdf(k_4, 16, c->prk, 8, c->th, 32);
     kdf(iv_4, 13, c->prk, 9, c->th, 32);
     enc0_aad(aad, c->th);
-    if (tern_ccm_open(k_4, iv_4, aad, sizeof aad, NULL, 0, m4 + 1, NULL)) {
+    /* PLAINTEXT_4 must be exactly one name item: the responder's. */
+    if (tern_ccm_open(k_4, iv_4, aad, sizeof aad, m4 + 2, NAME_ITEM, m4 + 2 + NAME_ITEM, pt_4) &&
+        read_name(raw, pt_4)) {
+        for (int i = 0; i < NAME_RAW; i++) {
+            c->name[i] = raw[i];
+        }
+        c->named = true;
         session_secret(c->secret, c->prk, c->th);
         tern_wipe(c->prk, sizeof c->prk);
         tern_wipe(c->th, sizeof c->th);
@@ -539,15 +608,17 @@ static int initiator_message_4(struct tern_contact *c, const uint8_t *m4) {
     }
     tern_wipe(k_4, sizeof k_4);
     tern_wipe(iv_4, sizeof iv_4);
+    tern_wipe(pt_4, sizeof pt_4);
+    tern_wipe(raw, sizeof raw);
     return verdict;
 }
 
 int tern_contact_receive(struct tern_contact *c, const struct tern_identity *me,
-                         const uint8_t *frame, size_t len, uint8_t *out, size_t out_cap,
-                         size_t *out_len) {
+                         const uint8_t *name, size_t name_len, const uint8_t *frame, size_t len,
+                         uint8_t *out, size_t out_cap, size_t *out_len) {
     static const size_t frame_len[5] = {0, PREFIX_1 + M1_LEN, PREFIX + M2_LEN, PREFIX + M3_LEN,
                                         PREFIX + M4_LEN};
-    if (out_cap < TERN_CONTACT_MAX_FRAME) {
+    if (out_cap < TERN_CONTACT_MAX_FRAME || !a_name(name, name_len)) {
         return TERN_EINVAL;
     }
     *out_len = 0;
@@ -564,10 +635,10 @@ int tern_contact_receive(struct tern_contact *c, const struct tern_identity *me,
     int verdict = TERN_CONTACT_FAILED;
     if (len == frame_len[n]) {
         if (n == 2 && c->role == TERN_INITIATOR) {
-            verdict = initiator_message_2(c, me, frame + PREFIX, out);
+            verdict = initiator_message_2(c, me, name, name_len, frame + PREFIX, out);
             *out_len = verdict == TERN_CONTACT_PROCESSED ? PREFIX + M3_LEN : 0;
         } else if (n == 3 && c->role == TERN_RESPONDER) {
-            verdict = responder_message_3(c, frame + PREFIX, out);
+            verdict = responder_message_3(c, name, name_len, frame + PREFIX, out);
             *out_len = verdict == TERN_CONTACT_PROCESSED ? PREFIX + M4_LEN : 0;
         } else if (n == 4 && c->role == TERN_INITIATOR) {
             verdict = initiator_message_4(c, frame + PREFIX);
@@ -580,6 +651,16 @@ int tern_contact_receive(struct tern_contact *c, const struct tern_identity *me,
 }
 
 bool tern_contact_complete(const struct tern_contact *c) { return c->complete; }
+
+size_t tern_contact_name(const struct tern_contact *c, uint8_t name[TERN_CONTACT_NAME_MAX]) {
+    if (!c->named) {
+        return 0;
+    }
+    for (int i = 0; i < c->name[0]; i++) {
+        name[i] = c->name[1 + i];
+    }
+    return c->name[0];
+}
 
 int tern_contact_finish(struct tern_contact *c, struct tern_session *s,
                         uint8_t peer[TERN_ADDRESS_LEN]) {

@@ -56,7 +56,7 @@
 #define TERN_MESSAGE_MIN (TERN_FORWARD_MIN + 8) /* an empty message: its tag and its check */
 /* A first-contact frame: the handshake's message, and for the first the routing id it came from. */
 #define TERN_CONTACT_LEN(hdr)                                                                      \
-    ((hdr) == 0x51 ? 56u : (hdr) == 0x52 ? 60u : (hdr) == 0x53 ? 80u : 24u)
+    ((hdr) == 0x51 ? 56u : (hdr) == 0x52 ? 60u : (hdr) == 0x53 ? 116u : 61u)
 #define TERN_FORWARD_SLOTS_MAX 255
 #define TERN_FORWARD_SALVAGE_MAX 4
 #define TERN_FORWARD_NOTICE 0xFF /* the handle of a frame no slot holds: a held notice */

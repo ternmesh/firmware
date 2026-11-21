@@ -86,7 +86,7 @@ enum field {
     BOARD,     /* a string of up to TERN_COMPANION_BOARD_MAX, into board */
     RELEASE,   /* a string of up to TERN_COMPANION_RELEASE_MAX, into release */
     DATA,      /* up to TERN_COMPANION_UPDATE_CHUNK bytes of anything, into data */
-    CARD_NAME, /* a string of up to TERN_COMPANION_NAME_MAX, into card_name */
+    CARD_NAME, /* a string of up to TERN_COMPANION_NAME_MAX, into card_name: CONTACT's says too */
     LINK,      /* a string of up to TERN_COMPANION_LINK_MAX, into text */
     SIGNATURE, /* up to TERN_COMPANION_SIGNATURE bytes of anything, into data */
     REQUEST,   /* up to TERN_COMPANION_MANAGE_MAX bytes of anything, into data */
@@ -113,6 +113,7 @@ static const struct layout layouts[] = {
     {TERN_C_MANAGE, {REF, ADDRESS, REQUEST}},
     {TERN_C_OWNER, {ADDRESS, OWNER}},
     {TERN_C_TRACE, {REF, RID}},
+    {TERN_C_LOOK, {END}},
     {TERN_C_SAVE_CONTACT, {ADDRESS, NAME}},
     {TERN_C_REMOVE_CONTACT, {ADDRESS}},
     {TERN_C_END_SESSION, {ADDRESS}},
@@ -142,7 +143,7 @@ static const struct layout layouts[] = {
     {TERN_C_UPDATING, {OFFSET}},
     {TERN_C_LINK, {LINK}},
     {TERN_C_SELF, {ADDRESS, ROLE, REGION, POWER, TIME, CARDS, CARD_NAME, MOST, PAIRING, LOCKED}},
-    {TERN_C_CONTACT, {ADDRESS, SESSION, NAME, WAKE, OWNER}},
+    {TERN_C_CONTACT, {ADDRESS, SESSION, NAME, WAKE, OWNER, CARD_NAME}},
     {TERN_C_CONTACT_GONE, {ADDRESS}},
     {TERN_C_MESSAGE, {ID, ADDRESS, TIME, FLAGS, STATE, REASON, WAIT16, TEXT}},
     {TERN_C_STATE, {ID, STATE, REASON, WAIT16}},
@@ -150,7 +151,7 @@ static const struct layout layouts[] = {
     {TERN_C_NEIGHBOUR_GONE, {RID}},
     {TERN_C_AIRTIME, {PERIOD, ALLOWED, USED, WAIT32}},
     {TERN_C_POWER, {MV, PERCENT, FLAGS}},
-    {TERN_C_ASKED, {ADDRESS, WHY}},
+    {TERN_C_ASKED, {ADDRESS, WHY, NAME}},
     {TERN_C_GROUP, {GROUP, NAME}},
     {TERN_C_GROUP_GONE, {GROUP}},
     {TERN_C_GROUP_MESSAGE, {ID, GROUP, FROM, TIME, FLAGS, STATE, REASON, WAIT16, TEXT}},
@@ -179,7 +180,7 @@ static const struct {
     {TERN_C_SYNCED, 0, 3},   {TERN_C_INFO, 2, 4},          {TERN_C_SELF, 5, 6},
     {TERN_C_SELF, 7, 10},    {TERN_C_SELF, 8, 11},         {TERN_C_SELF, 9, 17},
     {TERN_C_INFO, 4, 12},    {TERN_C_UPDATE_BEGIN, 2, 13}, {TERN_C_CONTACT, 3, 15},
-    {TERN_C_CONTACT, 4, 17},
+    {TERN_C_CONTACT, 4, 17}, {TERN_C_CONTACT, 5, 19},      {TERN_C_ASKED, 2, 19},
 };
 
 static bool added_later(uint8_t type, size_t i, uint8_t version) {
@@ -246,6 +247,9 @@ static const struct layout *layout_of(uint8_t type) {
 }
 
 uint8_t tern_companion_since(uint8_t type) {
+    if (type == TERN_C_LOOK) {
+        return 20;
+    }
     if (type == TERN_C_TRACE || type == TERN_C_ROUTE || type == TERN_C_TRACED) {
         return 18;
     }

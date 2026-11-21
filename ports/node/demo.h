@@ -141,6 +141,9 @@ struct demo {
     /* Whether an address is one the user trusts to make contact, or NULL (demo_trust()). */
     bool (*trusted)(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]);
     void *trusted_ctx;
+    /* The name the board gives in first contact, its length and then its bytes, or NULL for none
+     * (demo_name()). */
+    const uint8_t *name;
 };
 
 enum demo_result {
@@ -178,6 +181,18 @@ void demo_accept(struct demo *d, tern_time until);
  * on the board, whether it is a saved contact. Call it after demo_start(), which forgets it. */
 void demo_trust(struct demo *d, bool (*trusted)(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]),
                 void *ctx);
+
+/* Gives the board the name it gives itself in first contact (draft/first-contact.md, "Names"):
+ * its length, 0 to TERN_CONTACT_NAME_MAX, and then that many bytes of UTF-8, read at each
+ * handshake from where it points, so that it is always the user's latest. On the board it is the
+ * card name setting. NULL for none. Call it after demo_start(), which forgets it. */
+void demo_name(struct demo *d, const uint8_t *name);
+
+/* The name the peer of the session with that address gave itself in the first contact that made
+ * the session, kept in the store beside it: its length, 0 for none or for no session, and the
+ * name written to name. */
+size_t demo_says(const struct demo *d, const uint8_t address[TERN_ADDRESS_LEN],
+                 uint8_t name[TERN_CONTACT_NAME_MAX]);
 
 /* The slot of the session with that address, or -1 if there is none; and how many sessions the
  * board holds. */
@@ -246,6 +261,10 @@ struct demo_received {
      * message_4 are sent once, and again when asked. */
     uint8_t reply[TERN_CONTACT_MAX_FRAME];
     size_t reply_len;
+    /* With DEMO_HEARD_PAIRED, _REFUSED, _FULL and _UNPAIRED, the name `peer` gave itself: its
+     * claim, whether or not it is taken. name_len 0 for none. */
+    uint8_t name_len;
+    uint8_t name[TERN_CONTACT_NAME_MAX];
     /* The acknowledgements to send, by the forwarder, each to the peer in ack_slot: one with a
      * message, and with a copy one for each message it is a copy of, which is one unless two
      * messages, of one session or of two, share a tag. More than DEMO_ACKS of them never happens

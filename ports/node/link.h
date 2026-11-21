@@ -253,6 +253,14 @@ struct link_host {
      * `id`. 0, or the ERROR code to answer with: TERN_C_ERR_REFUSED for the node's own routing id,
      * TERN_C_ERR_NOT_NOW for one it already traces, TERN_C_ERR_FULL with no room. May be NULL. */
     uint8_t (*trace)(void *ctx, uint32_t id, uint32_t to);
+    /* LOOK (version 20): asks the nodes in earshot for their cards (draft/cards.md, "Asking").
+     * 0 once the ask waits for the air, or the ERROR code to answer with: TERN_C_ERR_TOO_SOON
+     * within ASK_GAP of the last. May be NULL. */
+    uint8_t (*look)(void *ctx);
+    /* The name an address gave itself in the last first contact the node made with it, written to
+     * name (TERN_COMPANION_NAME_MAX bytes): its length, 0 for none. CONTACT's says (version 19).
+     * May be NULL. */
+    size_t (*says)(void *ctx, const uint8_t address[TERN_ADDRESS_LEN], uint8_t *name);
     /* The owners' addresses (draft/managing.md, "Owners"), as save_owners last wrote them: the
      * bytes read, at most cap. */
     size_t (*load_owners)(void *ctx, uint8_t *buf, size_t cap);
@@ -690,8 +698,8 @@ void link_managed(struct link *l, const uint8_t from[TERN_ADDRESS_LEN], const ui
 void link_owners_notice(struct link *l, const uint8_t from[TERN_ADDRESS_LEN],
                         const uint8_t *content, size_t len);
 
-void link_asked(struct link *l, tern_time now, const uint8_t address[TERN_ADDRESS_LEN],
-                uint8_t why);
+void link_asked(struct link *l, tern_time now, const uint8_t address[TERN_ADDRESS_LEN], uint8_t why,
+                const uint8_t *name, size_t name_len);
 
 /* --- Positions ------------------------------------------------------------------------------ */
 

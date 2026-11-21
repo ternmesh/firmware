@@ -282,6 +282,14 @@ static void heads_are_written_and_read(void) {
         struct tern_forward_head h;
         tern_forward_head_write(&c->head, frame);
         CHECK(memcmp(frame, c->frame, sizeof frame) == 0);
+        /* forwarding.json still has message_3 and message_4 at their lengths before names in
+         * first contact (ternmesh/spec#79 leaves draft/forwarding.md and its vectors as they
+         * were): a frame of those lengths is now refused, and its head is checked as written. */
+        if (tern_forward_contact(c->head.hdr) && c->len != TERN_CONTACT_LEN(c->head.hdr)) {
+            CHECK(c->len == (c->head.hdr == 0x53 ? 80u : 24u));
+            CHECK(!tern_forward_head_read(&h, c->frame, c->len));
+            continue;
+        }
         CHECK(tern_forward_head_read(&h, c->frame, c->len));
         CHECK(h.hdr == c->head.hdr && h.hops == c->head.hops && h.power == c->head.power &&
               h.next == c->head.next && h.destination == c->head.destination);

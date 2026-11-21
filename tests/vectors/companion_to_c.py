@@ -30,12 +30,13 @@ TYPES = {
     "JOIN_LINK": 0x27, "LINK": 0x47, "FIX": 0x94, "OFF": 0x06, "UPDATE_BOOTLOADER": 0x36,
     "WIPE": 0x37, "SLEEP": 0x95, "FORGET": 0x12, "FORGET_GROUP": 0x28, "FORGOTTEN": 0x96,
     "GROUP_FORGOTTEN": 0x97, "MANAGE": 0x13, "OWNER": 0x14, "RESTART": 0x38, "MANAGED": 0x98, "OWNER_CHANGED": 0x99,
-    "TRACE": 0x15, "ROUTE": 0x9A, "TRACED": 0x9B,
+    "TRACE": 0x15, "ROUTE": 0x9A, "TRACED": 0x9B, "LOOK": 0x16,
 }
 STRINGS = ("text", "name", "firmware", "region", "link")
 ADDRESSES = ("to", "address", "contact")
 OWN_STRINGS = ("board", "release", "card_name")  # strings with members of their own
 RENAMED = {"snr_quarter_db": "snr"}
+FOLDED = {"says": "card_name"}  # CONTACT's says is the member SELF's card_name is
 SET_VALUE = {1: "region", 2: "role", 3: "power", 4: "passkey", 5: "cards", 6: "text",
              7: "receiver", 8: "wake", 9: "listen", 10: "locked"}
 
@@ -51,6 +52,7 @@ def msg(kind, seq, fields):
     for name, value in fields.items():
         if kind == "SET" and name == "value":
             name = SET_VALUE[fields["setting"]]
+        name = FOLDED.get(name, name)
         if name in STRINGS:
             raw = value.encode("utf-8").hex()
             parts.append(f".text_len = {len(raw) // 2}")
