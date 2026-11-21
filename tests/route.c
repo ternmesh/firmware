@@ -190,6 +190,13 @@ struct elsewhere_case {
     uint16_t own_seq, offered_seq;
     bool retracts, out_after;
 };
+struct quiet_case {
+    bool as_relay, relay, sleeps, up, out_of_use;
+    int64_t heard_s, promise_s; /* -1 for no promise */
+    int hops;
+    int64_t later_s;
+    bool out_after;
+};
 struct sample_case {
     const char *kind;
     bool leaf, relay, kept;
@@ -939,6 +946,47 @@ static void a_leaf_heard_of_elsewhere_goes_out_of_use(void) {
     }
 }
 
+/* A router keeps the vector's neighbour, id 1, gives hops up there, and lets time pass. */
+static void a_leaf_gone_quiet_goes_out_of_use(void) {
+    struct tern_lora lora = tern_region_lora(tern_region(TERN_REGION_US915));
+    for (size_t i = 0; i < COUNT(quiets); i++) {
+        const struct quiet_case *c = &quiets[i];
+        struct tern_route_config config = tern_route_defaults(&lora, 22, -9, c->as_relay);
+        struct tern_route_neighbour nb[2];
+        struct tern_route_dest dest[2];
+        struct tern_route r;
+        uint8_t frame[TERN_ROUTE_FRAME_MAX];
+        int8_t power;
+        const tern_time now = TERN_S(200000);
+        tern_route_init(&r, &config, VECTOR_OWN_ID, nb, 2, dest, 2, 0, 1, 0);
+        r.starting = 0;
+        nb[0] = (struct tern_route_neighbour){
+            .id = 1,
+            .used = true,
+            .relay = c->relay,
+            .up = c->up,
+            .out_of_use = c->out_of_use,
+            .theirs = 200,
+            .floor = 0,
+            .heard = now - TERN_S(1) * c->heard_s,
+            .promise = c->promise_s < 0 ? TERN_ROUTE_NO_PROMISE : TERN_S(1) * c->promise_s,
+            .sleep = c->sleeps ? TERN_ROUTE_SLEEPS : 0};
+        r.now = now;
+        r.house_at = now + TERN_S(100000); /* the house not due but for the quiet leaf */
+        for (int k = 0; k < c->hops; k++) {
+            tern_route_lost(&r, now, 1);
+        }
+        if (c->later_s) {
+            /* Nothing heard meanwhile; the house is kept when the leaf would go quiet. */
+            tern_time t = now + TERN_S(1) * c->later_s;
+            while (tern_route_poll(&r, t, frame, &power) > 0) {
+                tern_route_sent(&r, t);
+            }
+        }
+        CHECK(nb[0].out_of_use == c->out_after);
+    }
+}
+
 /* A router keeps the vector's neighbour, id 0x1234, and hears a solicit or an answer from it. */
 static void solicits_and_answers_are_heard_as_announces_are(void) {
     struct tern_lora lora = tern_region_lora(tern_region(TERN_REGION_US915));
@@ -1288,6 +1336,7 @@ int main(void) {
     RUN(a_frame_for_every_neighbour_reaches_the_nearest_in_use);
     RUN(hops_given_up_at_a_relay_take_it_out_of_use_and_ask);
     RUN(a_leaf_heard_of_elsewhere_goes_out_of_use);
+    RUN(a_leaf_gone_quiet_goes_out_of_use);
     RUN(solicits_and_answers_are_heard_as_announces_are);
     RUN(a_request_with_no_room_is_not_counted_as_sent);
     RUN(anything_heard_brings_a_neighbour_back_into_use);

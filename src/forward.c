@@ -421,7 +421,9 @@ bool tern_forward_send(struct tern_forward *f, tern_time now, uint32_t destinati
         !an_id(destination) || destination == f->route->id || !s) {
         return false;
     }
-    routed = tern_route_next(f->route, destination, &next, &metric);
+    routed = frame[0] == TERN_HDR_ACK && back != INT8_MIN
+                 ? tern_route_back(f->route, destination, f->relayed, &next, &metric)
+                 : tern_route_next(f->route, destination, &next, &metric);
     if (!routed) {
         tern_route_want(f->route, now, destination);
         if (!tracked) {
@@ -528,6 +530,7 @@ void tern_forward_heard(struct tern_forward *f, tern_time now, const uint8_t *fr
     }
     out->back = tern_route_power_back(f->route, h.power, snr_q);
     if (h.destination == f->route->id) {
+        f->relayed = h.hops < f->config.hop_max;
         tern_route_held_got(f->route, now);
         if (h.hdr == TERN_HDR_TRACE_ANSWER) {
             /* Ends a trace of this node's; any other, or a second, is ignored. */

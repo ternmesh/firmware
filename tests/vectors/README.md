@@ -29,13 +29,17 @@ TH920, RU868 and KZ863 profiles and each profile's `min_eirp_dbm` of
 the routing draft in [ternmesh/spec#8](https://github.com/ternmesh/spec/pull/8), which adds a full
 table's cases. Its default-route cases are as of
 [ternmesh/spec#40](https://github.com/ternmesh/spec/pull/40): a leaf with no link to a relay up
-takes the nearest relay it hears. `routing_to_c.py`
+takes the nearest relay it hears. Its `quiet` cases are as of
+[ternmesh/spec#81](https://github.com/ternmesh/spec/pull/81): a leaf gone quiet goes out of use.
+`routing_to_c.py`
 turns it into a header for `tests/route.c`.
 
 `forwarding.json` is a copy of
 [`vectors/forwarding.json`](https://github.com/ternmesh/spec/blob/main/vectors/forwarding.json), as of
 [ternmesh/spec#15](https://github.com/ternmesh/spec/pull/15), which adds when a radio is
-receiving. `forwarding_to_c.py` turns it
+receiving, with its `acknowledged` cases as of
+[ternmesh/spec#81](https://github.com/ternmesh/spec/pull/81): which way an acknowledgement goes.
+`forwarding_to_c.py` turns it
 into a header for `tests/forward.c`, and its listens alone into one for `tests/listen.c`.
 
 `companion.json` is a copy of

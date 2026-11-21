@@ -307,6 +307,16 @@ def main():
     ]
     L.append("};")
 
+    L.append("static const struct quiet_case quiets[] = {")
+    L += [
+        f"    {{{b(c['as_relay'])}, {b(c['relay'])}, {b(c['sleeps'])}, {b(c['up'])}, "
+        f"{b(c['out_of_use'])}, {c['heard_s']}, "
+        f"{-1 if c['promise_s'] is None else c['promise_s']}, {c['hops']}, {c['later_s']}, "
+        f"{b(c['out_of_use_after'])}}},"
+        for c in v["quiet"]
+    ]
+    L.append("};")
+
     L.append("static const struct sample_case samples[] = {")
     L += [
         f"    {{{json.dumps(c['kind'])}, {b(c['leaf'])}, {b(c['relay'])}, {b(c['kept'])}, "

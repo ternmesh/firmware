@@ -270,6 +270,10 @@ struct tern_forward {
         uint32_t destination;
         uint16_t wake;
     } wakes[TERN_FORWARD_WAKES];
+    /* Whether the last frame for this node that tern_forward_heard() took was passed on by a
+     * relay, with fewer hops than hop_max: an acknowledgement sent in answer to it goes the way
+     * tern_route_back() says. */
+    bool relayed;
     /* When the last traces of each kind were answered: a second, kept to 16 bits, plus one; 0 for
      * none. */
     uint16_t answered_at[TERN_TRACE_BY_COUNT][TERN_TRACE_ANSWERS];
@@ -313,7 +317,10 @@ bool tern_forward_may_sleep(const struct tern_forward *f, tern_time now, tern_ti
  * tern_forward_contact_failed() tells. `back` is,
  * for a frame that answers one received - an acknowledgement, or any of a handshake's frames but
  * the first - what tern_forward_heard() gave, so that the node it came from hears the answer;
- * INT8_MIN otherwise.
+ * INT8_MIN otherwise. An acknowledgement sent with `back`, in answer to the message
+ * tern_forward_heard() last took for this node, goes by tern_route_back(): if that message was
+ * passed on by a relay, not direct to the node its source routed round, and with no route, by a
+ * relay's route all the same.
  *
  * Returns false if there is no slot for it, or it is not tracked and there is no route. A tracked
  * frame with no route is kept while the router asks for one. */

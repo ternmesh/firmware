@@ -849,8 +849,22 @@ int8_t tern_route_power_back(const struct tern_route *r, int8_t power, int16_t s
 bool tern_route_other(const struct tern_route *r, uint32_t destination, const uint32_t *tried,
                       int tried_count, uint32_t *next);
 
+/* The neighbour a node's acknowledgement of a message from `source` goes to, and the route's
+ * metric: by the selected route, as tern_route_next() gives it, but when that goes to the source
+ * itself and the message was passed on by a relay (`relayed`: it came with fewer hops than
+ * HOP_MAX), or there is none, by the route held through a relay it may use with the lowest
+ * metric, feasible or not; a leaf with none goes by its default route. The source routed round
+ * its link to this node, which may be up here only because it has not been heard since it went.
+ * Only the first hop is chosen so, and relays pass it on by their selected routes. False if the
+ * acknowledgement has nowhere to go. */
+bool tern_route_back(const struct tern_route *r, uint32_t source, bool relayed, uint32_t *next,
+                     uint16_t *metric);
+
 /* A frame sent to a neighbour was given up on: the next goes louder, and after dead_hops of them
- * with nothing heard from it between, it is forgotten, and every route through it. */
+ * with nothing heard from it between, it is forgotten, and every route through it. A leaf
+ * neighbour that does not sleep goes out of use, with reattach, once SOLICIT_HOPS of them are
+ * given up and it has not been heard for two of its promises (the specification's "a leaf gone
+ * quiet"). */
 void tern_route_lost(struct tern_route *r, tern_time now, uint32_t neighbour);
 
 /* A neighbour was heard passing on a frame sent to it, which it sent at `power` dBm and was heard

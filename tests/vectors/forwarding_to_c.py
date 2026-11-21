@@ -128,6 +128,22 @@ def main():
     ]
     L.append("};")
 
+    def routes(rs):
+        return ", ".join(
+            f"{{{r['next']}u, {b(r['relay'])}, {b(r['usable'])}, {b(r['feasible'])}, {r['metric']}}}"
+            for r in rs
+        )
+
+    L.append("static const struct acked_case acked_cases[] = {")
+    L += [
+        f"    {{\"{c['why']}\", {c['hops']}, {b(c['leaf'])}, "
+        f"{0 if c['nearest'] is None else c['nearest']}u, {c['source']}u, {len(c['routes'])}, "
+        f"{{{routes(c['routes'])}}}, {-1 if c['selected'] is None else c['selected']}, "
+        f"{0 if c['next_after'] is None else c['next_after']}u}},"
+        for c in v["acknowledged"]
+    ]
+    L.append("};")
+
     with open(out, "w", encoding="utf-8") as f:
         f.write("\n".join(L) + "\n")
 

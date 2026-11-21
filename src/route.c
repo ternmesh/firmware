@@ -925,6 +925,33 @@ static void back_in_use(struct tern_route *r, uint8_t s) {
     }
 }
 
+/* When the neighbour in slot `s` is a leaf gone quiet, if hops go on being given up there: it is
+ * a leaf that does not sleep, whose link is up and in use, and that has made a promise. -1 for
+ * never. Out of use once SOLICIT_HOPS hops are given up there as well (the specification's "a leaf
+ * gone quiet"): a relay cannot ask after a leaf, so the leaf's silence stands in for the asking. */
+static tern_time quiet_at(const struct tern_route *r, uint8_t s) {
+    const struct tern_route_neighbour *n = slot(r, s);
+    if (!r->config.reattach || !n->used || n->relay || (n->sleep & TERN_ROUTE_SLEEPS) || !n->up ||
+        n->out_of_use || n->promise >= TERN_ROUTE_NO_PROMISE) {
+        return -1;
+    }
+    return n->heard + 2 * n->promise + 1;
+}
+
+/* Takes the neighbour in slot `s` out of use if it is a leaf gone quiet; otherwise, once hops have
+ * been given up there, makes sure the house is kept when it would be. */
+static void quiet_check(struct tern_route *r, uint8_t s) {
+    tern_time at = quiet_at(r, s);
+    if (at < 0 || slot(r, s)->lost < SOLICIT_HOPS) {
+        return;
+    }
+    if (r->now >= at) {
+        take_out_of_use(r, s);
+    } else if (at < r->house_at) {
+        r->house_at = at;
+    }
+}
+
 static void forget(struct tern_route *r, uint8_t s) {
     struct tern_route_forgotten *f = &r->forgotten[r->forgotten_next];
     *f = (struct tern_route_forgotten){slot(r, s)->id, slot(r, s)->number};
@@ -2393,6 +2420,9 @@ size_t tern_route_poll(struct tern_route *r, tern_time now, uint8_t frame[TERN_R
             }
         }
         r->house_at = now + house_period(r);
+        for (size_t i = 0; i < r->nb_cap; i++) {
+            quiet_check(r, (uint8_t)(i + 1));
+        }
     }
     if (r->request_at >= 0 && now >= r->request_at) {
         ask_again(r);
@@ -2629,6 +2659,39 @@ bool tern_route_other(const struct tern_route *r, uint32_t destination, const ui
     return found;
 }
 
+bool tern_route_back(const struct tern_route *r, uint32_t source, bool relayed, uint32_t *next,
+                     uint16_t *metric) {
+    struct tern_route_dest *d = dest_of(r, source);
+    bool routed = tern_route_next(r, source, next, metric);
+    uint16_t best = INF;
+    uint8_t s;
+    if (routed && !(relayed && *next == source)) {
+        return true;
+    }
+    if (routed && keeps_slot(r, slot_of(r, source))) {
+        return true; /* a sleeping leaf this relay keeps: as Leaves that sleep says */
+    }
+    for (int i = 0; d && i < TERN_ROUTE_KEPT; i++) {
+        const struct tern_route_entry *e = &d->e[i];
+        if (e->slot && slot(r, e->slot)->relay && slot(r, e->slot)->id != source &&
+            usable(r, e->slot, d->id) && total(e->metric, r->cost) < best) {
+            best = total(e->metric, r->cost);
+            *next = slot(r, e->slot)->id;
+            *metric = best;
+        }
+    }
+    if (best != INF) {
+        return true;
+    }
+    s = nearest_relay(r, NULL, 0);
+    if (s) {
+        *next = slot(r, s)->id;
+        *metric = tern_route_default_metric(r->config.default_hops, r->cost);
+        return true;
+    }
+    return tern_route_next(r, source, next, metric);
+}
+
 void tern_route_lost(struct tern_route *r, tern_time now, uint32_t neighbour) {
     uint8_t s = slot_of(r, neighbour);
     struct tern_route_neighbour *n;
@@ -2654,7 +2717,9 @@ void tern_route_lost(struct tern_route *r, tern_time now, uint32_t neighbour) {
     }
     if (r->config.dead_hops && n->lost >= r->config.dead_hops) {
         forget(r, s);
+        return;
     }
+    quiet_check(r, s);
 }
 
 void tern_route_passed(struct tern_route *r, tern_time now, uint32_t neighbour, int8_t power,
