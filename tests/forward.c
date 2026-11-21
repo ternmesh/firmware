@@ -83,6 +83,48 @@ struct again_case {
     tern_time airtime, longest;
 };
 
+struct acked_case {
+    const char *why;
+    uint8_t hops;
+    bool leaf;
+    uint32_t nearest, source; /* nearest 0: none */
+    int n;
+    struct {
+        uint32_t next;
+        bool relay, usable, feasible;
+        uint16_t metric;
+        bool lost; /* a hop given up at it since it was last heard */
+    } routes[4];
+    int selected;   /* -1: none */
+    uint32_t after; /* 0: none */
+};
+
+struct retried_case {
+    const char *why;
+    bool heard;
+    uint32_t last;
+    bool leaf;
+    uint32_t nearest; /* 0: none */
+    int n;
+    struct {
+        uint32_t next;
+        bool relay, usable, feasible;
+        uint16_t metric;
+        bool lost; /* a hop given up at it since it was last heard */
+    } routes[4];
+    int selected;
+    uint32_t after;
+};
+struct attributed_case {
+    const char *why;
+    uint8_t sent[TERN_FORWARD_FRAME_MAX];
+    size_t sent_len; /* 0: a message for this node, heard with hops */
+    uint8_t heard[TERN_FORWARD_FRAME_MAX];
+    size_t heard_len;
+    uint8_t hops;
+    bool from; /* a worse sample is taken, of the next hop or of the source */
+};
+
 #include "forwarding.h"
 
 #define COUNT(a) (sizeof(a) / sizeof(a)[0])
@@ -121,6 +163,7 @@ struct net {
 };
 
 static struct net net;
+static uint64_t harness_seed = 1; /* what every node's randomness is drawn from, with its number */
 
 static uint32_t id_of(int i) { return 0x1000u + (uint32_t)i; }
 
@@ -135,8 +178,8 @@ static void net_init(int n, const bool *relay) {
         x->relay = relay ? relay[a] : true;
         c = tern_route_defaults(&net.lora, FULL, -9, x->relay);
         tern_route_init(&x->r, &c, id_of(a), x->nb, NB, x->dest, DESTS, 0,
-                        0x9E3779B97F4A7C15ULL * (uint64_t)(a + 1), 0);
-        tern_forward_init(&x->f, &fc, &x->r, x->slot, SLOTS, (uint64_t)(a + 7));
+                        0x9E3779B97F4A7C15ULL * (uint64_t)(a + 1) * harness_seed, 0);
+        tern_forward_init(&x->f, &fc, &x->r, x->slot, SLOTS, (uint64_t)(a + 7) * harness_seed);
         for (int b = 0; b < n; b++) {
             net.snr[a][b] = NONE;
         }
@@ -780,6 +823,329 @@ static void a_relay_with_no_route_answers(void) {
 }
 
 /* No more than TERN_TRACE_ANSWERS a minute, and as many again a minute later. */
+/* The vector's destination, its routes to the message's source each through a neighbour of its
+ * own, sends its acknowledgement to the neighbour it says. Feasibility makes no difference. */
+static void an_acknowledgement_goes_the_way_the_specification_says(void) {
+    struct tern_lora lora = tern_region_lora(tern_region(TERN_REGION_US915));
+    for (size_t i = 0; i < COUNT(acked_cases); i++) {
+        const struct acked_case *c = &acked_cases[i];
+        struct tern_route_config config = tern_route_defaults(&lora, 22, -9, !c->leaf);
+        struct tern_route_neighbour nb[6];
+        struct tern_route_dest dest[2];
+        struct tern_route r;
+        uint32_t next = 0;
+        uint16_t metric;
+        bool sent;
+        int n = 0;
+        if (!c->nearest) {
+            config.default_hops = 0; /* takes no default route */
+        }
+        tern_route_init(&r, &config, 0x77777777u, nb, 6, dest, 2, 0, 1, 0);
+        r.starting = 0;
+        dest[0] = (struct tern_route_dest){.id = c->source, .used = true};
+        for (int k = 0; k < c->n; k++) {
+            nb[n] = (struct tern_route_neighbour){.id = c->routes[k].next,
+                                                  .used = true,
+                                                  .relay = c->routes[k].relay,
+                                                  .up = true,
+                                                  .out_of_use = !c->routes[k].usable,
+                                                  .theirs = 200,
+                                                  .floor = 16 * 10,
+                                                  .promise = TERN_S(600)};
+            n++;
+            dest[0].e[k] =
+                (struct tern_route_entry){.slot = (uint8_t)n,
+                                          .seq = c->routes[k].feasible ? 2 : 1,
+                                          .metric = (uint16_t)(c->routes[k].metric - r.cost)};
+        }
+        dest[0].fd = (struct tern_route_fd){.has = true, .seq = 1, .metric = 0};
+        dest[0].sel = c->selected < 0 ? 0 : (uint8_t)(c->selected + 1);
+        if (c->nearest) {
+            bool kept = false;
+            for (int k = 0; k < n; k++) {
+                kept |= nb[k].id == c->nearest;
+            }
+            if (!kept) {
+                /* The nearest relay, which the destination holds no route through. */
+                nb[n++] = (struct tern_route_neighbour){.id = c->nearest,
+                                                        .used = true,
+                                                        .relay = true,
+                                                        .up = true,
+                                                        .theirs = 200,
+                                                        .floor = 16 * -20,
+                                                        .promise = TERN_S(600)};
+            }
+        }
+        sent = tern_route_back(&r, c->source, c->hops < 32, &next, &metric);
+        CHECK(sent == (c->after != 0));
+        CHECK(!sent || next == c->after);
+    }
+}
+
+/* The first field test's drive: a relay at a desk (0), a relay on a patio (1) and a leaf (2) start
+ * together, every link strong, and then the leaf goes where the desk does not hear it, nor it the
+ * desk, and the patio hears both. The leaf no longer uses the desk, and hands what it has to its
+ * nearest relay; the desk still holds its link to the leaf up. */
+static const struct tern_route_neighbour *kept_by(int at, int i) {
+    for (int k = 0; k < NB; k++) {
+        if (net.node[at].nb[k].used && net.node[at].nb[k].id == id_of(i)) {
+            return &net.node[at].nb[k];
+        }
+    }
+    return NULL;
+}
+
+static void drive(void) {
+    static const bool relay[] = {true, true, false};
+    net_init(3, relay);
+    link(0, 1);
+    link(0, 2);
+    link(1, 2);
+    run(TERN_S(1200));
+    net.snr[0][2] = net.snr[2][0] = NONE;
+    for (int k = 0; k < NB; k++) {
+        if (net.node[2].nb[k].used && net.node[2].nb[k].id == id_of(0)) {
+            net.node[2].nb[k].out_of_use = true; /* as its solicits would have it */
+        }
+    }
+}
+
+static void an_acknowledgement_goes_back_the_way_the_message_came(void) {
+    uint32_t next;
+    uint16_t metric;
+    drive();
+    CHECK(tern_route_next(&net.node[0].r, id_of(2), &next, &metric) && next == id_of(2));
+    message(2, 0, 0x61);
+    run(net.now + TERN_S(30));
+    CHECK_EQ_I64(net.node[0].got, 1);   /* through the patio */
+    CHECK_EQ_I64(net.node[2].acked, 1); /* and its acknowledgement back that way */
+    CHECK_EQ_I64(net.node[2].failed, 0);
+}
+
+/* The desk's messages to the leaf: the first try goes direct, by the link it still holds up, and
+ * is never heard there; the next goes through the patio, though that route is not feasible. */
+static void a_try_unheard_at_its_first_hop_goes_another_way_next(void) {
+    const struct tern_route_neighbour *leaf;
+    drive();
+    leaf = kept_by(0, 2);
+    CHECK(leaf != NULL && leaf->up && !leaf->out_of_use);
+    message(0, 2, 0x62);
+    run(net.now + TERN_S(60));
+    CHECK_EQ_I64(net.node[2].got, 1);
+    CHECK_EQ_I64(net.node[0].acked, 1);
+    CHECK_EQ_I64(net.node[0].failed, 0);
+    CHECK(leaf->up); /* nothing forgotten, nothing taken out of use */
+}
+
+/* The patio's floor for the leaf is from when the leaf stood beside it. The leaf's own
+ * acknowledgement, made there and heard by the patio that handed it the message, is a worse
+ * sample: the patio's floor for it rises toward the truth, and never falls. */
+static void an_acknowledgement_from_its_maker_raises_a_stale_floor(void) {
+    const struct tern_route_neighbour *leaf;
+    int32_t before;
+    drive();
+    net.snr[1][2] = net.snr[2][1] = 0; /* the leaf far from the patio now, and just heard */
+    leaf = kept_by(1, 2);
+    CHECK(leaf != NULL);
+    before = leaf->floor;
+    message(0, 2, 0x65);
+    run(net.now + TERN_S(60));
+    CHECK_EQ_I64(net.node[2].got, 1);
+    CHECK(leaf->floor > before);
+}
+
+/* The vector's source, its routes to the destination each through a neighbour of its own, sends
+ * its next try to the neighbour it says. */
+static void a_next_try_goes_the_way_the_specification_says(void) {
+    struct tern_lora lora = tern_region_lora(tern_region(TERN_REGION_US915));
+    for (size_t i = 0; i < COUNT(retried_cases); i++) {
+        const struct retried_case *c = &retried_cases[i];
+        struct tern_route_config config = tern_route_defaults(&lora, 22, -9, !c->leaf);
+        struct tern_route_neighbour nb[6];
+        struct tern_route_dest dest[2];
+        struct tern_route r;
+        uint32_t next = 0, destination = 0x0A0B0C0Du;
+        uint16_t metric;
+        int n = 0;
+        if (!c->nearest) {
+            config.default_hops = 0;
+        }
+        tern_route_init(&r, &config, 0x77777777u, nb, 6, dest, 2, 0, 1, 0);
+        r.starting = 0;
+        dest[0] = (struct tern_route_dest){.id = destination, .used = true};
+        for (int k = 0; k < c->n; k++) {
+            nb[n] = (struct tern_route_neighbour){.id = c->routes[k].next,
+                                                  .used = true,
+                                                  .relay = c->routes[k].relay,
+                                                  .up = true,
+                                                  .out_of_use = !c->routes[k].usable,
+                                                  .theirs = 200,
+                                                  .floor = 16 * 10,
+                                                  .promise = TERN_S(600)};
+            n++;
+            dest[0].e[k] =
+                (struct tern_route_entry){.slot = (uint8_t)n,
+                                          .seq = c->routes[k].feasible ? 2 : 1,
+                                          .metric = (uint16_t)(c->routes[k].metric - r.cost)};
+        }
+        dest[0].fd = (struct tern_route_fd){.has = true, .seq = 1, .metric = 0};
+        dest[0].sel = c->selected < 0 ? 0 : (uint8_t)(c->selected + 1);
+        for (int k = 0; k < c->n; k++) {
+            nb[k].lost = c->routes[k].lost;
+        }
+        if (c->nearest) {
+            nb[n++] = (struct tern_route_neighbour){.id = c->nearest,
+                                                    .used = true,
+                                                    .relay = true,
+                                                    .up = true,
+                                                    .theirs = 200,
+                                                    .floor = 16 * -20,
+                                                    .promise = TERN_S(600)};
+        }
+        if (c->selected < 0) {
+            /* No route it may select: as a source does, its route round no neighbour. */
+            CHECK(!tern_route_next(&r, destination, &next, &metric));
+            CHECK(tern_route_retry(&r, destination, 0, &next, &metric) == (c->after != 0));
+        } else {
+            CHECK(c->heard ? tern_route_next(&r, destination, &next, &metric)
+                           : tern_route_retry(&r, destination, c->last, &next, &metric));
+        }
+        CHECK(!c->after || next == c->after);
+    }
+}
+
+/* A relay, id 0x30, keeps neighbours 7 and 9; it hands on the vector's message, sent as `sent`,
+ * and hears the vector's acknowledgement; or it is the destination of a message heard with `hops`
+ * from neighbour 9 as its source, and acknowledges it. A worse sample raises a floor. */
+static void a_worse_sample_comes_only_from_whom_the_specification_says(void) {
+    struct tern_lora lora = tern_region_lora(tern_region(TERN_REGION_US915));
+    for (size_t i = 0; i < COUNT(attributed_cases); i++) {
+        const struct attributed_case *c = &attributed_cases[i];
+        struct tern_route_config config = tern_route_defaults(&lora, 22, -9, true);
+        struct tern_forward_config fc = tern_forward_defaults();
+        struct tern_route_neighbour nb[4];
+        struct tern_route_dest dest[4];
+        struct tern_forward_slot slots[4];
+        struct tern_route r;
+        struct tern_forward f;
+        struct tern_forward_heard got;
+        const uint32_t own = 0x30;
+        tern_route_init(&r, &config, own, nb, 4, dest, 4, 0, 1, 0);
+        r.starting = 0;
+        for (int k = 0; k < 2; k++) {
+            nb[k] = (struct tern_route_neighbour){.id = k ? 9u : 7u,
+                                                  .used = true,
+                                                  .relay = true,
+                                                  .up = true,
+                                                  .theirs = 200,
+                                                  .floor = 16 * -20,
+                                                  .promise = TERN_S(600)};
+        }
+        tern_forward_init(&f, &fc, &r, slots, 4, 3);
+        if (c->sent_len) {
+            struct tern_forward_head h;
+            uint8_t frame[TERN_FORWARD_FRAME_MAX], out[TERN_FORWARD_FRAME_MAX], handle;
+            enum tern_forward_kind kind;
+            int8_t dbm;
+            CHECK(tern_forward_head_read(&h, c->sent, c->sent_len));
+            /* The route the vector's message went by: to 9 direct, or through 7. */
+            dest[0] = (struct tern_route_dest){.id = h.destination, .used = true, .sel = 0};
+            dest[0].e[0] = (struct tern_route_entry){
+                .slot = h.next == 9 ? 2 : 1, .seq = 1, .metric = h.next == 9 ? 0 : 70};
+            dest[0].sel = dest[0].e[0].slot;
+            memcpy(frame, c->sent, c->sent_len);
+            h.hops++;
+            h.next = own;
+            tern_forward_head_write(&h, frame);
+            tern_forward_heard(&f, 0, frame, c->sent_len, 40, &got);
+            CHECK(tern_forward_poll(&f, TERN_S(1), out, &dbm, &kind, &handle) == c->sent_len);
+            tern_forward_sent(&f, TERN_S(1), handle);
+            tern_forward_heard(&f, TERN_S(2), c->heard, c->heard_len, 0, &got);
+        } else {
+            uint8_t frame[TERN_FORWARD_HEAD + BODY] = {TERN_HDR_MESSAGE};
+            uint8_t ack[TERN_ACK_LEN] = {TERN_HDR_ACK};
+            struct tern_forward_head h = {TERN_HDR_MESSAGE, c->hops, 10, own, own};
+            tern_forward_head_write(&h, frame);
+            memset(frame + TERN_FORWARD_HEAD, 0x71, TERN_FORWARD_TAG);
+            dest[0] = (struct tern_route_dest){.id = 9, .used = true, .sel = 2};
+            dest[0].e[0] = (struct tern_route_entry){.slot = 2, .seq = 1, .metric = 0};
+            tern_forward_heard(&f, 0, frame, sizeof frame, 0, &got);
+            CHECK(got.got == TERN_FORWARD_MESSAGE);
+            memcpy(ack + TERN_FORWARD_HEAD, frame + TERN_FORWARD_HEAD, TERN_FORWARD_TAG);
+            CHECK(tern_forward_send(&f, 0, 9, ack, sizeof ack, false, got.back));
+        }
+        for (int k = 0; k < 2; k++) {
+            /* Only the neighbour the specification names has a floor raised. */
+            bool named = c->from &&
+                         (c->sent_len ? nb[k].id == (uint32_t)(c->sent[3] << 24 | c->sent[4] << 16 |
+                                                               c->sent[5] << 8 | c->sent[6])
+                                      : nb[k].id == 9);
+            CHECK((nb[k].floor > 16 * -20) == named);
+        }
+    }
+}
+
+/* The simulator's drive (ternmesh/sim scenarios/core/drive.tsim), its losses mapped to this
+ * harness's signal-to-noise ratios: six boards in one house, the relays to their places, the hill's
+ * out of the desk's reach, the leaf waiting by the patio, and then driven where only the patio
+ * hears it. Both ways, a message every four minutes: from the third on, the leaf's arrive once each
+ * and are acknowledged, and every one of the desk's reaches the leaf, nearly all acknowledged.
+ * Before the changes of spec#81, none of either did in the first hour. */
+static void loss(int a, int b, int db) {
+    int q = 4 * (133 - db); /* quarters of a dB at full power, the noise some 111 dB down */
+    net.snr[a][b] = net.snr[b][a] = q < SNR_FLOOR_Q ? NONE : (int16_t)q;
+}
+
+static void six_boards_and_a_drive(void) {
+    static const bool relay[] = {true, true, true, true, true, false};
+    net_init(6, relay);
+    for (int a = 0; a < 6; a++) {
+        for (int b = a + 1; b < 6; b++) {
+            loss(a, b, 80);
+        }
+    }
+    run(TERN_S(600));
+    loss(0, 1, 110), loss(0, 2, 160), loss(0, 3, 162), loss(0, 4, 165), loss(1, 2, 112);
+    loss(1, 3, 118), loss(1, 4, 120), loss(2, 3, 105), loss(2, 4, 108), loss(3, 4, 104);
+    loss(5, 0, 105), loss(5, 1, 90), loss(5, 2, 160), loss(5, 3, 162), loss(5, 4, 165);
+    run(TERN_S(7200));
+    loss(5, 0, 170), loss(5, 1, 125);
+}
+
+static void the_drive_both_ways(void) {
+    six_boards_and_a_drive();
+    for (int k = 0; k < 10; k++) {
+        message(5, 0, (uint8_t)(0x10 + k));
+        run(net.now + TERN_S(120));
+        message(0, 5, (uint8_t)(0x30 + k));
+        run(net.now + TERN_S(120));
+    }
+    CHECK(net.node[0].got >= 8 && net.node[0].got <= 10); /* once each, from the third on */
+    CHECK(net.node[5].acked >= 8);
+    CHECK(net.node[5].got >= 10); /* every one, a copy now and then where frames cross */
+    CHECK(net.node[0].acked >= 9);
+}
+
+/* The desk's messages to the leaf alone, one every four minutes, for long enough that the desk
+ * gives DEAD_HOPS hops up at the leaf and forgets it. On these seeds the desk also holds routes to
+ * the leaf through the hill, learnt in the house, tied on metric with the patio's: a route round
+ * the leaf takes the patio, at which no frame has been lost, and once the leaf is forgotten the
+ * desk still sends by its route round no neighbour while it asks. Without either, the desk reached
+ * the leaf on none of these seeds, or on half of the messages. */
+static void the_drive_to_the_leaf_past_dead_hops(void) {
+    for (harness_seed = 2; harness_seed <= 4; harness_seed++) {
+        six_boards_and_a_drive();
+        for (int k = 0; k < 30; k++) {
+            message(0, 5, (uint8_t)(0x50 + k));
+            run(net.now + TERN_S(240));
+        }
+        CHECK(kept_by(0, 5) == NULL); /* forgotten, as before */
+        CHECK_EQ_I64(net.node[5].got, 30);
+        CHECK(net.node[0].acked >= 29);
+    }
+    harness_seed = 1;
+}
+
 static void a_node_answers_few_traces_a_minute(void) {
     uint8_t frame[TERN_TRACE_MIN] = {0};
     struct tern_forward_head h = {TERN_HDR_TRACE, 32, FULL, id_of(1), id_of(1)};
@@ -830,5 +1196,13 @@ int main(void) {
     RUN(a_trace_with_no_route_is_not_begun);
     RUN(a_relay_with_no_route_answers);
     RUN(a_node_answers_few_traces_a_minute);
+    RUN(an_acknowledgement_goes_the_way_the_specification_says);
+    RUN(an_acknowledgement_goes_back_the_way_the_message_came);
+    RUN(a_try_unheard_at_its_first_hop_goes_another_way_next);
+    RUN(an_acknowledgement_from_its_maker_raises_a_stale_floor);
+    RUN(a_next_try_goes_the_way_the_specification_says);
+    RUN(a_worse_sample_comes_only_from_whom_the_specification_says);
+    RUN(the_drive_both_ways);
+    RUN(the_drive_to_the_leaf_past_dead_hops);
     return CHECK_DONE();
 }
