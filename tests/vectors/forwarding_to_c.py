@@ -128,6 +128,42 @@ def main():
     ]
     L.append("};")
 
+    def routes(rs):
+        return ", ".join(
+            f"{{{r['next']}u, {b(r['relay'])}, {b(r['usable'])}, {b(r['feasible'])}, {r['metric']}, "
+            f"{b(r.get('lost', False))}}}"
+            for r in rs
+        )
+
+    L.append("static const struct acked_case acked_cases[] = {")
+    L += [
+        f"    {{\"{c['why']}\", {c['hops']}, {b(c['leaf'])}, "
+        f"{0 if c['nearest'] is None else c['nearest']}u, {c['source']}u, {len(c['routes'])}, "
+        f"{{{routes(c['routes'])}}}, {-1 if c['selected'] is None else c['selected']}, "
+        f"{0 if c['next_after'] is None else c['next_after']}u}},"
+        for c in v["acknowledged"]
+    ]
+    L.append("};")
+
+    L.append("static const struct retried_case retried_cases[] = {")
+    L += [
+        f"    {{\"{c['why']}\", {b(c['heard'])}, {c['last'] or 0}u, {b(c['leaf'])}, "
+        f"{0 if c['nearest'] is None else c['nearest']}u, {len(c['routes'])}, "
+        f"{{{routes(c['routes'])}}}, {-1 if c['selected'] is None else c['selected']}, "
+        f"{0 if c['next_after'] is None else c['next_after']}u}},"
+        for c in v["retried"]
+    ]
+    L.append("};")
+
+    L.append("static const struct attributed_case attributed_cases[] = {")
+    L += [
+        f"    {{\"{c['why']}\", {hexbytes(c.get('sent', '00'))}, {len(c.get('sent', '')) // 2}, "
+        f"{hexbytes(c.get('heard', '00'))}, {len(c.get('heard', '')) // 2}, "
+        f"{c.get('hops', 0)}, {b(c['from'] is not None)}}},"
+        for c in v["attributed"]
+    ]
+    L.append("};")
+
     with open(out, "w", encoding="utf-8") as f:
         f.write("\n".join(L) + "\n")
 

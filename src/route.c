@@ -2629,6 +2629,99 @@ bool tern_route_other(const struct tern_route *r, uint32_t destination, const ui
     return found;
 }
 
+/* The route held to `destination` through a neighbour it may use other than `avoid`: of those, one
+ * at which no hop has been given up since it was last heard, then the lowest metric, feasible or
+ * not; a leaf with none, its nearest relay but `avoid`. A neighbour that
+ * has lost frames since it was last heard may be one a node still holds a link to only because it
+ * has not heard it since, as a relay out of reach that ties on metric with one in reach. */
+static bool around(const struct tern_route *r, uint32_t destination, uint32_t avoid, uint32_t *next,
+                   uint16_t *metric) {
+    struct tern_route_dest *d = dest_of(r, destination);
+    const struct tern_route_entry *best = NULL;
+    bool best_lost = false;
+    uint8_t s;
+    for (int i = 0; d && i < TERN_ROUTE_KEPT; i++) {
+        const struct tern_route_entry *e = &d->e[i];
+        bool lost;
+        if (!e->slot || slot(r, e->slot)->id == avoid || !usable(r, e->slot, d->id)) {
+            continue;
+        }
+        lost = slot(r, e->slot)->lost > 0;
+        if (!best || lost < best_lost ||
+            (lost == best_lost && total(e->metric, r->cost) < total(best->metric, r->cost))) {
+            best = e;
+            best_lost = lost;
+        }
+    }
+    if (best) {
+        *next = slot(r, best->slot)->id;
+        *metric = total(best->metric, r->cost);
+        return true;
+    }
+    s = nearest_relay(r, &avoid, 1);
+    if (s) {
+        *next = slot(r, s)->id;
+        *metric = tern_route_default_metric(r->config.default_hops, r->cost);
+        return true;
+    }
+    return false;
+}
+
+bool tern_route_back(const struct tern_route *r, uint32_t source, bool relayed, uint32_t *next,
+                     uint16_t *metric) {
+    bool routed = tern_route_next(r, source, next, metric);
+    if (routed && !(relayed && *next == source)) {
+        return true;
+    }
+    if (routed && keeps_slot(r, slot_of(r, source))) {
+        return true; /* a sleeping leaf this relay keeps: as Leaves that sleep says */
+    }
+    return around(r, source, source, next, metric) || tern_route_next(r, source, next, metric);
+}
+
+bool tern_route_retry(const struct tern_route *r, uint32_t destination, uint32_t avoid,
+                      uint32_t *next, uint16_t *metric) {
+    return around(r, destination, avoid, next, metric) ||
+           tern_route_next(r, destination, next, metric);
+}
+
+/* A worse sample of slot `s`, `sample` sixteenths of a dBm: into the floor a quarter of the way if
+ * it is above it, and the link, if up, judged afresh. */
+static void worse(struct tern_route *r, uint8_t s, int32_t sample) {
+    struct tern_route_neighbour *n = slot(r, s);
+    if (sample <= n->floor) {
+        return;
+    }
+    n->floor = div_down(3 * n->floor + sample, 4);
+    if (n->up &&
+        !tern_route_link_up(true, 16 * (int32_t)r->config.full_dbm - n->floor, n->theirs)) {
+        n->up = false;
+        r->changed = true;
+        reselect_through(r, s);
+        trickle_reset(r, TERN_ROUTE_RESET_LINK);
+        r->changed = false;
+    }
+}
+
+void tern_route_worse(struct tern_route *r, tern_time now, uint32_t neighbour, int8_t power,
+                      int16_t snr_q) {
+    uint8_t s = slot_of(r, neighbour);
+    r->now = now;
+    if (s) {
+        /* As a floor's first sample: what this one frame says, before any average. */
+        worse(r, s, tern_route_floor(true, 0, power, snr_q, r->config.lora.sf));
+    }
+}
+
+void tern_route_worse_floor(struct tern_route *r, tern_time now, uint32_t neighbour,
+                            int8_t floor_dbm) {
+    uint8_t s = slot_of(r, neighbour);
+    r->now = now;
+    if (s) {
+        worse(r, s, 16 * (int32_t)floor_dbm);
+    }
+}
+
 void tern_route_lost(struct tern_route *r, tern_time now, uint32_t neighbour) {
     uint8_t s = slot_of(r, neighbour);
     struct tern_route_neighbour *n;
