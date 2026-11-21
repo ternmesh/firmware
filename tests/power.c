@@ -51,6 +51,15 @@ static void a_voltage_is_a_charge(void) {
     }
 }
 
+static void on_a_charger_its_voltage_says_nothing(void) {
+    CHECK_EQ_I64(power_percent_on(4246, true), POWER_UNKNOWN); /* a RAK4631 with no cell, on USB */
+    CHECK_EQ_I64(power_percent_on(POWER_CHARGER_MV, true), POWER_UNKNOWN);
+    CHECK_EQ_I64(power_percent_on(POWER_CHARGER_MV - 1, true), power_percent(POWER_CHARGER_MV - 1));
+    CHECK_EQ_I64(power_percent_on(3800, true), 50); /* charging, well short of full */
+    CHECK_EQ_I64(power_percent_on(4246, false), 100);
+    CHECK_EQ_I64(power_percent_on(0, true), POWER_UNKNOWN);
+}
+
 static void a_step_up_is_a_charger(void) {
     struct power_watch w = {0};
     power_watch(&w, 3700);
@@ -119,6 +128,7 @@ int main(void) {
     RUN(a_v3_1_is_found_even_when_off_is_not_quite_off);
     RUN(no_battery_teaches_nothing);
     RUN(a_voltage_is_a_charge);
+    RUN(on_a_charger_its_voltage_says_nothing);
     RUN(a_step_up_is_a_charger);
     RUN(a_slow_fall_is_not_charging);
     RUN(small_changes_are_not_a_charger);
