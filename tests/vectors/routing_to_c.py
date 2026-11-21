@@ -307,6 +307,15 @@ def main():
     ]
     L.append("};")
 
+    L.append("static const struct worse_case worses[] = {")
+    L += [
+        f"    {{{json.dumps(c['why'])}, {c['floor_sixteenths']}, {c['their_margin']}, {b(c['up'])}, "
+        f"{c['full_power']}, {c['power']}, {c['snr_quarter_db']}, {c['spreading_factor']}, "
+        f"{c['floor_after']}, {b(c['up_after'])}}},"
+        for c in v["worse"]
+    ]
+    L.append("};")
+
     L.append("static const struct sample_case samples[] = {")
     L += [
         f"    {{{json.dumps(c['kind'])}, {b(c['leaf'])}, {b(c['relay'])}, {b(c['kept'])}, "

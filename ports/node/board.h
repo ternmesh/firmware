@@ -101,6 +101,10 @@ bool board_battery_init(void);
  * it learns which way the board's switch turns, and 2 ms after. */
 uint16_t board_battery_mv(void);
 
+/* Whether the board is powered from outside, as far as it can tell: true only where it senses its
+ * USB supply (VBUS). False on a board that cannot tell, which says nothing either way. */
+bool board_external_power(void);
+
 /* Turns the board off: the display unpowered, the chip in deep sleep, drawing tens of microamps,
  * once PRG has been let go. A press of PRG turns it on again, and so does `wake_after_s` passing,
  * if it is not 0. Either way it starts from the top, as at power on. The radio is put to sleep by

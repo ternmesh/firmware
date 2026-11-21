@@ -654,6 +654,16 @@ static void battery_off(void) {}
 
 #endif
 
+/* The nRF52840's USB regulator sees VBUS whatever is on the other end of the cable, a computer or
+ * a charger. */
+bool board_external_power(void) {
+#if NRF_POWER_HAS_USBREG
+    return nrf_power_usbregstatus_vbusdet_get(NRF_POWER);
+#else
+    return false;
+#endif
+}
+
 /* --- Turning off ----------------------------------------------------------------------------- */
 
 /* A start the timer gave, told apart from a press or power coming on by a word in RAM that a

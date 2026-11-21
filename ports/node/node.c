@@ -2977,7 +2977,11 @@ static void link_view(void *ctx, struct link_view *v) {
         v->wait_ms = duty_wait_ms(now);
     }
     v->millivolts = battery_mv;
-    v->percent = power_percent(battery_mv); /* 255, unknown, when there is no battery */
+    bool external = board_external_power();
+    /* 255, unknown, with no battery, or at a charger's voltage (power.h) */
+    v->percent = power_percent_on(battery_mv, external);
+    /* draft/companion.md, POWER: bit 0 charging, bit 1 on external power. */
+    v->power_flags = (uint8_t)((watch.charging ? 0x01 : 0) | (external ? 0x02 : 0));
     v->receiver = receiver;
     /* Sleeping (draft/companion.md, SLEEP), as 'sleep' tells it at the console. */
     v->wake = (uint16_t)tern_sleep_wake_s(route.config.sleep_wake);
@@ -4476,7 +4480,7 @@ static void fill_ui(struct ui_node *u) {
     memcpy(u->address, demo.id.address, TERN_ADDRESS_LEN);
     u->bench = bench;
     u->button = board_button_name();
-    u->battery = power_percent(battery_mv);
+    u->battery = power_percent_on(battery_mv, board_external_power());
     u->charging = watch.charging;
     u->phone = phone;
     u->bluetooth = have_ble;

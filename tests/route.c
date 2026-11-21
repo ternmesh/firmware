@@ -190,6 +190,17 @@ struct elsewhere_case {
     uint16_t own_seq, offered_seq;
     bool retracts, out_after;
 };
+struct worse_case {
+    const char *why;
+    int32_t floor;
+    uint8_t theirs;
+    bool up;
+    int8_t full, power;
+    int16_t snr_q;
+    uint8_t sf;
+    int32_t floor_after;
+    bool up_after;
+};
 struct sample_case {
     const char *kind;
     bool leaf, relay, kept;
@@ -939,6 +950,37 @@ static void a_leaf_heard_of_elsewhere_goes_out_of_use(void) {
     }
 }
 
+/* A router keeps the vector's neighbour, id 1, and takes a worse sample of it. Nothing else of it
+ * changes: it is not heard, and its link comes up for nothing. */
+static void a_worse_sample_makes_a_link_worse_and_never_better(void) {
+    for (size_t i = 0; i < COUNT(worses); i++) {
+        const struct worse_case *c = &worses[i];
+        struct tern_lora lora = tern_region_lora(tern_region(TERN_REGION_US915));
+        struct tern_route_config config = tern_route_defaults(&lora, c->full, -9, true);
+        struct tern_route_neighbour nb[2];
+        struct tern_route_dest dest[2];
+        struct tern_route r;
+        const tern_time heard = TERN_S(5);
+        config.lora.sf = c->sf;
+        tern_route_init(&r, &config, VECTOR_OWN_ID, nb, 2, dest, 2, 0, 1, 0);
+        nb[0] = (struct tern_route_neighbour){.id = 1,
+                                              .used = true,
+                                              .relay = true,
+                                              .up = c->up,
+                                              .theirs = c->theirs,
+                                              .floor = c->floor,
+                                              .lost = 2,
+                                              .boost = 6,
+                                              .heard = heard,
+                                              .promise = TERN_S(600)};
+        tern_route_worse(&r, TERN_S(100), 1, c->power, c->snr_q);
+        CHECK_EQ_I64(nb[0].floor, c->floor_after);
+        CHECK(nb[0].up == c->up_after);
+        CHECK(nb[0].heard == heard && nb[0].lost == 2 && nb[0].boost == 6);
+        tern_route_worse(&r, TERN_S(100), 2, c->power, c->snr_q); /* not kept: nothing */
+    }
+}
+
 /* A router keeps the vector's neighbour, id 0x1234, and hears a solicit or an answer from it. */
 static void solicits_and_answers_are_heard_as_announces_are(void) {
     struct tern_lora lora = tern_region_lora(tern_region(TERN_REGION_US915));
@@ -1288,6 +1330,7 @@ int main(void) {
     RUN(a_frame_for_every_neighbour_reaches_the_nearest_in_use);
     RUN(hops_given_up_at_a_relay_take_it_out_of_use_and_ask);
     RUN(a_leaf_heard_of_elsewhere_goes_out_of_use);
+    RUN(a_worse_sample_makes_a_link_worse_and_never_better);
     RUN(solicits_and_answers_are_heard_as_announces_are);
     RUN(a_request_with_no_room_is_not_counted_as_sent);
     RUN(anything_heard_brings_a_neighbour_back_into_use);

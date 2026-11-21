@@ -33,6 +33,13 @@ uint16_t power_pick(struct power_sense *s, uint16_t at_low_mv, uint16_t at_high_
  * percent or so, that reads high while it charges. POWER_UNKNOWN below POWER_NONE_MV. */
 uint8_t power_percent(uint16_t mv);
 
+/* The same, for a board that knows whether it is on external power: on it, a reading at the
+ * charger's voltage is POWER_UNKNOWN. A charger holds the cell at about 4.2 V whatever its charge,
+ * and with no cell fitted the battery's input reads the charger alone, so the voltage says
+ * nothing of a charge. */
+#define POWER_CHARGER_MV 4150
+uint8_t power_percent_on(uint16_t mv, bool external);
+
 /* Whether the battery is charging, and whether it is empty, from its readings one after another.
  *
  * The board has no wire from its charger to the chip, so charging is inferred from the voltage:
