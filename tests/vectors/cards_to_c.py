@@ -47,6 +47,21 @@ def main():
     L += [f"    {{{blob(c['frame'])}, {'true' if c['keep'] else 'false'}}}," for c in v["deliveries"]]
     L.append("};")
 
+    L.append(f"static const uint8_t ask[] = {hexbytes(v['ask'])};")
+    L.append(f"#define V_CARD_SOON_S {v['card_soon_s']}")
+    L.append(f"#define V_ASK_GAP_S {v['ask_gap_s']}")
+    L.append("static const struct rejected_case asks_rejected[] = {")
+    L += [f"    {{\"{h}\", {blob(h)}}}," for h in v["asks_rejected"]]
+    L.append("};")
+    L.append("static const struct answer_case answers[] = {")
+    L += [f"    {{{a['at_s']}, {'true' if a['event'] == 'ask' else 'false'}, "
+          f"{'true' if a.get('answered') else 'false'}}},"
+          for a in v["answers"]]
+    L.append("};")
+    L.append("static const struct asking_case asking[] = {")
+    L += [f"    {{{a['at_s']}, {'true' if a['sends'] else 'false'}}}," for a in v["asking"]]
+    L.append("};")
+
     with open(out, "w", encoding="utf-8") as f:
         f.write("\n".join(L) + "\n")
 

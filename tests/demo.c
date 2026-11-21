@@ -14,7 +14,8 @@
 
 /* A board's flash: a few named records, and a switch to make saving fail. And its random
  * number generator, which here is only different for each board and never repeats. */
-enum { RECORDS = 1 + DEMO_PEERS }; /* an identity, and a record for each session */
+/* An identity, and for each session a record and the name its peer gave. */
+enum { RECORDS = 1 + 2 * DEMO_PEERS };
 
 struct store {
     char keys[RECORDS][16];
@@ -125,10 +126,10 @@ static enum demo_heard contact(struct board *a, struct board *b, tern_time now) 
     CHECK(demo_contact(&a->ram, b->ram.id.address, now, f.data, &f.len) == DEMO_OK);
     CHECK(f.len == 56);
     CHECK(deliver(b, now, &f, &r) == DEMO_HEARD_CONTACT && f.len == 60);
-    CHECK(deliver(a, now, &f, &r) == DEMO_HEARD_CONTACT && f.len == 80);
+    CHECK(deliver(a, now, &f, &r) == DEMO_HEARD_CONTACT && f.len == 116);
     enum demo_heard at_b = deliver(b, now, &f, &r);
     if (at_b == DEMO_HEARD_PAIRED) {
-        CHECK(f.len == 24 && memcmp(r.peer, a->ram.id.address, 32) == 0);
+        CHECK(f.len == 61 && memcmp(r.peer, a->ram.id.address, 32) == 0);
         CHECK(deliver(a, now, &f, &r) == DEMO_HEARD_PAIRED && f.len == 0);
         CHECK(memcmp(r.peer, b->ram.id.address, 32) == 0);
     }
@@ -369,8 +370,8 @@ static void a_message_1_from_the_same_place_cuts_nothing_off(void) {
     CHECK(demo_contact(&c->ram, b->ram.id.address, 1, g.data, &g.len) == DEMO_OK);
     memcpy(g.data + 15, m1.data + 15, 4); /* the source a's message_1 named */
     CHECK(deliver(b, 1, &g, &r) == DEMO_HEARD_OTHER && g.len == 0);
-    CHECK(deliver(a, 2, &f, &r) == DEMO_HEARD_CONTACT && f.len == 80);
-    CHECK(deliver(b, 2, &f, &r) == DEMO_HEARD_PAIRED && f.len == 24);
+    CHECK(deliver(a, 2, &f, &r) == DEMO_HEARD_CONTACT && f.len == 116);
+    CHECK(deliver(b, 2, &f, &r) == DEMO_HEARD_PAIRED && f.len == 61);
     CHECK(deliver(a, 2, &f, &r) == DEMO_HEARD_PAIRED);
     CHECK(say(a, b, "not cut off", &n) == DEMO_HEARD_MESSAGE && n == 0);
 }
@@ -420,6 +421,59 @@ static void a_trusted_stranger_is_accepted(void) {
     /* A restart forgets how to ask, until the board says again. */
     CHECK(boot(b));
     CHECK(b->ram.trusted == NULL);
+}
+
+static bool named(const struct demo_received *r, const char *name) {
+    return r->name_len == strlen(name) && memcmp(r->name, name, r->name_len) == 0;
+}
+
+static bool says(const struct board *b, const struct board *of, const char *name) {
+    uint8_t got[TERN_CONTACT_NAME_MAX];
+    size_t n = demo_says(&b->ram, of->ram.id.address, got);
+    return n == strlen(name) && memcmp(got, name, n) == 0;
+}
+
+/* Each end of first contact gives the other its name (draft/first-contact.md, "Names"): the
+ * responder learns the initiator's from message_3, whether or not it takes it, and the initiator
+ * the responder's from message_4. Each keeps the name its peer gave, across a restart, until the
+ * next first contact with it. */
+static void each_end_gives_its_name(void) {
+    struct board *a = new_board(), *b = new_board(), *c = new_board();
+    static uint8_t alice[] = "\x05"
+                             "Alice",
+                   bob[] = "\x03"
+                           "Bob",
+                   carol[] = "\x05"
+                             "Carol";
+    struct frame f;
+    struct demo_received r;
+    demo_name(&a->ram, alice);
+    demo_name(&b->ram, bob);
+    demo_name(&c->ram, carol);
+    CHECK(demo_contact(&a->ram, b->ram.id.address, 0, f.data, &f.len) == DEMO_OK);
+    CHECK(deliver(b, 0, &f, &r) == DEMO_HEARD_CONTACT);
+    CHECK(deliver(a, 0, &f, &r) == DEMO_HEARD_CONTACT && r.name_len == 0);
+    CHECK(deliver(b, 0, &f, &r) == DEMO_HEARD_PAIRED && named(&r, "Alice"));
+    CHECK(deliver(a, 0, &f, &r) == DEMO_HEARD_PAIRED && named(&r, "Bob"));
+    CHECK(says(b, a, "Alice") && says(a, b, "Bob"));
+
+    /* A stranger refused is named all the same, so its user can tell who asks. */
+    CHECK(demo_contact(&c->ram, b->ram.id.address, 10, f.data, &f.len) == DEMO_OK);
+    CHECK(deliver(b, 10, &f, &r) == DEMO_HEARD_CONTACT);
+    CHECK(deliver(c, 10, &f, &r) == DEMO_HEARD_CONTACT);
+    CHECK(deliver(b, 10, &f, &r) == DEMO_HEARD_REFUSED && named(&r, "Carol"));
+    CHECK(says(b, c, "")); /* no session, no name kept */
+
+    /* Kept across a restart, and replaced by the next contact's; one that names nobody gives
+     * no name. */
+    CHECK(boot(b));
+    CHECK(says(b, a, "Alice"));
+    alice[0] = 3; /* "Ali" */
+    CHECK(contact(a, b, 20) == DEMO_HEARD_PAIRED);
+    CHECK(says(b, a, "Ali"));
+    demo_name(&a->ram, NULL);
+    CHECK(contact(a, b, 30) == DEMO_HEARD_PAIRED);
+    CHECK(says(b, a, "") && says(a, b, "")); /* b's name went with its restart */
 }
 
 /* Its own peer may always come again: that is how two boards recover when only one of them took
@@ -943,6 +997,7 @@ int main(void) {
     RUN(a_message_1_from_the_same_place_cuts_nothing_off);
     RUN(stranger_is_refused_until_accepted);
     RUN(a_trusted_stranger_is_accepted);
+    RUN(each_end_gives_its_name);
     RUN(peer_may_make_contact_again);
     RUN(restart_carries_on_counting);
     RUN(restart_abandons_a_handshake);

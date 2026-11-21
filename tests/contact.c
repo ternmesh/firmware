@@ -26,6 +26,7 @@ struct handshake_case {
     const char *name;
     uint8_t initiator_seed[32], responder_seed[32], x[32], y[32];
     uint8_t c_i, c_r;
+    const char *initiator_name, *responder_name; /* UTF-8, each the name its end gives */
     struct frame frames[4];
     uint8_t secret[32];
 };
@@ -59,6 +60,10 @@ struct rejected_case {
 /* A frame is the vectors' if it is equal from its destination on: the three fields before that
  * are the forwarder's, and the core leaves them 0. */
 #define AT_DEST 7
+
+/* The name each end of a handshake gives, as tern_contact_receive() takes it. */
+#define I_NAME(h) (const uint8_t *)(h)->initiator_name, strlen((h)->initiator_name)
+#define R_NAME(h) (const uint8_t *)(h)->responder_name, strlen((h)->responder_name)
 
 static bool same(const uint8_t *a, size_t a_len, const struct frame *f) {
     return a_len == f->len && a_len > AT_DEST && a[0] == f->bytes[0] && a[1] == 0 && a[2] == 0 &&
@@ -109,17 +114,21 @@ static void run_initiator(const struct handshake_case *h, struct tern_identity *
                  TERN_OK);
     CHECK(same(out, len, &h->frames[0]));
     CHECK(tern_contact_destination(out) == tern_route_id(target));
-    CHECK_EQ_I64(
-        tern_contact_receive(c, me, h->frames[1].bytes, h->frames[1].len, out, sizeof out, &len),
-        TERN_CONTACT_PROCESSED);
+    CHECK_EQ_I64(tern_contact_receive(c, me, I_NAME(h), h->frames[1].bytes, h->frames[1].len, out,
+                                      sizeof out, &len),
+                 TERN_CONTACT_PROCESSED);
     CHECK(same(out, len, &h->frames[2]));
     CHECK(!tern_contact_complete(c));
-    CHECK_EQ_I64(
-        tern_contact_receive(c, me, h->frames[3].bytes, h->frames[3].len, out, sizeof out, &len),
-        TERN_CONTACT_PROCESSED);
+    CHECK_EQ_I64(tern_contact_receive(c, me, I_NAME(h), h->frames[3].bytes, h->frames[3].len, out,
+                                      sizeof out, &len),
+                 TERN_CONTACT_PROCESSED);
     CHECK_EQ_I64(len, 0);
     CHECK(tern_contact_complete(c));
     CHECK(memcmp(c->secret, h->secret, 32) == 0);
+    /* The responder's name, from message_4. */
+    uint8_t name[TERN_CONTACT_NAME_MAX];
+    size_t n = tern_contact_name(c, name);
+    CHECK(n == strlen(h->responder_name) && memcmp(name, h->responder_name, n) == 0);
 }
 
 /* The responder's half: answer frames[0] with frames[1], and frames[2] with frames[3]. */
@@ -132,14 +141,19 @@ static void run_responder(const struct handshake_case *h, struct tern_identity *
                  TERN_CONTACT_PROCESSED);
     CHECK(same(out, len, &h->frames[1]));
     CHECK(tern_contact_destination(out) == tern_route_id(initiator));
-    CHECK_EQ_I64(
-        tern_contact_receive(c, me, h->frames[2].bytes, h->frames[2].len, out, sizeof out, &len),
-        TERN_CONTACT_PROCESSED);
+    uint8_t name[TERN_CONTACT_NAME_MAX];
+    CHECK_EQ_I64(tern_contact_name(c, name), 0); /* nothing heard of it yet */
+    CHECK_EQ_I64(tern_contact_receive(c, me, R_NAME(h), h->frames[2].bytes, h->frames[2].len, out,
+                                      sizeof out, &len),
+                 TERN_CONTACT_PROCESSED);
     CHECK(same(out, len, &h->frames[3]));
     CHECK(tern_contact_destination(out) == tern_route_id(initiator));
     CHECK(tern_contact_complete(c));
     CHECK(memcmp(c->secret, h->secret, 32) == 0);
     CHECK(memcmp(c->peer, initiator, 32) == 0);
+    /* The initiator's name, from message_3. */
+    size_t n = tern_contact_name(c, name);
+    CHECK(n == strlen(h->initiator_name) && memcmp(name, h->initiator_name, n) == 0);
 }
 
 static void handshakes_match(void) {
@@ -249,17 +263,19 @@ static void rejected_frames_are_refused(void) {
                                             h->c_i, out, sizeof out, &len),
                          TERN_OK);
             if (r->message == 4) {
-                CHECK_EQ_I64(tern_contact_receive(&c, &ini, h->frames[1].bytes, h->frames[1].len,
-                                                  out, sizeof out, &len),
+                CHECK_EQ_I64(tern_contact_receive(&c, &ini, I_NAME(h), h->frames[1].bytes,
+                                                  h->frames[1].len, out, sizeof out, &len),
                              TERN_CONTACT_PROCESSED);
             }
-            verdict = tern_contact_receive(&c, &ini, r->frame, r->len, out, sizeof out, &len);
+            verdict =
+                tern_contact_receive(&c, &ini, I_NAME(h), r->frame, r->len, out, sizeof out, &len);
             break;
         case 3:
             CHECK_EQ_I64(tern_contact_respond(&c, &res, h->y, h->c_r, h->frames[0].bytes,
                                               h->frames[0].len, out, sizeof out, &len),
                          TERN_CONTACT_PROCESSED);
-            verdict = tern_contact_receive(&c, &res, r->frame, r->len, out, sizeof out, &len);
+            verdict =
+                tern_contact_receive(&c, &res, R_NAME(h), r->frame, r->len, out, sizeof out, &len);
             break;
         }
         if (verdict == TERN_CONTACT_PROCESSED || len != 0 || tern_contact_complete(&c)) {
@@ -287,15 +303,15 @@ static void repeats_are_not_processed(void) {
     CHECK_EQ_I64(tern_contact_start(&c, tern_route_id(ini.address), res.address, h->x, h->c_i, out,
                                     sizeof out, &len),
                  TERN_OK);
-    CHECK_EQ_I64(
-        tern_contact_receive(&c, &ini, h->frames[1].bytes, h->frames[1].len, out, sizeof out, &len),
-        TERN_CONTACT_PROCESSED);
-    CHECK_EQ_I64(
-        tern_contact_receive(&c, &ini, h->frames[1].bytes, h->frames[1].len, out, sizeof out, &len),
-        TERN_CONTACT_NOT_OURS);
-    CHECK_EQ_I64(
-        tern_contact_receive(&c, &ini, h->frames[3].bytes, h->frames[3].len, out, sizeof out, &len),
-        TERN_CONTACT_PROCESSED);
+    CHECK_EQ_I64(tern_contact_receive(&c, &ini, I_NAME(h), h->frames[1].bytes, h->frames[1].len,
+                                      out, sizeof out, &len),
+                 TERN_CONTACT_PROCESSED);
+    CHECK_EQ_I64(tern_contact_receive(&c, &ini, I_NAME(h), h->frames[1].bytes, h->frames[1].len,
+                                      out, sizeof out, &len),
+                 TERN_CONTACT_NOT_OURS);
+    CHECK_EQ_I64(tern_contact_receive(&c, &ini, I_NAME(h), h->frames[3].bytes, h->frames[3].len,
+                                      out, sizeof out, &len),
+                 TERN_CONTACT_PROCESSED);
     CHECK(tern_contact_complete(&c));
     CHECK(memcmp(c.secret, h->secret, 32) == 0);
     tern_contact_wipe(&c);
@@ -321,11 +337,30 @@ static void arguments_are_checked(void) {
     CHECK_EQ_I64(tern_contact_respond(&c, &res, h->y, 0x38, h->frames[0].bytes, h->frames[0].len,
                                       out, sizeof out, &len),
                  TERN_EINVAL);
+
+    /* A name to give of more than 31 bytes, or not UTF-8, is refused before anything is sent,
+     * and the handshake goes on with a name that is. */
+    CHECK_EQ_I64(tern_contact_respond(&c, &res, h->y, h->c_r, h->frames[0].bytes, h->frames[0].len,
+                                      out, sizeof out, &len),
+                 TERN_CONTACT_PROCESSED);
+    static const uint8_t long_name[] = "a name of thirty-two bytes, long"; /* and its NUL */
+    static const uint8_t not_utf8[2] = {0xc3, 0x28};
+    CHECK_EQ_I64(tern_contact_receive(&c, &res, long_name, sizeof long_name - 1, h->frames[2].bytes,
+                                      h->frames[2].len, out, sizeof out, &len),
+                 TERN_EINVAL);
+    CHECK_EQ_I64(tern_contact_receive(&c, &res, not_utf8, sizeof not_utf8, h->frames[2].bytes,
+                                      h->frames[2].len, out, sizeof out, &len),
+                 TERN_EINVAL);
+    CHECK_EQ_I64(tern_contact_receive(&c, &res, R_NAME(h), h->frames[2].bytes, h->frames[2].len,
+                                      out, sizeof out, &len),
+                 TERN_CONTACT_PROCESSED);
+    CHECK(same(out, len, &h->frames[3]));
+    tern_contact_wipe(&c);
     tern_identity_wipe(&res);
 }
 
-/* Every length from 0 to 90 bytes, in each state that receives, in a buffer of exactly that size so
- * AddressSanitizer sees any read past the end. The bytes are the start of a real frame, so the
+/* Every length from 0 to 130 bytes, in each state that receives, in a buffer of exactly that size
+ * so AddressSanitizer sees any read past the end. The bytes are the start of a real frame, so the
  * header and tag checks pass where the length allows. None is processed except a real frame. */
 static void every_length_is_handled(void) {
     const struct handshake_case *h = &handshakes[0];
@@ -334,7 +369,7 @@ static void every_length_is_handled(void) {
     tern_identity_init(&res, h->responder_seed);
     for (int message = 1; message <= 4; message++) {
         const struct frame *real = &h->frames[message - 1];
-        for (size_t n = 0; n <= 90; n++) {
+        for (size_t n = 0; n <= 130; n++) {
             uint8_t *f = malloc(n ? n : 1);
             uint8_t out[TERN_CONTACT_MAX_FRAME];
             struct tern_contact c;
@@ -352,15 +387,15 @@ static void every_length_is_handled(void) {
                 (void)tern_contact_start(&c, tern_route_id(ini.address), res.address, h->x, h->c_i,
                                          out, sizeof out, &len);
                 if (message == 4) {
-                    (void)tern_contact_receive(&c, &ini, h->frames[1].bytes, h->frames[1].len, out,
-                                               sizeof out, &len);
+                    (void)tern_contact_receive(&c, &ini, I_NAME(h), h->frames[1].bytes,
+                                               h->frames[1].len, out, sizeof out, &len);
                 }
-                verdict = tern_contact_receive(&c, &ini, f, n, out, sizeof out, &len);
+                verdict = tern_contact_receive(&c, &ini, I_NAME(h), f, n, out, sizeof out, &len);
                 break;
             case 3:
                 (void)tern_contact_respond(&c, &res, h->y, h->c_r, h->frames[0].bytes,
                                            h->frames[0].len, out, sizeof out, &len);
-                verdict = tern_contact_receive(&c, &res, f, n, out, sizeof out, &len);
+                verdict = tern_contact_receive(&c, &res, R_NAME(h), f, n, out, sizeof out, &len);
                 break;
             }
             CHECK((verdict == TERN_CONTACT_PROCESSED) == (n == real->len));

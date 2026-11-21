@@ -1100,6 +1100,8 @@ static void heard_ack(const struct tern_radio_event *ev) {
     p->id = 0;
 }
 
+static void heard_ask(const struct tern_radio_event *ev);
+
 /* A flooded frame: taken once however many copies come, passed on by the flooder if this board is
  * a relay, and opened if it is for a group this board holds. */
 static void heard_flood(const struct tern_radio_event *ev) {
@@ -1116,7 +1118,14 @@ static void heard_flood(const struct tern_radio_event *ev) {
             uint8_t id[TERN_FLOOD_ID];
             tern_flood_id(ev->data, ev->len, id);
             (void)tern_flood_refuse(&flood, id);
+            return;
         }
+        /* Its address, number and name, and the signature after them. */
+        const uint8_t *a = &ev->data[TERN_FLOOD_HEAD];
+        int name_len = (int)ev->len - TERN_CARD_MIN;
+        printf("a card from %02x%02x%02x%02x..., \"%.*s\", at %d dBm\n", a[0], a[1], a[2], a[3],
+               name_len, (const char *)&ev->data[TERN_FLOOD_HEAD + TERN_ADDRESS_LEN + 4],
+               ev->rssi_dbm);
         return;
     }
     link_groups(&companion, groups);
@@ -1366,6 +1375,10 @@ static void heard_into(const struct tern_radio_event *ev, uint8_t *msg) {
     int snr_abs = ev->snr_cdb < 0 ? -ev->snr_cdb : ev->snr_cdb;
     int snr_whole = snr_abs / 100, snr_frac = snr_abs % 100;
 
+    if (ev->len > 0 && ev->data[0] == TERN_CARD_ASK) {
+        heard_ask(ev);
+        return;
+    }
     if (tern_route_frame(ev->data, ev->len)) {
         if (ignoring(ev->data, ev->len)) {
             return; /* 'ignore': not heard, for a test */
@@ -1487,14 +1500,15 @@ static void heard_into(const struct tern_radio_event *ev, uint8_t *msg) {
         print_address(got.peer);
         printf(" made contact, but this board holds as many sessions as it can. 'peers' lists "
                "them, and 'drop <number>' ends one.\n");
-        link_asked(&companion, board_now(), got.peer, TERN_C_ASKED_NO_ROOM);
+        link_asked(&companion, board_now(), got.peer, TERN_C_ASKED_NO_ROOM, got.name, got.name_len);
         break;
     case DEMO_HEARD_REFUSED:
         printf("first contact: refused ");
         print_address(got.peer);
         printf(", which is not one of this board's peers or contacts. Save it as a contact, or "
                "type 'accept', to let it in, and have it try again.\n");
-        link_asked(&companion, board_now(), got.peer, TERN_C_ASKED_NOT_CONTACT);
+        link_asked(&companion, board_now(), got.peer, TERN_C_ASKED_NOT_CONTACT, got.name,
+                   got.name_len);
         break;
     case DEMO_HEARD_FAILED:
         printf("first contact: a frame of the handshake failed its checks; abandoned\n");
@@ -2031,6 +2045,11 @@ static tern_time card_last;            /* when */
 static tern_time card_next;            /* when the next is due, or 0 for not yet drawn */
 static bool card_pending;              /* one is with the flooder, not yet on the air */
 static uint8_t card_id[TERN_FLOOD_ID]; /* and its id */
+static tern_time card_answer_at;       /* when a card answering an ask goes, or 0 for none */
+/* Asking for cards (draft/cards.md, "Asking"): an ask waits for the air; one has been asked for
+ * since the board started, and when the last was. */
+static bool ask_due, asked;
+static tern_time asked_at;
 static void card_went(tern_time now);
 
 static void poll_flood(void) {
@@ -2134,6 +2153,7 @@ static void card_changed(void) {
         card_pending = false;
     }
     card_next = 0;
+    card_answer_at = 0;
 }
 
 /* The board's card went on the air: the next is drawn from now. */
@@ -2160,7 +2180,10 @@ static void poll_card(void) {
         tern_time soonest = card_sent ? card_last + TERN_CARD_EVERY / 2 : now;
         card_next = soonest > now ? soonest : now;
     }
-    if (now < card_next) {
+    /* An answer to an ask goes as a card of hops 0, heard only in earshot, as the ask was; a card
+     * due anyway answers it too. */
+    bool answer = card_answer_at != 0 && now >= card_answer_at && now < card_next;
+    if (now < card_next && !answer) {
         return;
     }
     uint32_t number = 0;
@@ -2169,13 +2192,74 @@ static void poll_card(void) {
     size_t len =
         tern_card_write(&demo.id, number, settings.card_name, settings.card_name_len, frame);
     if (len == 0 || !store_save(NULL, "card", &number, sizeof number) ||
-        !tern_flood_send(&flood, now, frame, len)) {
-        card_next = now + CARD_RETRY;
+        !tern_flood_send_hops(&flood, now, frame, len, answer ? 0 : TERN_CARD_HOPS)) {
+        card_next = answer ? card_next : now + CARD_RETRY;
+        card_answer_at = answer ? now + CARD_RETRY : card_answer_at;
         return;
     }
+    card_answer_at = 0;
     card_pending = true;
     tern_flood_id(frame, len, card_id);
-    printf("card %lu waits for the air: %u bytes\n", (unsigned long)number, (unsigned)len);
+    printf("card %lu waits for the air: %u bytes%s\n", (unsigned long)number, (unsigned)len,
+           answer ? ", answering an ask, for those in earshot" : "");
+}
+
+/* An ask for cards heard (draft/cards.md, "Asking"): anything else that starts with its byte is
+ * not one. With cards on, a card answers it at a random time within ASK_SPREAD, unless one went
+ * less than CARD_SOON ago or one is waiting to go. */
+static void heard_ask(const struct tern_radio_event *ev) {
+    tern_time now = board_now();
+    if (!tern_card_ask(ev->data, ev->len)) {
+        return;
+    }
+    if (!settings.cards) {
+        printf("an ask for cards heard, at %d dBm: cards are off, so not answered\n", ev->rssi_dbm);
+        return;
+    }
+    if (!tern_card_answers(card_sent, card_last, card_pending || card_answer_at != 0, now)) {
+        printf("an ask for cards heard, at %d dBm: not answered, %s\n", ev->rssi_dbm,
+               card_sent && now - card_last < TERN_CARD_SOON
+                   ? "a card having gone in the last 15 minutes"
+                   : "a card waiting to go");
+        return;
+    }
+    uint32_t r = 0;
+    (void)board_random(NULL, (uint8_t *)&r, sizeof r);
+    card_answer_at = now + 1 + (tern_time)(r % 1000001u) * (TERN_CARD_ASK_SPREAD / 1000000);
+    printf("an ask for cards heard, at %d dBm: a card answers it in %lld s\n", ev->rssi_dbm,
+           (long long)((card_answer_at - now) / TERN_S(1)));
+}
+
+/* LOOK, and the console's 'look': an ask, unless one was asked for within ASK_GAP. */
+static uint8_t link_look(void *ctx) {
+    (void)ctx;
+    tern_time now = board_now();
+    if (!tern_card_may_ask(asked, asked_at, now)) {
+        return TERN_C_ERR_TOO_SOON;
+    }
+    asked = true;
+    asked_at = now;
+    ask_due = true;
+    return 0;
+}
+
+/* The ask goes as a frame of the board's own (draft/airtime.md): it waits for the budget's own
+ * part and the region's limit, and for a radio that is not receiving. */
+static void poll_ask(void) {
+    static const uint8_t frame[1] = {TERN_CARD_ASK};
+    tern_time now = board_now(), air = tern_lora_airtime(&cfg.mod, sizeof frame);
+    if (!ask_due || transmitting || route_out || flood_out || forward_out ||
+        !tern_airtime_pays(&budget, now, TERN_CARD_ASK, true, air) ||
+        !tern_duty_allows(&duty, now, air) || held()) {
+        return;
+    }
+    if (transmit(frame, sizeof frame) == 0) {
+        return; /* tried again on the next turn */
+    }
+    tern_airtime_charge(&budget, now, TERN_CARD_ASK, true, air);
+    ask_due = false;
+    printf("asked the nodes in earshot for their cards: those with cards on answer within %d s\n",
+           (int)(TERN_CARD_ASK_SPREAD / TERN_S(1)));
 }
 
 /* Sends what the router has to send: its announces, and its requests for routes. A frame the
@@ -2233,11 +2317,14 @@ static uint16_t own_wake(void) { return route.config.relay ? 0 : route.config.sl
 /* A frame on the air, or one about to be: the radio is needed now. */
 static bool radio_busy(void) {
     return transmitting || route_out || flood_out || forward_out || route_len != 0 || bench ||
-           beacon_running;
+           beacon_running || ask_due;
 }
 
 /* The soonest the router, the forwarder or the flooder wants the radio. */
 static tern_time radio_due(void) {
+    if (ask_due) {
+        return 0; /* at once */
+    }
     tern_time t = tern_route_due(&route), f = tern_forward_due(&forward);
     t = f < t ? f : t;
     f = tern_flood_due(&flood);
@@ -3190,6 +3277,12 @@ static bool link_trusted(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]) {
     return link_contact(&companion, address);
 }
 
+/* CONTACT's says: the name a contact gave in the first contact that made the session with it. */
+static size_t link_says(void *ctx, const uint8_t address[TERN_ADDRESS_LEN], uint8_t *name) {
+    (void)ctx;
+    return demo_says(&demo, address, name);
+}
+
 static uint8_t link_why(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]) {
     uint16_t wait;
     int slot = demo_peer(&demo, address);
@@ -3861,6 +3954,13 @@ static void command(char *line) {
         status();
     } else if (strcmp(line, "routes") == 0) {
         routes();
+    } else if (strcmp(line, "look") == 0) {
+        if (link_look(NULL) != 0) {
+            printf("not asked: this board asked for cards less than %d minutes ago\n",
+                   (int)(TERN_CARD_ASK_GAP / TERN_S(60)));
+        } else {
+            printf("asking the nodes in earshot for their cards: each that comes is shown\n");
+        }
     } else if (strncmp(line, "trace ", 6) == 0) {
         char *end;
         unsigned long to = strtoul(&line[6], &end, 16);
@@ -3895,9 +3995,9 @@ static void command(char *line) {
         const char *key = board_button_name();
         printf(
             "commands: contact <address>, accept, peers, to <number>, send <text>, drop "
-            "<number>, groups, group ..., status, routes, trace <routing id>, selftest, forget "
-            "(Bluetooth clients), screen sleep <seconds>, screen bench on|off, sleep [on <seconds> "
-            "[listen] | off].%s%s%s For the "
+            "<number>, groups, group ..., status, routes, trace <routing id>, look, selftest, "
+            "forget (Bluetooth clients), screen sleep <seconds>, screen bench on|off, sleep [on "
+            "<seconds> [listen] | off].%s%s%s For the "
             "bench: bench on|off, sync <hex>, power <dBm>, freq <Hz>, "
             "sf <n>, bw <Hz>, beacon <count> <ms>, counts [reset], ignore [<routing id> | off].\n",
             key != NULL ? " Holding " : "", key != NULL ? key : "",
@@ -5365,6 +5465,8 @@ void node_main(void) {
         .wipe = link_wipe,
         .restart = link_restart,
         .trace = link_trace,
+        .look = link_look,
+        .says = link_says,
         .load_owners = link_load_owners,
         .save_owners = link_save_owners,
         /* Signed by the publisher's release keys (release_keys.h), unless built for a bench. */
@@ -5401,6 +5503,12 @@ void node_main(void) {
         printf("this firmware, new from an update, started: it is kept\n");
     }
     demo_trust(&demo, link_trusted, NULL);
+    /* The name given in first contact is the card name, whether or not cards are on: its length
+     * and then its bytes, as settings keeps them. */
+    _Static_assert(offsetof(struct settings, card_name) ==
+                       offsetof(struct settings, card_name_len) + 1,
+                   "the card name follows its length");
+    demo_name(&demo, &settings.card_name_len);
     receiver_power(!settings.receiver_off);
     link_open(&companion, LINK_SERIAL, LINK_LAPSE, 0);
     /* The board's own connection, for what is typed at its console. */
@@ -5462,6 +5570,9 @@ void node_main(void) {
             }
             crumb_at(cr, CRUMB_CARD);
             poll_card();
+            if (!doze.dozing) {
+                poll_ask();
+            }
             crumb_at(cr, CRUMB_FLOOD);
             if (!doze.dozing) {
                 poll_flood();

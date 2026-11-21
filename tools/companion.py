@@ -11,6 +11,7 @@
     python3 tools/companion.py --port /dev/ttyUSB0 set power most
     python3 tools/companion.py --port /dev/ttyUSB0 set passkey default
     python3 tools/companion.py --port /dev/ttyUSB0 watch
+    python3 tools/companion.py --port /dev/ttyUSB0 look
     python3 tools/companion.py --port /dev/ttyUSB0 group new <name>
     python3 tools/companion.py --port /dev/ttyUSB0 group invite <group> <address>
     python3 tools/companion.py --port /dev/ttyUSB0 group join <invite or join code>
@@ -43,6 +44,10 @@ prints a group's join code, writes to one, clears its conversation or leaves it;
 node where it is, in degrees, and `share` has the node send that to a contact or a group, as a
 cell of a grid as coarse as `precision` says, 1 to 24, until `share ... 0` stops it. `watch`
 speaks version 1 and is told of messages only: `--speak 8 watch` is told of all of it.
+`look` has the node ask the nodes in earshot for their cards, and prints those that come; a node
+asks no more often than every ten minutes. `state` prints, beside each contact, the name it gave
+itself in first contact, and `watch` the name of a node refused first contact: each the other's
+claim, not a name you gave it.
 `set receiver 0` turns off the node's satellite receiver, if it has one, and `set receiver 1` turns
 it on again; `state` prints the node's fix, whether its receiver's or the last a client gave.
 `set wake 600` has a leaf sleep, polling its keeper at least every 600 s (300 to 3600), and
@@ -96,7 +101,7 @@ MAX_FRAME, MAGIC = 180, b"\xf5\x54"
 # version brought; `--speak` says another, so that `watch` is told of groups, positions or cards.
 VERSION = 1
 # The latest version the frames below are, which selftest reads the vectors by.
-LATEST = 18
+LATEST = 20
 # SET 4's value for the node's default passkey: a new one on its screen each time, or 123456 on a
 # node without one.
 PASSKEY_DEFAULT = 0xFFFFFFFF
@@ -123,6 +128,7 @@ FRAMES = {
     0x13: ("MANAGE", [("ref", "I"), ("to", "addr"), ("request", "raw")]),
     0x14: ("OWNER", [("address", "addr"), ("owner", "B")]),
     0x15: ("TRACE", [("ref", "I"), ("to", "I")]),
+    0x16: ("LOOK", []),
     0x18: ("SAVE_CONTACT", [("address", "addr"), ("name", "str")]),
     0x19: ("REMOVE_CONTACT", [("address", "addr")]),
     0x1A: ("END_SESSION", [("address", "addr")]),
@@ -160,7 +166,7 @@ FRAMES = {
                     ("time", "I"), ("cards", "B"), ("card_name", "str"), ("most", "B"),
                     ("pairing", "B"), ("locked", "B")]),
     0x81: ("CONTACT", [("address", "addr"), ("session", "B"), ("name", "str"), ("wake", "H"),
-                       ("owner", "B")]),
+                       ("owner", "B"), ("says", "str")]),
     0x82: ("CONTACT_GONE", [("address", "addr")]),
     0x83: ("MESSAGE", [("id", "I"), ("contact", "addr"), ("time", "I"), ("flags", "B"),
                        ("state", "B"), ("reason", "B"), ("wait", "H"), ("text", "str")]),
@@ -170,7 +176,7 @@ FRAMES = {
     0x86: ("NEIGHBOUR_GONE", [("routing_id", "I")]),
     0x87: ("AIRTIME", [("period", "I"), ("allowed", "I"), ("used", "I"), ("wait", "I")]),
     0x88: ("POWER", [("millivolts", "H"), ("percent", "B"), ("flags", "B")]),
-    0x89: ("ASKED", [("address", "addr"), ("why", "B")]),
+    0x89: ("ASKED", [("address", "addr"), ("why", "B"), ("name", "str")]),
     0x8A: ("GROUP", [("group", "gid"), ("name", "str")]),
     0x8B: ("GROUP_GONE", [("group", "gid")]),
     0x8C: ("GROUP_MESSAGE", [("id", "I"), ("group", "gid"), ("from", "I"), ("time", "I"),
@@ -206,7 +212,7 @@ FRAMES = {
 LATER = {(0x43, "news"): 3, (0x42, "board"): 4, (0x42, "release"): 4, (0x80, "cards"): 6,
          (0x80, "card_name"): 6, (0x80, "most"): 10, (0x80, "pairing"): 11, (0x42, "update"): 12,
          (0x30, "signature"): 13, (0x81, "wake"): 15,
-         (0x81, "owner"): 17, (0x80, "locked"): 17}
+         (0x81, "owner"): 17, (0x80, "locked"): 17, (0x81, "says"): 19, (0x89, "name"): 19}
 BYTES = {"addr": 32, "gid": 8, "digest": 32}
 TYPE = {name: t for t, (name, _) in FRAMES.items()}
 SETTINGS = {1: ("region", "str"), 2: ("role", "B"), 3: ("power", "b"), 4: ("passkey", "I"),
@@ -229,7 +235,8 @@ ERRORS = {1: "not something this node knows", 2: "malformed", 3: "refused",
           12: "not a contact", 13: "not something a node does when managed over the mesh",
           14: "the node's Bluetooth is locked: use USB, or manage it over the mesh as an owner",
           15: "not an owner: that node has not made this one an owner, and only an owner, or "
-              "someone at the node, can"}
+              "someone at the node, can",
+          16: "too soon: the node asked for cards less than ten minutes ago"}
 # Managing over the mesh (draft/managing.md): how long after a request is delivered a client waits
 # for its answer, and how long a SET stays on trial unless a later request reaches the node.
 MESH_ANSWER_WAIT = 120.0
@@ -505,7 +512,8 @@ def describe(m, names):
         names[m["address"]] = m["name"]
         sleeps = f", sleeps up to {m['wake']} s between wakes" if m.get("wake") else ""
         owner = ", an owner: may manage this node over the mesh" if m.get("owner") else ""
-        return (f"contact {m['name']!r}: {m['address'].hex()}"
+        says = f", calls itself {m['says']!r}" if m.get("says") else ""
+        return (f"contact {m['name']!r}: {m['address'].hex()}{says}"
                 f"{', with a session' if m['session'] else ''}{sleeps}{owner}")
     if t == "OWNER_CHANGED":
         how = "by one of its owners over the mesh" if m["by"] else "over USB or Bluetooth, at the node"
@@ -541,7 +549,8 @@ def describe(m, names):
     if t == "ASKED":
         why = {1: "it is not a contact: save it as one to let it in",
                2: "there is no room for another session: end one to make room"}
-        return (f"refused first contact from {m['address'].hex()}: "
+        says = f", which calls itself {m['name']!r}," if m.get("name") else ""
+        return (f"refused first contact from {m['address'].hex()}{says}: "
                 f"{why.get(m['why'], 'no reason this script knows')}")
     if t == "GROUP":
         groups[m["group"]] = m["name"]
@@ -842,7 +851,7 @@ def joins_codes(info):
 
 def run(args):
     latest = ("state", "update", "group", "position", "share", "off", "wipe", "clear", "owner",
-              "restart", "manage", "send", "trace")
+              "restart", "manage", "send", "trace", "look")
     speak = LATEST if args.command in latest else VERSION
     if args.command == "set":
         speak = max(speak, SINCE.get(args.setting, VERSION))
@@ -889,6 +898,15 @@ def run(args):
             print(describe(m, names))
             if m["type"] == "TRACED":
                 break
+    elif args.command == "look":
+        if info["version"] < 20:
+            raise SystemExit("this node's firmware is too old to ask for cards")
+        node.request("LOOK")
+        print("asked the nodes in earshot for their cards: those with cards on answer within "
+              "half a minute")
+        for m in node.news(args.wait):
+            if m["type"] == "CARD":
+                print(describe(m, names))
     elif args.command == "contact":
         node.request("SAVE_CONTACT", address=address(args.address), name=args.name)
         print("saved")
@@ -1182,6 +1200,8 @@ def main():
     tr = sub.add_parser("trace", help="find the way frames take to a node, and back")
     tr.add_argument("to", help="its routing id, as eight hex digits, as `state` lists neighbours")
     tr.add_argument("--wait", type=float, default=120.0, help="seconds to watch it for")
+    lk = sub.add_parser("look", help="ask the nodes in earshot for their cards")
+    lk.add_argument("--wait", type=float, default=45.0, help="seconds to watch for cards")
     c = sub.add_parser("contact")
     c.add_argument("address")
     c.add_argument("name")

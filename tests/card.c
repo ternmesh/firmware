@@ -32,6 +32,16 @@ struct delivery_case {
     bool keep;
 };
 
+struct answer_case {
+    uint32_t at_s;
+    bool ask; /* an ask heard, or else one of the node's own cards going on the air */
+    bool answered;
+};
+struct asking_case {
+    uint32_t at_s;
+    bool sends;
+};
+
 #include "cards.h"
 
 #define COUNT(a) (sizeof(a) / sizeof(a)[0])
@@ -160,6 +170,52 @@ static void room_and_forgetting(void) {
                              gone_address) == TERN_CARD_ACCEPTED);
 }
 
+/* Asking (draft/cards.md, "Asking"): the one byte, and nothing else, is an ask. */
+static void an_ask_is_one_byte(void) {
+    CHECK(sizeof ask == 1 && tern_card_ask(ask, sizeof ask));
+    CHECK(TERN_CARD_SOON == TERN_S(V_CARD_SOON_S) && TERN_CARD_ASK_GAP == TERN_S(V_ASK_GAP_S));
+    for (size_t i = 0; i < COUNT(asks_rejected); i++) {
+        CHECK(!tern_card_ask(asks_rejected[i].frame, asks_rejected[i].len));
+    }
+}
+
+/* A node with cards on answers exactly the asks the vectors say: its own cards go at each event
+ * that is not an ask, and an answer, once it goes, is one of its cards. */
+static void asks_are_answered_as_the_specification_says(void) {
+    bool sent = false;
+    tern_time last = 0;
+    for (size_t i = 0; i < COUNT(answers); i++) {
+        tern_time at = TERN_S(answers[i].at_s);
+        bool answers_it = answers[i].ask && tern_card_answers(sent, last, false, at);
+        if (answers[i].ask && answers_it != answers[i].answered) {
+            fprintf(stderr, "ask at %lu s: %s\n", (unsigned long)answers[i].at_s,
+                    answers_it ? "answered" : "not answered");
+            check_failures++;
+        }
+        if (!answers[i].ask || answers_it) {
+            sent = true;
+            last = at;
+        }
+    }
+    /* One waiting to go is answer enough. */
+    CHECK(!tern_card_answers(false, 0, true, TERN_S(1)));
+}
+
+/* A node asks exactly when the vectors say it does, its user asking at each time. */
+static void asks_are_sent_as_the_specification_says(void) {
+    bool asked = false;
+    tern_time last = 0;
+    for (size_t i = 0; i < COUNT(asking); i++) {
+        tern_time at = TERN_S(asking[i].at_s);
+        bool sends = tern_card_may_ask(asked, last, at);
+        CHECK(sends == asking[i].sends);
+        if (sends) {
+            asked = true;
+            last = at;
+        }
+    }
+}
+
 int main(void) {
     RUN(accepted_cards);
     RUN(names_too_long_are_not_written);
@@ -168,5 +224,8 @@ int main(void) {
     RUN(deliveries_in_order);
     RUN(a_table_of_none_only_checks);
     RUN(room_and_forgetting);
+    RUN(an_ask_is_one_byte);
+    RUN(asks_are_answered_as_the_specification_says);
+    RUN(asks_are_sent_as_the_specification_says);
     return CHECK_DONE();
 }

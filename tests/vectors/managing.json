@@ -1,5 +1,5 @@
 {
-  "description": "Managing a node over the mesh (draft/managing.md). A request is the content of a message for the node, its kind and one companion request; an answer is its kind and companion frames, each after a u8 length, packed in order into as few answers as fit. Companion frames are as vectors/companion.json has them, at version 18. Syncs are of a relay whose one contact is its owner, the first address, with no satellite receiver, awake: with three neighbours, and with twenty. Addresses are those of vectors/companion.json.",
+  "description": "Managing a node over the mesh (draft/managing.md). A request is the content of a message for the node, its kind and one companion request; an answer is its kind and companion frames, each after a u8 length, packed in order into as few answers as fit. Companion frames are as vectors/companion.json has them, at version 20. Syncs are of a relay whose one contact is its owner, the first address, with no satellite receiver, awake: with three neighbours, and with twenty. Addresses are those of vectors/companion.json.",
   "generator": "vectors/tools/managing.py",
   "parameters": {
     "OWNERS": 4,
@@ -7,15 +7,15 @@
     "ANSWER_MAX": 128,
     "MESH_ANSWER_WAIT": 120,
     "TRIAL": 900,
-    "REFUSE_GAP": 60,
     "MANAGED_POLL": 5,
-    "MANAGED_AWAKE": 120
+    "MANAGED_AWAKE": 120,
+    "REFUSE_GAP": 60
   },
   "requests": [
     {
       "why": "HELLO, at this version",
-      "frame": "010112",
-      "content": "05010112"
+      "frame": "010114",
+      "content": "05010114"
     },
     {
       "why": "a sync",
@@ -84,17 +84,17 @@
     {
       "why": "INFO",
       "frames": [
-        "420112147465726e20302e322e302068656c7465632d76330968656c7465632d763305302e322e3001"
+        "420114147465726e20302e322e302068656c7465632d76330968656c7465632d763305302e322e3001"
       ],
       "contents": [
-        "0629420112147465726e20302e322e302068656c7465632d76330968656c7465632d763305302e322e3001"
+        "0629420114147465726e20302e322e302068656c7465632d76330968656c7465632d763305302e322e3001"
       ]
     },
     {
       "why": "a sync of a relay with three neighbours",
       "frames": [
         "80003d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c010545553836380e6ab13b800000000100",
-        "8101d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a0105416c696365000001",
+        "8101d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a0105416c69636500000100",
         "85021d2e3f4000da002a",
         "85031d2e3f4101df002b",
         "85041d2e3f4201e4002c",
@@ -105,7 +105,7 @@
         "430209"
       ],
       "contents": [
-        "063380003d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c010545553836380e6ab13b8000000001002c8101d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a0105416c6963650000010a85021d2e3f4000da002a0a85031d2e3f4101df002b",
+        "063380003d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c010545553836380e6ab13b8000000001002d8101d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a0105416c696365000001000a85021d2e3f4000da002a0a85031d2e3f4101df002b",
         "060a85041d2e3f4201e4002c12870500000e1000057e400000107200000000068806100e6003159407000000000000000000000000000000000000000c95080000020000000000000003430209"
       ]
     }
@@ -259,6 +259,11 @@
       "allowed": false
     },
     {
+      "type": "LOOK",
+      "setting": null,
+      "allowed": false
+    },
+    {
       "type": "SAVE_CONTACT",
       "setting": null,
       "allowed": true
@@ -371,7 +376,7 @@
       ],
       "from": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
       "refused_s": null,
-      "request": "010112",
+      "request": "010114",
       "answer": "acts",
       "refusal": null
     },
@@ -381,7 +386,7 @@
       ],
       "from": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
       "refused_s": 0,
-      "request": "010112",
+      "request": "010114",
       "answer": "acts",
       "refusal": null
     },
@@ -391,7 +396,7 @@
       ],
       "from": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
       "refused_s": null,
-      "request": "010112",
+      "request": "010114",
       "answer": "refuses",
       "refusal": "060341010f"
     },
@@ -401,7 +406,7 @@
       ],
       "from": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
       "refused_s": 59,
-      "request": "010112",
+      "request": "010114",
       "answer": "nothing",
       "refusal": null
     },
@@ -411,7 +416,7 @@
       ],
       "from": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
       "refused_s": 60,
-      "request": "010112",
+      "request": "010114",
       "answer": "refuses",
       "refusal": "060341010f"
     },
@@ -419,7 +424,7 @@
       "owners": [],
       "from": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
       "refused_s": null,
-      "request": "010112",
+      "request": "010114",
       "answer": "refuses",
       "refusal": "060341010f"
     },
@@ -431,7 +436,7 @@
       ],
       "from": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
       "refused_s": null,
-      "request": "010112",
+      "request": "010114",
       "answer": "acts",
       "refusal": null
     }
@@ -535,6 +540,10 @@
     },
     {
       "type": "TRACE",
+      "allowed": false
+    },
+    {
+      "type": "LOOK",
       "allowed": false
     },
     {
@@ -658,7 +667,7 @@
       ],
       "request": "020200000000",
       "answers": [
-        "063380003d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c010545553836380e6ab13b8000000001002c8101d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a0105416c6963650000010a85021d2e3f4000da002a0a85031d2e3f4101df002b",
+        "063380003d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c010545553836380e6ab13b8000000001002d8101d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a0105416c696365000001000a85021d2e3f4000da002a0a85031d2e3f4101df002b",
         "060a85041d2e3f4201e4002c12870500000e1000057e400000107200000000068806100e6003159407000000000000000000000000000000000000000c95080000020000000000000003430209"
       ]
     },
@@ -799,7 +808,7 @@
       ],
       "request": "020200000000",
       "answers": [
-        "063380003d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c010545553836380e6ab13b8000000001002c8101d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a0105416c6963650000010a85020a00000000ec00000a85030a00000101eb0001",
+        "063380003d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c010545553836380e6ab13b8000000001002d8101d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a0105416c696365000001000a85020a00000000ec00000a85030a00000101eb0001",
         "060a85040a00000200ea00020a85050a00000301e900030a85060a00000400e800040a85070a00000501e700050a85080a00000600e600060a85090a00000701e500070a850a0a00000800e400080a850b0a00000901e300090a850c0a00000a00e2000a0a850d0a00000b01e1000b0a850e0a00000c00e0000c",
         "060a850f0a00000d01df000d0a85100a00000e00de000e0a85110a00000f01dd000f0a85120a00001000dc00100a85130a00001101db00110a85140a00001200da00120a85150a00001301d9001312871600000e1000057e400000107200000000068817100e600315941800000000000000000000000000000000000000",
         "060c9519000002000000000000000343021a"

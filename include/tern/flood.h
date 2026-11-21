@@ -214,6 +214,12 @@ void tern_flood_budget(struct tern_flood *f, struct tern_airtime *budget);
  * or there is no slot for it. */
 bool tern_flood_send(struct tern_flood *f, tern_time now, const uint8_t *frame, size_t len);
 
+/* The same, starting at no more than `hops`: 0 for a frame that only the nodes in earshot hear
+ * and nobody passes on, as a card sent in answer to an ask (draft/cards.md, "Asking"). A frame
+ * that starts below 2 is not listened for, and not sent again. */
+bool tern_flood_send_hops(struct tern_flood *f, tern_time now, const uint8_t *frame, size_t len,
+                          uint8_t hops);
+
 /* Whether the allowance for the node's own frames, once those of its own still waiting and one
  * more of `len` bytes are paid for, would still hold the airtime of a 255-byte frame: what a
  * position to a group must leave for words (draft/positions.md, "Words first"). Changes

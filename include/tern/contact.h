@@ -30,6 +30,12 @@
  * also names the initiator's routing id, which is where message_2 goes: the responder does not
  * know who is asking until message_3. None of that is protected.
  *
+ * Each end gives the other a name, the one its user chose to be known by, in an EAD item of
+ * message_3 and message_4 (draft/first-contact.md, "Names"): the initiator's reaches the responder
+ * with message_3, before it decides whether to take the initiator, and the responder's reaches the
+ * initiator with message_4. tern_contact_receive() takes the name to give; tern_contact_name()
+ * tells the one the other gave. A name is the other's claim, proved only to be its choice.
+ *
  * Stack: the deepest call, tern_contact_receive() checking the initiator's address in message_3,
  * uses about 3.6 KB on a Cortex-M4 (Clang, -Os), most of it elliptic-curve arithmetic. A task that
  * runs a handshake needs that on top of its own use; ESP-IDF's default main task (3.5 KB) does
@@ -37,16 +43,21 @@
 
 #define TERN_CONTACT_EPHEMERAL 32
 #define TERN_CONTACT_SECRET 32
-#define TERN_CONTACT_MAX_FRAME 80 /* message_3's frame; the others are 56, 60 and 24 bytes */
+#define TERN_CONTACT_MAX_FRAME 116 /* message_3's frame; the others are 56, 60 and 61 bytes */
+#define TERN_CONTACT_NAME_MAX 31   /* a name given in the handshake: bytes of UTF-8 */
 
 struct tern_contact {
     uint8_t role;   /* TERN_INITIATOR or TERN_RESPONDER; 0 if unused or aborted */
     uint8_t expect; /* the message number this side waits for next, or 0 */
     bool complete;
-    uint8_t peer[TERN_ADDRESS_LEN];      /* the initiator's target, or what the responder learns */
-    uint8_t ephemeral[32];               /* x or y, until it is no longer needed */
-    uint8_t ctag[4][4];                  /* ctag_1 to ctag_4 */
-    uint8_t h_message_1[32];             /* the initiator's, until message_2 */
+    bool named;                     /* the other's name has been heard: name holds it */
+    uint8_t peer[TERN_ADDRESS_LEN]; /* the initiator's target, or what the responder learns */
+    uint8_t ephemeral[32];          /* x or y, until it is no longer needed */
+    uint8_t ctag[4][4];             /* ctag_1 to ctag_4 */
+    union {
+        uint8_t h_message_1[32]; /* the initiator's, until message_2 */
+        uint8_t name[32]; /* then, once named, the other's name: its length, the name, zeros */
+    };
     uint8_t g_rx[32];                    /* the initiator's, until message_2 */
     uint8_t prk[32];                     /* PRK_3e2m (responder) or PRK_4e3m (initiator) */
     uint8_t th[32];                      /* TH_3 (responder) or TH_4 (initiator) */
@@ -86,11 +97,14 @@ int tern_contact_respond(struct tern_contact *c, const struct tern_identity *me,
                          size_t *out_len);
 
 /* Gives a frame to a handshake under way. The initiator answers message_2 with message_3, and
- * completes on message_4; the responder answers message_3 with message_4 and completes. Returns a
- * verdict, or TERN_EINVAL if out_cap is smaller than TERN_CONTACT_MAX_FRAME. */
+ * completes on message_4; the responder answers message_3 with message_4 and completes. `name`
+ * is the one this node gives itself in the message it answers with: UTF-8 of at most
+ * TERN_CONTACT_NAME_MAX bytes, or none (name_len 0). A message_3 or message_4 whose name is not in
+ * the specification's one form fails. Returns a verdict, or TERN_EINVAL if out_cap is smaller
+ * than TERN_CONTACT_MAX_FRAME or the name is too long or not UTF-8. */
 int tern_contact_receive(struct tern_contact *c, const struct tern_identity *me,
-                         const uint8_t *frame, size_t len, uint8_t *out, size_t out_cap,
-                         size_t *out_len);
+                         const uint8_t *name, size_t name_len, const uint8_t *frame, size_t len,
+                         uint8_t *out, size_t out_cap, size_t *out_len);
 
 /* The routing id of the node a frame written here is for. */
 uint32_t tern_contact_destination(const uint8_t *frame);
@@ -102,6 +116,11 @@ bool tern_contact_same(const uint8_t *a, size_t a_len, const uint8_t *b, size_t 
 
 /* Whether the handshake has produced S. */
 bool tern_contact_complete(const struct tern_contact *c);
+
+/* The name the other end gave itself, once heard: by the responder from message_3, which it has
+ * whether or not it then takes the initiator, and by the initiator from message_4. Writes it to
+ * name and returns its length, 0 for none or not yet heard. tern_contact_finish() erases it. */
+size_t tern_contact_name(const struct tern_contact *c, uint8_t name[TERN_CONTACT_NAME_MAX]);
 
 /* Starts the unicast session from a complete handshake, as this node's role, copies the peer's
  * address to peer, and erases the handshake. Returns TERN_OK, or TERN_EINVAL if the handshake is
