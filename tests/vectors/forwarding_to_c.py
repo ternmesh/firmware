@@ -144,6 +144,25 @@ def main():
     ]
     L.append("};")
 
+    L.append("static const struct retried_case retried_cases[] = {")
+    L += [
+        f"    {{\"{c['why']}\", {b(c['heard'])}, {c['last']}u, {b(c['leaf'])}, "
+        f"{0 if c['nearest'] is None else c['nearest']}u, {len(c['routes'])}, "
+        f"{{{routes(c['routes'])}}}, {c['selected']}, "
+        f"{0 if c['next_after'] is None else c['next_after']}u}},"
+        for c in v["retried"]
+    ]
+    L.append("};")
+
+    L.append("static const struct attributed_case attributed_cases[] = {")
+    L += [
+        f"    {{\"{c['why']}\", {hexbytes(c.get('sent', '00'))}, {len(c.get('sent', '')) // 2}, "
+        f"{hexbytes(c.get('heard', '00'))}, {len(c.get('heard', '')) // 2}, "
+        f"{c.get('hops', 0)}, {b(c['from'] is not None)}}},"
+        for c in v["attributed"]
+    ]
+    L.append("};")
+
     with open(out, "w", encoding="utf-8") as f:
         f.write("\n".join(L) + "\n")
 

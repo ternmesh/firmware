@@ -421,9 +421,15 @@ bool tern_forward_send(struct tern_forward *f, tern_time now, uint32_t destinati
         !an_id(destination) || destination == f->route->id || !s) {
         return false;
     }
-    routed = frame[0] == TERN_HDR_ACK && back != INT8_MIN
-                 ? tern_route_back(f->route, destination, f->relayed, &next, &metric)
-                 : tern_route_next(f->route, destination, &next, &metric);
+    if (frame[0] == TERN_HDR_ACK && back != INT8_MIN) {
+        if (!f->relayed) {
+            /* The message came from its source, whose session the caller knows it by. */
+            tern_route_worse(f->route, now, destination, f->heard_power, f->heard_snr_q);
+        }
+        routed = tern_route_back(f->route, destination, f->relayed, &next, &metric);
+    } else {
+        routed = tern_route_next(f->route, destination, &next, &metric);
+    }
     if (!routed) {
         tern_route_want(f->route, now, destination);
         if (!tracked) {
@@ -512,6 +518,10 @@ void tern_forward_heard(struct tern_forward *f, tern_time now, const uint8_t *fr
          * nothing: no node on the way can check it, and anyone can send one. */
         if (passed) {
             tern_route_passed(f->route, now, s->next, h.power, snr_q);
+        } else if (h.hops == f->config.hop_max && s->next == dest_of(s)) {
+            /* The acknowledgement of a message this node handed its destination, made there: a
+             * worse sample of the destination, and nothing better. */
+            tern_route_worse(f->route, now, s->next, h.power, snr_q);
         }
         s->unheard = 0;
         if (s->state == TERN_FORWARD_OUT) {
@@ -531,6 +541,8 @@ void tern_forward_heard(struct tern_forward *f, tern_time now, const uint8_t *fr
     out->back = tern_route_power_back(f->route, h.power, snr_q);
     if (h.destination == f->route->id) {
         f->relayed = h.hops < f->config.hop_max;
+        f->heard_power = h.power;
+        f->heard_snr_q = snr_q;
         tern_route_held_got(f->route, now);
         if (h.hdr == TERN_HDR_TRACE_ANSWER) {
             /* Ends a trace of this node's; any other, or a second, is ignored. */
@@ -897,6 +909,8 @@ static void give_up(struct tern_forward *f, struct tern_forward_slot *s, tern_ti
  * is, and never heard passing it on, is counted against as one given up on. */
 static void try_again(struct tern_forward *f, struct tern_forward_slot *s, tern_time now) {
     uint16_t metric;
+    /* Its first hop never heard it this try: the next goes another way, if there is one. */
+    uint32_t missed = s->unheard > 0 ? s->next : 0;
     if (s->unheard > f->config.hop_retries) {
         f->counts.given_up++;
         tern_route_lost(f->route, now, s->next);
@@ -928,7 +942,8 @@ static void try_again(struct tern_forward *f, struct tern_forward_slot *s, tern_
     s->hops = f->config.hop_max;
     {
         uint32_t next;
-        if (tern_route_next(f->route, dest_of(s), &next, &metric)) {
+        if (missed ? tern_route_retry(f->route, dest_of(s), missed, &next, &metric)
+                   : tern_route_next(f->route, dest_of(s), &next, &metric)) {
             s->unheard = next == s->next ? s->unheard : 0;
             s->next = next;
             s->state = TERN_FORWARD_WAITING;

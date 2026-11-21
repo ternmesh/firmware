@@ -852,19 +852,30 @@ bool tern_route_other(const struct tern_route *r, uint32_t destination, const ui
 /* The neighbour a node's acknowledgement of a message from `source` goes to, and the route's
  * metric: by the selected route, as tern_route_next() gives it, but when that goes to the source
  * itself and the message was passed on by a relay (`relayed`: it came with fewer hops than
- * HOP_MAX), or there is none, by the route held through a relay it may use with the lowest
- * metric, feasible or not; a leaf with none goes by its default route. The source routed round
- * its link to this node, which may be up here only because it has not been heard since it went.
- * Only the first hop is chosen so, and relays pass it on by their selected routes. False if the
- * acknowledgement has nowhere to go. */
+ * HOP_MAX), or there is none, as tern_route_retry() would avoiding the source. The source routed
+ * round its link to this node, which may be up here only because it has not been heard since it
+ * went. Only the first hop is chosen so. False if the acknowledgement has nowhere to go. */
 bool tern_route_back(const struct tern_route *r, uint32_t source, bool relayed, uint32_t *next,
                      uint16_t *metric);
 
+/* The neighbour a source's next try of a message for `destination` goes to first, its last try
+ * having gone to `avoid` and never been heard there: the route held through another neighbour it
+ * may use with the lowest metric, feasible or not; a leaf with none, its nearest relay but `avoid`;
+ * with neither, tern_route_next()'s. Only the first hop is chosen so: the relays pass it on by
+ * their selected routes. False if there is none at all. */
+bool tern_route_retry(const struct tern_route *r, uint32_t destination, uint32_t avoid,
+                      uint32_t *next, uint16_t *metric);
+
+/* A frame known to come from `neighbour` that is not one of those that judge a link both ways - an
+ * acknowledgement its maker sent this node, a message its source sent - sent at `power` dBm and
+ * heard at `snr_q`: a worse sample. It raises the floor a quarter of the way if it is above it,
+ * and the link, if up, is judged afresh; it never lowers a floor or brings a link up, and is no
+ * sign of life. Nothing for a neighbour this node does not keep. */
+void tern_route_worse(struct tern_route *r, tern_time now, uint32_t neighbour, int8_t power,
+                      int16_t snr_q);
+
 /* A frame sent to a neighbour was given up on: the next goes louder, and after dead_hops of them
- * with nothing heard from it between, it is forgotten, and every route through it. A leaf
- * neighbour that does not sleep goes out of use, with reattach, once SOLICIT_HOPS of them are
- * given up and it has not been heard for two of its promises (the specification's "a leaf gone
- * quiet"). */
+ * with nothing heard from it between, it is forgotten, and every route through it. */
 void tern_route_lost(struct tern_route *r, tern_time now, uint32_t neighbour);
 
 /* A neighbour was heard passing on a frame sent to it, which it sent at `power` dBm and was heard

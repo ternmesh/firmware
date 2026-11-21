@@ -98,6 +98,31 @@ struct acked_case {
     uint32_t after; /* 0: none */
 };
 
+struct retried_case {
+    const char *why;
+    bool heard;
+    uint32_t last;
+    bool leaf;
+    uint32_t nearest; /* 0: none */
+    int n;
+    struct {
+        uint32_t next;
+        bool relay, usable, feasible;
+        uint16_t metric;
+    } routes[4];
+    int selected;
+    uint32_t after;
+};
+struct attributed_case {
+    const char *why;
+    uint8_t sent[TERN_FORWARD_FRAME_MAX];
+    size_t sent_len; /* 0: a message for this node, heard with hops */
+    uint8_t heard[TERN_FORWARD_FRAME_MAX];
+    size_t heard_len;
+    uint8_t hops;
+    bool from; /* a worse sample is taken, of the next hop or of the source */
+};
+
 #include "forwarding.h"
 
 #define COUNT(a) (sizeof(a) / sizeof(a)[0])
@@ -894,31 +919,158 @@ static void an_acknowledgement_goes_back_the_way_the_message_came(void) {
     CHECK_EQ_I64(net.node[2].failed, 0);
 }
 
-static void a_leaf_gone_quiet_is_taken_out_of_use_and_reached_another_way(void) {
+/* The desk's messages to the leaf: the first try goes direct, by the link it still holds up, and
+ * is never heard there; the next goes through the patio, though that route is not feasible. */
+static void a_try_unheard_at_its_first_hop_goes_another_way_next(void) {
     const struct tern_route_neighbour *leaf;
-    tern_time quiet;
     drive();
     leaf = kept_by(0, 2);
     CHECK(leaf != NULL && leaf->up && !leaf->out_of_use);
-    quiet = leaf->heard + 2 * leaf->promise;
-    /* Lost: the desk sends them direct, and gives hops up there, two for each. */
     message(0, 2, 0x62);
-    run(net.now + TERN_S(120));
-    message(0, 2, 0x64);
-    run(net.now + TERN_S(120));
-    CHECK_EQ_I64(net.node[2].got, 0);
-    CHECK_EQ_I64(net.node[0].failed, 2);
-    CHECK(leaf->lost >= 3);
-    CHECK(!leaf->out_of_use || net.now > quiet);
-    run(quiet + TERN_S(1));
-    CHECK(leaf->out_of_use);
-    CHECK(leaf->up); /* its link kept */
-    /* The desk asks after the leaf; its newer seq comes back through the patio. */
-    run(net.now + TERN_S(120));
-    message(0, 2, 0x63);
     run(net.now + TERN_S(60));
     CHECK_EQ_I64(net.node[2].got, 1);
     CHECK_EQ_I64(net.node[0].acked, 1);
+    CHECK_EQ_I64(net.node[0].failed, 0);
+    CHECK(leaf->up); /* nothing forgotten, nothing taken out of use */
+}
+
+/* The patio's floor for the leaf is from when the leaf stood beside it. The leaf's own
+ * acknowledgement, made there and heard by the patio that handed it the message, is a worse
+ * sample: the patio's floor for it rises toward the truth, and never falls. */
+static void an_acknowledgement_from_its_maker_raises_a_stale_floor(void) {
+    const struct tern_route_neighbour *leaf;
+    int32_t before;
+    drive();
+    net.snr[1][2] = net.snr[2][1] = 0; /* the leaf far from the patio now, and just heard */
+    leaf = kept_by(1, 2);
+    CHECK(leaf != NULL);
+    before = leaf->floor;
+    message(0, 2, 0x65);
+    run(net.now + TERN_S(60));
+    CHECK_EQ_I64(net.node[2].got, 1);
+    CHECK(leaf->floor > before);
+}
+
+/* The vector's source, its routes to the destination each through a neighbour of its own, sends
+ * its next try to the neighbour it says. */
+static void a_next_try_goes_the_way_the_specification_says(void) {
+    struct tern_lora lora = tern_region_lora(tern_region(TERN_REGION_US915));
+    for (size_t i = 0; i < COUNT(retried_cases); i++) {
+        const struct retried_case *c = &retried_cases[i];
+        struct tern_route_config config = tern_route_defaults(&lora, 22, -9, !c->leaf);
+        struct tern_route_neighbour nb[6];
+        struct tern_route_dest dest[2];
+        struct tern_route r;
+        uint32_t next = 0, destination = 0x0A0B0C0Du;
+        uint16_t metric;
+        int n = 0;
+        if (!c->nearest) {
+            config.default_hops = 0;
+        }
+        tern_route_init(&r, &config, 0x77777777u, nb, 6, dest, 2, 0, 1, 0);
+        r.starting = 0;
+        dest[0] = (struct tern_route_dest){.id = destination, .used = true};
+        for (int k = 0; k < c->n; k++) {
+            nb[n] = (struct tern_route_neighbour){.id = c->routes[k].next,
+                                                  .used = true,
+                                                  .relay = c->routes[k].relay,
+                                                  .up = true,
+                                                  .out_of_use = !c->routes[k].usable,
+                                                  .theirs = 200,
+                                                  .floor = 16 * 10,
+                                                  .promise = TERN_S(600)};
+            n++;
+            dest[0].e[k] =
+                (struct tern_route_entry){.slot = (uint8_t)n,
+                                          .seq = c->routes[k].feasible ? 2 : 1,
+                                          .metric = (uint16_t)(c->routes[k].metric - r.cost)};
+        }
+        dest[0].fd = (struct tern_route_fd){.has = true, .seq = 1, .metric = 0};
+        dest[0].sel = (uint8_t)(c->selected + 1);
+        if (c->nearest) {
+            nb[n++] = (struct tern_route_neighbour){.id = c->nearest,
+                                                    .used = true,
+                                                    .relay = true,
+                                                    .up = true,
+                                                    .theirs = 200,
+                                                    .floor = 16 * -20,
+                                                    .promise = TERN_S(600)};
+        }
+        CHECK(c->heard ? tern_route_next(&r, destination, &next, &metric)
+                       : tern_route_retry(&r, destination, c->last, &next, &metric));
+        CHECK(next == c->after);
+    }
+}
+
+/* A relay, id 0x30, keeps neighbours 7 and 9; it hands on the vector's message, sent as `sent`,
+ * and hears the vector's acknowledgement; or it is the destination of a message heard with `hops`
+ * from neighbour 9 as its source, and acknowledges it. A worse sample raises a floor. */
+static void a_worse_sample_comes_only_from_whom_the_specification_says(void) {
+    struct tern_lora lora = tern_region_lora(tern_region(TERN_REGION_US915));
+    for (size_t i = 0; i < COUNT(attributed_cases); i++) {
+        const struct attributed_case *c = &attributed_cases[i];
+        struct tern_route_config config = tern_route_defaults(&lora, 22, -9, true);
+        struct tern_forward_config fc = tern_forward_defaults();
+        struct tern_route_neighbour nb[4];
+        struct tern_route_dest dest[4];
+        struct tern_forward_slot slots[4];
+        struct tern_route r;
+        struct tern_forward f;
+        struct tern_forward_heard got;
+        const uint32_t own = 0x30;
+        tern_route_init(&r, &config, own, nb, 4, dest, 4, 0, 1, 0);
+        r.starting = 0;
+        for (int k = 0; k < 2; k++) {
+            nb[k] = (struct tern_route_neighbour){.id = k ? 9u : 7u,
+                                                  .used = true,
+                                                  .relay = true,
+                                                  .up = true,
+                                                  .theirs = 200,
+                                                  .floor = 16 * -20,
+                                                  .promise = TERN_S(600)};
+        }
+        tern_forward_init(&f, &fc, &r, slots, 4, 3);
+        if (c->sent_len) {
+            struct tern_forward_head h;
+            uint8_t frame[TERN_FORWARD_FRAME_MAX], out[TERN_FORWARD_FRAME_MAX], handle;
+            enum tern_forward_kind kind;
+            int8_t dbm;
+            CHECK(tern_forward_head_read(&h, c->sent, c->sent_len));
+            /* The route the vector's message went by: to 9 direct, or through 7. */
+            dest[0] = (struct tern_route_dest){.id = h.destination, .used = true, .sel = 0};
+            dest[0].e[0] = (struct tern_route_entry){
+                .slot = h.next == 9 ? 2 : 1, .seq = 1, .metric = h.next == 9 ? 0 : 70};
+            dest[0].sel = dest[0].e[0].slot;
+            memcpy(frame, c->sent, c->sent_len);
+            h.hops++;
+            h.next = own;
+            tern_forward_head_write(&h, frame);
+            tern_forward_heard(&f, 0, frame, c->sent_len, 40, &got);
+            CHECK(tern_forward_poll(&f, TERN_S(1), out, &dbm, &kind, &handle) == c->sent_len);
+            tern_forward_sent(&f, TERN_S(1), handle);
+            tern_forward_heard(&f, TERN_S(2), c->heard, c->heard_len, 0, &got);
+        } else {
+            uint8_t frame[TERN_FORWARD_HEAD + BODY] = {TERN_HDR_MESSAGE};
+            uint8_t ack[TERN_ACK_LEN] = {TERN_HDR_ACK};
+            struct tern_forward_head h = {TERN_HDR_MESSAGE, c->hops, 10, own, own};
+            tern_forward_head_write(&h, frame);
+            memset(frame + TERN_FORWARD_HEAD, 0x71, TERN_FORWARD_TAG);
+            dest[0] = (struct tern_route_dest){.id = 9, .used = true, .sel = 2};
+            dest[0].e[0] = (struct tern_route_entry){.slot = 2, .seq = 1, .metric = 0};
+            tern_forward_heard(&f, 0, frame, sizeof frame, 0, &got);
+            CHECK(got.got == TERN_FORWARD_MESSAGE);
+            memcpy(ack + TERN_FORWARD_HEAD, frame + TERN_FORWARD_HEAD, TERN_FORWARD_TAG);
+            CHECK(tern_forward_send(&f, 0, 9, ack, sizeof ack, false, got.back));
+        }
+        for (int k = 0; k < 2; k++) {
+            /* Only the neighbour the specification names has a floor raised. */
+            bool named = c->from &&
+                         (c->sent_len ? nb[k].id == (uint32_t)(c->sent[3] << 24 | c->sent[4] << 16 |
+                                                               c->sent[5] << 8 | c->sent[6])
+                                      : nb[k].id == 9);
+            CHECK((nb[k].floor > 16 * -20) == named);
+        }
+    }
 }
 
 static void a_node_answers_few_traces_a_minute(void) {
@@ -973,6 +1125,9 @@ int main(void) {
     RUN(a_node_answers_few_traces_a_minute);
     RUN(an_acknowledgement_goes_the_way_the_specification_says);
     RUN(an_acknowledgement_goes_back_the_way_the_message_came);
-    RUN(a_leaf_gone_quiet_is_taken_out_of_use_and_reached_another_way);
+    RUN(a_try_unheard_at_its_first_hop_goes_another_way_next);
+    RUN(an_acknowledgement_from_its_maker_raises_a_stale_floor);
+    RUN(a_next_try_goes_the_way_the_specification_says);
+    RUN(a_worse_sample_comes_only_from_whom_the_specification_says);
     return CHECK_DONE();
 }

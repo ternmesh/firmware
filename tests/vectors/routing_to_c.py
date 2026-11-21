@@ -307,13 +307,12 @@ def main():
     ]
     L.append("};")
 
-    L.append("static const struct quiet_case quiets[] = {")
+    L.append("static const struct worse_case worses[] = {")
     L += [
-        f"    {{{b(c['as_relay'])}, {b(c['relay'])}, {b(c['sleeps'])}, {b(c['up'])}, "
-        f"{b(c['out_of_use'])}, {c['heard_s']}, "
-        f"{-1 if c['promise_s'] is None else c['promise_s']}, {c['hops']}, {c['later_s']}, "
-        f"{b(c['out_of_use_after'])}}},"
-        for c in v["quiet"]
+        f"    {{{json.dumps(c['why'])}, {c['floor_sixteenths']}, {c['their_margin']}, {b(c['up'])}, "
+        f"{c['full_power']}, {c['power']}, {c['snr_quarter_db']}, {c['spreading_factor']}, "
+        f"{c['floor_after']}, {b(c['up_after'])}}},"
+        for c in v["worse"]
     ]
     L.append("};")
 
