@@ -1357,7 +1357,9 @@ void link_asked(struct link *l, tern_time now, const uint8_t address[TERN_ADDRES
     memcpy(a->address, address, TERN_ADDRESS_LEN);
     struct tern_companion_msg m = {.type = TERN_C_ASKED, .why = why};
     memcpy(m.address, address, TERN_ADDRESS_LEN);
-    put_text(&m, name, name_len); /* version 19: its claim, from message_3 */
+    if (name_len != 0) {
+        put_text(&m, name, name_len); /* version 19: its claim, from message_3 */
+    }
     news(l, NULL, &m);
 }
 
