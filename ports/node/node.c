@@ -2891,6 +2891,8 @@ static void link_view(void *ctx, struct link_view *v) {
     }
     v->millivolts = battery_mv;
     v->percent = power_percent(battery_mv); /* 255, unknown, when there is no battery */
+    /* draft/companion.md, POWER: bit 0 charging, bit 1 on external power. */
+    v->power_flags = (uint8_t)((watch.charging ? 0x01 : 0) | (board_external_power() ? 0x02 : 0));
     v->receiver = receiver;
     /* Sleeping (draft/companion.md, SLEEP), as 'sleep' tells it at the console. */
     v->wake = (uint16_t)tern_sleep_wake_s(route.config.sleep_wake);
