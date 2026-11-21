@@ -2891,6 +2891,7 @@ static void link_view(void *ctx, struct link_view *v) {
     }
     v->millivolts = battery_mv;
     v->percent = power_percent(battery_mv); /* 255, unknown, when there is no battery */
+    v->power_flags = board_external_power() ? TERN_C_EXTERNAL_POWER : 0;
     v->receiver = receiver;
     /* Sleeping (draft/companion.md, SLEEP), as 'sleep' tells it at the console. */
     v->wake = (uint16_t)tern_sleep_wake_s(route.config.sleep_wake);
@@ -4747,6 +4748,12 @@ static unsigned off_seconds(tern_time held) {
     return (unsigned)((left + 999999999) / 1000000000);
 }
 
+/* The battery's millivolts, 0 for none, and for none that can be told from the charger on USB
+ * (power_on_external()): that is reported as not known, not as full. */
+static uint16_t read_battery(void) {
+    return power_on_external(board_battery_mv(), board_external_power());
+}
+
 /* Reads the battery every BATTERY_S: a couple of milliseconds, so not often, and never while the
  * radio sends, which pulls the voltage down and would read as the charger going. Two readings in
  * a row too low to run on turn the board off. */
@@ -4756,7 +4763,7 @@ static void poll_battery(void) {
         return;
     }
     due = board_now() + (tern_time)BATTERY_S * 1000000000LL;
-    battery_mv = board_battery_mv();
+    battery_mv = read_battery();
     power_watch(&watch, battery_mv);
     if (power_empty(&watch)) {
         turn_off(UI_OFF_EMPTY);
@@ -5015,7 +5022,7 @@ __attribute__((noreturn)) static void halt(enum ui_fault why, int code) {
         was = pressed;
         if (now >= battery_due) {
             battery_due = now + (tern_time)BATTERY_S * 1000000000LL;
-            battery_mv = board_battery_mv();
+            battery_mv = read_battery();
             power_watch(&watch, battery_mv);
             if (power_empty(&watch)) {
                 turn_off(UI_OFF_EMPTY);
@@ -5063,7 +5070,7 @@ void node_main(void) {
     show_start();
 
     /* Too little left to run on: say so, and off, before anything draws more. */
-    battery_mv = have_battery ? board_battery_mv() : 0;
+    battery_mv = have_battery ? read_battery() : 0;
     if (battery_mv >= POWER_NONE_MV && battery_mv < POWER_EMPTY_MV) {
         turn_off(UI_OFF_EMPTY);
     }

@@ -51,6 +51,18 @@ static void a_voltage_is_a_charge(void) {
     }
 }
 
+/* A RAK4631 on USB with no battery fitted reads 4.23 V, its charger's float voltage: not a full
+ * battery, which it cannot be told from, but none known. Off USB, or below it, the reading
+ * stands. */
+static void the_chargers_float_on_usb_is_no_battery(void) {
+    CHECK_EQ_I64(power_on_external(4230, true), 0);
+    CHECK_EQ_I64(power_on_external(POWER_FLOAT_MV, true), 0);
+    CHECK_EQ_I64(power_percent(power_on_external(4230, true)), POWER_UNKNOWN);
+    CHECK_EQ_I64(power_on_external(POWER_FLOAT_MV - 1, true), POWER_FLOAT_MV - 1); /* charging */
+    CHECK_EQ_I64(power_on_external(4230, false), 4230); /* a full battery, off USB */
+    CHECK_EQ_I64(power_on_external(0, true), 0);
+}
+
 static void a_step_up_is_a_charger(void) {
     struct power_watch w = {0};
     power_watch(&w, 3700);
@@ -119,6 +131,7 @@ int main(void) {
     RUN(a_v3_1_is_found_even_when_off_is_not_quite_off);
     RUN(no_battery_teaches_nothing);
     RUN(a_voltage_is_a_charge);
+    RUN(the_chargers_float_on_usb_is_no_battery);
     RUN(a_step_up_is_a_charger);
     RUN(a_slow_fall_is_not_charging);
     RUN(small_changes_are_not_a_charger);

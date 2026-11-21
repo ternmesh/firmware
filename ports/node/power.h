@@ -33,6 +33,14 @@ uint16_t power_pick(struct power_sense *s, uint16_t at_low_mv, uint16_t at_high_
  * percent or so, that reads high while it charges. POWER_UNKNOWN below POWER_NONE_MV. */
 uint8_t power_percent(uint16_t mv);
 
+/* A reading taken on external power (USB), which may not be a battery's. With none fitted, the
+ * charger holds the battery's line at its float voltage, about 4.2 V, which reads as a full
+ * battery; a full battery on the charger reads the same, so the two cannot be told apart. So on
+ * external power a reading at POWER_FLOAT_MV or more is taken as none: 0. Below it, a battery is
+ * fitted and charging, and the reading stands. */
+#define POWER_FLOAT_MV 4150
+uint16_t power_on_external(uint16_t mv, bool external);
+
 /* Whether the battery is charging, and whether it is empty, from its readings one after another.
  *
  * The board has no wire from its charger to the chip, so charging is inferred from the voltage:

@@ -1058,6 +1058,9 @@ uint16_t board_battery_mv(void) {
     return mv;
 }
 
+/* Not known here: these boards' USB power reaches the chip through no pin it can read. */
+bool board_external_power(void) { return false; }
+
 /* --- Turning off ----------------------------------------------------------------------------- */
 
 bool board_woke_by_timer(void) { return esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER; }
