@@ -130,7 +130,8 @@ def main():
 
     def routes(rs):
         return ", ".join(
-            f"{{{r['next']}u, {b(r['relay'])}, {b(r['usable'])}, {b(r['feasible'])}, {r['metric']}}}"
+            f"{{{r['next']}u, {b(r['relay'])}, {b(r['usable'])}, {b(r['feasible'])}, {r['metric']}, "
+            f"{b(r.get('lost', False))}}}"
             for r in rs
         )
 
@@ -146,9 +147,9 @@ def main():
 
     L.append("static const struct retried_case retried_cases[] = {")
     L += [
-        f"    {{\"{c['why']}\", {b(c['heard'])}, {c['last']}u, {b(c['leaf'])}, "
+        f"    {{\"{c['why']}\", {b(c['heard'])}, {c['last'] or 0}u, {b(c['leaf'])}, "
         f"{0 if c['nearest'] is None else c['nearest']}u, {len(c['routes'])}, "
-        f"{{{routes(c['routes'])}}}, {c['selected']}, "
+        f"{{{routes(c['routes'])}}}, {-1 if c['selected'] is None else c['selected']}, "
         f"{0 if c['next_after'] is None else c['next_after']}u}},"
         for c in v["retried"]
     ]

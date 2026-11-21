@@ -1,5 +1,5 @@
 {
-  "description": "Frames that follow routes, draft 0 (draft/forwarding.md). Routing ids are numbers; frames and tags are hex. In hops, sent is the frame the node sent and heard the one it then received; ends is whether that ends the hop, and teaches whether the node takes it as a sample of its neighbour's floor. In waits, listens is whether a node that has sent the frame listens for its hop to succeed, and sends it again if it does not. In entries, a relay with routing id id receives the trace or trace answer frame, for it, heard at snr_quarter_db, and passes on a frame whose hops is hops and whose bytes from destination on are passed, or drops it where passed is null. In answers, the node id receives the trace frame, heard at snr_quarter_db, as its destination, the keeper of its destination asleep, or a relay with no route to it (as), and answers with a trace answer whose bytes from destination on are answer, or drops it where answer is null. In backs, power is what a frame was sent at in dBm and snr_quarter_db what it was heard at, and needs is what an answer must go at for its sender to hear it, between the node's lowest and full power. In powers, neighbour is what Routes gives for the neighbour, its boost included, back is what the node the frame came from needs or null for a frame that answers none, and try counts from 0. In agains, a frame of length bytes is sent again at that spreading factor and bandwidth, with the profiles' preamble and coding rate (vectors/phy.json), by a hop that heard nothing of it (hop) or by its source with no acknowledgement (source): airtime_ns is its time on the air and longest_ns the longest it may wait first. In listens, a radio at that spreading factor and bandwidth finds a preamble or a header, says a frame has ended (end), or is given a frame to send (sent) at the times in events, and receiving is whether a node may not start to send at each time in asks, every event at or before that time having happened. In acknowledged, a message arrived with hops at its destination, a leaf or not, whose nearest relay is nearest if it is a leaf that takes default routes (null for none); routes are the routes it holds to the message's source, each through the neighbour next, a relay or not, that it may use or not, feasible or not, with its metric, and selected the index of the one selected (null for none); next_after is the neighbour it sends the acknowledgement to (null for none). In retried, a source holds routes to its message's destination as in acknowledged, its last try having gone first to last and been heard there or not; next_after is where its next try goes first. In attributed, a node sent the message sent and then received the acknowledgement heard, and takes a worse sample of the message's next hop (from next) or of no one (null); or, as the destination of a message it accepts that arrived with hops, of its source (source) or of no one.",
+  "description": "Frames that follow routes, draft 0 (draft/forwarding.md). Routing ids are numbers; frames and tags are hex. In hops, sent is the frame the node sent and heard the one it then received; ends is whether that ends the hop, and teaches whether the node takes it as a sample of its neighbour's floor. In waits, listens is whether a node that has sent the frame listens for its hop to succeed, and sends it again if it does not. In entries, a relay with routing id id receives the trace or trace answer frame, for it, heard at snr_quarter_db, and passes on a frame whose hops is hops and whose bytes from destination on are passed, or drops it where passed is null. In answers, the node id receives the trace frame, heard at snr_quarter_db, as its destination, the keeper of its destination asleep, or a relay with no route to it (as), and answers with a trace answer whose bytes from destination on are answer, or drops it where answer is null. In backs, power is what a frame was sent at in dBm and snr_quarter_db what it was heard at, and needs is what an answer must go at for its sender to hear it, between the node's lowest and full power. In powers, neighbour is what Routes gives for the neighbour, its boost included, back is what the node the frame came from needs or null for a frame that answers none, and try counts from 0. In agains, a frame of length bytes is sent again at that spreading factor and bandwidth, with the profiles' preamble and coding rate (vectors/phy.json), by a hop that heard nothing of it (hop) or by its source with no acknowledgement (source): airtime_ns is its time on the air and longest_ns the longest it may wait first. In listens, a radio at that spreading factor and bandwidth finds a preamble or a header, says a frame has ended (end), or is given a frame to send (sent) at the times in events, and receiving is whether a node may not start to send at each time in asks, every event at or before that time having happened. In acknowledged, a message arrived with hops at its destination, a leaf or not, whose nearest relay is nearest if it is a leaf that takes default routes (null for none); routes are the routes it holds to the message's source, each through the neighbour next, a relay or not, that it may use or not, feasible or not, with its metric, and selected the index of the one selected (null for none); next_after is the neighbour it sends the acknowledgement to (null for none). In retried, a source holds routes to its message's destination as in acknowledged, its last try having gone first to last and been heard there or not, selected null where it has no route it may select; each route's lost says whether a hop has been given up at its neighbour since it was last heard; next_after is where its next try goes first (null for nowhere). In attributed, a node sent the message sent and then received the acknowledgement heard, and takes a worse sample of the message's next hop (from next) or of no one (null); or, as the destination of a message it accepts that arrived with hops, of its source (source) or of no one.",
   "generator": "vectors/tools/forwarding.py",
   "heads": [
     {
@@ -1984,14 +1984,16 @@
           "relay": false,
           "usable": true,
           "feasible": true,
-          "metric": 70
+          "metric": 70,
+          "lost": false
         },
         {
           "next": 489570112,
           "relay": true,
           "usable": true,
           "feasible": false,
-          "metric": 140
+          "metric": 140,
+          "lost": false
         }
       ],
       "selected": 0,
@@ -2009,14 +2011,16 @@
           "relay": false,
           "usable": true,
           "feasible": true,
-          "metric": 70
+          "metric": 70,
+          "lost": false
         },
         {
           "next": 489570112,
           "relay": true,
           "usable": true,
           "feasible": false,
-          "metric": 140
+          "metric": 140,
+          "lost": false
         }
       ],
       "selected": 0,
@@ -2034,21 +2038,24 @@
           "relay": false,
           "usable": true,
           "feasible": true,
-          "metric": 70
+          "metric": 70,
+          "lost": false
         },
         {
           "next": 709494340,
           "relay": true,
           "usable": true,
           "feasible": false,
-          "metric": 210
+          "metric": 210,
+          "lost": false
         },
         {
           "next": 489570112,
           "relay": true,
           "usable": true,
           "feasible": false,
-          "metric": 140
+          "metric": 140,
+          "lost": false
         }
       ],
       "selected": 0,
@@ -2066,7 +2073,8 @@
           "relay": false,
           "usable": true,
           "feasible": true,
-          "metric": 70
+          "metric": 70,
+          "lost": false
         }
       ],
       "selected": 0,
@@ -2084,14 +2092,16 @@
           "relay": false,
           "usable": true,
           "feasible": true,
-          "metric": 70
+          "metric": 70,
+          "lost": false
         },
         {
           "next": 489570112,
           "relay": true,
           "usable": false,
           "feasible": false,
-          "metric": 140
+          "metric": 140,
+          "lost": false
         }
       ],
       "selected": 0,
@@ -2109,14 +2119,16 @@
           "relay": true,
           "usable": true,
           "feasible": true,
-          "metric": 140
+          "metric": 140,
+          "lost": false
         },
         {
           "next": 709494340,
           "relay": true,
           "usable": true,
           "feasible": true,
-          "metric": 70
+          "metric": 70,
+          "lost": false
         }
       ],
       "selected": 0,
@@ -2134,14 +2146,16 @@
           "relay": false,
           "usable": false,
           "feasible": true,
-          "metric": 70
+          "metric": 70,
+          "lost": false
         },
         {
           "next": 489570112,
           "relay": true,
           "usable": true,
           "feasible": false,
-          "metric": 140
+          "metric": 140,
+          "lost": false
         }
       ],
       "selected": null,
@@ -2159,7 +2173,8 @@
           "relay": false,
           "usable": false,
           "feasible": true,
-          "metric": 70
+          "metric": 70,
+          "lost": false
         }
       ],
       "selected": null,
@@ -2177,14 +2192,16 @@
           "relay": false,
           "usable": true,
           "feasible": true,
-          "metric": 70
+          "metric": 70,
+          "lost": false
         },
         {
           "next": 489570112,
           "relay": true,
           "usable": true,
           "feasible": false,
-          "metric": 140
+          "metric": 140,
+          "lost": false
         }
       ],
       "selected": 0,
@@ -2202,7 +2219,8 @@
           "relay": false,
           "usable": true,
           "feasible": true,
-          "metric": 70
+          "metric": 70,
+          "lost": false
         }
       ],
       "selected": 0,
@@ -2220,14 +2238,16 @@
           "relay": false,
           "usable": false,
           "feasible": true,
-          "metric": 70
+          "metric": 70,
+          "lost": false
         },
         {
           "next": 489570112,
           "relay": true,
           "usable": true,
           "feasible": false,
-          "metric": 140
+          "metric": 140,
+          "lost": false
         }
       ],
       "selected": null,
@@ -2245,7 +2265,8 @@
           "relay": false,
           "usable": true,
           "feasible": true,
-          "metric": 70
+          "metric": 70,
+          "lost": false
         }
       ],
       "selected": 0,
@@ -2265,14 +2286,16 @@
           "relay": false,
           "usable": true,
           "feasible": true,
-          "metric": 70
+          "metric": 70,
+          "lost": false
         },
         {
           "next": 489570112,
           "relay": true,
           "usable": true,
           "feasible": false,
-          "metric": 140
+          "metric": 140,
+          "lost": false
         }
       ],
       "selected": 0,
@@ -2290,14 +2313,16 @@
           "relay": false,
           "usable": true,
           "feasible": true,
-          "metric": 70
+          "metric": 70,
+          "lost": false
         },
         {
           "next": 489570112,
           "relay": true,
           "usable": true,
           "feasible": false,
-          "metric": 140
+          "metric": 140,
+          "lost": false
         }
       ],
       "selected": 0,
@@ -2315,21 +2340,24 @@
           "relay": false,
           "usable": true,
           "feasible": true,
-          "metric": 70
+          "metric": 70,
+          "lost": false
         },
         {
           "next": 709494340,
           "relay": true,
           "usable": true,
           "feasible": false,
-          "metric": 210
+          "metric": 210,
+          "lost": false
         },
         {
           "next": 489570112,
           "relay": true,
           "usable": true,
           "feasible": false,
-          "metric": 140
+          "metric": 140,
+          "lost": false
         }
       ],
       "selected": 0,
@@ -2347,7 +2375,8 @@
           "relay": false,
           "usable": true,
           "feasible": true,
-          "metric": 70
+          "metric": 70,
+          "lost": false
         }
       ],
       "selected": 0,
@@ -2365,14 +2394,16 @@
           "relay": false,
           "usable": true,
           "feasible": true,
-          "metric": 70
+          "metric": 70,
+          "lost": false
         },
         {
           "next": 489570112,
           "relay": true,
           "usable": false,
           "feasible": false,
-          "metric": 140
+          "metric": 140,
+          "lost": false
         }
       ],
       "selected": 0,
@@ -2390,14 +2421,16 @@
           "relay": true,
           "usable": true,
           "feasible": true,
-          "metric": 140
+          "metric": 140,
+          "lost": false
         },
         {
           "next": 168496141,
           "relay": false,
           "usable": true,
           "feasible": true,
-          "metric": 70
+          "metric": 70,
+          "lost": false
         }
       ],
       "selected": 0,
@@ -2415,7 +2448,8 @@
           "relay": false,
           "usable": true,
           "feasible": true,
-          "metric": 70
+          "metric": 70,
+          "lost": false
         }
       ],
       "selected": 0,
@@ -2433,11 +2467,128 @@
           "relay": false,
           "usable": true,
           "feasible": true,
-          "metric": 70
+          "metric": 70,
+          "lost": false
         }
       ],
       "selected": 0,
       "next_after": 168496141
+    },
+    {
+      "why": "round a neighbour frames were lost to since it was heard",
+      "heard": false,
+      "last": 168496141,
+      "leaf": false,
+      "nearest": null,
+      "routes": [
+        {
+          "next": 168496141,
+          "relay": false,
+          "usable": true,
+          "feasible": true,
+          "metric": 70,
+          "lost": false
+        },
+        {
+          "next": 709494340,
+          "relay": true,
+          "usable": true,
+          "feasible": false,
+          "metric": 140,
+          "lost": true
+        },
+        {
+          "next": 489570112,
+          "relay": true,
+          "usable": true,
+          "feasible": false,
+          "metric": 140,
+          "lost": false
+        }
+      ],
+      "selected": 0,
+      "next_after": 489570112
+    },
+    {
+      "why": "every other lost to as well: the lowest metric",
+      "heard": false,
+      "last": 168496141,
+      "leaf": false,
+      "nearest": null,
+      "routes": [
+        {
+          "next": 168496141,
+          "relay": false,
+          "usable": true,
+          "feasible": true,
+          "metric": 70,
+          "lost": false
+        },
+        {
+          "next": 709494340,
+          "relay": true,
+          "usable": true,
+          "feasible": false,
+          "metric": 210,
+          "lost": true
+        },
+        {
+          "next": 489570112,
+          "relay": true,
+          "usable": true,
+          "feasible": false,
+          "metric": 140,
+          "lost": true
+        }
+      ],
+      "selected": 0,
+      "next_after": 489570112
+    },
+    {
+      "why": "no route it may select: round no neighbour",
+      "heard": false,
+      "last": null,
+      "leaf": false,
+      "nearest": null,
+      "routes": [
+        {
+          "next": 168496141,
+          "relay": false,
+          "usable": false,
+          "feasible": true,
+          "metric": 70,
+          "lost": false
+        },
+        {
+          "next": 489570112,
+          "relay": true,
+          "usable": true,
+          "feasible": false,
+          "metric": 140,
+          "lost": false
+        }
+      ],
+      "selected": null,
+      "next_after": 489570112
+    },
+    {
+      "why": "no route it may select, none held: none",
+      "heard": false,
+      "last": null,
+      "leaf": false,
+      "nearest": null,
+      "routes": [
+        {
+          "next": 168496141,
+          "relay": false,
+          "usable": false,
+          "feasible": true,
+          "metric": 70,
+          "lost": false
+        }
+      ],
+      "selected": null,
+      "next_after": null
     }
   ],
   "attributed": [

@@ -859,10 +859,11 @@ bool tern_route_back(const struct tern_route *r, uint32_t source, bool relayed, 
                      uint16_t *metric);
 
 /* The neighbour a source's next try of a message for `destination` goes to first, its last try
- * having gone to `avoid` and never been heard there: the route held through another neighbour it
- * may use with the lowest metric, feasible or not; a leaf with none, its nearest relay but `avoid`;
- * with neither, tern_route_next()'s. Only the first hop is chosen so: the relays pass it on by
- * their selected routes. False if there is none at all. */
+ * having gone to `avoid` and never been heard there (0: a source with no route it may select): its
+ * route round `avoid` - of the routes held through other neighbours it may use, feasible or not,
+ * one at which no hop has been given up since it was last heard, then the lowest metric; a leaf
+ * with none, its nearest relay but `avoid`; with neither, tern_route_next()'s. Only the first hop
+ * is chosen so: the relays pass it on by their selected routes. False if there is none at all. */
 bool tern_route_retry(const struct tern_route *r, uint32_t destination, uint32_t avoid,
                       uint32_t *next, uint16_t *metric);
 

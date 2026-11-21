@@ -2629,23 +2629,33 @@ bool tern_route_other(const struct tern_route *r, uint32_t destination, const ui
     return found;
 }
 
-/* The route held to `destination` through a neighbour it may use other than `avoid` with the
- * lowest metric, feasible or not; a leaf with none, its nearest relay but `avoid`. */
+/* The route held to `destination` through a neighbour it may use other than `avoid`: of those, one
+ * at which no hop has been given up since it was last heard, then the lowest metric, feasible or
+ * not; a leaf with none, its nearest relay but `avoid`. A neighbour that
+ * has lost frames since it was last heard may be one a node still holds a link to only because it
+ * has not heard it since, as a relay out of reach that ties on metric with one in reach. */
 static bool around(const struct tern_route *r, uint32_t destination, uint32_t avoid, uint32_t *next,
                    uint16_t *metric) {
     struct tern_route_dest *d = dest_of(r, destination);
-    uint16_t best = INF;
+    const struct tern_route_entry *best = NULL;
+    bool best_lost = false;
     uint8_t s;
     for (int i = 0; d && i < TERN_ROUTE_KEPT; i++) {
         const struct tern_route_entry *e = &d->e[i];
-        if (e->slot && slot(r, e->slot)->id != avoid && usable(r, e->slot, d->id) &&
-            total(e->metric, r->cost) < best) {
-            best = total(e->metric, r->cost);
-            *next = slot(r, e->slot)->id;
-            *metric = best;
+        bool lost;
+        if (!e->slot || slot(r, e->slot)->id == avoid || !usable(r, e->slot, d->id)) {
+            continue;
+        }
+        lost = slot(r, e->slot)->lost > 0;
+        if (!best || lost < best_lost ||
+            (lost == best_lost && total(e->metric, r->cost) < total(best->metric, r->cost))) {
+            best = e;
+            best_lost = lost;
         }
     }
-    if (best != INF) {
+    if (best) {
+        *next = slot(r, best->slot)->id;
+        *metric = total(best->metric, r->cost);
         return true;
     }
     s = nearest_relay(r, &avoid, 1);

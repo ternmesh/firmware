@@ -432,6 +432,9 @@ bool tern_forward_send(struct tern_forward *f, tern_time now, uint32_t destinati
     }
     if (!routed) {
         tern_route_want(f->route, now, destination);
+        /* A message of its own with no route it may select goes by one it holds, feasible or
+         * not, while it asks: only its first hop is chosen so. */
+        routed = tracked && tern_route_retry(f->route, destination, 0, &next, &metric);
         if (!tracked) {
             return false;
         }
@@ -969,8 +972,14 @@ static void try_again(struct tern_forward *f, struct tern_forward_slot *s, tern_
     s->hops = f->config.hop_max;
     {
         uint32_t next;
-        if (missed ? tern_route_retry(f->route, dest_of(s), missed, &next, &metric)
-                   : tern_route_next(f->route, dest_of(s), &next, &metric)) {
+        bool routed = missed ? tern_route_retry(f->route, dest_of(s), missed, &next, &metric)
+                             : tern_route_next(f->route, dest_of(s), &next, &metric);
+        if (!routed) {
+            /* No route it may select: one it holds, feasible or not, while it asks. */
+            tern_route_want(f->route, now, dest_of(s));
+            routed = tern_route_retry(f->route, dest_of(s), 0, &next, &metric);
+        }
+        if (routed) {
             s->unheard = next == s->next ? s->unheard : 0;
             s->next = next;
             s->state = TERN_FORWARD_WAITING;
