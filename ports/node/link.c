@@ -152,6 +152,9 @@ static void news_contact(struct link *l, struct link_conn *to, const struct link
     m.wake = m.session != 0 && l->host.wake != NULL ? l->host.wake(l->host.ctx, c->address) : 0;
     m.owner = link_owner(l, c->address) ? 1 : 0;
     put_text(&m, c->name, c->name_len);
+    /* The name it gave itself (version 19): kept in flash, not here. */
+    m.card_name_len =
+        l->host.says != NULL ? (uint8_t)l->host.says(l->host.ctx, c->address, m.card_name) : 0;
     news(l, to, &m);
 }
 
@@ -1333,8 +1336,8 @@ void link_wake_changed(struct link *l, const uint8_t address[TERN_ADDRESS_LEN]) 
     }
 }
 
-void link_asked(struct link *l, tern_time now, const uint8_t address[TERN_ADDRESS_LEN],
-                uint8_t why) {
+void link_asked(struct link *l, tern_time now, const uint8_t address[TERN_ADDRESS_LEN], uint8_t why,
+                const uint8_t *name, size_t name_len) {
     struct link_asked *a = NULL;
     for (size_t i = 0; i < LINK_ASKED; i++) {
         struct link_asked *x = &l->asked[i];
@@ -1354,6 +1357,9 @@ void link_asked(struct link *l, tern_time now, const uint8_t address[TERN_ADDRES
     memcpy(a->address, address, TERN_ADDRESS_LEN);
     struct tern_companion_msg m = {.type = TERN_C_ASKED, .why = why};
     memcpy(m.address, address, TERN_ADDRESS_LEN);
+    if (name_len != 0) {
+        put_text(&m, name, name_len); /* version 19: its claim, from message_3 */
+    }
     news(l, NULL, &m);
 }
 
@@ -2650,6 +2656,16 @@ static void receive(struct link *l, unsigned conn, tern_time now, const uint8_t 
     case TERN_C_TRACE:
         trace_request(l, q);
         break;
+    case TERN_C_LOOK: {
+        /* Answered once the ask waits for the air, or refused within ASK_GAP of the last. */
+        uint8_t code = l->host.look == NULL ? TERN_C_ERR_NOT_NOW : l->host.look(l->host.ctx);
+        if (code != 0) {
+            error(l, q->seq, code);
+        } else {
+            answer(l, TERN_C_OK, q->seq);
+        }
+        break;
+    }
     case TERN_C_RESTART: {
         /* As OFF: answered first, and the board restarts only once the answer is out. */
         uint8_t code = l->host.restart == NULL ? TERN_C_ERR_NOT_NOW : l->host.restart(l->host.ctx);

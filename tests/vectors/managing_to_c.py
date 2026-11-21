@@ -43,7 +43,7 @@ def main():
     L.append("};")
     types = {"HELLO": 0x01, "SYNC": 0x02, "PING": 0x03, "SET_TIME": 0x04, "SET": 0x05, "OFF": 0x06,
              "SEND": 0x10, "READ": 0x11, "FORGET": 0x12, "MANAGE": 0x13, "OWNER": 0x14, "TRACE": 0x15,
-             "SAVE_CONTACT": 0x18, "REMOVE_CONTACT": 0x19, "END_SESSION": 0x1A,
+             "LOOK": 0x16, "SAVE_CONTACT": 0x18, "REMOVE_CONTACT": 0x19, "END_SESSION": 0x1A,
              "MAKE_GROUP": 0x20, "LEAVE_GROUP": 0x21, "NAME_GROUP": 0x22, "SEND_GROUP": 0x23,
              "SEND_INVITE": 0x24, "JOIN": 0x25, "GROUP_LINK": 0x26, "JOIN_LINK": 0x27,
              "FORGET_GROUP": 0x28, "UPDATE_BEGIN": 0x30, "UPDATE_DATA": 0x31, "UPDATE_END": 0x32,

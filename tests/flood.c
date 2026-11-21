@@ -384,6 +384,28 @@ static void test_own(void) {
     CHECK_EQ_U64(x.f.counts.heard, 0);
 }
 
+/* A frame of the node's own may start lower than the flood would, as a card sent in answer to an
+ * ask, which starts at 0: only those in earshot hear it, and it is not listened for or sent
+ * again. */
+static void test_own_hops(void) {
+    struct node x;
+    uint8_t frame[TERN_FLOOD_FRAME_MAX], out[TERN_FLOOD_FRAME_MAX];
+    int8_t dbm;
+    enum tern_flood_kind kind;
+    uint8_t h;
+    start(&x, false, 9);
+    CHECK(x.f.config.resends > 0);
+    CHECK(tern_flood_send_hops(&x.f, 0, frame, make(frame, 120, 0, 1), 0));
+    CHECK(tern_flood_poll(&x.f, 0, out, &dbm, &kind, &h) == 120 && kind == TERN_FLOOD_OWN);
+    CHECK(out[1] == 0);
+    tern_flood_sent(&x.f, 0, h);
+    CHECK_EQ_I64(tern_flood_due(&x.f), INT64_MAX);
+    CHECK(tern_flood_poll(&x.f, TERN_S(3600), out, &dbm, &kind, &h) == 0);
+    /* And never higher than the flood starts. */
+    CHECK(tern_flood_send_hops(&x.f, 0, frame, make(frame, 120, 0, 2), 200));
+    CHECK(tern_flood_poll(&x.f, 0, out, &dbm, &kind, &h) == 120 && out[1] == x.f.config.hops);
+}
+
 /* A node's own frames go in the order it gave them, however long the allowance holds them: one
  * given while others wait goes after them, even in the slot the first to go has freed. On a board,
  * a stream of group messages faster than the allowance once held the three behind the first until
@@ -1094,6 +1116,7 @@ int main(void) {
     RUN(test_waits);
     RUN(test_seen);
     RUN(test_own);
+    RUN(test_own_hops);
     RUN(test_own_order);
     RUN(test_own_room);
     RUN(test_unpaid);

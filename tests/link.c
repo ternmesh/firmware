@@ -143,6 +143,9 @@ struct board {
     unsigned wipes;     /* how many times WIPE asked the board to erase itself */
     uint8_t wipe_answer;
     unsigned restarts; /* how many times RESTART asked the board to restart */
+    unsigned looks;    /* how many times LOOK asked the board to ask for cards */
+    uint8_t look_answer;
+    const char *bob_says; /* the name Bob gave in first contact, or NULL for none */
     uint8_t owners[LINK_OWNERS * TERN_ADDRESS_LEN];
     size_t owners_len;
     uint8_t out[96][TERN_COMPANION_MAX_FRAME];
@@ -499,6 +502,21 @@ static uint8_t board_trace(void *ctx, uint32_t id, uint32_t to) {
     return TERN_C_ERR_FULL;
 }
 
+static uint8_t board_look(void *ctx) {
+    struct board *b = ctx;
+    b->looks += b->look_answer == 0;
+    return b->look_answer;
+}
+
+static size_t board_says(void *ctx, const uint8_t address[TERN_ADDRESS_LEN], uint8_t *name) {
+    struct board *b = ctx;
+    if (b->bob_says == NULL || memcmp(address, bob, TERN_ADDRESS_LEN) != 0) {
+        return 0;
+    }
+    memcpy(name, b->bob_says, strlen(b->bob_says));
+    return strlen(b->bob_says);
+}
+
 static size_t board_load_owners(void *ctx, uint8_t *buf, size_t cap) {
     struct board *b = ctx;
     size_t n = b->owners_len < cap ? b->owners_len : cap;
@@ -580,6 +598,8 @@ static void start(void) {
         .wipe = board_wipe,
         .restart = board_restart,
         .trace = board_trace,
+        .look = board_look,
+        .says = board_says,
         .load_owners = board_load_owners,
         .save_owners = board_save_owners,
         /* The specification's test key, as the vectors' node holds it. */
@@ -738,7 +758,7 @@ static void follow(const char *name, const struct step *steps, size_t n, size_t 
             if (m.type == TERN_C_STATE) {
                 link_state(&companion, m.id, m.state, m.reason, (uint16_t)m.wait);
             } else if (m.type == TERN_C_ASKED) {
-                link_asked(&companion, TERN_S(100), m.address, m.why);
+                link_asked(&companion, TERN_S(100), m.address, m.why, m.text, m.text_len);
             } else if (m.type == TERN_C_OWNER_CHANGED) {
                 /* The managed node's notice comes over the mesh. */
                 uint8_t notice[TERN_MANAGE_NOTICE_LEN];
@@ -1478,7 +1498,7 @@ static void a_sync_tells_positions_and_sharing(void) {
 }
 
 static void carol_asks(void) {
-    link_asked(&companion, TERN_S(100), carol, TERN_C_ASKED_NOT_CONTACT);
+    link_asked(&companion, TERN_S(100), carol, TERN_C_ASKED_NOT_CONTACT, NULL, 0);
 }
 
 /* A client of version 0 is sent nothing version 1 added, and its news is counted without it. */
@@ -2220,27 +2240,85 @@ static void who_asked_is_news_no_more_than_every_quiet(void) {
     hello();
     board.n_out = 0;
     CHECK(!link_contact(&companion, carol));
-    link_asked(&companion, TERN_S(100), carol, TERN_C_ASKED_NOT_CONTACT);
+    link_asked(&companion, TERN_S(100), carol, TERN_C_ASKED_NOT_CONTACT, NULL, 0);
     CHECK_EQ_U64(board.n_out, 1);
     CHECK_EQ_I64(sent(0).type, TERN_C_ASKED);
     CHECK_EQ_I64(sent(0).why, TERN_C_ASKED_NOT_CONTACT);
     CHECK(memcmp(sent(0).address, carol, TERN_ADDRESS_LEN) == 0);
     /* Its frames come again within seconds: one telling is enough. */
-    link_asked(&companion, TERN_S(100) + LINK_QUIET - 1, carol, TERN_C_ASKED_NOT_CONTACT);
+    link_asked(&companion, TERN_S(100) + LINK_QUIET - 1, carol, TERN_C_ASKED_NOT_CONTACT, NULL, 0);
     CHECK_EQ_U64(board.n_out, 1);
-    link_asked(&companion, TERN_S(101), bob, TERN_C_ASKED_NO_ROOM);
+    link_asked(&companion, TERN_S(101), bob, TERN_C_ASKED_NO_ROOM, NULL, 0);
     CHECK_EQ_U64(board.n_out, 2);
     CHECK_EQ_I64(sent(1).why, TERN_C_ASKED_NO_ROOM);
     /* Each address has its own quiet: another asking between does not end the first's. */
-    link_asked(&companion, TERN_S(102), carol, TERN_C_ASKED_NOT_CONTACT);
+    link_asked(&companion, TERN_S(102), carol, TERN_C_ASKED_NOT_CONTACT, NULL, 0);
     CHECK_EQ_U64(board.n_out, 2);
-    link_asked(&companion, TERN_S(100) + LINK_QUIET, carol, TERN_C_ASKED_NOT_CONTACT);
+    link_asked(&companion, TERN_S(100) + LINK_QUIET, carol, TERN_C_ASKED_NOT_CONTACT, NULL, 0);
     CHECK_EQ_U64(board.n_out, 3);
-    link_asked(&companion, TERN_S(101) + LINK_QUIET, bob, TERN_C_ASKED_NO_ROOM);
+    link_asked(&companion, TERN_S(101) + LINK_QUIET, bob, TERN_C_ASKED_NO_ROOM, NULL, 0);
     CHECK_EQ_U64(board.n_out, 4);
 
     about(TERN_C_SAVE_CONTACT, 2, carol);
     CHECK(link_contact(&companion, carol));
+}
+
+/* Names given in first contact (version 19): CONTACT says what a contact called itself, and ASKED
+ * what a node refused called itself; neither goes to a client of version 18, whose frames stop
+ * before them. */
+static void names_given_in_first_contact_are_told(void) {
+    static const char carol_says[] = "Carol";
+    for (uint8_t version = 18; version <= TERN_COMPANION_VERSION; version++) {
+        start();
+        companion.contacts[0] = (struct link_contact){.used = true, .name_len = 3, .name = "Bob"};
+        memcpy(companion.contacts[0].address, bob, TERN_ADDRESS_LEN);
+        board.bob_says = "Robert at the ridge";
+        request(&(struct tern_companion_msg){.type = TERN_C_HELLO, .seq = 1, .version = version});
+        board.n_out = 0;
+        link_session_changed(&companion, bob);
+        link_asked(&companion, TERN_S(100), carol, TERN_C_ASKED_NOT_CONTACT,
+                   (const uint8_t *)carol_says, sizeof carol_says - 1);
+        CHECK_EQ_U64(board.n_out, 2);
+        struct tern_companion_msg m = {0};
+        CHECK_EQ_I64(tern_companion_read_as(&m, board.out[0], board.out_len[0], version), 0);
+        CHECK_EQ_I64(m.type, TERN_C_CONTACT);
+        CHECK(m.text_len == 3 && memcmp(m.text, "Bob", 3) == 0); /* the user's name for him */
+        /* 1 + 1 + 32 + 1 + 1 + 3 + 2 + 1 bytes, and then says. */
+        CHECK_EQ_U64(board.out_len[0], version >= 19 ? 42 + 1 + 19 : 42);
+        if (version >= 19) {
+            CHECK(m.card_name_len == 19 && memcmp(m.card_name, "Robert at the ridge", 19) == 0);
+        }
+        CHECK_EQ_I64(tern_companion_read_as(&m, board.out[1], board.out_len[1], version), 0);
+        CHECK_EQ_I64(m.type, TERN_C_ASKED);
+        CHECK_EQ_U64(board.out_len[1], version >= 19 ? 35 + 1 + 5 : 35);
+        if (version >= 19) {
+            CHECK(m.text_len == 5 && memcmp(m.text, "Carol", 5) == 0);
+        }
+    }
+}
+
+/* LOOK (version 20) asks the board to ask for cards: OK once the ask waits, ERROR 16 within
+ * ASK_GAP of the last, and to a client of version 19 a request it does not know. */
+static void looking_about_asks_the_board(void) {
+    start();
+    hello();
+    board.n_out = 0;
+    request(&(struct tern_companion_msg){.type = TERN_C_LOOK, .seq = 2});
+    CHECK_EQ_I64(sent(0).type, TERN_C_OK);
+    CHECK_EQ_U64(board.looks, 1);
+    board.look_answer = TERN_C_ERR_TOO_SOON;
+    request(&(struct tern_companion_msg){.type = TERN_C_LOOK, .seq = 3});
+    CHECK_EQ_I64(sent(0).type, TERN_C_ERROR);
+    CHECK_EQ_I64(sent(0).code, TERN_C_ERR_TOO_SOON);
+    CHECK_EQ_U64(board.looks, 1);
+
+    start();
+    request(&(struct tern_companion_msg){.type = TERN_C_HELLO, .seq = 1, .version = 19});
+    board.n_out = 0;
+    request(&(struct tern_companion_msg){.type = TERN_C_LOOK, .seq = 2});
+    CHECK_EQ_I64(sent(0).type, TERN_C_ERROR);
+    CHECK_EQ_I64(sent(0).code, TERN_C_ERR_UNKNOWN);
+    CHECK_EQ_U64(board.looks, 0);
 }
 
 static void reading_marks_received_messages_read(void) {
@@ -3774,6 +3852,8 @@ int main(void) {
     RUN(first_contact_failing_gives_up_what_waited_for_it);
     RUN(ending_a_session_gives_up_what_waited);
     RUN(who_asked_is_news_no_more_than_every_quiet);
+    RUN(names_given_in_first_contact_are_told);
+    RUN(looking_about_asks_the_board);
     RUN(reading_marks_received_messages_read);
     RUN(read_on_the_board_is_news);
     RUN(received_text_is_cut_to_what_a_message_carries);

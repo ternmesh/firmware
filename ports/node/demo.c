@@ -6,6 +6,7 @@
 
 #define MAGIC 0x5445524Eu /* "TERN" */
 #define STATE_KEY "session"
+#define SAYS_KEY "says" /* and a slot's number: the name its peer last gave (demo_says()) */
 #define IDENTITY_KEY "identity"
 #define AT_DEST 7    /* where a frame that follows a route says which node it is for */
 #define AT_SOURCE 15 /* and where message_1's frame says which node it came from */
@@ -222,6 +223,7 @@ bool demo_start(struct demo *d, struct demo_room room, const struct demo_store *
     d->accept_until = 0;
     d->trusted = NULL;
     d->trusted_ctx = NULL;
+    d->name = NULL;
     /* The ports' clock starts at boot, and so does the time each session's age counts on from. */
     d->now = 0;
     for (int i = 0; i < d->peers; i++) {
@@ -305,6 +307,54 @@ enum demo_result demo_contact(struct demo *d, const uint8_t peer[TERN_ADDRESS_LE
 }
 
 void demo_accept(struct demo *d, tern_time until) { d->accept_until = until; }
+
+void demo_name(struct demo *d, const uint8_t *name) { d->name = name; }
+
+/* A slot's names record: the peer's address, then the name it gave as first contact has it, its
+ * length, the name and zeros. Its key is SAYS_KEY and the slot's number. */
+#define SAYS_KEY_MAX (sizeof SAYS_KEY + 2)
+#define SAYS_LEN (TERN_ADDRESS_LEN + 1 + TERN_CONTACT_NAME_MAX)
+static void says_key(int slot, char key[SAYS_KEY_MAX]) {
+    copy((uint8_t *)key, (const uint8_t *)SAYS_KEY, sizeof SAYS_KEY);
+    char *at = &key[sizeof SAYS_KEY - 1];
+    if (slot >= 10) {
+        *at++ = (char)('0' + slot / 10);
+    }
+    *at++ = (char)('0' + slot % 10);
+    *at = '\0';
+}
+
+size_t demo_says(const struct demo *d, const uint8_t address[TERN_ADDRESS_LEN],
+                 uint8_t name[TERN_CONTACT_NAME_MAX]) {
+    char key[SAYS_KEY_MAX];
+    uint8_t rec[SAYS_LEN];
+    int slot = demo_peer(d, address);
+    if (slot < 0) {
+        return 0;
+    }
+    says_key(slot, key);
+    if (!d->store.load(d->store.ctx, key, rec, sizeof rec) ||
+        !same(rec, address, TERN_ADDRESS_LEN) || rec[TERN_ADDRESS_LEN] > TERN_CONTACT_NAME_MAX) {
+        return 0;
+    }
+    copy(name, &rec[TERN_ADDRESS_LEN + 1], rec[TERN_ADDRESS_LEN]);
+    return rec[TERN_ADDRESS_LEN];
+}
+
+/* Keeps the name a slot's new peer gave, unless the store holds it already: a name is not worth a
+ * write of flash each first contact. A record that cannot be saved is let go: the session stands
+ * without it. */
+static void keep_says(struct demo *d, int slot, const struct demo_received *out) {
+    char key[SAYS_KEY_MAX];
+    uint8_t rec[SAYS_LEN] = {0}, was[SAYS_LEN];
+    says_key(slot, key);
+    copy(rec, out->peer, TERN_ADDRESS_LEN);
+    rec[TERN_ADDRESS_LEN] = out->name_len;
+    copy(&rec[TERN_ADDRESS_LEN + 1], out->name, out->name_len);
+    if (!d->store.load(d->store.ctx, key, was, sizeof was) || !same(was, rec, sizeof rec)) {
+        (void)d->store.save(d->store.ctx, key, rec, sizeof rec);
+    }
+}
 
 void demo_trust(struct demo *d, bool (*trusted)(void *ctx, const uint8_t address[TERN_ADDRESS_LEN]),
                 void *ctx) {
@@ -470,6 +520,7 @@ static enum demo_heard start_session(struct demo *d, tern_time now, const uint8_
                                      size_t len, struct demo_received *out) {
     struct demo_handshake *h = &d->h;
     bool responder = h->c.role == TERN_RESPONDER;
+    out->name_len = (uint8_t)tern_contact_name(&h->c, out->name);
     int slot = demo_peer(d, h->c.peer);
     if (slot < 0) {
         slot = free_slot(d);
@@ -508,6 +559,7 @@ static enum demo_heard start_session(struct demo *d, tern_time now, const uint8_
     d->accept_until = 0;
     d->last = slot;
     out->slot = slot;
+    keep_says(d, slot, out);
 
     if (responder) {
         /* Kept for a while, in case message_4 is lost and message_3 comes again. */
@@ -599,8 +651,12 @@ static enum demo_heard contact_frame(struct demo *d, tern_time now, const uint8_
     if (h->phase != DEMO_INITIATING && h->phase != DEMO_RESPONDING) {
         return DEMO_HEARD_OTHER;
     }
-    int v = tern_contact_receive(&h->c, &d->id, frame, len, out->reply, sizeof out->reply,
-                                 &out->reply_len);
+    const uint8_t *name = d->name, none = 0;
+    if (name == NULL || name[0] > TERN_CONTACT_NAME_MAX) {
+        name = &none;
+    }
+    int v = tern_contact_receive(&h->c, &d->id, name + 1, name[0], frame, len, out->reply,
+                                 sizeof out->reply, &out->reply_len);
     if (v == TERN_CONTACT_NOT_OURS) {
         return DEMO_HEARD_OTHER;
     }
@@ -625,6 +681,7 @@ enum demo_heard demo_receive(struct demo *d, tern_time now, const uint8_t *frame
     out->reply_len = 0;
     out->acks = 0;
     out->slot = -1;
+    out->name_len = 0;
     d->now = now;
     if (len == 0) {
         return DEMO_HEARD_MALFORMED;

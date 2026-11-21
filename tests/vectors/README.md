@@ -136,3 +136,13 @@ changes the code to match, and update the commit above.
 [`vectors/sleeping.json`](https://github.com/ternmesh/spec/blob/main/vectors/sleeping.json), as of
 [ternmesh/spec#62](https://github.com/ternmesh/spec/pull/62) (leaves that sleep, with the changes the
 simulator asked for). `sleeping_to_c.py` turns it into a header for `tests/sleep.c`.
+
+`first-contact.json`, `cards.json`, `companion.json` and `managing.json` are copies from the
+unmerged branch of [ternmesh/spec#80](https://github.com/ternmesh/spec/pull/80) (asking for cards,
+companion version 20), which is stacked on
+[ternmesh/spec#79](https://github.com/ternmesh/spec/pull/79) (names in first contact, version 19),
+as of its commit `7ea0c71`: message_3 and message_4 carry a name, 116 and 61 bytes on the air;
+`cards.json` adds `ask`, `asks_rejected`, `answers` and `asking`, which `cards_to_c.py` carries to
+`tests/card.c`; and `contact_to_c.py` carries each handshake's `initiator_name` and
+`responder_name`. `forwarding.json` is not changed there, and still has message_3 and message_4 at
+their lengths before names: `tests/forward.c` checks that those two heads are refused.

@@ -8,7 +8,7 @@
 #include "tern/address.h"
 #include "tern/time.h"
 
-/* The companion protocol: version 18 of draft/companion.md in ternmesh/spec.
+/* The companion protocol: version 20 of draft/companion.md in ternmesh/spec.
  *
  * The link between a node and the client driving it, a phone or a computer, over USB serial, TCP
  * or Bluetooth LE. It never goes over LoRa. This is the part every node and every client needs:
@@ -16,7 +16,7 @@
  * text console. What a node answers and when is the node's business, not the core's (in the node
  * every port shares, ports/node/link.c). */
 
-#define TERN_COMPANION_VERSION 18
+#define TERN_COMPANION_VERSION 20
 #define TERN_COMPANION_MAX_FRAME 180
 /* The fewest FORGOTTEN and GROUP_FORGOTTEN records a node keeps (version 16). */
 #define TERN_C_FORGOTTEN_KEPT 16
@@ -68,6 +68,7 @@ enum tern_companion_type {
     TERN_C_MANAGE = 0x13, /* version 17, as are OWNER, RESTART and MANAGED */
     TERN_C_OWNER = 0x14,
     TERN_C_TRACE = 0x15, /* version 18, as are ROUTE and TRACED */
+    TERN_C_LOOK = 0x16,  /* version 20 */
     TERN_C_SAVE_CONTACT = 0x18,
     TERN_C_REMOVE_CONTACT = 0x19,
     TERN_C_END_SESSION = 0x1A, /* version 1 */
@@ -169,6 +170,7 @@ enum tern_companion_error {
     TERN_C_ERR_NOT_OVER_MESH = 13, /* version 17: a request a managed node does not act on */
     TERN_C_ERR_LOCKED = 14,        /* version 17: the node's Bluetooth is locked */
     TERN_C_ERR_NOT_OWNER = 15,     /* version 17: a node managed by someone it has not made one */
+    TERN_C_ERR_TOO_SOON = 16,      /* version 20: the node asked for cards less than ASK_GAP ago */
 };
 
 enum tern_companion_state {
@@ -242,8 +244,9 @@ enum tern_companion_source {
  * too, which that request has no other use for, so that no message is the bigger for it. A
  * position's `accuracy` and `age` are one member each, though SET_POSITION's are wider than the
  * news'. SET's value is `text`, `role`, `power`, `passkey`, `cards`, `receiver`, `wake` or
- * `listen` as `setting` says. CONTACT's and SLEEP's wake is `wake` (version 15). Members a type
- * does not use are ignored when writing and left as they were when reading. */
+ * `listen` as `setting` says. CONTACT's and SLEEP's wake is `wake` (version 15). CONTACT's `says`
+ * (version 19) is `card_name`, the one other string a frame carries; ASKED's `name` is `text`.
+ * Members a type does not use are ignored when writing and left as they were when reading. */
 struct tern_companion_msg {
     uint8_t type, seq;
     uint8_t version, setting, code, role, session, flags, state, reason, percent, why, news, cards;
@@ -283,7 +286,7 @@ struct tern_companion_msg {
     uint8_t board_len, release_len; /* INFO's */
     uint8_t board[TERN_COMPANION_BOARD_MAX];
     uint8_t release[TERN_COMPANION_RELEASE_MAX];
-    uint8_t card_name_len; /* SELF's */
+    uint8_t card_name_len; /* SELF's, and CONTACT's says */
     uint8_t card_name[TERN_COMPANION_NAME_MAX];
     /* UPDATE_DATA's data, UPDATE_BEGIN's signature, MANAGE's request, MANAGED's answer or
      * TRACED's entries */

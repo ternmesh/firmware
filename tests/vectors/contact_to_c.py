@@ -23,6 +23,11 @@ def c_array(hex_str, n):
     return "{" + ", ".join(f"0x{x:02x}" for x in b) + "}"
 
 
+def text(s):
+    """A C string literal of UTF-8 bytes, each escaped, so the header is ASCII."""
+    return '"' + "".join(f"\\x{b:02x}" for b in s.encode("utf-8")) + '"'
+
+
 def main():
     src, out = sys.argv[1], sys.argv[2]
     v = json.load(open(src, encoding="utf-8"))
@@ -53,6 +58,7 @@ def main():
             f"    {{{json.dumps(h['name'])}, {c_array(h['initiator_seed'], 32)}, "
             f"{c_array(h['responder_seed'], 32)}, {c_array(h['initiator_ephemeral'], 32)}, "
             f"{c_array(h['responder_ephemeral'], 32)}, 0x{h['c_i']}, 0x{h['c_r']}, "
+            f"{text(h['initiator_name'])}, {text(h['responder_name'])}, "
             f"{{{frames}}}, {c_array(h['session_secret'], 32)}}},"
         )
     lines.append("};")
