@@ -1030,6 +1030,10 @@ static uint16_t battery_at(int level) {
     return (uint16_t)(mv > UINT16_MAX ? UINT16_MAX : mv);
 }
 
+/* None of these boards wires its USB supply to a pin, and the USB controller sees a computer, not a
+ * charger, so the board cannot tell. */
+bool board_external_power(void) { return false; }
+
 uint16_t board_battery_mv(void) {
     if (B->pmu.chip != AXP_NONE) {
         uint16_t mv;

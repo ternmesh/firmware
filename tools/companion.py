@@ -532,9 +532,12 @@ def describe(m, names):
         return (f"air: {m['used']} of {m['allowed']} ms used in {m['period']} s"
                 + (f", {m['wait']} ms until the longest frame may go" if m["wait"] else ""))
     if t == "POWER":
+        flags = m.get("flags", 0)
+        how = "".join([", charging" if flags & 1 else "", ", on external power" if flags & 2 else ""])
         if not m["millivolts"] and m["percent"] == 255:
-            return "power: not measured"
-        return f"power: {m['millivolts']} mV, {m['percent']}%"
+            return "power: battery not measured" + how
+        charge = "charge unknown" if m["percent"] == 255 else f"{m['percent']}%"
+        return f"power: {m['millivolts']} mV, {charge}" + how
     if t == "ASKED":
         why = {1: "it is not a contact: save it as one to let it in",
                2: "there is no room for another session: end one to make room"}

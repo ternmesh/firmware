@@ -40,6 +40,10 @@ uint8_t power_percent(uint16_t mv) {
     return 0;
 }
 
+uint8_t power_percent_on(uint16_t mv, bool external) {
+    return external && mv >= POWER_CHARGER_MV ? POWER_UNKNOWN : power_percent(mv);
+}
+
 void power_watch(struct power_watch *w, uint16_t mv) {
     if (mv < POWER_NONE_MV) {
         *w = (struct power_watch){0};
