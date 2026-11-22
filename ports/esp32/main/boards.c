@@ -424,10 +424,10 @@ const struct board_def board_lilygo_t3s3 = {
  * BOARD_GPS_TX_PIN 43 and BOARD_GPS_RX_PIN 44): LilyGo's factory test hears it on GPIO44 and
  * speaks to it on GPIO43. It is powered from the board's 3.3 V and out of reset by its own pull-up
  * (LilyGo's T-Deck-L76K schematic), so runs whenever the board does. LilyGo has fitted it with a
- * Quectel L76K, at 9600 baud, and with a u-blox M10, at 38400, and its factory test tries each; a
- * Plus on the bench talked at 38400, which is taken, so an L76K is not yet heard. A T-Deck without
- * one has a receiver that never speaks, which a client may turn off. LilyGo's test
- * sends at 22 dBm, the chip's most. */
+ * Quectel L76K, at 9600 baud, and with a u-blox M10, at 38400, and its factory test tries each;
+ * so does the node, from 38400, at which a Plus on the bench talked. A T-Deck without one has a
+ * receiver that never speaks, which a client may turn off. LilyGo's test sends at 22 dBm, the
+ * chip's most. */
 const struct board_def board_lilygo_tdeck = {
     .name = "lilygo-tdeck",
     .title = "LilyGo T-Deck",
@@ -460,7 +460,12 @@ const struct board_def board_lilygo_tdeck = {
     .vext_always = true,
     .battery = {.sense = 4, .enable = BOARD_NO_PIN, .top_k = 100, .bottom_k = 100},
     .amp = NO_AMP,
-    .gnss = {.baud = 38400, .rx = 44, .tx = 43, .reset = BOARD_NO_PIN, .power = BOARD_NO_PIN},
+    .gnss = {.baud = 38400,
+             .baud2 = 9600,
+             .rx = 44,
+             .tx = 43,
+             .reset = BOARD_NO_PIN,
+             .power = BOARD_NO_PIN},
     .max_dbm = SX1262_MAX_DBM,
 };
 

@@ -124,13 +124,15 @@ struct board_def {
         struct board_rail rails[3];
     } pmu;
 
-    /* A satellite receiver that sends NMEA 0183 over a UART at `baud`, 8N1, or none (baud 0).
+    /* A satellite receiver that sends NMEA 0183 over a UART at `baud`, 8N1, or none (baud 0);
+     * or at `baud2`, which the node tries in turn until it hears a sentence.
      * With one, each of its pins is given, BOARD_NO_PIN for none: `rx` is the ESP32's pin that
      * hears the receiver, `tx` the one that could tell it something, and `reset` is held high to
      * let it run. It is powered by a rail of the power management chip at `mv`, or by the supply
      * `power` turns on (high, or low with power_low_on), or with the board if neither. */
     struct {
         uint32_t baud;
+        uint32_t baud2; /* another speed it may talk at, as the board was made, or 0 */
         int8_t rx, tx, reset, power;
         bool power_low_on;
         enum axp_rail rail;

@@ -1324,6 +1324,19 @@ bool board_gnss_power(bool on) {
 
 bool board_gnss_read(uint8_t *c) { return gnss_open && uart_read_bytes(GNSS_UART, c, 1, 0) == 1; }
 
+bool board_gnss_other_speed(void) {
+    static bool second;
+    if (!gnss_open || B->gnss.baud2 == 0) {
+        return false;
+    }
+    second = !second;
+    if (uart_set_baudrate(GNSS_UART, second ? B->gnss.baud2 : B->gnss.baud) != ESP_OK) {
+        return false;
+    }
+    (void)uart_flush_input(GNSS_UART); /* what came at the old speed */
+    return true;
+}
+
 /* --- The console ----------------------------------------------------------------------------- */
 
 /* UART0, through the board's USB-to-serial chip, or the ESP32-S3's own USB Serial/JTAG port on a

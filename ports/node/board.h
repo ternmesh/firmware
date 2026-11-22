@@ -122,6 +122,9 @@ bool board_woke_by_timer(void);
 bool board_gnss(void);
 bool board_gnss_power(bool on);
 bool board_gnss_read(uint8_t *c); /* one byte if one has come, without waiting */
+/* For a receiver that may talk at either of two speeds, as boards are made with one or another:
+ * its UART at the other speed from now, true; false if the board's receiver has only the one. */
+bool board_gnss_other_speed(void);
 
 /* The serial console, over USB: UART0 or USB Serial/JTAG, as the build's console is. */
 bool board_console_init(void);

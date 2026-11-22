@@ -2851,6 +2851,8 @@ static tern_time receiver_fixed_at;
 static struct tern_nmea_fix receiver_last; /* the last fix it gave, for 'status' */
 static uint32_t receiver_said;  /* its sentences that told of a fix or of none, since it was on */
 static uint32_t receiver_bytes; /* and the bytes that came from it */
+static tern_time receiver_speed_at;  /* when its UART was last set to a speed */
+#define RECEIVER_SPEED_TRY TERN_S(5) /* a speed at which nothing made sense this long is not it */
 
 /* Turns the receiver on or off, as the setting says: a fix it gave stays the node's until a newer
  * comes (draft/companion.md, SET 7). */
@@ -2871,6 +2873,7 @@ static void receiver_power(bool on) {
     tern_nmea_init(&nmea);
     receiver_said = 0;
     receiver_bytes = 0;
+    receiver_speed_at = board_now();
     receiver = on ? TERN_C_RECEIVER_SEARCHING : TERN_C_RECEIVER_OFF;
 }
 
@@ -2903,6 +2906,14 @@ static void poll_receiver(void) {
             break;
         case TERN_NMEA_NOTHING:
             break;
+        }
+    }
+    /* Until it is heard, a receiver that may talk at either of two speeds is tried at each. */
+    if (receiver_said == 0 && now - receiver_speed_at > RECEIVER_SPEED_TRY) {
+        receiver_speed_at = now;
+        if (board_gnss_other_speed()) {
+            tern_nmea_init(&nmea);
+            receiver_bytes = 0;
         }
     }
     if (receiver == TERN_C_RECEIVER_FIXED && now - receiver_fixed_at > RECEIVER_LOST) {
