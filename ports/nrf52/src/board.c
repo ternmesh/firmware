@@ -721,6 +721,8 @@ bool board_gnss_read(uint8_t *c) {
     return false;
 }
 
+bool board_gnss_other_speed(void) { return false; } /* each board's receiver has the one speed */
+
 /* --- The console ----------------------------------------------------------------------------- */
 
 /* USB CDC ACM, which the board makes its console: printf() goes there too.
