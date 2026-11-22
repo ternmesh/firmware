@@ -31,11 +31,13 @@ enum board_soc {
 
 /* The screen's controller. The first two take a 128x64 panel a page at a time over I2C at 0x3C;
  * the SSD1680 a 296x128 e-paper panel over SPI, on which the 128x64 picture is drawn twice the
- * size (epd.h). */
+ * size (epd.h); the ST7789 a 320x240 colour panel, held the long way across, on which the node
+ * draws its colour pages (colour.h). */
 enum board_screen_chip {
     BOARD_SSD1306, /* or one that takes its commands, as the SSD1315 does */
     BOARD_SH1106,  /* 132 columns of RAM, the panel's 128 in the middle; its own DC-DC */
     BOARD_SSD1680, /* e-paper */
+    BOARD_ST7789,  /* a colour TFT on the radio's SPI bus, which the node draws on itself */
 };
 
 /* The LoRa radio, which board.c drives with tern/sx126x.h or tern/sx127x.h. */
@@ -77,12 +79,14 @@ struct board_def {
 
     /* The screen: on I2C, or for e-paper on SPI, with a line saying whether a byte is a command
      * or data, and one the panel holds high while it is busy. None if neither sda nor cs is a
-     * pin. */
+     * pin. A colour TFT is on the radio's bus, its sck and mosi the radio's, and lit by a
+     * backlight `light` turns on when high. */
     struct {
         enum board_screen_chip chip;
         int8_t sda, scl;
         int8_t sck, mosi, cs, dc, busy;
         int8_t reset;
+        int8_t light;
     } screen;
 
     /* The switched supply the screen is on, and whether high turns it on. Where it supplies more
@@ -160,9 +164,10 @@ const struct board_def *board_def_named(const char *name);
 /* Whether the board has a satellite receiver. */
 bool board_has_gnss(const struct board_def *b);
 
-/* Whether the board has a screen, and whether it is e-paper. */
+/* Whether the board has a screen, whether it is e-paper, and whether it is a colour TFT. */
 bool board_has_screen(const struct board_def *b);
 bool board_epaper(const struct board_def *b);
+bool board_tft(const struct board_def *b);
 
 /* The least and the most power, in dBm into the antenna, that this board gives. */
 int8_t board_min_dbm(const struct board_def *b);

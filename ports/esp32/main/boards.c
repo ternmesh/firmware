@@ -13,12 +13,14 @@
 #define I2C_SCREEN(sda_, scl_, reset_)                                                             \
     {                                                                                              \
         .sda = (sda_), .scl = (scl_), .sck = BOARD_NO_PIN, .mosi = BOARD_NO_PIN,                   \
-        .cs = BOARD_NO_PIN, .dc = BOARD_NO_PIN, .busy = BOARD_NO_PIN, .reset = (reset_)            \
+        .cs = BOARD_NO_PIN, .dc = BOARD_NO_PIN, .busy = BOARD_NO_PIN, .reset = (reset_),           \
+        .light = BOARD_NO_PIN                                                                      \
     }
 #define NO_SCREEN                                                                                  \
     {                                                                                              \
         .sda = BOARD_NO_PIN, .scl = BOARD_NO_PIN, .sck = BOARD_NO_PIN, .mosi = BOARD_NO_PIN,       \
-        .cs = BOARD_NO_PIN, .dc = BOARD_NO_PIN, .busy = BOARD_NO_PIN, .reset = BOARD_NO_PIN        \
+        .cs = BOARD_NO_PIN, .dc = BOARD_NO_PIN, .busy = BOARD_NO_PIN, .reset = BOARD_NO_PIN,       \
+        .light = BOARD_NO_PIN                                                                      \
     }
 
 /* The Heltec WiFi LoRa 32 V3, from Heltec's pin map and its schematics for the V3, V3.1 and V3.2:
@@ -185,7 +187,8 @@ const struct board_def board_heltec_vme290 = {
                .cs = 3,
                .dc = 4,
                .busy = 6,
-               .reset = 5},
+               .reset = 5,
+               .light = BOARD_NO_PIN},
     .vext = 18,
     .vext_high_on = true,
     .battery = {.sense = 7, .enable = 46, .top_k = 390, .bottom_k = 100},
@@ -411,11 +414,14 @@ const struct board_def board_lilygo_t3s3 = {
  * HIGH when using the peripheral"), so it is on whenever the board is. Neither LilyGo nor HPDTeK
  * publishes the module's datasheet; LilyGo's factory test starts it with its RadioLib's begin(),
  * which LilyGo ships beside it (lib/RadioLib), and that sets a 1.6 V TCXO on DIO3 and DIO2 as the
- * antenna switch, which are taken. The screen (an ST7789 over SPI, not driven) and the SD card
- * share the radio's bus, their selects on GPIO12 and GPIO39, held high. BOOT, GPIO0, is a press of
- * the trackball. No LED but the charger's. The battery through 100k over 100k onto GPIO4, always
- * connected. USB from the ESP32-S3's own port. The Plus has a GPS on the Grove pins, which this
- * image leaves alone. LilyGo's test sends at 22 dBm, the chip's most. */
+ * antenna switch, which are taken. The screen, a 2.8-inch 320x240 IPS panel on an ST7789, shares
+ * the radio's bus, its CS on GPIO12 and DC on GPIO11, without a reset line, its backlight's driver
+ * (an AW9364) enabled by GPIO42 when high; LilyGo's TFT_eSPI setup for it (Setup210) inverts its
+ * colours, sends red first and turns it the long way across (rotation 1). The SD card is on the
+ * same bus, its select on GPIO39, held high. BOOT, GPIO0, is a press of the trackball. No LED but
+ * the charger's. The battery through 100k over 100k onto GPIO4, always connected. USB from the
+ * ESP32-S3's own port. The Plus has a GPS on the Grove pins, which this image leaves alone.
+ * LilyGo's test sends at 22 dBm, the chip's most. */
 const struct board_def board_lilygo_tdeck = {
     .name = "lilygo-tdeck",
     .title = "LilyGo T-Deck",
@@ -429,11 +435,20 @@ const struct board_def board_lilygo_tdeck = {
              .busy = 13,
              .tcxo_mv = 1600,
              .dio2_rf_switch = true},
-    .spi_others = (1ull << 12) | (1ull << 39),
+    .spi_others = 1ull << 39,
     .button = 0,
     .button_name = "BALL",
     .led = BOARD_NO_PIN,
-    .screen = NO_SCREEN,
+    .screen = {.chip = BOARD_ST7789,
+               .sda = BOARD_NO_PIN,
+               .scl = BOARD_NO_PIN,
+               .sck = 40,
+               .mosi = 41,
+               .cs = 12,
+               .dc = 11,
+               .busy = BOARD_NO_PIN,
+               .reset = BOARD_NO_PIN,
+               .light = 42},
     .vext = 10,
     .vext_high_on = true,
     .vext_always = true,
@@ -496,10 +511,13 @@ uint16_t board_battery_pin_mv(const struct board_def *b) {
 bool board_has_gnss(const struct board_def *b) { return b->gnss.baud != 0; }
 
 bool board_has_screen(const struct board_def *b) {
-    return board_epaper(b) ? b->screen.cs != BOARD_NO_PIN : b->screen.sda != BOARD_NO_PIN;
+    return board_epaper(b) || board_tft(b) ? b->screen.cs != BOARD_NO_PIN
+                                           : b->screen.sda != BOARD_NO_PIN;
 }
 
 bool board_epaper(const struct board_def *b) { return b->screen.chip == BOARD_SSD1680; }
+
+bool board_tft(const struct board_def *b) { return b->screen.chip == BOARD_ST7789; }
 
 bool board_gives(const struct board_def *b, int dbm) {
     return dbm >= board_min_dbm(b) && dbm <= board_max_dbm(b);
