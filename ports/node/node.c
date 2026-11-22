@@ -2849,6 +2849,8 @@ static uint8_t receiver = TERN_C_RECEIVER_NONE;
 static struct tern_nmea nmea;
 static tern_time receiver_fixed_at;
 static struct tern_nmea_fix receiver_last; /* the last fix it gave, for 'status' */
+static uint32_t receiver_said;  /* its sentences that told of a fix or of none, since it was on */
+static uint32_t receiver_bytes; /* and the bytes that came from it */
 
 /* Turns the receiver on or off, as the setting says: a fix it gave stays the node's until a newer
  * comes (draft/companion.md, SET 7). */
@@ -2867,6 +2869,8 @@ static void receiver_power(bool on) {
         on = false;
     }
     tern_nmea_init(&nmea);
+    receiver_said = 0;
+    receiver_bytes = 0;
     receiver = on ? TERN_C_RECEIVER_SEARCHING : TERN_C_RECEIVER_OFF;
 }
 
@@ -2881,8 +2885,10 @@ static void poll_receiver(void) {
     uint8_t c;
     struct tern_nmea_fix fix;
     for (int n = 0; n < RECEIVER_BYTES && board_gnss_read(&c); n++) {
+        receiver_bytes++;
         switch (tern_nmea_push(&nmea, c, &fix)) {
         case TERN_NMEA_FIX:
+            receiver_said++;
             receiver = TERN_C_RECEIVER_FIXED;
             receiver_fixed_at = now;
             receiver_last = fix;
@@ -2892,6 +2898,7 @@ static void poll_receiver(void) {
                               fix.accuracy, fix.satellites);
             break;
         case TERN_NMEA_NO_FIX:
+            receiver_said++;
             receiver = TERN_C_RECEIVER_SEARCHING;
             break;
         case TERN_NMEA_NOTHING:
@@ -2915,6 +2922,18 @@ static void receiver_status(void) {
         return;
     }
     printf("satellite receiver: %s", said[receiver]);
+    if (receiver == TERN_C_RECEIVER_SEARCHING) {
+        /* A receiver that has said nothing is not there, or not on the pins it is taken to be. */
+        if (receiver_said == 0 && receiver_bytes == 0) {
+            printf(", and it has said nothing since it was turned on");
+        } else if (receiver_said == 0) {
+            /* Bytes, but no sentence: a receiver at another speed. */
+            printf(", and nothing it has sent since it was turned on (%lu bytes) made sense",
+                   (unsigned long)receiver_bytes);
+        } else {
+            printf(", heard from %lu times", (unsigned long)receiver_said);
+        }
+    }
     if (receiver_fixed_at != 0) {
         const struct tern_nmea_fix *f = &receiver_last;
         printf("; last fix %lld s ago at ",
