@@ -148,8 +148,11 @@ static void no_pin_does_two_jobs(void) {
         add_pin(b, used, &n, b->screen.sda);
         add_pin(b, used, &n, b->screen.scl);
         add_pin(b, used, &n, b->screen.reset);
-        add_pin(b, used, &n, b->screen.sck);
-        add_pin(b, used, &n, b->screen.mosi);
+        if (!board_tft(b)) { /* a colour TFT's are the radio's */
+            add_pin(b, used, &n, b->screen.sck);
+            add_pin(b, used, &n, b->screen.mosi);
+        }
+        add_pin(b, used, &n, b->screen.light);
         add_pin(b, used, &n, b->screen.cs);
         add_pin(b, used, &n, b->screen.dc);
         add_pin(b, used, &n, b->screen.busy);
@@ -187,10 +190,11 @@ static void no_pin_does_two_jobs(void) {
             }
         }
         /* What the board drives can drive. */
-        const int8_t outputs[] = {b->lora.nss,   b->lora.sck,    b->lora.mosi,    b->lora.reset,
-                                  b->led,        b->vext,        b->screen.reset, b->battery.enable,
-                                  b->amp.power,  b->amp.enable,  b->amp.tx[0],    b->amp.tx[1],
-                                  b->screen.sck, b->screen.mosi, b->screen.cs,    b->screen.dc};
+        const int8_t outputs[] = {
+            b->lora.nss,  b->lora.sck,     b->lora.mosi,      b->lora.reset,  b->led,
+            b->vext,      b->screen.reset, b->battery.enable, b->amp.power,   b->amp.enable,
+            b->amp.tx[0], b->amp.tx[1],    b->screen.sck,     b->screen.mosi, b->screen.cs,
+            b->screen.dc, b->screen.light};
         for (size_t o = 0; o < sizeof outputs; o++) {
             if (!output_ok(b, outputs[o])) {
                 fprintf(stderr, "%s drives GPIO%d, which is an input\n", b->name, outputs[o]);
@@ -222,8 +226,15 @@ static void no_pin_does_two_jobs(void) {
         CHECK(b->button == BOARD_NO_PIN || rtc_ok(b, b->button));
         CHECK(!b->vext_always || b->vext != BOARD_NO_PIN);
         /* A screen is on I2C or, for e-paper, on SPI with its DC and BUSY lines, never half of
-         * either. */
-        if (board_epaper(b)) {
+         * either; a colour TFT on the radio's bus, with its DC line. Only a TFT has a backlight. */
+        CHECK(board_tft(b) || b->screen.light == BOARD_NO_PIN);
+        if (board_tft(b)) {
+            CHECK(b->screen.sda == BOARD_NO_PIN && b->screen.scl == BOARD_NO_PIN &&
+                  b->screen.busy == BOARD_NO_PIN);
+            CHECK(b->screen.sck == b->lora.sck && b->screen.mosi == b->lora.mosi);
+            CHECK(!board_has_screen(b) || b->screen.dc != BOARD_NO_PIN);
+            CHECK(b->screen.cs == BOARD_NO_PIN || (b->spi_others & (1ull << b->screen.cs)) == 0);
+        } else if (board_epaper(b)) {
             CHECK(b->screen.chip == BOARD_SSD1680);
             CHECK(b->screen.sda == BOARD_NO_PIN && b->screen.scl == BOARD_NO_PIN);
             CHECK(!board_has_screen(b) ||

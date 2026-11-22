@@ -49,6 +49,9 @@
 
 #define BUSY_TIMEOUT_US 100000 /* far longer than any command; calibration takes a few ms */
 
+/* A colour TFT on the radio's bus is sent its pixels this many bytes at a time, by DMA. */
+#define TFT_CHUNK 4096
+
 static spi_device_handle_t spi;
 static struct tern_sx126x sx126x;
 static struct tern_sx127x sx127x;
@@ -177,7 +180,7 @@ static int bus_start(void) {
                             .miso_io_num = B->lora.miso,
                             .quadwp_io_num = -1,
                             .quadhd_io_num = -1,
-                            .max_transfer_sz = 300};
+                            .max_transfer_sz = board_tft(B) ? TFT_CHUNK : 300};
     /* 8 MHz: the SX1262 takes 16, an SX127x 10 (their datasheets' SPI timing). */
     spi_device_interface_config_t dev = {
         .clock_speed_hz = 8 * 1000 * 1000, .mode = 0, .spics_io_num = B->lora.nss, .queue_size = 1};
@@ -550,6 +553,8 @@ static bool oled_send(const uint8_t *buf, size_t len) {
 static bool epd_init(void);
 static bool epd_page(int page, const uint8_t data[128]);
 static bool epd_power(bool on);
+static bool tft_init(void);
+static bool tft_power(bool on);
 
 bool board_screen_init(void) {
     if (!board_has_screen(B)) {
@@ -557,6 +562,9 @@ bool board_screen_init(void) {
     }
     if (board_epaper(B)) {
         return epd_init();
+    }
+    if (board_tft(B)) {
+        return tft_init();
     }
     if (B->pmu.chip != AXP_NONE && !pmu_start()) {
         return false; /* the screen may be on one of its rails */
@@ -658,6 +666,9 @@ bool board_screen_page(int page, const uint8_t data[128]) {
     if (board_epaper(B)) {
         return epd_page(page, data);
     }
+    if (board_tft(B)) {
+        return false; /* drawn in colour, by board_screen_rows() */
+    }
     /* The page, then its first column, low half and high half. */
     uint8_t column = oled_chip() == BOARD_SH1106 ? SH1106_FIRST_COLUMN : 0;
     uint8_t where[] = {OLED_COMMANDS, (uint8_t)(0xB0 | (page & 7)), (uint8_t)(column & 0x0F),
@@ -668,24 +679,149 @@ bool board_screen_page(int page, const uint8_t data[128]) {
     return oled_send(where, sizeof where) && oled_send(buf, sizeof buf);
 }
 
-/* Every screen these boards draw on takes the 128x64 picture: none is a colour panel the node
- * draws on itself. */
+/* --- The colour TFT ------------------------------------------------------------------------- */
+
+/* An ST7789 (Sitronix's datasheet, V1.4) on the radio's SPI bus, as the T-Deck has it: a byte is a
+ * command while DC is low and data while it is high (section 8.4.2, 4-line serial). Its RAM is 240
+ * columns by 320 rows; turned the long way across, rows and columns exchanged (MADCTL MV) and the
+ * columns run the other way (MX), as LilyGo's rotation 1 sets it, the picture's (x, y) is its
+ * column x and row y, 320 by 240. It keeps what it was sent while powered, so a band of rows is
+ * sent only when it changed (node.c). */
+
+#define TFT_W 320
+#define TFT_H 240
+#define TFT_SPI_HZ (40 * 1000 * 1000) /* LilyGo's; its write cycle is 66 ns (section 9.4) */
+#define TFT_RESET_US 150000           /* SWRESET, then 5 ms, 120 ms if it was asleep (0x01) */
+#define TFT_SLEEP_OUT_US 120000       /* SLPOUT, then 120 ms before SLPIN (0x11) */
+
+static spi_device_handle_t tft_spi;
+static uint8_t *tft_buf; /* DMA-capable, TFT_CHUNK bytes */
+static bool tft_open;
+
+static bool tft_send(bool data, const uint8_t *buf, size_t len) {
+    if (len == 0) {
+        return true;
+    }
+    gpio_set_level(B->screen.dc, data ? 1 : 0);
+    spi_transaction_t t = {.length = 8 * len, .tx_buffer = buf};
+    return spi_device_polling_transmit(tft_spi, &t) == ESP_OK;
+}
+
+/* A command and its parameters. */
+static bool tft_cmd(uint8_t cmd, const uint8_t *params, size_t n) {
+    return tft_send(false, &cmd, 1) && tft_send(true, params, n);
+}
+
+/* The window the next pixels fill: columns x0 to x1 and rows y0 to y1, then RAMWR. */
+static bool tft_window(int x0, int y0, int x1, int y1) {
+    uint8_t cols[] = {(uint8_t)(x0 >> 8), (uint8_t)x0, (uint8_t)(x1 >> 8), (uint8_t)x1};
+    uint8_t rows[] = {(uint8_t)(y0 >> 8), (uint8_t)y0, (uint8_t)(y1 >> 8), (uint8_t)y1};
+    return tft_cmd(0x2A, cols, sizeof cols) && tft_cmd(0x2B, rows, sizeof rows) &&
+           tft_cmd(0x2C, NULL, 0);
+}
+
+/* `n` pixels, RGB565 as colour.h makes them, sent high byte first (section 8.8.42, 65K colours).
+ * With px NULL, n of black. */
+static bool tft_pixels(const uint16_t *px, size_t n) {
+    gpio_set_level(B->screen.dc, 1);
+    while (n > 0) {
+        size_t k = n < TFT_CHUNK / 2 ? n : TFT_CHUNK / 2;
+        for (size_t i = 0; i < k; i++) {
+            uint16_t v = px != NULL ? px[i] : 0;
+            tft_buf[2 * i] = (uint8_t)(v >> 8);
+            tft_buf[2 * i + 1] = (uint8_t)v;
+        }
+        spi_transaction_t t = {.length = 8 * 2 * k, .tx_buffer = tft_buf};
+        if (spi_device_polling_transmit(tft_spi, &t) != ESP_OK) {
+            return false;
+        }
+        if (px != NULL) {
+            px += k;
+        }
+        n -= k;
+    }
+    return true;
+}
+
+static void tft_light(bool on) { set(B->screen.light, on ? 1 : 0); }
+
+static bool tft_init(void) {
+    /* The panel is powered with the radio, on the bus the radio's start sets up. */
+    gpio_config_t out = {.pin_bit_mask = bit(B->screen.dc) | bit(B->screen.light),
+                         .mode = GPIO_MODE_OUTPUT};
+    if (gpio_config(&out) != ESP_OK) {
+        return false;
+    }
+    release(B->screen.light);
+    tft_light(false); /* dark until it shows a picture */
+    if (bus_start() != TERN_OK) {
+        return false;
+    }
+    spi_device_interface_config_t dev = {
+        .clock_speed_hz = TFT_SPI_HZ, .mode = 0, .spics_io_num = B->screen.cs, .queue_size = 1};
+    tft_buf = heap_caps_malloc(TFT_CHUNK, MALLOC_CAP_DMA);
+    if (tft_buf == NULL || spi_bus_add_device(SPI2_HOST, &dev, &tft_spi) != ESP_OK) {
+        return false;
+    }
+    /* It has no reset line of its own: SWRESET does what one would (section 9.12). */
+    static const uint8_t colmod[] = {0x55}; /* 16 bits a pixel, 65K colours */
+    static const uint8_t madctl[] = {0x60}; /* MX and MV, red first (RGB) */
+    if (!tft_cmd(0x01, NULL, 0)) {
+        return false;
+    }
+    esp_rom_delay_us(TFT_RESET_US);
+    if (!tft_cmd(0x11, NULL, 0)) { /* SLPOUT */
+        return false;
+    }
+    esp_rom_delay_us(TFT_SLEEP_OUT_US);
+    if (!tft_cmd(0x3A, colmod, sizeof colmod) || !tft_cmd(0x36, madctl, sizeof madctl) ||
+        !tft_cmd(0x21, NULL, 0) /* INVON: an IPS panel's colours the right way round */ ||
+        !tft_cmd(0x13, NULL, 0) /* NORON */ || !tft_window(0, 0, TFT_W - 1, TFT_H - 1) ||
+        !tft_pixels(NULL, (size_t)TFT_W * TFT_H) || !tft_cmd(0x29, NULL, 0) /* DISPON */) {
+        return false;
+    }
+    tft_open = true;
+    tft_light(true);
+    return true;
+}
+
+static bool tft_power(bool on) {
+    if (!tft_open) {
+        return false;
+    }
+    if (!on) {
+        tft_light(false);
+        return tft_cmd(0x28, NULL, 0) && tft_cmd(0x10, NULL, 0); /* DISPOFF, SLPIN */
+    }
+    bool ok = tft_cmd(0x11, NULL, 0); /* SLPOUT */
+    esp_rom_delay_us(TFT_SLEEP_OUT_US);
+    ok = ok && tft_cmd(0x29, NULL, 0); /* DISPON */
+    tft_light(ok);
+    return ok;
+}
+
 bool board_screen_colour(int *w, int *h) {
-    (void)w;
-    (void)h;
-    return false;
+    if (!board_tft(B) || !tft_open) {
+        return false;
+    }
+    *w = TFT_W;
+    *h = TFT_H;
+    return true;
 }
 
 bool board_screen_rows(int y, int h, const uint16_t *px) {
-    (void)y;
-    (void)h;
-    (void)px;
-    return false;
+    if (!tft_open || h <= 0 || y < 0 || y + h > TFT_H) {
+        return false;
+    }
+    return tft_window(0, y, TFT_W - 1, y + h - 1) && tft_pixels(px, (size_t)TFT_W * (size_t)h);
 }
 
 bool board_screen_power(bool on) {
     if (board_epaper(B)) {
         return epd_power(on);
+    }
+    if (board_tft(B)) {
+        return tft_power(on);
     }
     /* The SSD1306's charge pump goes on before the panel and off after it (the datasheet's
      * application note on the charge pump). The SH1106's DC-DC follows the display by itself, set
@@ -1088,6 +1224,8 @@ void board_off(uint32_t wake_after_s) {
     board_led(false);
     set(B->vext, !VEXT_ON);
     hold(B->vext);
+    set(B->screen.light, 0); /* a TFT's backlight, off */
+    hold(B->screen.light);
     /* A receiver on a switched supply is held off too; one on a rail goes with the rails. */
     if (board_gnss() && B->gnss.power != BOARD_NO_PIN) {
         (void)board_gnss_power(false);
