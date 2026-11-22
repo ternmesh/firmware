@@ -152,6 +152,18 @@ static int bus_start(void) {
         return TERN_EIO;
     }
     board_led(false);
+    /* Any other chip on the radio's bus is told it is not spoken to, before the bus is used. */
+    gpio_config_t others = {.pin_bit_mask = B->spi_others, .mode = GPIO_MODE_OUTPUT};
+    if (B->spi_others != 0) {
+        if (gpio_config(&others) != ESP_OK) {
+            return TERN_EIO;
+        }
+        for (int pin = 0; pin < 64; pin++) {
+            if (B->spi_others & bit(pin)) {
+                gpio_set_level(pin, 1);
+            }
+        }
+    }
     if (B->vext_always && !vext_on()) {
         return TERN_EIO;
     }

@@ -1,0 +1,6 @@
+# LilyGo's T-Deck and T-Deck Plus: an ESP32-S3 with 16 MB of flash, of which the usual two slots
+# (partitions.csv) use the first 4 MB. It has no USB-to-serial chip: its USB port is the ESP32-S3's
+# own, so the console, and the companion link a computer drives over it, are USB Serial/JTAG. Its
+# screen and keyboard are not driven yet: it runs as a board without a screen.
+CONFIG_TERN_BOARD_LILYGO_TDECK=y
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
