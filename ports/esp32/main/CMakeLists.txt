@@ -54,3 +54,10 @@ idf_component_register(
         ${root}/src/x25519.c
     INCLUDE_DIRS . ${node} ${root}/include
     PRIV_REQUIRES bootloader_support bt esp_adc esp_driver_gpio esp_driver_i2c esp_hw_support esp_driver_spi esp_driver_uart esp_driver_usb_serial_jtag esp_timer app_update nvs_flash)
+
+# A board with a colour panel draws the node's colour pages (ports/node/colour.h), with their fonts:
+# only those boards, as the fonts are large and a classic ESP32's memory is short.
+if(CONFIG_TERN_COLOUR_PANEL)
+    target_sources(${COMPONENT_LIB} PRIVATE ${node}/colour.c ${node}/fonts.c)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE TERN_COLOUR=1)
+endif()

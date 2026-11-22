@@ -302,8 +302,8 @@ static struct scene on_screen;
  * is drawn into band_px, and sent only if it is not the picture the panel already shows, as far
  * as a hash of it can tell. */
 #define BAND_ROWS 15
-#define PANEL_W_MAX 240
-#define PANEL_H_MAX 135
+#define PANEL_W_MAX 320 /* the T-Deck's, the largest; the T114's is 240x135 */
+#define PANEL_H_MAX 240
 static bool colour;
 static int colour_w, colour_h;
 static uint16_t band_px[PANEL_W_MAX * BAND_ROWS];
