@@ -160,6 +160,12 @@ static void no_pin_does_two_jobs(void) {
         add_pin(b, used, &n, b->amp.enable);
         add_pin(b, used, &n, b->amp.tx[0]);
         add_pin(b, used, &n, b->amp.tx[1]);
+        for (int8_t pin = 0; pin < 64; pin++) {
+            if (b->spi_others & (1ull << pin)) {
+                add_pin(b, used, &n, pin);
+                CHECK(output_ok(b, pin));
+            }
+        }
         if (board_has_gnss(b)) {
             add_pin(b, used, &n, b->gnss.rx);
             add_pin(b, used, &n, b->gnss.tx);

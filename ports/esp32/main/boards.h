@@ -63,6 +63,10 @@ struct board_def {
         bool pa_boost;       /* the SX127x's antenna is on PA_BOOST rather than RFO */
     } lora;
 
+    /* The selects of other chips on the radio's SPI bus (a screen, an SD card), as a mask of GPIOs,
+     * held high so that none of them answers while the radio is spoken to; 0 for none. */
+    uint64_t spi_others;
+
     /* Low while it is pressed; it also wakes the board, so an RTC pin. BOARD_NO_PIN for a board
      * with none but RESET, which board_off() then leaves to wake it. */
     int8_t button;
@@ -145,6 +149,7 @@ extern const struct board_def board_lilygo_t3_v161;
 extern const struct board_def board_lilygo_tbeam;
 extern const struct board_def board_lilygo_tbeam12;
 extern const struct board_def board_lilygo_t3s3;
+extern const struct board_def board_lilygo_tdeck;
 
 /* Every board this port knows, ending with NULL. */
 extern const struct board_def *const board_defs[];

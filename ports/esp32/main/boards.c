@@ -403,13 +403,51 @@ const struct board_def board_lilygo_t3s3 = {
     .max_dbm = PA_BOOST_MAX_DBM,
 };
 
-const struct board_def *const board_defs[] = {&board_heltec_v3,     &board_heltec_v4,
-                                              &board_heltec_wsl_v3, &board_heltec_tracker,
-                                              &board_heltec_vme290, &board_heltec_vme213,
-                                              &board_heltec_paper,  &board_heltec_v2,
-                                              &board_heltec_v21,    &board_lilygo_t3_v161,
-                                              &board_lilygo_tbeam,  &board_lilygo_tbeam12,
-                                              &board_lilygo_t3s3,   NULL};
+/* LilyGo's T-Deck, from its schematic (schematic.pdf, 2023/6/1, in Xinyuan-LilyGO/T-Deck) and the
+ * pin header beside LilyGo's factory test (examples/UnitTest/utilities.h): an ESP32-S3 with 16 MB
+ * of flash and 8 MB of PSRAM, and its radio on an HPDTeK HPD16A, an SX1262 module, on NSS 9, SCK
+ * 40, MOSI 41, MISO 38, RESET 17, BUSY 13. The radio, the screen, the keyboard (an ESP32-C3 of its
+ * own) and the rest are on a supply GPIO10 turns on when high (BOARD_POWERON, "needs to be set to
+ * HIGH when using the peripheral"), so it is on whenever the board is. Neither LilyGo nor HPDTeK
+ * publishes the module's datasheet; LilyGo's factory test starts it with its RadioLib's begin(),
+ * which LilyGo ships beside it (lib/RadioLib), and that sets a 1.6 V TCXO on DIO3 and DIO2 as the
+ * antenna switch, which are taken. The screen (an ST7789 over SPI, not driven) and the SD card
+ * share the radio's bus, their selects on GPIO12 and GPIO39, held high. BOOT, GPIO0, is a press of
+ * the trackball. No LED but the charger's. The battery through 100k over 100k onto GPIO4, always
+ * connected. USB from the ESP32-S3's own port. The Plus has a GPS on the Grove pins, which this
+ * image leaves alone. LilyGo's test sends at 22 dBm, the chip's most. */
+const struct board_def board_lilygo_tdeck = {
+    .name = "lilygo-tdeck",
+    .title = "LilyGo T-Deck",
+    .soc = BOARD_ESP32S3,
+    .lora = {.chip = BOARD_SX1262,
+             .nss = 9,
+             .sck = 40,
+             .mosi = 41,
+             .miso = 38,
+             .reset = 17,
+             .busy = 13,
+             .tcxo_mv = 1600,
+             .dio2_rf_switch = true},
+    .spi_others = (1ull << 12) | (1ull << 39),
+    .button = 0,
+    .button_name = "BALL",
+    .led = BOARD_NO_PIN,
+    .screen = NO_SCREEN,
+    .vext = 10,
+    .vext_high_on = true,
+    .vext_always = true,
+    .battery = {.sense = 4, .enable = BOARD_NO_PIN, .top_k = 100, .bottom_k = 100},
+    .amp = NO_AMP,
+    .max_dbm = SX1262_MAX_DBM,
+};
+
+const struct board_def *const board_defs[] = {
+    &board_heltec_v3,      &board_heltec_v4,     &board_heltec_wsl_v3,
+    &board_heltec_tracker, &board_heltec_vme290, &board_heltec_vme213,
+    &board_heltec_paper,   &board_heltec_v2,     &board_heltec_v21,
+    &board_lilygo_t3_v161, &board_lilygo_tbeam,  &board_lilygo_tbeam12,
+    &board_lilygo_t3s3,    &board_lilygo_tdeck,  NULL};
 
 const struct board_def *board_def_named(const char *name) {
     for (size_t i = 0; name != NULL && board_defs[i] != NULL; i++) {

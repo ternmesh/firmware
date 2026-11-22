@@ -48,6 +48,9 @@ menu "Tern demo"
         config TERN_BOARD_LILYGO_T3S3
             bool "LilyGo T3-S3 V1.2 and V1.3 (SX1276)"
             depends on IDF_TARGET_ESP32S3
+        config TERN_BOARD_LILYGO_TDECK
+            bool "LilyGo T-Deck and T-Deck Plus"
+            depends on IDF_TARGET_ESP32S3
     endchoice
 
     config TERN_EPAPER_REFRESH_S
@@ -82,6 +85,7 @@ menu "Tern demo"
         default "lilygo-tbeam" if TERN_BOARD_LILYGO_TBEAM
         default "lilygo-tbeam12" if TERN_BOARD_LILYGO_TBEAM12
         default "lilygo-t3s3" if TERN_BOARD_LILYGO_T3S3
+        default "lilygo-tdeck" if TERN_BOARD_LILYGO_TDECK
 
     rsource "../../node/Kconfig.tern"
 
