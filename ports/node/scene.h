@@ -59,6 +59,7 @@ struct scene_item {
     bool bubble;   /* text: set in a bubble, as a message is; `tone` ACCENT for one sent */
     bool signal;   /* a line: `snr_db` says how well its node is heard */
     bool centre;   /* a line or text: set in the middle, as a page with nothing on it says so */
+    bool tail;     /* text, on a colour panel: if it does not all fit, its end, not its start */
     int8_t snr_db;
     char left[SCENE_LINE_MAX];
     char right[16];

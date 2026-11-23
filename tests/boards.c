@@ -169,6 +169,20 @@ static void no_pin_does_two_jobs(void) {
                 CHECK(output_ok(b, pin));
             }
         }
+        if (b->keyboard.address != 0) {
+            add_pin(b, used, &n, b->keyboard.sda);
+            add_pin(b, used, &n, b->keyboard.scl);
+            CHECK(b->keyboard.sda != BOARD_NO_PIN && b->keyboard.scl != BOARD_NO_PIN);
+        }
+        if (b->ball.fitted) {
+            add_pin(b, used, &n, b->ball.up);
+            add_pin(b, used, &n, b->ball.down);
+            add_pin(b, used, &n, b->ball.left);
+            add_pin(b, used, &n, b->ball.right);
+            CHECK(b->ball.up != BOARD_NO_PIN && b->ball.down != BOARD_NO_PIN &&
+                  b->ball.left != BOARD_NO_PIN && b->ball.right != BOARD_NO_PIN);
+            CHECK(b->button != BOARD_NO_PIN); /* its press */
+        }
         if (board_has_gnss(b)) {
             add_pin(b, used, &n, b->gnss.rx);
             add_pin(b, used, &n, b->gnss.tx);

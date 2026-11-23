@@ -357,6 +357,7 @@ if(BUILD_TESTING)
         ports/node/colour.c ports/node/fonts.c ports/node/display.c ports/node/qr.c)
     target_include_directories(test_screens PRIVATE ports/node)
     target_link_libraries(test_screens PRIVATE tern m)
+    target_compile_definitions(test_screens PRIVATE TERN_KEYBOARD=1) # test_ui builds without
     target_compile_options(test_screens PRIVATE ${TERN_WARNINGS} -Wno-missing-prototypes)
     add_test(NAME screens COMMAND test_screens)
     target_include_directories(test_unicast PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/vectors)

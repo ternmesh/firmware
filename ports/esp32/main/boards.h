@@ -139,6 +139,20 @@ struct board_def {
         uint16_t mv;
     } gnss;
 
+    /* A keyboard that is a chip of its own on I2C at `address`, or none (address 0): read a byte at
+     * a time, it gives the next key typed, as board_key() does, or 0 if none was. */
+    struct {
+        uint8_t address;
+        int8_t sda, scl;
+    } keyboard;
+
+    /* A trackball that pulses one of four pins, each low while idle or high, at every step it
+     * rolls that way; or none (fitted false). Its press is `button`. */
+    struct {
+        bool fitted;
+        int8_t up, down, left, right;
+    } ball;
+
     int8_t max_dbm; /* the most this board puts into its antenna, as its maker rates it */
 };
 

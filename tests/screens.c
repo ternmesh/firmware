@@ -212,6 +212,49 @@ static void every_page(void) {
     memcpy(n.message.text, short_text, sizeof short_text - 1);
     page(&n, UI_MESSAGES, "message-group");
 
+    /* With a keyboard: the page says typing replies, and while a reply is written, shows it. */
+    n.keyboard = true;
+    page(&n, UI_MESSAGES, "message-keyboard");
+    CHECK(strcmp(sc.hint, "Type: reply  Enter: new") == 0);
+    n.composing = true;
+    n.to_group = true;
+    snprintf(n.to, sizeof n.to, "Ridge walkers");
+    static const char reply[] = "On my way, ten minutes out";
+    n.draft_len = sizeof reply - 1;
+    memcpy(n.draft, reply, sizeof reply - 1);
+    page(&n, UI_MESSAGES, "compose");
+    CHECK(strcmp(sc.text, "On my way, ten minutes out_") == 0);
+    CHECK(strcmp(sc.title_right, "26/128") == 0);
+    CHECK(strcmp(sc.hint, "Enter: send") == 0);
+    n.draft_len = TERN_COMPANION_TEXT_MAX;
+    memset(n.draft, 'w', sizeof n.draft);
+    page(&n, UI_MESSAGES, "compose-full");
+    CHECK(strlen(sc.text) == TERN_COMPANION_TEXT_MAX + 1);
+    n.draft_len = 0;
+    n.to_group = false;
+    snprintf(n.to, sizeof n.to, "Bob");
+    n.draft_error = "no room";
+    page(&n, UI_MESSAGES, "compose-not-sent");
+    CHECK(strcmp(sc.text, "_") == 0);
+    n.composing = false;
+    n.draft_error = NULL;
+    n.picking = true;
+    page(&n, UI_MESSAGES, "pick-none");
+    static const char *const whom[] = {"Alice the climber", "Bob", "Ridge walkers", "Carol"};
+    n.pick_n = 6;
+    n.pick_first = 2;
+    n.pick_rows = UI_PICK_ROWS;
+    n.pick_chosen = 4;
+    for (int i = 0; i < UI_PICK_ROWS; i++) {
+        snprintf(n.pick[i].name, sizeof n.pick[i].name, "%s", whom[i]);
+        n.pick[i].group = i == 2;
+    }
+    page(&n, UI_MESSAGES, "pick");
+    CHECK(strcmp(sc.title_right, "5/6") == 0);
+    CHECK(sc.n == UI_PICK_ROWS && !sc.item[1].selected && sc.item[2].selected);
+    n.picking = false;
+    n.keyboard = false;
+
     n.battery = 8;
     n.wait_ms = 0;
     n.air_used_ms = 1000;

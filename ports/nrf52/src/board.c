@@ -723,6 +723,14 @@ bool board_gnss_read(uint8_t *c) {
 
 bool board_gnss_other_speed(void) { return false; } /* each board's receiver has the one speed */
 
+/* No nRF52 board here has a keyboard or a trackball. */
+bool board_has_keyboard(void) { return false; }
+int board_key(void) { return 0; }
+void board_ball(int *dx, int *dy) {
+    *dx = 0;
+    *dy = 0;
+}
+
 /* --- The console ----------------------------------------------------------------------------- */
 
 /* USB CDC ACM, which the board makes its console: printf() goes there too.
