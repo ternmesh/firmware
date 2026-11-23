@@ -59,6 +59,12 @@ menu "Tern demo"
         help
             The board's screen is a colour panel the node draws its colour pages on.
 
+    config TERN_KEYBOARD
+        bool
+        default y if TERN_BOARD_LILYGO_TDECK
+        help
+            The board has a keyboard and a trackball, on which the node writes messages.
+
     config TERN_EPAPER_REFRESH_S
         int "Seconds between e-paper refreshes, unless something was pressed"
         default 60

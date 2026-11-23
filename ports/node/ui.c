@@ -233,6 +233,7 @@ static void delivery(const struct ui_message *m, struct scene *s) {
     it->icon = ICON_SCHEDULE;
 }
 
+#if TERN_KEYBOARD
 /* The message being written on the keyboard, in its bubble with a cursor at its end, and whom it
  * goes to: Enter sends it, and a press of the button, or Backspace once it is empty, puts it
  * away. */
@@ -277,7 +278,11 @@ static void pick(const struct ui_node *n, struct scene *s) {
     snprintf(s->hint, sizeof s->hint, "Enter: write");
 }
 
+#endif
+
 static void messages(const struct ui_node *n, struct scene *s) {
+    bool keyboard = false;
+#if TERN_KEYBOARD
     if (n->composing) {
         compose(n, s);
         return;
@@ -286,12 +291,14 @@ static void messages(const struct ui_node *n, struct scene *s) {
         pick(n, s);
         return;
     }
+    keyboard = n->keyboard;
+#endif
     main_page(n, s, UI_MESSAGES, ICON_CHAT, "Messages");
     if (n->messages == 0) {
         scene_add(s, SCENE_GAP, TONE_TEXT, NULL)->on = ON_MONO;
         scene_add(s, SCENE_GAP, TONE_TEXT, NULL);
         empty(s, ICON_CHAT, "No messages yet",
-              n->keyboard ? "Press Enter to write one" : "Send one from your phone or computer");
+              keyboard ? "Press Enter to write one" : "Send one from your phone or computer");
         return;
     }
     snprintf(s->title_right, sizeof s->title_right, "%u/%u", (unsigned)n->shown + 1,
@@ -334,7 +341,7 @@ static void messages(const struct ui_node *n, struct scene *s) {
     if (!m->received) {
         delivery(m, s);
     }
-    if (n->keyboard) {
+    if (keyboard) {
         snprintf(s->hint, sizeof s->hint, "Type: reply  Enter: new");
     } else if (n->messages > 1) {
         snprintf(s->hint, sizeof s->hint, "Hold: older");

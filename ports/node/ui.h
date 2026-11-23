@@ -10,6 +10,12 @@
 #include "tern/companion.h"
 #include "tern/group.h"
 
+/* Built for a board with a keyboard (the ESP32 port's Kconfig): a classic ESP32's memory has no
+ * room for writing messages, and its boards have no keyboard to write them on. */
+#ifndef TERN_KEYBOARD
+#define TERN_KEYBOARD 0
+#endif
+
 /* The screen someone carrying the board sees: docs/ui.md, "The node's own screen".
  *
  * Its words are the user's. A node has messages, contacts, nodes nearby and a share of the air; it
@@ -138,6 +144,7 @@ struct ui_node {
     uint8_t shown;
     struct ui_message message;
 
+#if TERN_KEYBOARD
     /* Writing a message, on a board with a keyboard (board.h), which `keyboard` says it has: the
      * Messages page then says typing replies to the message shown. While `composing`, the page is
      * the message being written instead, to `to` (a group, if `to_group`), `draft_len` bytes of
@@ -157,6 +164,7 @@ struct ui_node {
         char name[UI_NAME + 1];
         bool group;
     } pick[UI_PICK_ROWS];
+#endif
 
     /* The groups the node holds: how many, and the one the Groups page shows (`group_shown`,
      * counted from the first held), by the user's name for it. */

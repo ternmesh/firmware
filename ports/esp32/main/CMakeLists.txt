@@ -61,3 +61,8 @@ if(CONFIG_TERN_COLOUR_PANEL)
     target_sources(${COMPONENT_LIB} PRIVATE ${node}/colour.c ${node}/fonts.c)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE TERN_COLOUR=1)
 endif()
+
+# A board with a keyboard writes messages on it (docs/ui.md): only those boards, for the same reason.
+if(CONFIG_TERN_KEYBOARD)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE TERN_KEYBOARD=1)
+endif()

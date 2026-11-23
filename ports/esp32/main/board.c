@@ -470,6 +470,10 @@ static i2c_master_bus_handle_t i2c_bus(int sda, int scl) {
 
 /* --- The keyboard and the trackball ---------------------------------------------------------- */
 
+/* Only in a build for a board with them (Kconfig's TERN_KEYBOARD): a classic ESP32's memory has no
+ * room to spare. */
+#if TERN_KEYBOARD
+
 #define KEY_EVERY_MS 20   /* how often the keyboard is asked for a key: faster than anyone types */
 #define KEY_RETRY_MS 1000 /* and, until it first answers, for itself */
 #define KEY_TRIES 10      /* after which a keyboard that never answered is given up */
@@ -572,6 +576,14 @@ void board_ball(int *dx, int *dy) {
     *dy = got[1] - got[0];
     *dx = got[3] - got[2];
 }
+#else
+bool board_has_keyboard(void) { return false; }
+int board_key(void) { return 0; }
+void board_ball(int *dx, int *dy) {
+    *dx = 0;
+    *dy = 0;
+}
+#endif
 
 static bool pmu_read(void *ctx, uint8_t reg, uint8_t *buf, size_t len) {
     (void)ctx;

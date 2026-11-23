@@ -337,6 +337,7 @@ static tern_time boot_until;       /* until when the boot screen stays up, unles
 static tern_time screen_woken;     /* the last reason to be on: a press, a message, a pairing */
 static void screen_wake(void);
 
+#if TERN_KEYBOARD
 /* A message being written on the board's keyboard, in reply to the conversation the Messages page
  * showed as the first key was typed: to an address, or to a group. */
 static struct {
@@ -353,6 +354,16 @@ static struct {
     bool on;
     uint8_t chosen;
 } picking;
+#endif
+
+/* A message is being written, or whom it goes to chosen: the button then puts it away. */
+static bool writing(void) {
+#if TERN_KEYBOARD
+    return draft.on || picking.on;
+#else
+    return false;
+#endif
+}
 
 /* The companion link: the client's half of the conversation is link.c's; this is the port. */
 static struct link companion;
@@ -4515,6 +4526,7 @@ static unsigned confirm_left(void) {
     return (unsigned)((left + 999999999) / 1000000000);
 }
 
+#if TERN_KEYBOARD
 /* Whom a new message can go to: the contacts that are kept, and then the groups held. */
 static size_t target_count(void) {
     size_t k = 0;
@@ -4554,6 +4566,7 @@ static bool target(size_t k, uint8_t to[TERN_ADDRESS_LEN], char who[UI_NAME + 1]
     return false;
 }
 
+#endif
 /* The node as the user's pages show it (ui.h). */
 static void fill_ui(struct ui_node *u) {
     tern_time now = board_now();
@@ -4661,6 +4674,7 @@ static void fill_ui(struct ui_node *u) {
             memcpy(m->text, x->text, x->text_len);
         }
     }
+#if TERN_KEYBOARD
     u->keyboard = board_has_keyboard();
     u->picking = picking.on;
     if (picking.on) {
@@ -4685,6 +4699,7 @@ static void fill_ui(struct ui_node *u) {
         memcpy(u->draft, draft.text, draft.len);
         u->draft_error = draft.error;
     }
+#endif
     /* The groups, in the order the node holds them, and of them the one the Groups page shows,
      * with its join code only while the user has asked to see it. */
     const struct link_group *shown = NULL;
@@ -5043,7 +5058,7 @@ static void ping(void) {
  * only a second hold while it asks forgets the phones or erases the board. Elsewhere it does
  * nothing. */
 static void screen_hold(void) {
-    if (draft.on || picking.on) {
+    if (writing()) {
         return; /* a message being written: a press puts it away */
     }
     if (screen_page == UI_MORE) {
@@ -5149,9 +5164,11 @@ static void poll_button(void) {
         screen_hold();
     } else if (!pressed && was && !held && now - last > 300 * 1000000LL) {
         last = now;
-        if (draft.on || picking.on) {
+        if (writing()) {
+#if TERN_KEYBOARD
             draft.on = false; /* the message being written, or its choosing, put away */
             picking.on = false;
+#endif
             screen_due = 0;
         } else if (have_screen && screen_page == UI_MORE && menu_choice >= 0) {
             menu_choice = (int8_t)((menu_choice + 1) % UI_MENU); /* the next of More's choices */
@@ -5182,6 +5199,7 @@ static void poll_button(void) {
     was = pressed;
 }
 
+#if TERN_KEYBOARD
 /* Starts a reply to the message the Messages page shows: to its group, or to its address. False if
  * there is none to reply to. */
 static bool draft_start(void) {
@@ -5339,6 +5357,7 @@ static void poll_keys(void) {
     }
 }
 
+#endif
 /* The boot screen, as far as the board knows itself yet. */
 static void show_start(void) {
     if (have_screen) {
@@ -5865,7 +5884,9 @@ void node_main(void) {
         poll_ble();
         crumb_at(cr, CRUMB_BUTTON);
         poll_button();
+#if TERN_KEYBOARD
         poll_keys();
+#endif
         crumb_at(cr, CRUMB_SCREEN);
         poll_screen();
         crumb_at(cr, CRUMB_BATTERY);
