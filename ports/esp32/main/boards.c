@@ -427,7 +427,12 @@ const struct board_def board_lilygo_t3s3 = {
  * Quectel L76K, at 9600 baud, and with a u-blox M10, at 38400, and its factory test tries each;
  * so does the node, from 38400, at which a Plus on the bench talked. A T-Deck without one has a
  * receiver that never speaks, which a client may turn off. LilyGo's test sends at 22 dBm, the
- * chip's most. */
+ * chip's most. The keyboard is an ESP32-C3 of LilyGo's own firmware (examples/Keyboard_ESP32C3),
+ * at 0x55 on the I2C bus on SDA 18 and SCL 8 (utilities.h, BOARD_I2C_SDA and BOARD_I2C_SCL; and
+ * examples/Keyboard_T_Deck_Master): read a byte at a time, it gives the key typed, ASCII, 0x0D for
+ * Enter and 0x08 for Backspace, and 0 for none. The trackball pulses GPIO3 rolled up, GPIO15
+ * down, GPIO1 left and GPIO2 right (utilities.h, BOARD_TBOX_G01 to G04, as LilyGo's factory test
+ * moves its pointer by them), each pulled up. */
 const struct board_def board_lilygo_tdeck = {
     .name = "lilygo-tdeck",
     .title = "LilyGo T-Deck",
@@ -466,6 +471,8 @@ const struct board_def board_lilygo_tdeck = {
              .tx = 43,
              .reset = BOARD_NO_PIN,
              .power = BOARD_NO_PIN},
+    .keyboard = {.address = 0x55, .sda = 18, .scl = 8},
+    .ball = {.fitted = true, .up = 3, .down = 15, .left = 1, .right = 2},
     .max_dbm = SX1262_MAX_DBM,
 };
 

@@ -468,6 +468,111 @@ static i2c_master_bus_handle_t i2c_bus(int sda, int scl) {
     return handle;
 }
 
+/* --- The keyboard and the trackball ---------------------------------------------------------- */
+
+#define KEY_EVERY_MS 20   /* how often the keyboard is asked for a key: faster than anyone types */
+#define KEY_RETRY_MS 1000 /* and, until it first answers, for itself */
+#define KEY_TRIES 10      /* after which a keyboard that never answered is given up */
+#define KEY_I2C_HZ 100000 /* the speed LilyGo's keyboard firmware listens at */
+
+static i2c_master_dev_handle_t keys_dev;
+static bool keys_gone;
+
+/* The keyboard's chip starts with the board's supply, and takes a moment to (LilyGo's example
+ * waits half a second): asked until it answers, then kept. */
+static bool keys_open(int64_t now_us) {
+    static int64_t next_us;
+    static int tries;
+    if (keys_dev != NULL) {
+        return true;
+    }
+    if (keys_gone || B->keyboard.address == 0 || now_us < next_us) {
+        return false;
+    }
+    next_us = now_us + KEY_RETRY_MS * 1000LL;
+    i2c_master_bus_handle_t bus = i2c_bus(B->keyboard.sda, B->keyboard.scl);
+    i2c_device_config_t dev = {.dev_addr_length = I2C_ADDR_BIT_LEN_7,
+                               .device_address = B->keyboard.address,
+                               .scl_speed_hz = KEY_I2C_HZ};
+    if (bus != NULL && i2c_master_probe(bus, B->keyboard.address, I2C_TIMEOUT_MS) == ESP_OK &&
+        i2c_master_bus_add_device(bus, &dev, &keys_dev) == ESP_OK) {
+        return true;
+    }
+    keys_dev = NULL;
+    if (++tries >= KEY_TRIES) {
+        keys_gone = true;
+    }
+    return false;
+}
+
+bool board_has_keyboard(void) { return B->keyboard.address != 0 && !keys_gone; }
+
+int board_key(void) {
+    static int64_t next_us;
+    int64_t now_us = esp_timer_get_time();
+    if (now_us < next_us || !keys_open(now_us)) {
+        return 0;
+    }
+    next_us = now_us + KEY_EVERY_MS * 1000LL;
+    uint8_t c = 0;
+    if (i2c_master_receive(keys_dev, &c, 1, I2C_TIMEOUT_MS) != ESP_OK) {
+        return 0;
+    }
+    /* Its firmware sends ASCII, 0x0D for Enter and 0x08 for Backspace; nothing else is a key. */
+    if (c == BOARD_KEY_ENTER || c == BOARD_KEY_BACK || (c >= 0x20 && c < 0x7F)) {
+        return c;
+    }
+    return 0;
+}
+
+/* Each change of a trackball pin's level, counted as it comes, since a roll is quicker than the
+ * loop. */
+static volatile int ball_count[4];
+
+static void IRAM_ATTR ball_edge(void *arg) { ball_count[(intptr_t)arg]++; }
+
+static bool ball_open(void) {
+    static bool tried, ok;
+    if (tried) {
+        return ok;
+    }
+    tried = true;
+    const int8_t pins[4] = {B->ball.up, B->ball.down, B->ball.left, B->ball.right};
+    gpio_config_t in = {
+        .mode = GPIO_MODE_INPUT, .pull_up_en = GPIO_PULLUP_ENABLE, .intr_type = GPIO_INTR_ANYEDGE};
+    for (int i = 0; i < 4; i++) {
+        in.pin_bit_mask |= bit(pins[i]);
+    }
+    esp_err_t e = gpio_install_isr_service(0);
+    if (gpio_config(&in) != ESP_OK || (e != ESP_OK && e != ESP_ERR_INVALID_STATE)) {
+        return false;
+    }
+    for (int i = 0; i < 4; i++) {
+        if (gpio_isr_handler_add(pins[i], ball_edge, (void *)(intptr_t)i) != ESP_OK) {
+            return false;
+        }
+    }
+    ok = true;
+    return true;
+}
+
+void board_ball(int *dx, int *dy) {
+    *dx = 0;
+    *dy = 0;
+    if (!B->ball.fitted || !ball_open()) {
+        return;
+    }
+    /* A step is a pulse, two edges; only the interrupt writes the counts, so none is lost. */
+    static int seen[4];
+    int got[4];
+    for (int i = 0; i < 4; i++) {
+        got[i] = (ball_count[i] - seen[i]) / 2;
+        seen[i] += got[i] * 2;
+    }
+    *dy = got[1] - got[0];
+    *dx = got[3] - got[2];
+}
+
 static bool pmu_read(void *ctx, uint8_t reg, uint8_t *buf, size_t len) {
     (void)ctx;
     return i2c_master_transmit_receive(pmu_dev, &reg, 1, buf, len, I2C_TIMEOUT_MS) == ESP_OK;

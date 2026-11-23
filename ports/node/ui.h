@@ -84,6 +84,7 @@ struct ui_message {
 
 #define UI_NEARBY_ROWS 7 /* nodes the Nearby page has room for at once, on a monochrome screen */
 #define UI_NEARBY_ROWS_COLOUR 4 /* and on a colour panel, whose lines are taller */
+#define UI_PICK_ROWS 4          /* contacts the list of whom to write to shows at once */
 
 /* A node heard directly: a neighbour, in the router's word. */
 struct ui_neighbour {
@@ -136,6 +137,26 @@ struct ui_node {
     bool from_group; /* and `from` is the group it was written to */
     uint8_t shown;
     struct ui_message message;
+
+    /* Writing a message, on a board with a keyboard (board.h), which `keyboard` says it has: the
+     * Messages page then says typing replies to the message shown. While `composing`, the page is
+     * the message being written instead, to `to` (a group, if `to_group`), `draft_len` bytes of
+     * it, and `draft_error`, unless NULL, why Enter did not send it. */
+    bool keyboard;
+    bool composing, to_group;
+    char to[UI_NAME + 1];
+    uint8_t draft_len;
+    char draft[TERN_COMPANION_TEXT_MAX];
+    const char *draft_error;
+    /* Choosing whom to write to, before a new message: while `picking`, the page lists the
+     * contacts and then the groups, `pick_n` of them, `pick_rows` from the `pick_first`th, with
+     * the `pick_chosen`th marked as the one Enter writes to. */
+    bool picking;
+    uint8_t pick_n, pick_first, pick_rows, pick_chosen;
+    struct {
+        char name[UI_NAME + 1];
+        bool group;
+    } pick[UI_PICK_ROWS];
 
     /* The groups the node holds: how many, and the one the Groups page shows (`group_shown`,
      * counted from the first held), by the user's name for it. */

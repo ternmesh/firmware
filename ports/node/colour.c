@@ -4,6 +4,7 @@
 #include "tern/crypto.h"
 #include "ui.h"
 
+#include <limits.h>
 #include <math.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -273,33 +274,57 @@ static void icon(struct canvas *c, int size, uint8_t which, int x, int y, uint16
     glyph(c, g, size == ICON_LARGE ? icon_large_bits : icon_small_bits, x, y, col);
 }
 
-/* Breaks `text` into lines that fit `w`, between words where it can be and within a word wider
- * than a line, and draws at most `lines` of them, the last cut with an ellipsis if more is left. */
-static void paragraph(struct canvas *c, const struct font *f, int x, int y, int w, int lines,
-                      const char *text, uint16_t col, bool centre) {
-    const char *p = text;
-    for (int l = 0; l < lines && *p != '\0'; l++) {
-        while (*p == ' ' || *p == '\n') {
-            p++;
+/* The bytes of `p`, which starts a line, that the line takes at width `w`: up to the last word
+ * that fits, or as much of a word wider than the line as fits. */
+static size_t line_fit(const struct font *f, int w, const char *p) {
+    size_t take = 0, fit = 0, len = strlen(p);
+    while (take < len) {
+        int cl;
+        (void)next_char(&p[take], &cl);
+        size_t next = take + (size_t)cl;
+        if (width_of(f, p, next) > w) {
+            break;
         }
-        size_t take = 0, fit = 0, len = strlen(p);
-        while (take < len) {
-            int cl;
-            (void)next_char(&p[take], &cl);
-            size_t next = take + (size_t)cl;
-            if (width_of(f, p, next) > w) {
-                break;
-            }
-            take = next;
-            if (take == len || p[take] == ' ' || p[take] == '\n') {
-                fit = take;
-            }
-        }
-        if (take == len) {
+        take = next;
+        if (take == len || p[take] == ' ' || p[take] == '\n') {
             fit = take;
-        } else if (fit == 0) {
-            fit = take; /* one word wider than the line */
         }
+    }
+    return take == len || fit == 0 ? take : fit;
+}
+
+static const char *line_start(const char *p) {
+    while (*p == ' ' || *p == '\n') {
+        p++;
+    }
+    return p;
+}
+
+/* The lines `text` takes at width `w`, up to `most`. */
+static int lines_of(const struct font *f, int w, int most, const char *text) {
+    const char *p = line_start(text);
+    int l = 0;
+    while (*p != '\0' && l < most) {
+        p = line_start(p + line_fit(f, w, p));
+        l++;
+    }
+    return l;
+}
+
+/* Breaks `text` into lines that fit `w`, between words where it can be and within a word wider
+ * than a line, and draws at most `lines` of them: the first, the last cut with an ellipsis if more
+ * is left; or with `tail`, the last, as a message being typed shows where it is typed. */
+static void paragraph(struct canvas *c, const struct font *f, int x, int y, int w, int lines,
+                      const char *text, uint16_t col, bool centre, bool tail) {
+    const char *p = line_start(text);
+    if (tail) {
+        for (int skip = lines_of(f, w, INT_MAX, p) - lines; skip > 0; skip--) {
+            p = line_start(p + line_fit(f, w, p));
+        }
+    }
+    for (int l = 0; l < lines && *p != '\0'; l++) {
+        p = line_start(p);
+        size_t fit = line_fit(f, w, p);
         int base = y + l * TEXT_LINE + f->ascent - 2;
         bool last = l == lines - 1 && p[fit] != '\0';
         char line[SCENE_TEXT_MAX];
@@ -316,36 +341,6 @@ static void paragraph(struct canvas *c, const struct font *f, int x, int y, int 
         }
         p += fit;
     }
-}
-
-/* The lines `text` takes at width `w`, up to `most`. */
-static int lines_of(const struct font *f, int w, int most, const char *text) {
-    const char *p = text;
-    int l = 0;
-    while (*p != '\0' && l < most) {
-        while (*p == ' ' || *p == '\n') {
-            p++;
-        }
-        if (*p == '\0') {
-            break;
-        }
-        size_t take = 0, fit = 0, len = strlen(p);
-        while (take < len) {
-            int cl;
-            (void)next_char(&p[take], &cl);
-            size_t next = take + (size_t)cl;
-            if (width_of(f, p, next) > w) {
-                break;
-            }
-            take = next;
-            if (take == len || p[take] == ' ' || p[take] == '\n') {
-                fit = take;
-            }
-        }
-        p += take == len ? take : fit == 0 ? take : fit;
-        l++;
-    }
-    return l;
 }
 
 /* --- The page's head and foot ----------------------------------------------------------------- */
@@ -695,10 +690,10 @@ void colour_draw(const struct scene *s, struct canvas *c) {
                 uint16_t ground = it->tone == TONE_ACCENT ? DEEP : SURFACE;
                 round_rect(c, x, y, w, h, 10, ground);
                 paragraph(c, &font_body, x + BUBBLE_PAD + 2, y + BUBBLE_PAD, w - 2 * BUBBLE_PAD - 4,
-                          text_lines, s->text, TEXT, false);
+                          text_lines, s->text, TEXT, false, it->tail);
             } else {
                 paragraph(c, &font_body, x, y, w, text_lines, s->text, tone_colour(it->tone),
-                          centre || it->centre);
+                          centre || it->centre, it->tail);
             }
             break;
         case SCENE_TILE: {

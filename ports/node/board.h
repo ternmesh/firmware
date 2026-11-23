@@ -60,6 +60,19 @@ bool board_button(void);
  * screen's lines that name it fit. NULL for a board with no button but RESET. */
 const char *board_button_name(void);
 
+/* A keyboard, which few boards have (the T-Deck's): the next key typed since last asked, as a
+ * printable ASCII character, BOARD_KEY_ENTER or BOARD_KEY_BACK, or 0 if none was, or the board has
+ * no keyboard. board_has_keyboard() says whether it has one that answers. */
+#define BOARD_KEY_ENTER 0x0D
+#define BOARD_KEY_BACK 0x08
+bool board_has_keyboard(void);
+int board_key(void);
+
+/* A trackball, which few boards have: how far it rolled since last asked, in steps, *dx right
+ * (left negative) and *dy down (up negative); 0 and 0 for a board without one. Its press is the
+ * button. */
+void board_ball(int *dx, int *dy);
+
 void board_led(bool on);
 
 /* The screen: a 128x64 OLED, or a colour panel. Powers it, resets it and sets it up blank; false if

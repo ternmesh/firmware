@@ -50,6 +50,7 @@
  * Everything runs in one loop: the core never runs in interrupt context, so the loop polls the
  * radio, the serial port, the button and the screen in turn. */
 
+#include <ctype.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -335,6 +336,23 @@ static struct ui_start start_info; /* what the boot screen says, filled in as th
 static tern_time boot_until;       /* until when the boot screen stays up, unless PRG is pressed */
 static tern_time screen_woken;     /* the last reason to be on: a press, a message, a pairing */
 static void screen_wake(void);
+
+/* A message being written on the board's keyboard, in reply to the conversation the Messages page
+ * showed as the first key was typed: to an address, or to a group. */
+static struct {
+    bool on, group;
+    uint8_t to[TERN_ADDRESS_LEN]; /* the address, or the group's id and zeros */
+    char who[UI_NAME + 1];
+    uint8_t len;
+    char text[TERN_COMPANION_TEXT_MAX];
+    const char *error; /* why Enter did not send it, or NULL */
+} draft;
+/* Choosing whom a new message goes to, before it is written: the chosen one of the contacts and
+ * then the groups. */
+static struct {
+    bool on;
+    uint8_t chosen;
+} picking;
 
 /* The companion link: the client's half of the conversation is link.c's; this is the port. */
 static struct link companion;
@@ -4497,6 +4515,45 @@ static unsigned confirm_left(void) {
     return (unsigned)((left + 999999999) / 1000000000);
 }
 
+/* Whom a new message can go to: the contacts that are kept, and then the groups held. */
+static size_t target_count(void) {
+    size_t k = 0;
+    for (size_t i = 0; i < LINK_CONTACTS; i++) {
+        k += companion.contacts[i].used;
+    }
+    for (size_t i = 0; i < LINK_GROUPS; i++) {
+        k += companion.groups[i].used;
+    }
+    return k;
+}
+
+/* The `k`th of them: its address, or its group's id and zeros, and its name. False past the
+ * last. */
+static bool target(size_t k, uint8_t to[TERN_ADDRESS_LEN], char who[UI_NAME + 1], bool *group) {
+    memset(to, 0, TERN_ADDRESS_LEN);
+    for (size_t i = 0; i < LINK_CONTACTS; i++) {
+        const struct link_contact *c = &companion.contacts[i];
+        if (c->used && k-- == 0) {
+            memcpy(to, c->address, TERN_ADDRESS_LEN);
+            name_of(c->address, who);
+            *group = false;
+            return true;
+        }
+    }
+    for (size_t i = 0; i < LINK_GROUPS; i++) {
+        const struct link_group *g = &companion.groups[i];
+        if (g->used && k-- == 0) {
+            struct link_message like = {.kind = LINK_KIND_GROUP};
+            memcpy(like.group, g->id, sizeof like.group);
+            memcpy(to, g->id, sizeof g->id);
+            with_whom(&like, who);
+            *group = true;
+            return true;
+        }
+    }
+    return false;
+}
+
 /* The node as the user's pages show it (ui.h). */
 static void fill_ui(struct ui_node *u) {
     tern_time now = board_now();
@@ -4603,6 +4660,30 @@ static void fill_ui(struct ui_node *u) {
             m->text_len = x->text_len;
             memcpy(m->text, x->text, x->text_len);
         }
+    }
+    u->keyboard = board_has_keyboard();
+    u->picking = picking.on;
+    if (picking.on) {
+        size_t k = target_count();
+        if (picking.chosen >= k) {
+            picking.chosen = 0;
+        }
+        u->pick_n = (uint8_t)k;
+        u->pick_chosen = picking.chosen;
+        u->pick_first = (uint8_t)(picking.chosen / UI_PICK_ROWS * UI_PICK_ROWS);
+        for (size_t i = u->pick_first; i < k && u->pick_rows < UI_PICK_ROWS; i++) {
+            uint8_t to[TERN_ADDRESS_LEN];
+            (void)target(i, to, u->pick[u->pick_rows].name, &u->pick[u->pick_rows].group);
+            u->pick_rows++;
+        }
+    }
+    u->composing = draft.on;
+    if (draft.on) {
+        u->to_group = draft.group;
+        memcpy(u->to, draft.who, sizeof u->to);
+        u->draft_len = draft.len;
+        memcpy(u->draft, draft.text, draft.len);
+        u->draft_error = draft.error;
     }
     /* The groups, in the order the node holds them, and of them the one the Groups page shows,
      * with its join code only while the user has asked to see it. */
@@ -4962,6 +5043,9 @@ static void ping(void) {
  * only a second hold while it asks forgets the phones or erases the board. Elsewhere it does
  * nothing. */
 static void screen_hold(void) {
+    if (draft.on || picking.on) {
+        return; /* a message being written: a press puts it away */
+    }
     if (screen_page == UI_MORE) {
         /* Closed, it opens; open, it opens the page chosen, or closes again. */
         if (menu_choice < 0) {
@@ -5065,7 +5149,11 @@ static void poll_button(void) {
         screen_hold();
     } else if (!pressed && was && !held && now - last > 300 * 1000000LL) {
         last = now;
-        if (have_screen && screen_page == UI_MORE && menu_choice >= 0) {
+        if (draft.on || picking.on) {
+            draft.on = false; /* the message being written, or its choosing, put away */
+            picking.on = false;
+            screen_due = 0;
+        } else if (have_screen && screen_page == UI_MORE && menu_choice >= 0) {
             menu_choice = (int8_t)((menu_choice + 1) % UI_MENU); /* the next of More's choices */
             screen_due = 0;
         } else if (have_screen) {
@@ -5092,6 +5180,163 @@ static void poll_button(void) {
         }
     }
     was = pressed;
+}
+
+/* Starts a reply to the message the Messages page shows: to its group, or to its address. False if
+ * there is none to reply to. */
+static bool draft_start(void) {
+    uint8_t order[LINK_MESSAGES];
+    size_t n = newest_first(order);
+    if (message_shown >= n) {
+        return false;
+    }
+    const struct link_message *x = &companion.messages[order[message_shown]];
+    memset(&draft, 0, sizeof draft);
+    draft.group = x->kind == LINK_KIND_GROUP;
+    if (draft.group) {
+        memcpy(draft.to, x->group, sizeof x->group);
+    } else {
+        memcpy(draft.to, x->address, TERN_ADDRESS_LEN);
+    }
+    with_whom(x, draft.who);
+    draft.on = true;
+    screen_seen(); /* someone is looking at what they reply to */
+    return true;
+}
+
+/* Hands the draft to the link, as a client's SEND or SEND_GROUP would be, and on to the Messages
+ * page's newest, where it now is; if the link does not take it, it stays, saying why. */
+static void draft_send(void) {
+    struct tern_companion_msg q = {0};
+    if (draft.len == 0) {
+        return;
+    }
+    q.type = draft.group ? TERN_C_SEND_GROUP : TERN_C_SEND;
+    if (draft.group) {
+        memcpy(q.group, draft.to, sizeof q.group);
+    } else {
+        memcpy(q.address, draft.to, TERN_ADDRESS_LEN);
+    }
+    q.ref = plat_random32();
+    q.text_len = draft.len;
+    memcpy(q.text, draft.text, draft.len);
+    if (ask(&q)) {
+        printf("sent from the keyboard to %s: \"%.*s\"\n", draft.who, (int)draft.len, draft.text);
+        memset(&draft, 0, sizeof draft);
+        message_shown = 0;
+        return;
+    }
+    switch (board_answer.code) {
+    case TERN_C_ERR_FULL:
+        draft.error = "no room";
+        break;
+    case TERN_C_ERR_NOT_HELD:
+        draft.error = "group left";
+        break;
+    case TERN_C_ERR_ADDRESS:
+        draft.error = "bad address";
+        break;
+    default:
+        draft.error = "not taken";
+        break;
+    }
+}
+
+/* The keyboard and the trackball, on a board with them. A key or a roll wakes the screen, and does
+ * nothing else if it was dark. On the Messages page, typing starts a reply to the message shown,
+ * and Enter a new message, first choosing whom to: rolling, or a name's first letter, chooses, and
+ * Enter writes. On another page, a key shows the Messages page. While one is written, Enter sends
+ * it, Backspace takes back a character, and once it is empty puts it away, as a press does.
+ * Rolling up and down shows newer and older messages, or More's choices; left and right, the page
+ * before and after, as a press does. */
+static void poll_keys(void) {
+    int dx, dy;
+    board_ball(&dx, &dy);
+    int c = board_key();
+    if ((c == 0 && dx == 0 && dy == 0) || !have_screen) {
+        return;
+    }
+    tern_time now = board_now();
+    bool waking = screen_asleep || now < boot_until;
+    screen_wake();
+    screen_due = 0;
+    if (waking) {
+        boot_until = 0;
+        return;
+    }
+    if (picking.on) {
+        size_t k = target_count();
+        if (c == BOARD_KEY_BACK) {
+            picking.on = false;
+        } else if (c == BOARD_KEY_ENTER && k > 0) {
+            memset(&draft, 0, sizeof draft);
+            if (target(picking.chosen < k ? picking.chosen : 0, draft.to, draft.who,
+                       &draft.group)) {
+                draft.on = true;
+            }
+            picking.on = false;
+        } else if (c != 0 && k > 0) {
+            /* A letter: the next one whose name starts with it. */
+            for (size_t step = 1; step <= k; step++) {
+                size_t i = (picking.chosen + step) % k;
+                uint8_t to[TERN_ADDRESS_LEN];
+                char who[UI_NAME + 1];
+                bool group;
+                if (target(i, to, who, &group) && tolower((unsigned char)who[0]) == tolower(c)) {
+                    picking.chosen = (uint8_t)i;
+                    break;
+                }
+            }
+        } else if (dy != 0 && k > 0) {
+            picking.chosen = (uint8_t)(((int)picking.chosen + dy % (int)k + (int)k) % (int)k);
+        }
+        return;
+    }
+    if (draft.on) {
+        if (c == BOARD_KEY_ENTER) {
+            draft_send();
+        } else if (c == BOARD_KEY_BACK) {
+            if (draft.len == 0) {
+                draft.on = false;
+            } else {
+                draft.len--;
+                draft.error = NULL;
+            }
+        } else if (c != 0 && draft.len < sizeof draft.text) {
+            draft.text[draft.len++] = (char)c;
+            draft.error = NULL;
+        }
+        return;
+    }
+    if (c == BOARD_KEY_ENTER && screen_page == UI_MESSAGES) {
+        picking.on = true;
+        picking.chosen = 0;
+        return;
+    }
+    if (c != 0 && c != BOARD_KEY_BACK && c != BOARD_KEY_ENTER) {
+        if (screen_page != UI_MESSAGES) {
+            screen_page = UI_MESSAGES;
+            menu_choice = -1;
+            message_shown = 0;
+            confirm_page = -1;
+            screen_looked = true;
+        } else if (draft_start()) {
+            draft.text[draft.len++] = (char)c;
+        }
+        return;
+    }
+    if (screen_page == UI_MORE && menu_choice >= 0 && dy != 0) {
+        menu_choice = (int8_t)(((menu_choice + dy) % UI_MENU + UI_MENU) % UI_MENU);
+    } else if (screen_page == UI_MESSAGES && dy != 0) {
+        message_shown = (uint8_t)(dy < 0 && -dy > message_shown ? 0 : message_shown + dy);
+        screen_looked = true;
+    } else if (dx != 0 && screen_page < UI_MAIN && !(screen_page == UI_MORE && menu_choice >= 0)) {
+        screen_page = (screen_page + dx % UI_MAIN + UI_MAIN) % UI_MAIN;
+        message_shown = 0;
+        nearby_first = 0;
+        confirm_page = -1;
+        screen_looked = true;
+    }
 }
 
 /* The boot screen, as far as the board knows itself yet. */
@@ -5620,6 +5865,7 @@ void node_main(void) {
         poll_ble();
         crumb_at(cr, CRUMB_BUTTON);
         poll_button();
+        poll_keys();
         crumb_at(cr, CRUMB_SCREEN);
         poll_screen();
         crumb_at(cr, CRUMB_BATTERY);

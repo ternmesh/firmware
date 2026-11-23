@@ -133,6 +133,16 @@ protocol (`OFF`), and the screen says so. A node turns itself off when its batte
 says so.
 Boards with more buttons or a touch screen get more, but nothing should need them.
 
+A board with a keyboard (the LilyGo T-Deck) writes messages itself, with no phone. On Messages,
+typing starts a reply to the message shown, to its contact or its group, and Enter starts a new
+one: a list of the contacts and then the groups, from which rolling the trackball or typing a
+name's first letter chooses, and Enter writes. The message is shown as it is written, in a bubble
+whose end is in view, and Enter sends it, as a client's `SEND` would, so it is in every client's
+list too; Backspace takes back a character, and on an empty message, or a press of the trackball,
+puts it away. The trackball also moves through the pages, left and right, and through the
+messages or More's menu, up and down. The node keeps no contacts of its own making: they are
+added from a phone or computer, and written to here.
+
 Each page is written once, as a *scene* (`ports/node/scene.h`): a heading, the node's status,
 where the page is among the others, what a hold does, and a column of items, each a kind of thing
 (a figure, a line, a meter, a message's text, a menu's choice) and what it means (new, working,

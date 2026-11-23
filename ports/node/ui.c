@@ -233,12 +233,65 @@ static void delivery(const struct ui_message *m, struct scene *s) {
     it->icon = ICON_SCHEDULE;
 }
 
+/* The message being written on the keyboard, in its bubble with a cursor at its end, and whom it
+ * goes to: Enter sends it, and a press of the button, or Backspace once it is empty, puts it
+ * away. */
+static void compose(const struct ui_node *n, struct scene *s) {
+    main_page(n, s, UI_MESSAGES, ICON_CHAT, "Messages");
+    snprintf(s->title_right, sizeof s->title_right, "%u/%u", (unsigned)n->draft_len,
+             (unsigned)TERN_COMPANION_TEXT_MAX);
+    char who[UI_NAME + 1];
+    name(who, n->to);
+    struct scene_item *it = scene_add(s, SCENE_LINE, TONE_TEXT, "To %s", who);
+    it->icon = n->to_group ? ICON_GROUP : ICON_SEND;
+    size_t len = n->draft_len < sizeof n->draft ? n->draft_len : sizeof n->draft;
+    snprintf(s->text, sizeof s->text, "%.*s_", (int)len, n->draft);
+    it = scene_add(s, SCENE_TEXT, TONE_ACCENT, NULL);
+    it->bubble = true;
+    it->tail = true; /* where the next key goes */
+    if (n->draft_error != NULL) {
+        it = scene_add(s, SCENE_LINE, TONE_BAD, "Not sent: %s", n->draft_error);
+        it->icon = ICON_ERROR;
+    }
+    snprintf(s->hint, sizeof s->hint, "Enter: send");
+}
+
+/* Whom a new message goes to: the contacts and the groups, one of them chosen. */
+static void pick(const struct ui_node *n, struct scene *s) {
+    main_page(n, s, UI_MESSAGES, ICON_SEND, "Write to");
+    if (n->pick_n == 0) {
+        scene_add(s, SCENE_GAP, TONE_TEXT, NULL);
+        empty(s, ICON_PEOPLE, "No contacts yet",
+              "Add them from your phone, and write to them here");
+        return;
+    }
+    snprintf(s->title_right, sizeof s->title_right, "%u/%u", (unsigned)n->pick_chosen + 1,
+             (unsigned)n->pick_n);
+    for (int i = 0; i < n->pick_rows && i < UI_PICK_ROWS; i++) {
+        char who[UI_NAME + 1];
+        name(who, n->pick[i].name);
+        struct scene_item *it = scene_add(s, SCENE_LINE, TONE_TEXT, "%s", who);
+        it->icon = n->pick[i].group ? ICON_GROUP : ICON_CHAT;
+        it->selected = n->pick_first + i == n->pick_chosen;
+    }
+    snprintf(s->hint, sizeof s->hint, "Enter: write");
+}
+
 static void messages(const struct ui_node *n, struct scene *s) {
+    if (n->composing) {
+        compose(n, s);
+        return;
+    }
+    if (n->picking) {
+        pick(n, s);
+        return;
+    }
     main_page(n, s, UI_MESSAGES, ICON_CHAT, "Messages");
     if (n->messages == 0) {
         scene_add(s, SCENE_GAP, TONE_TEXT, NULL)->on = ON_MONO;
         scene_add(s, SCENE_GAP, TONE_TEXT, NULL);
-        empty(s, ICON_CHAT, "No messages yet", "Send one from your phone or computer");
+        empty(s, ICON_CHAT, "No messages yet",
+              n->keyboard ? "Press Enter to write one" : "Send one from your phone or computer");
         return;
     }
     snprintf(s->title_right, sizeof s->title_right, "%u/%u", (unsigned)n->shown + 1,
@@ -281,7 +334,9 @@ static void messages(const struct ui_node *n, struct scene *s) {
     if (!m->received) {
         delivery(m, s);
     }
-    if (n->messages > 1) {
+    if (n->keyboard) {
+        snprintf(s->hint, sizeof s->hint, "Type: reply  Enter: new");
+    } else if (n->messages > 1) {
         snprintf(s->hint, sizeof s->hint, "Hold: older");
     }
 }
