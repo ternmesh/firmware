@@ -49,6 +49,12 @@
 #define TERN_ROUTE_INF 0xFFFFu          /* a metric that retracts a route */
 #define TERN_ROUTE_METRIC_MAX 0x7FFEu   /* the most a route's metric may be */
 #define TERN_ROUTE_LEAF 0x8000u         /* in a listed route's metric: its destination is a leaf */
+/* An experiment, not the specification's (its analysis/metadata-privacy.md, "Requirements before
+ * rotation is turned on"): a listed route's metric that retracts it for good, because its
+ * destination has taken a new routing id. The one encoding no route uses and a retraction does
+ * not either, so a router without the experiment reads it as a retraction (tern_route_listed()
+ * is false for it). */
+#define TERN_ROUTE_RETIRED 0x7FFFu
 #define TERN_ROUTE_FRAME_MAX 255
 #define TERN_ROUTE_KEPT 4 /* routes kept for each destination */
 
@@ -328,6 +334,18 @@ struct tern_route_config {
      * and keeps any leaf that names it. */
     uint16_t sleep_wake;
     uint8_t sleep_listen_s;
+    /* Retired destinations (an experiment, not the specification's; see TERN_ROUTE_RETIRED and
+     * tern_route_retire()). Off, a retired listing is a retraction, as without the experiment. On,
+     * a router frees a retired destination's place at once, rather than when its retraction and
+     * any requests for it have run their course, passes the retirement on RETRACTS times if it had
+     * announced a route to it, and takes no route to it for retire_for after, so that a neighbour
+     * not yet told cannot bring it back. Needs tern_route_retired_table(). */
+    bool retire;
+    tern_time retire_for;
+    uint8_t retire_repeats; /* times each retirement goes; 0 for RETRACTS */
+    /* After tern_route_epoch(), how long until every neighbour last heard before it is forgotten:
+     * every id has changed, so none of them will be heard again. 0 for never. */
+    tern_time epoch_grace;
 };
 
 /* The specification's parameters. */
@@ -458,6 +476,7 @@ struct tern_route_dest {
     bool leaf : 1;       /* it is known to be a leaf */
     bool held : 1;       /* a route to a leaf lost, not yet retracted while it is asked for */
     bool pending : 1;    /* asked about again, its request not yet gone */
+    bool old : 1;        /* made before the last tern_route_epoch(): gives way to a new one */
 };
 
 struct tern_route_bucket {
@@ -549,6 +568,13 @@ struct tern_route_counts {
     uint32_t named;                           /* neighbours they named */
     uint32_t addressed;                       /* of them, carrying the key */
     uint32_t requests;                        /* request frames built */
+};
+
+struct tern_route_retired {
+    uint32_t id;
+    uint16_t seq;
+    uint8_t left;
+    tern_time until;
 };
 
 struct tern_route {
@@ -705,6 +731,17 @@ struct tern_route {
     tern_time promised; /* in its last announce */
     uint64_t rng;
     tern_time now; /* as the call in progress was told */
+
+    /* Retired destinations (config.retire): each one's id (0 for a free place), the seq it was
+     * last announced at, the times its retirement is still to go, and until when no route to it is
+     * taken. A place is free again once both are done. */
+    struct tern_route_retired *retired;
+    size_t retired_cap;
+    uint32_t retiring;         /* those with times still to go */
+    uint32_t old_count;        /* places marked old by tern_route_epoch() and not yet given up */
+    tern_time epoch_at;        /* the last tern_route_epoch() */
+    tern_time epoch_forget_at; /* when neighbours heard only before it go, or -1 */
+    size_t retired_cursor;
 };
 
 /* Starts a router for the node with routing id `id`, at `now`. `seq` is the sequence number it
@@ -883,6 +920,24 @@ void tern_route_worse_floor(struct tern_route *r, tern_time now, uint32_t neighb
 /* A frame sent to a neighbour was given up on: the next goes louder, and after dead_hops of them
  * with nothing heard from it between, it is forgotten, and every route through it. */
 void tern_route_lost(struct tern_route *r, tern_time now, uint32_t neighbour);
+
+/* Retired destinations (an experiment; config.retire). tern_route_retired_table() gives the router
+ * a table for the retirements it keeps, which must outlive it; without one, or with it full, a
+ * retirement is taken as a retraction. tern_route_retire() says `id` has retired its routing id,
+ * as its own signed announce saying so would: the router forgets it as a neighbour, frees its
+ * place, and passes the retirement on. A listing of TERN_ROUTE_RETIRED in a relay's announce does
+ * the same, but for forgetting the relay. Without config.retire both do nothing beyond what a
+ * retraction does. */
+void tern_route_retired_table(struct tern_route *r, struct tern_route_retired *table, size_t cap);
+void tern_route_retire(struct tern_route *r, tern_time now, uint32_t id);
+
+/* Every routing id in the network has just changed, at an epoch's start (an experiment; see
+ * TERN_ROUTE_RETIRED). Nothing is sent: every place the router holds is marked as made before it,
+ * and with the table full a new destination takes one of those, the least worth keeping first,
+ * rather than finding none. Without config.retire it does nothing. */
+/* And with config.epoch_grace, epoch_grace on it forgets every neighbour last heard before it, and
+ * every route through one: they too have new ids. */
+void tern_route_epoch(struct tern_route *r, tern_time now);
 
 /* A neighbour was heard passing on a frame sent to it, which it sent at `power` dBm and was heard
  * at `snr_q`: it is there, and how well it is heard is known as from an announce. */
