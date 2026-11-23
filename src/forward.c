@@ -430,6 +430,22 @@ bool tern_forward_send(struct tern_forward *f, tern_time now, uint32_t destinati
     } else {
         routed = tern_route_next(f->route, destination, &next, &metric);
     }
+    if (back != INT8_MIN && !f->relayed &&
+        (frame[0] == TERN_HDR_ACK || tern_forward_contact(frame[0])) &&
+        (!routed || next == destination)) {
+        /* An answer to a frame that came direct from the node it answers, with no route: straight
+         * back to it, once, as a last hop goes; and a route is asked for as well (Frames that
+         * follow routes, "An answer with no route"). */
+        uint32_t other;
+        uint16_t m;
+        if (!tern_route_next(f->route, destination, &other, &m)) {
+            tern_route_want(f->route, now, destination);
+        }
+        if (!routed) {
+            next = destination;
+            routed = true;
+        }
+    }
     if (!routed) {
         tern_route_want(f->route, now, destination);
         /* A message of its own with no route it may select goes by one it holds, feasible or

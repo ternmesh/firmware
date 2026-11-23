@@ -324,7 +324,9 @@ bool tern_forward_may_sleep(const struct tern_forward *f, tern_time now, tern_ti
  * tern_forward_heard() last took for this node, goes by tern_route_back(): if that message was
  * passed on by a relay, not direct to the node its source routed round, and with no route, by a
  * relay's route all the same. If it came direct from its source, it is a worse sample of the
- * source (tern_route_worse()): the caller acknowledges only a message it accepts, or a copy.
+ * source (tern_route_worse()): the caller acknowledges only a message it accepts, or a copy. An
+ * acknowledgement or first-contact answer to a frame that came direct, with no route, goes straight
+ * back to the node it answers, and a route is asked for.
  *
  * Returns false if there is no slot for it, or it is not tracked and there is no route. A tracked
  * frame with no route is kept while the router asks for one. */

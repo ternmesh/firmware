@@ -129,6 +129,8 @@ def main():
     L.append("};")
 
     def routes(rs):
+        if not rs:
+            return "{0}"  # none: C before C23 takes no empty initializer
         return ", ".join(
             f"{{{r['next']}u, {b(r['relay'])}, {b(r['usable'])}, {b(r['feasible'])}, {r['metric']}, "
             f"{b(r.get('lost', False))}}}"
