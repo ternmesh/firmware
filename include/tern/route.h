@@ -854,7 +854,8 @@ bool tern_route_other(const struct tern_route *r, uint32_t destination, const ui
  * itself and the message was passed on by a relay (`relayed`: it came with fewer hops than
  * HOP_MAX), or there is none, as tern_route_retry() would avoiding the source. The source routed
  * round its link to this node, which may be up here only because it has not been heard since it
- * went. Only the first hop is chosen so. False if the acknowledgement has nowhere to go. */
+ * went. With no route at all, to a message that came direct, the source itself: it was in reach
+ * just now. Only the first hop is chosen so. False if the acknowledgement has nowhere to go. */
 bool tern_route_back(const struct tern_route *r, uint32_t source, bool relayed, uint32_t *next,
                      uint16_t *metric);
 

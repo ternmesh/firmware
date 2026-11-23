@@ -325,14 +325,6 @@ static void heads_are_written_and_read(void) {
         struct tern_forward_head h;
         tern_forward_head_write(&c->head, frame);
         CHECK(memcmp(frame, c->frame, sizeof frame) == 0);
-        /* forwarding.json still has message_3 and message_4 at their lengths before names in
-         * first contact (ternmesh/spec#79 leaves draft/forwarding.md and its vectors as they
-         * were): a frame of those lengths is now refused, and its head is checked as written. */
-        if (tern_forward_contact(c->head.hdr) && c->len != TERN_CONTACT_LEN(c->head.hdr)) {
-            CHECK(c->len == (c->head.hdr == 0x53 ? 80u : 24u));
-            CHECK(!tern_forward_head_read(&h, c->frame, c->len));
-            continue;
-        }
         CHECK(tern_forward_head_read(&h, c->frame, c->len));
         CHECK(h.hdr == c->head.hdr && h.hops == c->head.hops && h.power == c->head.power &&
               h.next == c->head.next && h.destination == c->head.destination);
@@ -496,6 +488,41 @@ static void first_contact_unanswered_is_tried_again_and_no_hop_is_given_up(void)
     CHECK_EQ_I64(net.node[0].f.counts.sent_again, 0);
     CHECK_EQ_I64(net.node[0].f.counts.given_up, 0);
     CHECK_EQ_I64(in_hand(0), 0);
+}
+
+/* The bench's: a node that has no route to the one that began first contact, as a relay that has
+ * heard no announce from a leaf just started, answers a message_1 that came direct straight back
+ * to it, and asks for a route; one a relay passed on it does not answer, with no route. */
+static void first_contact_with_no_route_back_is_answered_direct(void) {
+    uint8_t frame[TERN_CONTACT_LEN(TERN_HDR_CONTACT_1)] = {0};
+    net_init(2, NULL);
+    link(0, 1);
+    tern_forward_head_write(
+        &(struct tern_forward_head){TERN_HDR_CONTACT_1, 32, FULL, id_of(1), id_of(1)}, frame);
+    memset(frame + TERN_FORWARD_HEAD, 0x61, TERN_FORWARD_TAG);
+    frame[TERN_FORWARD_HEAD + TERN_FORWARD_TAG] = 0; /* from node 0 */
+    uint32_t next;
+    uint16_t metric;
+    CHECK(!tern_route_next(&net.node[1].r, id_of(0), &next, &metric)); /* no route back */
+    on_air(0, frame, sizeof frame, FULL); /* node 1 answers with message_2, in contact() */
+    CHECK_EQ_I64(net.node[1].contacts, 1);
+    CHECK_EQ_I64(in_hand(1), 1);
+    run(net.now + TERN_S(3));
+    /* The whole handshake, neither end holding a route: message_3 answers a message_2 that came
+     * direct too. */
+    CHECK_EQ_I64(net.node[0].contacts, 2); /* message_2 and message_4 */
+    CHECK_EQ_I64(net.node[1].contacts, 2); /* message_1 and message_3 */
+
+    /* The same, passed on by a relay: with no route, no answer. */
+    net_init(2, NULL);
+    link(0, 1);
+    tern_forward_head_write(
+        &(struct tern_forward_head){TERN_HDR_CONTACT_1, 31, FULL, id_of(1), id_of(1)}, frame);
+    net.node[1].silent = true; /* answered here, not by the harness */
+    on_air(0, frame, sizeof frame, FULL);
+    uint8_t answer[TERN_CONTACT_LEN(TERN_HDR_CONTACT_1 + 1)] = {TERN_HDR_CONTACT_1 + 1};
+    memset(answer + TERN_FORWARD_HEAD, 0x61, TERN_FORWARD_TAG);
+    CHECK(!tern_forward_send(&net.node[1].f, net.now, id_of(0), answer, sizeof answer, false, 10));
 }
 
 /* A relay that hears nothing of a first-contact frame it passed on sends it again, as it does a
@@ -1187,6 +1214,7 @@ int main(void) {
     RUN(a_message_goes_along_the_line_and_is_acknowledged);
     RUN(first_contact_goes_along_the_line_and_back);
     RUN(first_contact_unanswered_is_tried_again_and_no_hop_is_given_up);
+    RUN(first_contact_with_no_route_back_is_answered_direct);
     RUN(first_contact_lost_on_the_way_is_sent_again);
     RUN(a_leaf_passes_nothing_on);
     RUN(a_hop_unheard_is_sent_again_louder_and_then_given_up);

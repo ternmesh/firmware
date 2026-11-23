@@ -39,7 +39,9 @@ turns it into a header for `tests/route.c`.
 [ternmesh/spec#15](https://github.com/ternmesh/spec/pull/15), which adds when a radio is
 receiving, with its `acknowledged`, `retried` and `attributed` cases as of
 [ternmesh/spec#81](https://github.com/ternmesh/spec/pull/81): which way an acknowledgement and a
-source's next try go, and whose frames give a worse sample.
+source's next try go, and whose frames give a worse sample; and as of
+[ternmesh/spec#82](https://github.com/ternmesh/spec/pull/82), an answer with no route to a node
+that sent direct, and first-contact frames at their lengths since names.
 `forwarding_to_c.py` turns it
 into a header for `tests/forward.c`, and its listens alone into one for `tests/listen.c`.
 

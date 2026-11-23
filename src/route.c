@@ -2676,7 +2676,17 @@ bool tern_route_back(const struct tern_route *r, uint32_t source, bool relayed, 
     if (routed && keeps_slot(r, slot_of(r, source))) {
         return true; /* a sleeping leaf this relay keeps: as Leaves that sleep says */
     }
-    return around(r, source, source, next, metric) || tern_route_next(r, source, next, metric);
+    if (around(r, source, source, next, metric) || tern_route_next(r, source, next, metric)) {
+        return true;
+    }
+    if (!relayed) {
+        /* An answer with no route, to a message that came direct: straight back (Frames that
+         * follow routes, "An answer with no route"). */
+        *next = source;
+        *metric = r->cost;
+        return true;
+    }
+    return false;
 }
 
 bool tern_route_retry(const struct tern_route *r, uint32_t destination, uint32_t avoid,
